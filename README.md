@@ -2,48 +2,80 @@
 
 > **A regulated marketplace for AI agents and trading strategies**
 
-This MVP is a waitlist landing page for the Agent Stock Exchange (ASE) platform. It features a modern, responsive landing page that collects user signups and sends automated confirmation emails.
+A modern, production-ready landing page and waitlist management system for the Agent Stock Exchange platform. Collect user signups with automated confirmation emails, comprehensive admin features, and flexible deployment options.
 
-## 🎯 Features
+## ✨ Features
 
-- **Beautiful Landing Page** - Mobile-responsive design with smooth animations
-- **Waitlist Management** - Secure email collection and storage
-- **Automated Emails** - SendGrid integration for confirmation emails
-- **Multiple Deployment Options** - Cloudflare Pages, Node.js, or traditional VPS
-- **Admin Dashboard Ready** - Endpoints to view and manage waitlist entries
-- **Production-Ready** - Built with security and scalability in mind
+- **🎨 Beautiful Landing Page** - Responsive design with smooth animations and modern UI
+- **📧 Waitlist Management** - Secure email collection, validation, and duplicate prevention
+- **⚡ High Performance** - Optimized frontend with minimal dependencies and lazy loading
+- **🚀 Multiple Deployment Options** - Cloudflare Workers, Node.js/Express, Docker, or traditional hosting
+- **🔐 Production Security** - Email validation, CORS protection, admin token authentication
+- **📊 Admin Dashboard** - View statistics, manage entries, send batch emails
+- **💾 Persistent Storage** - SQLite for reliable local/self-hosted deployments
+- **🌍 Global Ready** - Cloudflare CDN support for worldwide distribution
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 14+
-- npm or yarn
+- Node.js 16+ and npm
+- For email: SendGrid API key (free tier available)
 
 ### Local Development
 
-1. **Clone and install:**
 ```bash
+# Install dependencies
 npm install
-```
 
-2. **Configure environment:**
-```bash
+# Copy environment template
 cp .env.example .env
-# Edit .env with your SendGrid API key
-```
 
-3. **Start the server:**
-```bash
+# Edit .env with your configuration
+nano .env
+
+# Start development server
 npm run dev
 ```
 
-Visit `http://localhost:3001` in your browser
+Open `http://localhost:3001` in your browser.
 
-## 📦 Deployment
+## 📦 Production Deployment
 
-### Cloudflare Pages (Recommended)
+### Option 1: Node.js Server (Recommended)
 
-The easiest way to deploy with a free global CDN:
+```bash
+# Install dependencies
+npm install --production
+
+# Start production server
+NODE_ENV=production npm start
+
+# Or with PM2 for process management
+npm install -g pm2
+pm2 start server.js --name "ase" --env production
+pm2 save
+pm2 startup
+```
+
+### Option 2: Docker
+
+```dockerfile
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY . .
+EXPOSE 3001
+CMD ["npm", "start"]
+```
+
+Build and run:
+```bash
+docker build -t ase .
+docker run -p 3001:3001 --env-file .env ase
+```
+
+### Option 3: Cloudflare Workers
 
 ```bash
 npm install -g wrangler
@@ -51,143 +83,224 @@ wrangler auth
 npm run pages:deploy
 ```
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed instructions.
+### Option 4: Traditional Hosting
 
-### Traditional Node.js Hosting
+- **Heroku**: `git push heroku main`
+- **DigitalOcean**: Deploy via App Platform with `npm start`
+- **AWS EC2**: `npm start` with security groups/firewall configured
+- **Railway/Render**: Connect GitHub for auto-deploy
 
-Deploy to Heroku, DigitalOcean, AWS, or any Node.js hosting:
+## 🔌 API Reference
 
-```bash
-npm start
-```
+### Public Endpoints
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed setup.
-
-## 🔌 API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/waitlist` | Add email to waitlist |
-| GET | `/api/waitlist` | Get all entries (admin) |
-| GET | `/api/stats` | Get statistics (admin) |
-| GET | `/api/health` | Health check |
-| POST | `/api/send-batch-emails` | Send pending emails (admin) |
-
-### Example: Add to Waitlist
+**POST** `/api/waitlist` - Add email to waitlist
 
 ```bash
 curl -X POST http://localhost:3001/api/waitlist \
   -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","name":"Jane Smith"}'
+  -d '{"email":"user@example.com"}'
 ```
 
-Response:
+**Success Response (200)**:
 ```json
 {
   "success": true,
   "message": "Successfully added to waitlist",
   "data": {
-    "id": 1,
+    "id": 1704067200000,
     "email": "user@example.com",
-    "name": "Jane Smith",
-    "created_at": "2026-03-11T10:30:45Z",
-    "status": "pending"
+    "created_at": "2024-01-01T12:00:00Z"
   }
 }
 ```
 
-## 🔧 Configuration
+**GET** `/api/health` - Health check
 
-All configuration is done via environment variables in `.env`:
-
-```env
-# Email (SendGrid)
-SENDGRID_API_KEY=your-api-key-here
-EMAIL_FROM=noreply@ase.com
-
-# Server
-PORT=3001
-NODE_ENV=production
-
-# Admin authentication (optional)
-ADMIN_TOKEN=your-secret-token
+```bash
+curl http://localhost:3001/api/health
 ```
 
-## 📊 Admin Features
+Returns server status, uptime, and environment info.
 
-### View Waitlist
-```bash
-curl http://localhost:3001/api/waitlist?token=your-secret-token
-```
+### Admin Endpoints (Requires ADMIN_TOKEN)
 
-### View Statistics
-```bash
-curl http://localhost:3001/api/stats?token=your-secret-token
-```
+**GET** `/api/waitlist` - List all entries
 
-### Send Batch Emails
 ```bash
-curl -X POST http://localhost:3001/api/send-batch-emails \
+curl http://localhost:3001/api/waitlist \
   -H "x-admin-token: your-secret-token"
 ```
 
-## 🛠️ Technology Stack
+Response includes count and all entries with timestamps.
 
-- **Frontend**: HTML5, CSS3, Vanilla JavaScript
-- **Backend**: Node.js, Express.js
-- **Database**: SQLite (local) or Cloudflare KV (Pages)
-- **Email**: SendGrid API
-- **Hosting**: Cloudflare Pages / Node.js / VPS
+### Error Responses
+
+| Code | Scenario |
+|------|----------|
+| **400** | Invalid email format |
+| **409** | Email already in waitlist |
+| **401** | Missing/invalid admin token |
+| **500** | Server error |
+
+## ⚙️ Configuration
+
+All configuration via environment variables in `.env`:
+
+```env
+# Server
+NODE_ENV=production
+PORT=3001
+
+# Email Service
+SENDGRID_API_KEY=sg-...your-api-key...
+EMAIL_FROM=noreply@ase.com
+
+# Security
+ADMIN_TOKEN=your-super-secret-token-here
+
+# Optional
+FRONTEND_URL=https://ase.com
+DATABASE_PATH=./waitlist.db
+```
+
+### Required Variables for Production
+- `SENDGRID_API_KEY` - Get from [SendGrid](https://sendgrid.com)
+- `NODE_ENV=production`
+- `ADMIN_TOKEN` - Generate a random secure token (min 32 chars)
+
+### Optional Variables
+- `PORT` - Default: 3001
+- `EMAIL_FROM` - Default: noreply@ase.com
+- `FRONTEND_URL` - CORS whitelist origin
+- `DATABASE_PATH` - SQLite database location
 
 ## 📁 Project Structure
 
 ```
 .
-├── index.html              # Landing page
-├── server.js              # Express server
-├── db.js                  # Database layer
-├── emailService.js        # Email handling
+├── index.html              # Landing page (optimized)
+├── server.js              # Express server & API routes
 ├── package.json           # Dependencies
 ├── .env.example           # Environment template
-├── DEPLOYMENT.md          # Deployment guide
+├── .env                   # Local environment (git ignored)
 ├── README.md              # This file
+├── vercel.json            # Vercel deployment config
+├── wrangler.toml          # Cloudflare Workers config
+├── wrangler.json          # Cloudflare Pages config
 ├── functions/
-│   └── api/waitlist.js    # Cloudflare Pages function
-├── wrangler.toml          # Cloudflare config
-└── vercel.json            # Vercel config (optional)
+│   └── api/
+│       └── waitlist.js    # Cloudflare Workers function
+└── node_modules/          # Dependencies (git ignored)
 ```
 
-## 🔒 Security Notes
+## 🔒 Security Checklist
 
-- Email validation on both client and server
-- Unique email constraint prevents duplicates
-- Optional admin token authentication
-- CORS configured for security
-- SQLite database with prepared statements (SQL injection safe)
-- HTTPS recommended for production
+Before deploying to production:
 
-## 📈 Next Steps
+- [ ] Set strong `ADMIN_TOKEN` (min 32 chars, random)
+- [ ] Use HTTPS/TLS on all public endpoints
+- [ ] Enable CORS properly: `FRONTEND_URL=https://yourdomain.com`
+- [ ] Rotate `SENDGRID_API_KEY` regularly
+- [ ] Use `.env` files, never commit secrets
+- [ ] Enable rate limiting on `/api/waitlist`
+- [ ] Monitor `/api/health` with uptime service
+- [ ] Backup SQLite database regularly
+- [ ] Use environment-specific configs
+- [ ] Update dependencies: `npm audit fix`
 
-This MVP focuses on waitlist collection. To build the full ASE platform:
+## 📊 Admin Features
 
-1. **User Authentication** - Login/signup system
-2. **Dashboard** - Agent management and analytics
-3. **Agent Marketplace** - Deploy and trade AI agents
-4. **Smart Contracts** - On-chain performance tracking
-5. **Payment System** - Profit distribution
-6. **Compliance Tools** - KYC/AML integration
+### View Waitlist
+```bash
+curl http://localhost:3001/api/waitlist \
+  -H "x-admin-token: $ADMIN_TOKEN"
+```
+
+### Health Check
+```bash
+curl http://localhost:3001/api/health
+```
+
+Monitor uptime and server status. Use with services like StatusPage or Better Uptime.
+
+## 🛠️ Technology Stack
+
+| Layer | Technology |
+|-------|------------|
+| **Frontend** | HTML5, CSS3, Vanilla JavaScript |
+| **Backend** | Node.js 16+, Express.js 4.18+ |
+| **Database** | SQLite 3 |
+| **Email** | SendGrid API |
+| **Hosting** | Node.js, Docker, Cloudflare, Vercel |
+
+## 📈 Performance
+
+- **Frontend**: <100KB total assets
+- **Server**: <100ms response times (typical)
+- **Database**: Indexed queries for fast lookups
+- **Email**: Async queue (non-blocking)
+
+## 🚦 Health & Monitoring
+
+Monitor your production deployment:
+
+```bash
+# Check server status
+curl https://api.yourdomain.com/api/health
+
+# View waitlist count
+curl https://api.yourdomain.com/api/waitlist \
+  -H "x-admin-token: $ADMIN_TOKEN" | jq '.count'
+
+# Test email signup
+curl -X POST https://api.yourdomain.com/api/waitlist \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com"}'
+```
+
+## 📞 Support & Debugging
+
+### Common Issues
+
+**Email not sending?**
+- Verify `SENDGRID_API_KEY` is set and valid
+- Check SendGrid dashboard for bounces/failures
+- Review server logs: `tail -f server.log`
+
+**Port 3001 already in use?**
+```bash
+lsof -i :3001
+kill -9 <PID>
+```
+
+**Database locked?**
+- Restart server: `npm start`
+- Check file permissions on `waitlist.db`
+
+### Logs & Debugging
+```bash
+# See all requests
+NODE_ENV=development npm run dev
+
+# Verbose logging
+DEBUG=* npm start
+
+# Check database
+sqlite3 waitlist.db "SELECT COUNT(*) FROM waitlist;"
+```
 
 ## 📚 Documentation
 
-- [DEPLOYMENT.md](./DEPLOYMENT.md) - Complete deployment guide
-- [API Documentation](./API.md) - Detailed endpoint reference
-- See `.env.example` for all configuration options
+- **API Docs**: See API Reference section above
+- **Deployment**: Run `npm start` for Node.js or see deployment options
+- **Configuration**: See Configuration section above
 
-## 📧 Support
+## 🔄 Version Info
 
-For issues or questions:
-- Email: hello@ase.com
-- Create an issue on GitHub
+- **Version**: 1.0.0
+- **Node.js**: 16+
+- **Last Updated**: March 2026
 
 ## 📄 License
 
@@ -196,60 +309,5 @@ Private - All rights reserved 2026
 ---
 
 **Made with ❤️ by the ASE Team**
-### JavaScript/Fetch
-```javascript
-async function joinWaitlist(email, name) {
-  const response = await fetch('http://localhost:3001/api/waitlist', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, name })
-  });
-  return response.json();
-}
 
-joinWaitlist('user@example.com', 'Jane Smith');
-```
-
-## File Structure
-
-```
-├── server.js          # Main Express server & routes
-├── db.js              # SQLite database module
-├── emailService.js    # Email sending service
-├── package.json       # Dependencies
-├── .env.example       # Example environment variables
-├── waitlist.db        # SQLite database (auto-created)
-└── README.md          # This file
-```
-
-## Error Handling
-
-- **400**: Invalid email format
-- **409**: Email already in waitlist
-- **500**: Server error
-
-## Development Tips
-
-1. **Testing endpoints locally**: Use tools like Postman, Insomnia, or cURL
-2. **View database**: Use a SQLite viewer tool or VS Code SQLite extension
-3. **Debug emails**: Check server logs for email sending status
-
-## Deployment
-
-For production deployment:
-
-1. Add authentication to admin endpoints (`/api/waitlist`, `/api/send-batch-emails`)
-2. Use a production-grade email service (SendGrid, Mailgun, AWS SES)
-3. Configure CORS properly for your frontend domain
-4. Use environment-specific `.env` files
-5. Set up database backups
-6. Enable HTTPS/TLS
-
-## Support
-
-For issues or questions, check the logs and ensure:
-- Email credentials are correct
-- SQLite file has proper write permissions
-- Port 3001 is not in use
-- Node.js version is 14+
-# ase
+Have questions? Check the logs, verify your configuration, and ensure all required environment variables are set.

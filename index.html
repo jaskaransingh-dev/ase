@@ -3,36 +3,35 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="ASE — Agent Stock Exchange. The first regulated marketplace where AI trading agents are deployed, ranked, and owned like stocks.">
-  <meta name="keywords" content="AI agents, trading agents, agent marketplace, algorithmic trading, AI investing, tokenized AI">
+  <meta name="description" content="ASE — Agent Stock Exchange. A marketplace where AI trading agents are deployed, evaluated, and owned like assets.">
+  <meta name="keywords" content="AI agents, trading agents, agent marketplace, algorithmic trading, AI finance, fintech">
   <meta property="og:title" content="ASE — Agent Stock Exchange">
   <meta property="og:description" content="Deploy AI agents. Own the upside. Trade the future.">
   <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
   <title>ASE — Agent Stock Exchange</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@300;400;500&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
 
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
     :root {
-      --black:    #06080D;
-      --deep:     #0B0E16;
-      --surface:  #111620;
-      --card:     #161C2A;
-      --border:   rgba(255,255,255,0.07);
-      --border2:  rgba(255,255,255,0.12);
-      --gold:     #F0B429;
-      --gold2:    #FBBF24;
-      --amber:    #F59E0B;
-      --green:    #10B981;
-      --red:      #EF4444;
-      --blue:     #3B82F6;
-      --white:    #F8FAFF;
-      --muted:    rgba(248,250,255,0.5);
-      --dim:      rgba(248,250,255,0.25);
+      --black:   #07090F;
+      --deep:    #0C0F19;
+      --surface: #131826;
+      --card:    #181F30;
+      --border:  rgba(255,255,255,0.06);
+      --border2: rgba(255,255,255,0.10);
+      --gold:    #E8AC20;
+      --gold2:   #F5C842;
+      --green:   #0EAD6E;
+      --red:     #E05252;
+      --white:   #EEF2FF;
+      --muted:   rgba(238,242,255,0.48);
+      --dim:     rgba(238,242,255,0.22);
     }
 
     html { scroll-behavior: smooth; }
@@ -43,1966 +42,871 @@
       color: var(--white);
       overflow-x: hidden;
       line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* NOISE TEXTURE OVERLAY */
-    body::before {
+    /* subtle grain overlay */
+    body::after {
       content: '';
-      position: fixed;
-      inset: 0;
-      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
-      pointer-events: none;
-      z-index: 0;
-      opacity: 0.6;
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='256' height='256' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 9999; opacity: 1;
     }
 
     /* NAV */
     nav {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 1000;
-      padding: 0 2rem;
-      height: 64px;
-      display: flex;
-      align-items: center;
-      background: rgba(6,8,13,0.85);
-      backdrop-filter: blur(20px) saturate(1.5);
+      position: fixed; top: 0; left: 0; right: 0; z-index: 900;
+      height: 60px; display: flex; align-items: center; padding: 0 2rem;
+      background: rgba(7,9,15,0.82);
+      backdrop-filter: blur(18px) saturate(1.4);
       border-bottom: 1px solid var(--border);
       transition: background 0.3s;
     }
-
     .nav-inner {
-      max-width: 1200px;
-      margin: 0 auto;
-      width: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+      max-width: 1180px; margin: 0 auto; width: 100%;
+      display: flex; align-items: center; justify-content: space-between;
     }
-
     .nav-logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      text-decoration: none;
+      font-family: 'Syne', sans-serif; font-weight: 800;
+      font-size: 1.15rem; letter-spacing: 0.06em;
+      color: var(--white); text-decoration: none;
     }
-
-    .logo-mark {
-      width: 34px;
-      height: 34px;
-      flex-shrink: 0;
-    }
-
-    .logo-text {
-      font-family: 'Syne', sans-serif;
-      font-weight: 800;
-      font-size: 1.2rem;
-      letter-spacing: 0.04em;
-      color: var(--white);
-    }
-
-    .logo-text span {
-      color: var(--gold);
-    }
-
-    .nav-links {
-      display: flex;
-      align-items: center;
-      gap: 2rem;
-      list-style: none;
-    }
-
+    .nav-logo span { color: var(--gold); }
+    .nav-links { display: flex; align-items: center; gap: 1.75rem; list-style: none; }
     .nav-links a {
-      font-family: 'DM Sans', sans-serif;
-      font-size: 0.875rem;
-      font-weight: 500;
-      color: var(--muted);
-      text-decoration: none;
-      transition: color 0.2s;
+      font-size: 0.85rem; font-weight: 500; color: var(--muted);
+      text-decoration: none; transition: color 0.2s;
     }
-
     .nav-links a:hover { color: var(--white); }
-
-    .nav-cta {
-      background: var(--gold);
-      color: var(--black) !important;
-      padding: 0.45rem 1.1rem;
-      border-radius: 6px;
-      font-weight: 600 !important;
-      font-size: 0.85rem !important;
-      transition: background 0.2s, transform 0.1s !important;
+    .btn-nav {
+      background: var(--gold); color: var(--black) !important;
+      border: none; border-radius: 6px; padding: 0.4rem 0.95rem;
+      font-family: 'Syne', sans-serif; font-size: 0.8rem; font-weight: 700;
+      cursor: pointer; text-decoration: none;
+      transition: background 0.2s, transform 0.15s;
+      display: inline-flex; align-items: center;
     }
+    .btn-nav:hover { background: var(--gold2) !important; transform: translateY(-1px); }
+    .nav-mob { display: none; background: none; border: none; cursor: pointer; color: var(--white); padding: 4px; }
 
-    .nav-cta:hover {
-      background: var(--gold2) !important;
-      transform: translateY(-1px);
-    }
-
-    .nav-mobile-btn {
-      display: none;
-      background: none;
-      border: none;
-      cursor: pointer;
-      padding: 4px;
-      color: var(--white);
-    }
-
-    /* TICKER STRIP */
+    /* TICKER */
     .ticker-bar {
-      position: fixed;
-      top: 64px;
-      left: 0;
-      right: 0;
-      z-index: 999;
-      height: 32px;
-      background: var(--deep);
-      border-bottom: 1px solid var(--border);
-      overflow: hidden;
-      display: flex;
-      align-items: center;
+      position: fixed; top: 60px; left: 0; right: 0; z-index: 899;
+      height: 30px; background: var(--deep); border-bottom: 1px solid var(--border);
+      overflow: hidden; display: flex; align-items: center;
     }
-
-    .ticker-label {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.65rem;
-      font-weight: 500;
-      color: var(--gold);
-      padding: 0 1rem;
-      background: var(--surface);
-      height: 100%;
-      display: flex;
-      align-items: center;
-      letter-spacing: 0.1em;
-      border-right: 1px solid var(--border);
-      white-space: nowrap;
-      flex-shrink: 0;
+    .ticker-lbl {
+      font-family: 'DM Mono', monospace; font-size: 0.6rem; color: var(--gold);
+      padding: 0 0.85rem; height: 100%; display: flex; align-items: center;
+      background: var(--surface); border-right: 1px solid var(--border);
+      letter-spacing: 0.1em; white-space: nowrap; flex-shrink: 0;
     }
-
-    .ticker-scroll-wrap {
-      flex: 1;
-      overflow: hidden;
-      position: relative;
-    }
-
+    .ticker-track { flex: 1; overflow: hidden; }
     .ticker-scroll {
-      display: flex;
-      gap: 3rem;
-      animation: ticker 40s linear infinite;
-      white-space: nowrap;
-      will-change: transform;
+      display: flex; gap: 2.5rem;
+      animation: tscroll 38s linear infinite; white-space: nowrap;
     }
+    .ti { display: inline-flex; align-items: center; gap: 0.4rem; font-family: 'DM Mono', monospace; font-size: 0.67rem; }
+    .tn { color: var(--muted); }
+    .tp { color: var(--white); }
+    .tu { color: var(--green); }
+    .td { color: var(--red); }
+    @keyframes tscroll { 0%{ transform:translateX(0) } 100%{ transform:translateX(-50%) } }
 
-    .ticker-item {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-family: 'DM Mono', monospace;
-      font-size: 0.7rem;
+    /* LAYOUT HELPERS */
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 0 2rem; }
+    .eyebrow {
+      font-family: 'DM Mono', monospace; font-size: 0.67rem; font-weight: 500;
+      color: var(--gold); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 0.85rem;
     }
-
-    .ticker-name { color: var(--muted); font-weight: 500; }
-    .ticker-price { color: var(--white); font-weight: 400; }
-    .ticker-up { color: var(--green); }
-    .ticker-down { color: var(--red); }
-
-    @keyframes ticker {
-      0% { transform: translateX(0); }
-      100% { transform: translateX(-50%); }
+    .sec-title {
+      font-family: 'Syne', sans-serif; font-weight: 800;
+      font-size: clamp(1.7rem, 3.5vw, 2.55rem);
+      line-height: 1.1; letter-spacing: -0.025em;
     }
+    .sec-lead {
+      font-size: 0.975rem; color: var(--muted); line-height: 1.78; font-weight: 300; max-width: 530px;
+    }
+    .rule { width: 34px; height: 2px; background: var(--gold); border-radius: 2px; margin: 0.9rem auto; }
+
+    /* FADE ANIMATION */
+    .fade { opacity: 0; transform: translateY(18px); transition: opacity 0.5s ease, transform 0.5s ease; }
+    .fade.in { opacity: 1; transform: none; }
+    .fade.d1 { transition-delay: 0.08s; }
+    .fade.d2 { transition-delay: 0.16s; }
+    .fade.d3 { transition-delay: 0.24s; }
+    .fade.d4 { transition-delay: 0.32s; }
+    .fade.d5 { transition-delay: 0.4s; }
 
     /* HERO */
     .hero {
-      min-height: 100vh;
-      padding: 140px 2rem 100px;
-      display: flex;
-      align-items: center;
-      position: relative;
-      overflow: hidden;
+      min-height: 100vh; padding: 128px 2rem 90px;
+      display: flex; align-items: center;
+      position: relative; overflow: hidden;
     }
-
-    /* Background grid */
-    .hero::before {
-      content: '';
-      position: absolute;
-      inset: 0;
+    .hero-grid {
+      position: absolute; inset: 0;
       background-image:
-        linear-gradient(rgba(240,180,41,0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(240,180,41,0.04) 1px, transparent 1px);
-      background-size: 60px 60px;
-      background-position: center center;
-      mask-image: radial-gradient(ellipse 80% 80% at 50% 40%, black 30%, transparent 100%);
+        linear-gradient(rgba(232,172,32,0.033) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(232,172,32,0.033) 1px, transparent 1px);
+      background-size: 56px 56px;
+      mask-image: radial-gradient(ellipse 70% 70% at 50% 35%, black 15%, transparent 100%);
       pointer-events: none;
     }
-
-    /* Glow orbs */
-    .hero-glow-1 {
-      position: absolute;
-      width: 600px;
-      height: 600px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(240,180,41,0.12) 0%, transparent 70%);
-      top: -100px;
-      right: -200px;
-      pointer-events: none;
+    .glow { position: absolute; border-radius: 50%; pointer-events: none; }
+    .glow-a {
+      width: 500px; height: 500px;
+      background: radial-gradient(circle, rgba(232,172,32,0.08) 0%, transparent 70%);
+      top: -60px; right: -120px;
     }
-
-    .hero-glow-2 {
-      position: absolute;
-      width: 400px;
-      height: 400px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(59,130,246,0.08) 0%, transparent 70%);
-      bottom: 0;
-      left: -100px;
-      pointer-events: none;
+    .glow-b {
+      width: 340px; height: 340px;
+      background: radial-gradient(circle, rgba(14,173,110,0.055) 0%, transparent 70%);
+      bottom: 60px; left: -60px;
     }
-
     .hero-inner {
-      max-width: 1200px;
-      margin: 0 auto;
-      width: 100%;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 5rem;
-      align-items: center;
-      position: relative;
-      z-index: 1;
+      max-width: 1180px; margin: 0 auto; width: 100%;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; align-items: center;
+      position: relative; z-index: 1;
     }
-
     .hero-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      background: rgba(240,180,41,0.1);
-      border: 1px solid rgba(240,180,41,0.25);
-      border-radius: 100px;
-      padding: 0.3rem 0.9rem;
-      font-family: 'DM Mono', monospace;
-      font-size: 0.72rem;
-      color: var(--gold);
-      letter-spacing: 0.06em;
-      margin-bottom: 1.5rem;
-      width: fit-content;
+      display: inline-flex; align-items: center; gap: 0.45rem;
+      background: rgba(232,172,32,0.08); border: 1px solid rgba(232,172,32,0.2);
+      border-radius: 100px; padding: 0.26rem 0.75rem;
+      font-family: 'DM Mono', monospace; font-size: 0.66rem; color: var(--gold);
+      letter-spacing: 0.07em; margin-bottom: 1.3rem; width: fit-content;
     }
-
-    .badge-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--gold);
-      animation: pulse-dot 2s ease-in-out infinite;
+    .bdot {
+      width: 5px; height: 5px; border-radius: 50%; background: var(--gold);
+      animation: blink 2.4s ease-in-out infinite;
     }
-
-    @keyframes pulse-dot {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.5; transform: scale(0.8); }
+    @keyframes blink { 0%,100%{ opacity:1 } 50%{ opacity:0.3 } }
+    .hero-h1 {
+      font-family: 'Syne', sans-serif; font-weight: 800;
+      font-size: clamp(2.3rem, 4.8vw, 3.7rem);
+      line-height: 1.04; letter-spacing: -0.03em; margin-bottom: 1.3rem;
     }
-
-    .hero-headline {
-      font-family: 'Syne', sans-serif;
-      font-weight: 800;
-      font-size: clamp(2.6rem, 5vw, 4rem);
-      line-height: 1.05;
-      letter-spacing: -0.03em;
-      margin-bottom: 1.5rem;
-      color: var(--white);
+    .hero-h1 .g {
+      background: linear-gradient(120deg, var(--gold) 0%, #F0A020 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
     }
-
-    .hero-headline .accent {
-      background: linear-gradient(135deg, var(--gold) 0%, var(--amber) 50%, #F97316 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-
     .hero-sub {
-      font-size: 1.1rem;
-      color: var(--muted);
-      max-width: 480px;
-      margin-bottom: 2.5rem;
-      font-weight: 300;
-      line-height: 1.7;
+      font-size: 1rem; color: var(--muted); max-width: 420px;
+      margin-bottom: 2rem; font-weight: 300; line-height: 1.75;
     }
-
-    .hero-form {
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-      max-width: 480px;
+    .wform { display: flex; flex-direction: column; gap: 0.6rem; max-width: 420px; }
+    .wrow { display: flex; gap: 0.4rem; }
+    .finput {
+      flex: 1; min-width: 0;
+      background: var(--surface); border: 1px solid var(--border2);
+      border-radius: 7px; padding: 0.78rem 0.95rem;
+      font-family: 'DM Sans', sans-serif; font-size: 0.9rem; color: var(--white);
+      outline: none; transition: border-color 0.2s, background 0.2s;
     }
-
-    .hero-form-row {
-      display: flex;
-      gap: 0.5rem;
-    }
-
-    .hero-input {
-      flex: 1;
-      background: var(--surface);
-      border: 1px solid var(--border2);
-      border-radius: 8px;
-      padding: 0.85rem 1.1rem;
-      font-family: 'DM Sans', sans-serif;
-      font-size: 0.95rem;
-      color: var(--white);
-      outline: none;
-      transition: border-color 0.2s, background 0.2s;
-      min-width: 0;
-    }
-
-    .hero-input::placeholder { color: var(--dim); }
-
-    .hero-input:focus {
-      border-color: var(--gold);
-      background: var(--card);
-    }
-
-    .hero-input.full { width: 100%; }
-
+    .finput::placeholder { color: var(--dim); }
+    .finput:focus { border-color: var(--gold); background: var(--card); }
     .btn-primary {
-      background: var(--gold);
-      color: var(--black);
-      border: none;
-      border-radius: 8px;
-      padding: 0.85rem 1.5rem;
-      font-family: 'Syne', sans-serif;
-      font-size: 0.95rem;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all 0.2s;
-      white-space: nowrap;
-      letter-spacing: 0.01em;
+      background: var(--gold); color: var(--black); border: none; border-radius: 7px;
+      padding: 0.78rem 1.35rem; font-family: 'Syne', sans-serif;
+      font-size: 0.9rem; font-weight: 700; cursor: pointer; white-space: nowrap;
+      transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
     }
+    .btn-primary:hover { background: var(--gold2); transform: translateY(-1px); box-shadow: 0 5px 18px rgba(232,172,32,0.22); }
+    .btn-primary:active { transform: none; }
+    .btn-primary:disabled { opacity: 0.65; cursor: not-allowed; transform: none; box-shadow: none; }
+    .fnote { font-size: 0.74rem; color: var(--dim); }
+    .fmsg { display: none; padding: 0.6rem 0.85rem; border-radius: 7px; font-size: 0.82rem; }
+    .fmsg.ok { display:block; background:rgba(14,173,110,0.1); border:1px solid rgba(14,173,110,0.25); color:var(--green); }
+    .fmsg.err { display:block; background:rgba(224,82,82,0.1); border:1px solid rgba(224,82,82,0.25); color:var(--red); }
 
-    .btn-primary:hover {
-      background: var(--gold2);
-      transform: translateY(-1px);
-      box-shadow: 0 8px 24px rgba(240,180,41,0.3);
-    }
-
-    .btn-primary:active { transform: translateY(0); }
-
-    .btn-primary.loading {
-      opacity: 0.7;
-      cursor: not-allowed;
-    }
-
-    .hero-trust {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      font-size: 0.8rem;
-      color: var(--dim);
-      margin-top: 0.5rem;
-    }
-
-    .hero-trust-icon { color: var(--green); font-size: 0.9rem; }
-
-    .form-message {
-      padding: 0.75rem 1rem;
-      border-radius: 8px;
-      font-size: 0.875rem;
-      display: none;
-    }
-
-    .form-message.success {
-      background: rgba(16,185,129,0.1);
-      border: 1px solid rgba(16,185,129,0.3);
-      color: var(--green);
-      display: block;
-    }
-
-    .form-message.error {
-      background: rgba(239,68,68,0.1);
-      border: 1px solid rgba(239,68,68,0.3);
-      color: var(--red);
-      display: block;
-    }
-
-    /* TERMINAL CARD (hero right) */
-    .hero-visual {
+    /* TERMINAL */
+    .terminal {
+      background: var(--surface); border: 1px solid var(--border2); border-radius: 14px;
+      overflow: hidden; box-shadow: 0 28px 56px rgba(0,0,0,0.48), 0 0 0 1px rgba(255,255,255,0.02);
       position: relative;
     }
-
-    .terminal-card {
-      background: var(--surface);
-      border: 1px solid var(--border2);
-      border-radius: 16px;
-      overflow: hidden;
-      box-shadow: 0 40px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.03);
-      position: relative;
+    .terminal::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent 5%, var(--gold) 50%, transparent 95%); opacity: 0.35;
     }
-
-    .terminal-card::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, var(--gold), transparent);
-      opacity: 0.5;
+    .tbar {
+      background: var(--card); padding: 0.68rem 1.1rem;
+      display: flex; align-items: center; gap: 0.42rem; border-bottom: 1px solid var(--border);
     }
-
-    .terminal-header {
-      background: var(--card);
-      padding: 0.8rem 1.2rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      border-bottom: 1px solid var(--border);
+    .dot { width: 9px; height: 9px; border-radius: 50%; }
+    .dot.r { background:#FF5F57; } .dot.y { background:#FFBD2E; } .dot.g { background:#27C93F; }
+    .ttitle { font-family:'DM Mono',monospace; font-size:0.63rem; color:var(--dim); margin-left:0.4rem; }
+    .tbody { padding:1rem 1.1rem; font-family:'DM Mono',monospace; font-size:0.71rem; }
+    .trow {
+      display:grid; grid-template-columns:1.6fr 0.85fr 0.7fr 0.75fr; gap:0.4rem;
+      padding:0.52rem 0.4rem; border-radius:5px; align-items:center;
+      border-bottom:1px solid var(--border); transition:background 0.1s;
     }
-
-    .term-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
+    .trow:last-child { border-bottom:none; }
+    .trow:hover { background:rgba(255,255,255,0.022); }
+    .trow.hdr { font-size:0.59rem; color:var(--dim); letter-spacing:0.07em; padding-bottom:0.32rem; border-bottom:1px solid var(--border2); }
+    .trow.hdr:hover { background:none; }
+    .an { color:var(--white); font-weight:500; line-height:1.25; }
+    .at { color:var(--gold); font-size:0.63rem; }
+    .pos { color:var(--green); } .neg { color:var(--red); }
+    .dv { color:var(--muted); font-size:0.65rem; }
+    .tfoot {
+      background:var(--card); padding:0.62rem 1.1rem;
+      display:flex; justify-content:space-between; align-items:center;
+      border-top:1px solid var(--border);
     }
-    .term-dot.r { background: #FF5F57; }
-    .term-dot.y { background: #FFBD2E; }
-    .term-dot.g { background: #27C93F; }
+    .ts { text-align:center; }
+    .tv { font-family:'DM Mono',monospace; font-size:0.8rem; font-weight:500; color:var(--white); }
+    .tv.g { color:var(--green); }
+    .tl { font-family:'DM Mono',monospace; font-size:0.56rem; color:var(--dim); letter-spacing:0.07em; margin-top:1px; }
 
-    .terminal-title {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.7rem;
-      color: var(--dim);
-      margin-left: 0.5rem;
+    /* BAND */
+    .band {
+      background:var(--deep); border-top:1px solid var(--border); border-bottom:1px solid var(--border);
+      padding:1.6rem 2rem;
     }
-
-    .terminal-body {
-      padding: 1.25rem;
-      font-family: 'DM Mono', monospace;
-      font-size: 0.75rem;
+    .band-inner {
+      max-width:1180px; margin:0 auto;
+      display:flex; align-items:center; justify-content:center; gap:3rem; flex-wrap:wrap;
     }
-
-    .agent-row {
-      display: grid;
-      grid-template-columns: 1.5fr 1fr 0.8fr 0.8fr;
-      gap: 0.5rem;
-      padding: 0.6rem 0.5rem;
-      border-radius: 6px;
-      align-items: center;
-      transition: background 0.15s;
-      border-bottom: 1px solid var(--border);
+    .band-item {
+      font-family:'DM Mono',monospace; font-size:0.7rem; color:var(--muted);
+      display:flex; align-items:center; gap:0.45rem; letter-spacing:0.04em;
     }
-
-    .agent-row:last-child { border-bottom: none; }
-    .agent-row:hover { background: rgba(255,255,255,0.03); }
-
-    .agent-row.header {
-      font-size: 0.65rem;
-      color: var(--dim);
-      letter-spacing: 0.06em;
-      padding-bottom: 0.4rem;
-      border-bottom: 1px solid var(--border2);
-    }
-
-    .agent-name { color: var(--white); font-weight: 500; }
-    .agent-ticker { color: var(--gold); font-size: 0.7rem; }
-    .agent-return.pos { color: var(--green); }
-    .agent-return.neg { color: var(--red); }
-    .agent-vol { color: var(--muted); font-size: 0.7rem; }
-
-    .rank-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 3px;
-      font-size: 0.65rem;
-    }
-
-    .mini-chart {
-      display: flex;
-      align-items: flex-end;
-      gap: 2px;
-      height: 20px;
-    }
-
-    .mini-bar {
-      width: 3px;
-      background: var(--green);
-      border-radius: 1px;
-      opacity: 0.7;
-      transition: height 1s ease;
-    }
-
-    .terminal-footer {
-      background: var(--card);
-      padding: 0.75rem 1.25rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-top: 1px solid var(--border);
-    }
-
-    .term-stat {
-      text-align: center;
-    }
-
-    .term-stat-val {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.9rem;
-      font-weight: 500;
-      color: var(--white);
-    }
-
-    .term-stat-val.green { color: var(--green); }
-
-    .term-stat-lbl {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.6rem;
-      color: var(--dim);
-      letter-spacing: 0.06em;
-      margin-top: 1px;
-    }
-
-    /* STATS STRIP */
-    .stats-strip {
-      background: var(--deep);
-      border-top: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-      padding: 2.5rem 2rem;
-    }
-
-    .stats-inner {
-      max-width: 1200px;
-      margin: 0 auto;
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 1rem;
-    }
-
-    .stat-item {
-      text-align: center;
-      padding: 1.5rem 1rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .stat-item::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 2px;
-      background: linear-gradient(90deg, transparent, var(--gold), transparent);
-      opacity: 0;
-      transition: opacity 0.3s;
-    }
-
-    .stat-item:hover::before { opacity: 1; }
-
-    .stat-num {
-      font-family: 'Syne', sans-serif;
-      font-size: 2.2rem;
-      font-weight: 800;
-      color: var(--gold);
-      line-height: 1;
-      margin-bottom: 0.4rem;
-      letter-spacing: -0.03em;
-    }
-
-    .stat-lbl {
-      font-size: 0.85rem;
-      color: var(--muted);
-      font-weight: 400;
+    .band-item::before {
+      content:''; width:4px; height:4px; border-radius:50%;
+      background:var(--gold); opacity:0.5; flex-shrink:0;
     }
 
     /* HOW IT WORKS */
-    section {
-      position: relative;
-      z-index: 1;
-    }
-
-    .section-wrap {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 0 2rem;
-    }
-
-    .section-eyebrow {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.72rem;
-      font-weight: 500;
-      color: var(--gold);
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      margin-bottom: 1rem;
-    }
-
-    .section-title {
-      font-family: 'Syne', sans-serif;
-      font-weight: 800;
-      font-size: clamp(1.8rem, 3.5vw, 2.8rem);
-      line-height: 1.1;
-      letter-spacing: -0.03em;
-      margin-bottom: 1rem;
-    }
-
-    .section-desc {
-      font-size: 1.05rem;
-      color: var(--muted);
-      max-width: 560px;
-      line-height: 1.7;
-      font-weight: 300;
-    }
-
-    .how-section {
-      padding: 100px 2rem;
-    }
-
-    .how-header {
-      text-align: center;
-      margin-bottom: 5rem;
-    }
-
-    .steps {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 1.5rem;
-      position: relative;
-    }
-
-    .steps::before {
-      content: '';
-      position: absolute;
-      top: 52px;
-      left: calc(16.6% + 1rem);
-      right: calc(16.6% + 1rem);
-      height: 1px;
-      background: linear-gradient(90deg, var(--gold), rgba(240,180,41,0.3), var(--gold));
-      opacity: 0.3;
-    }
-
+    .how-sec { padding:88px 2rem; }
+    .how-hdr { text-align:center; margin-bottom:4.5rem; }
+    .steps { display:grid; grid-template-columns:repeat(3,1fr); gap:1.2rem; }
     .step-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 2rem 1.75rem;
-      position: relative;
-      transition: border-color 0.3s, transform 0.2s;
+      background:var(--surface); border:1px solid var(--border); border-radius:14px;
+      padding:1.7rem 1.55rem; transition:border-color 0.25s, transform 0.2s;
     }
-
-    .step-card:hover {
-      border-color: rgba(240,180,41,0.3);
-      transform: translateY(-4px);
+    .step-card:hover { border-color:rgba(232,172,32,0.22); transform:translateY(-3px); }
+    .step-top { display:flex; align-items:center; gap:0.65rem; margin-bottom:1.05rem; }
+    .step-circ {
+      width:29px; height:29px; border-radius:50%;
+      background:rgba(232,172,32,0.08); border:1px solid rgba(232,172,32,0.18);
+      display:flex; align-items:center; justify-content:center; flex-shrink:0;
     }
-
-    .step-num {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.7rem;
-      color: var(--gold);
-      letter-spacing: 0.1em;
-      margin-bottom: 1.25rem;
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
-
-    .step-num::before {
-      content: '';
-      display: block;
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      background: rgba(240,180,41,0.1);
-      border: 1px solid rgba(240,180,41,0.25);
-      flex-shrink: 0;
-    }
-
-    .step-icon {
-      position: absolute;
-      top: 1.75rem;
-      left: 1.75rem;
-      width: 32px;
-      height: 32px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.85rem;
-    }
-
-    .step-title {
-      font-family: 'Syne', sans-serif;
-      font-size: 1.2rem;
-      font-weight: 700;
-      margin-bottom: 0.75rem;
-      margin-top: 0.5rem;
-    }
-
-    .step-desc {
-      font-size: 0.9rem;
-      color: var(--muted);
-      line-height: 1.7;
-      font-weight: 300;
-    }
+    .step-circ span { font-family:'DM Mono',monospace; font-size:0.6rem; color:var(--gold); font-weight:500; }
+    .step-lbl { font-family:'DM Mono',monospace; font-size:0.63rem; color:var(--dim); letter-spacing:0.1em; }
+    .step-title { font-family:'Syne',sans-serif; font-size:1.05rem; font-weight:700; margin-bottom:0.6rem; }
+    .step-desc { font-size:0.855rem; color:var(--muted); line-height:1.73; font-weight:300; }
 
     /* FEATURES */
-    .features-section {
-      padding: 80px 2rem 100px;
-      background: var(--deep);
-      border-top: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
+    .feat-sec {
+      padding:80px 2rem 88px; background:var(--deep);
+      border-top:1px solid var(--border); border-bottom:1px solid var(--border);
     }
-
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 1.5rem;
-      margin-top: 4rem;
+    .feat-hdr { margin-bottom:3.25rem; }
+    .feat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1.2rem; }
+    .feat-card {
+      background:var(--surface); border:1px solid var(--border); border-radius:14px;
+      padding:1.7rem; transition:border-color 0.25s, transform 0.2s; position:relative; overflow:hidden;
     }
-
-    .feature-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 2rem;
-      transition: all 0.3s;
-      position: relative;
-      overflow: hidden;
+    .feat-card:hover { border-color:rgba(232,172,32,0.18); transform:translateY(-2px); }
+    .ficon {
+      width:38px; height:38px;
+      background:rgba(232,172,32,0.08); border:1px solid rgba(232,172,32,0.14);
+      border-radius:8px; display:flex; align-items:center; justify-content:center;
+      font-size:1rem; margin-bottom:1rem;
+      font-family:'DM Mono',monospace; color:var(--gold); font-weight:500;
     }
+    .ftitle { font-family:'Syne',sans-serif; font-size:0.97rem; font-weight:700; margin-bottom:0.48rem; }
+    .fdesc { font-size:0.835rem; color:var(--muted); line-height:1.73; font-weight:300; }
 
-    .feature-card::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: radial-gradient(circle at top left, rgba(240,180,41,0.05) 0%, transparent 60%);
-      opacity: 0;
-      transition: opacity 0.3s;
+    /* ASSET */
+    .asset-sec { padding:88px 2rem; }
+    .asset-inner {
+      max-width:1180px; margin:0 auto;
+      display:grid; grid-template-columns:1fr 1fr; gap:4.5rem; align-items:center;
     }
-
-    .feature-card:hover {
-      border-color: rgba(240,180,41,0.25);
-      transform: translateY(-2px);
+    .checks { display:flex; flex-direction:column; gap:0.6rem; margin-top:1.65rem; }
+    .chk { display:flex; align-items:flex-start; gap:0.65rem; font-size:0.86rem; color:var(--muted); line-height:1.55; }
+    .chk-icon { color:var(--green); font-size:0.78rem; flex-shrink:0; margin-top:2px; }
+    .card-stack { position:relative; height:330px; }
+    .sc { background:var(--surface); border:1px solid var(--border2); border-radius:14px; padding:1.3rem; position:absolute; }
+    .sc.main { width:100%; bottom:0; left:0; z-index:3; box-shadow:0 14px 44px rgba(0,0,0,0.42); }
+    .sc.b1 { width:88%; bottom:16px; left:6%; z-index:2; opacity:0.52; transform:rotate(-1.5deg); }
+    .sc.b2 { width:78%; bottom:29px; left:11%; z-index:1; opacity:0.26; transform:rotate(-3deg); }
+    .ctop { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem; }
+    .can { font-family:'Syne',sans-serif; font-weight:700; font-size:0.92rem; }
+    .csub { font-family:'DM Mono',monospace; font-size:0.64rem; color:var(--dim); margin-top:2px; }
+    .ctick {
+      font-family:'DM Mono',monospace; font-size:0.64rem; color:var(--gold);
+      background:rgba(232,172,32,0.08); border:1px solid rgba(232,172,32,0.16);
+      padding:0.17rem 0.48rem; border-radius:4px;
     }
-
-    .feature-card:hover::after { opacity: 1; }
-
-    .feature-icon {
-      width: 44px;
-      height: 44px;
-      background: rgba(240,180,41,0.1);
-      border: 1px solid rgba(240,180,41,0.2);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.2rem;
-      margin-bottom: 1.25rem;
+    .cret { font-family:'DM Mono',monospace; font-size:1.4rem; font-weight:500; color:var(--green); margin-bottom:0.18rem; }
+    .cper { font-size:0.68rem; color:var(--dim); font-family:'DM Mono',monospace; }
+    .sparkline { width:100%; height:50px; margin:0.85rem 0; }
+    .cstats {
+      display:grid; grid-template-columns:repeat(3,1fr); gap:0.6rem;
+      margin-top:0.9rem; padding-top:0.9rem; border-top:1px solid var(--border);
     }
+    .csi { text-align:center; }
+    .csv { font-family:'DM Mono',monospace; font-size:0.8rem; color:var(--white); font-weight:500; }
+    .csl { font-family:'DM Mono',monospace; font-size:0.56rem; color:var(--dim); letter-spacing:0.07em; margin-top:1px; }
 
-    .feature-title {
-      font-family: 'Syne', sans-serif;
-      font-size: 1.05rem;
-      font-weight: 700;
-      margin-bottom: 0.6rem;
-    }
-
-    .feature-desc {
-      font-size: 0.875rem;
-      color: var(--muted);
-      line-height: 1.7;
-      font-weight: 300;
-    }
-
-    /* ECOSYSTEM SECTION */
-    .ecosystem-section {
-      padding: 100px 2rem;
-    }
-
-    .ecosystem-inner {
-      max-width: 1200px;
-      margin: 0 auto;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 5rem;
-      align-items: center;
-    }
-
-    .eco-visual {
-      position: relative;
-    }
-
-    .eco-card-stack {
-      position: relative;
-      height: 360px;
-    }
-
-    .eco-card {
-      background: var(--surface);
-      border: 1px solid var(--border2);
-      border-radius: 16px;
-      padding: 1.5rem;
-      position: absolute;
-    }
-
-    .eco-card.main {
-      width: 100%;
-      bottom: 0;
-      left: 0;
-      z-index: 3;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-    }
-
-    .eco-card.back1 {
-      width: 90%;
-      bottom: 20px;
-      left: 5%;
-      z-index: 2;
-      opacity: 0.7;
-      transform: rotate(-2deg);
-    }
-
-    .eco-card.back2 {
-      width: 82%;
-      bottom: 35px;
-      left: 9%;
-      z-index: 1;
-      opacity: 0.4;
-      transform: rotate(-4deg);
-    }
-
-    .eco-card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 1.25rem;
-    }
-
-    .eco-agent-name {
-      font-family: 'Syne', sans-serif;
-      font-weight: 700;
-      font-size: 1rem;
-    }
-
-    .eco-agent-ticker {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.7rem;
-      color: var(--gold);
-      background: rgba(240,180,41,0.1);
-      border: 1px solid rgba(240,180,41,0.2);
-      padding: 0.2rem 0.5rem;
-      border-radius: 4px;
-    }
-
-    .eco-agent-return {
-      font-family: 'DM Mono', monospace;
-      font-size: 1.5rem;
-      font-weight: 500;
-      color: var(--green);
-      margin-bottom: 0.25rem;
-    }
-
-    .eco-agent-period {
-      font-size: 0.75rem;
-      color: var(--dim);
-    }
-
-    .eco-stats {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 0.75rem;
-      margin-top: 1.25rem;
-      padding-top: 1.25rem;
-      border-top: 1px solid var(--border);
-    }
-
-    .eco-stat-item { text-align: center; }
-
-    .eco-stat-v {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.85rem;
-      color: var(--white);
-      font-weight: 500;
-    }
-
-    .eco-stat-l {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.6rem;
-      color: var(--dim);
-      letter-spacing: 0.06em;
-      margin-top: 2px;
-    }
-
-    /* Sparkline */
-    .sparkline {
-      width: 100%;
-      height: 60px;
-      margin: 1rem 0;
-    }
-
-    /* WHO ITS FOR */
-    .who-section {
-      padding: 80px 2rem 100px;
-      background: var(--deep);
-      border-top: 1px solid var(--border);
-    }
-
-    .who-cards {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 1.5rem;
-      margin-top: 4rem;
-    }
-
+    /* WHO */
+    .who-sec { padding:80px 2rem 88px; background:var(--deep); border-top:1px solid var(--border); }
+    .who-hdr { text-align:center; margin-bottom:3.25rem; }
+    .who-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1.2rem; }
     .who-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 2rem;
-      transition: all 0.25s;
+      background:var(--surface); border:1px solid var(--border); border-radius:14px;
+      padding:1.7rem; transition:border-color 0.25s, transform 0.2s;
     }
-
-    .who-card:hover {
-      border-color: rgba(240,180,41,0.25);
-      transform: translateY(-3px);
-    }
-
-    .who-avatar {
-      font-size: 2rem;
-      margin-bottom: 1rem;
-    }
-
-    .who-title {
-      font-family: 'Syne', sans-serif;
-      font-size: 1.1rem;
-      font-weight: 700;
-      margin-bottom: 0.6rem;
-    }
-
-    .who-desc {
-      font-size: 0.875rem;
-      color: var(--muted);
-      line-height: 1.7;
-      font-weight: 300;
-    }
-
-    .who-tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.4rem;
-      margin-top: 1.25rem;
-    }
-
+    .who-card:hover { border-color:rgba(232,172,32,0.2); transform:translateY(-3px); }
+    .wlbl { font-family:'DM Mono',monospace; font-size:0.63rem; color:var(--gold); letter-spacing:0.1em; margin-bottom:0.7rem; }
+    .wtitle { font-family:'Syne',sans-serif; font-size:1.05rem; font-weight:700; margin-bottom:0.55rem; }
+    .wdesc { font-size:0.855rem; color:var(--muted); line-height:1.73; font-weight:300; }
+    .wtags { display:flex; flex-wrap:wrap; gap:0.3rem; margin-top:1rem; }
     .tag {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.65rem;
-      background: rgba(240,180,41,0.08);
-      border: 1px solid rgba(240,180,41,0.15);
-      color: var(--gold);
-      padding: 0.2rem 0.6rem;
-      border-radius: 4px;
-      letter-spacing: 0.04em;
+      font-family:'DM Mono',monospace; font-size:0.6rem;
+      background:rgba(232,172,32,0.07); border:1px solid rgba(232,172,32,0.13);
+      color:var(--gold); padding:0.17rem 0.52rem; border-radius:4px; letter-spacing:0.04em;
     }
 
-    /* TESTIMONIALS */
-    .social-section {
-      padding: 80px 2rem 100px;
+    /* SOCIAL PROOF */
+    .social-sec { padding:80px 2rem 88px; }
+    .social-hdr { text-align:center; margin-bottom:3.25rem; }
+    .quotes { display:grid; grid-template-columns:repeat(3,1fr); gap:1.2rem; }
+    .qcard {
+      background:var(--surface); border:1px solid var(--border); border-radius:14px;
+      padding:1.55rem; position:relative; transition:border-color 0.25s, transform 0.2s;
     }
-
-    .testimonials {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 1.5rem;
-      margin-top: 4rem;
+    .qcard:hover { border-color:rgba(232,172,32,0.16); transform:translateY(-2px); }
+    .qmark { font-family:'Syne',sans-serif; font-size:2.2rem; line-height:1; color:rgba(232,172,32,0.14); position:absolute; top:1rem; right:1.25rem; }
+    .qtext { font-size:0.855rem; color:var(--muted); line-height:1.75; font-style:italic; font-weight:300; margin-bottom:1rem; }
+    .qauth { display:flex; align-items:center; gap:0.6rem; }
+    .qav {
+      width:32px; height:32px; border-radius:50%;
+      background:linear-gradient(135deg, #B8871A, #E8AC20);
+      display:flex; align-items:center; justify-content:center;
+      font-family:'Syne',sans-serif; font-weight:700; font-size:0.7rem; color:var(--black); flex-shrink:0;
     }
-
-    .testimonial-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 1.75rem;
-      transition: all 0.25s;
-      position: relative;
-    }
-
-    .testimonial-card:hover {
-      border-color: rgba(240,180,41,0.2);
-      transform: translateY(-2px);
-    }
-
-    .quote-mark {
-      font-family: 'Syne', sans-serif;
-      font-size: 3rem;
-      line-height: 1;
-      color: rgba(240,180,41,0.2);
-      position: absolute;
-      top: 1.25rem;
-      right: 1.5rem;
-    }
-
-    .testimonial-text {
-      font-size: 0.9rem;
-      color: var(--muted);
-      line-height: 1.7;
-      margin-bottom: 1.25rem;
-      font-style: italic;
-      font-weight: 300;
-    }
-
-    .testimonial-author {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
-
-    .author-avatar {
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--gold), var(--amber));
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: 'Syne', sans-serif;
-      font-weight: 700;
-      font-size: 0.8rem;
-      color: var(--black);
-      flex-shrink: 0;
-    }
-
-    .author-name {
-      font-family: 'Syne', sans-serif;
-      font-size: 0.875rem;
-      font-weight: 700;
-    }
-
-    .author-role {
-      font-size: 0.75rem;
-      color: var(--dim);
-    }
+    .qname { font-family:'Syne',sans-serif; font-size:0.8rem; font-weight:700; }
+    .qrole { font-size:0.7rem; color:var(--dim); }
 
     /* FAQ */
-    .faq-section {
-      padding: 80px 2rem 100px;
-      background: var(--deep);
-      border-top: 1px solid var(--border);
+    .faq-sec { padding:80px 2rem 88px; background:var(--deep); border-top:1px solid var(--border); }
+    .faq-hdr { text-align:center; margin-bottom:2.75rem; }
+    .faq-list { max-width:690px; margin:0 auto; }
+    .fitem {
+      border:1px solid var(--border); border-radius:10px; margin-bottom:0.55rem;
+      background:var(--surface); overflow:hidden; transition:border-color 0.2s;
     }
-
-    .faq-list {
-      max-width: 720px;
-      margin: 3rem auto 0;
+    .fitem.open { border-color:rgba(232,172,32,0.26); }
+    .fq {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:1.05rem 1.3rem; cursor:pointer;
+      font-family:'Syne',sans-serif; font-size:0.88rem; font-weight:600;
+      user-select:none; transition:color 0.2s; gap:1rem;
     }
-
-    .faq-item {
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      margin-bottom: 0.75rem;
-      overflow: hidden;
-      background: var(--surface);
-      transition: border-color 0.2s;
+    .fitem.open .fq { color:var(--gold); }
+    .fplus { font-size:1.05rem; color:var(--dim); transition:transform 0.26s, color 0.2s; flex-shrink:0; }
+    .fitem.open .fplus { transform:rotate(45deg); color:var(--gold); }
+    .fa { max-height:0; overflow:hidden; transition:max-height 0.3s ease; }
+    .fitem.open .fa { max-height:480px; }
+    .fai {
+      padding:0 1.3rem 1.05rem;
+      font-size:0.83rem; color:var(--muted); line-height:1.78; font-weight:300;
     }
-
-    .faq-item.open { border-color: rgba(240,180,41,0.3); }
-
-    .faq-question {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 1.25rem 1.5rem;
-      cursor: pointer;
-      font-family: 'Syne', sans-serif;
-      font-size: 0.95rem;
-      font-weight: 600;
-      user-select: none;
-      transition: color 0.2s;
-    }
-
-    .faq-item.open .faq-question { color: var(--gold); }
-
-    .faq-toggle {
-      font-size: 1.2rem;
-      color: var(--dim);
-      transition: transform 0.3s, color 0.2s;
-      flex-shrink: 0;
-      margin-left: 1rem;
-    }
-
-    .faq-item.open .faq-toggle {
-      transform: rotate(45deg);
-      color: var(--gold);
-    }
-
-    .faq-answer {
-      max-height: 0;
-      overflow: hidden;
-      transition: max-height 0.35s ease, padding 0.2s;
-    }
-
-    .faq-item.open .faq-answer {
-      max-height: 300px;
-    }
-
-    .faq-answer-inner {
-      padding: 0 1.5rem 1.25rem;
-      font-size: 0.875rem;
-      color: var(--muted);
-      line-height: 1.7;
-      font-weight: 300;
-    }
-
-    /* CTA FINAL */
-    .cta-section {
-      padding: 100px 2rem;
-      text-align: center;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .cta-section::before {
-      content: '';
-      position: absolute;
-      width: 700px;
-      height: 700px;
-      background: radial-gradient(circle, rgba(240,180,41,0.08) 0%, transparent 70%);
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%,-50%);
-      pointer-events: none;
-    }
-
-    .cta-inner {
-      max-width: 600px;
-      margin: 0 auto;
-      position: relative;
-      z-index: 1;
-    }
-
-    .cta-label {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.7rem;
-      color: var(--gold);
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      margin-bottom: 1rem;
-    }
-
-    .cta-title {
-      font-family: 'Syne', sans-serif;
-      font-size: clamp(2rem, 4vw, 3rem);
-      font-weight: 800;
-      line-height: 1.1;
-      letter-spacing: -0.03em;
-      margin-bottom: 1rem;
-    }
-
-    .cta-sub {
-      font-size: 1rem;
-      color: var(--muted);
-      margin-bottom: 2.5rem;
-      line-height: 1.7;
-      font-weight: 300;
-    }
-
-    .cta-form {
-      display: flex;
-      gap: 0.5rem;
-      max-width: 420px;
-      margin: 0 auto;
-    }
+    .fai a { color:var(--gold); text-decoration:none; }
+    .fai a:hover { text-decoration:underline; }
+    .fai strong { color:var(--white); font-weight:500; }
 
     /* FOOTER */
-    footer {
-      background: var(--deep);
-      border-top: 1px solid var(--border);
-      padding: 4rem 2rem 2rem;
+    footer { background:var(--deep); border-top:1px solid var(--border); padding:3.25rem 2rem 2rem; }
+    .fi { max-width:1180px; margin:0 auto; }
+    .ftop {
+      display:grid; grid-template-columns:2fr 1fr 1fr 1fr; gap:2.5rem;
+      margin-bottom:2.25rem; padding-bottom:2.25rem; border-bottom:1px solid var(--border);
     }
-
-    .footer-inner {
-      max-width: 1200px;
-      margin: 0 auto;
+    .fbname {
+      font-family:'Syne',sans-serif; font-weight:800; font-size:1.08rem;
+      letter-spacing:0.06em; color:var(--white); display:block; margin-bottom:0.7rem; text-decoration:none;
     }
-
-    .footer-top {
-      display: grid;
-      grid-template-columns: 2fr 1fr 1fr 1fr;
-      gap: 3rem;
-      margin-bottom: 3rem;
-      padding-bottom: 3rem;
-      border-bottom: 1px solid var(--border);
+    .fbname span { color:var(--gold); }
+    .fb p { font-size:0.82rem; color:var(--muted); max-width:250px; line-height:1.72; font-weight:300; margin-bottom:1rem; }
+    .flive { display:flex; align-items:center; gap:0.4rem; font-family:'DM Mono',monospace; font-size:0.6rem; color:var(--green); letter-spacing:0.08em; }
+    .fldot { width:5px; height:5px; border-radius:50%; background:var(--green); animation:blink 2.4s ease-in-out infinite; }
+    .fct { font-family:'Syne',sans-serif; font-size:0.8rem; font-weight:700; margin-bottom:1.05rem; color:var(--white); }
+    .flinks { list-style:none; display:flex; flex-direction:column; gap:0.55rem; }
+    .flinks a, .flinks button {
+      font-size:0.8rem; color:var(--muted); text-decoration:none; background:none; border:none;
+      cursor:pointer; padding:0; font-family:'DM Sans',sans-serif; font-weight:300;
+      transition:color 0.2s; text-align:left;
     }
-
-    .footer-brand p {
-      font-size: 0.875rem;
-      color: var(--muted);
-      margin-top: 1rem;
-      max-width: 280px;
-      line-height: 1.7;
-      font-weight: 300;
+    .flinks a:hover, .flinks button:hover { color:var(--gold); }
+    .fbot {
+      display:flex; justify-content:space-between; align-items:center;
+      font-size:0.74rem; color:var(--dim); flex-wrap:wrap; gap:0.6rem;
     }
-
-    .footer-col-title {
-      font-family: 'Syne', sans-serif;
-      font-size: 0.875rem;
-      font-weight: 700;
-      margin-bottom: 1.25rem;
-      color: var(--white);
+    .fsoc { display:flex; gap:1.2rem; }
+    .fsoc a { font-size:0.74rem; color:var(--dim); text-decoration:none; transition:color 0.2s; }
+    .fsoc a:hover { color:var(--gold); }
+    .disc {
+      font-size:0.7rem; color:var(--dim); margin-top:1rem; line-height:1.65;
+      padding-top:1rem; border-top:1px solid var(--border);
     }
-
-    .footer-links {
-      list-style: none;
-      display: flex;
-      flex-direction: column;
-      gap: 0.7rem;
-    }
-
-    .footer-links a, .footer-links button {
-      font-size: 0.85rem;
-      color: var(--muted);
-      text-decoration: none;
-      transition: color 0.2s;
-      background: none;
-      border: none;
-      cursor: pointer;
-      padding: 0;
-      font-family: 'DM Sans', sans-serif;
-      font-weight: 300;
-    }
-
-    .footer-links a:hover, .footer-links button:hover { color: var(--gold); }
-
-    .footer-bottom {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 0.8rem;
-      color: var(--dim);
-    }
-
-    .footer-socials {
-      display: flex;
-      gap: 1rem;
-    }
-
-    .footer-socials a {
-      color: var(--dim);
-      text-decoration: none;
-      font-size: 0.8rem;
-      transition: color 0.2s;
-    }
-
-    .footer-socials a:hover { color: var(--gold); }
 
     /* MODALS */
-    .modal-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(6,8,13,0.92);
-      backdrop-filter: blur(8px);
-      z-index: 2000;
-      display: flex;
-      align-items: flex-start;
-      justify-content: center;
-      overflow-y: auto;
-      padding: 3rem 1rem;
-      opacity: 0;
-      visibility: hidden;
-      transition: opacity 0.3s, visibility 0.3s;
+    .mover {
+      position:fixed; inset:0; background:rgba(7,9,15,0.9); backdrop-filter:blur(10px);
+      z-index:2000; display:flex; align-items:flex-start; justify-content:center;
+      overflow-y:auto; padding:2.5rem 1rem;
+      opacity:0; visibility:hidden; transition:opacity 0.24s, visibility 0.24s;
     }
-
-    .modal-overlay.open {
-      opacity: 1;
-      visibility: visible;
+    .mover.open { opacity:1; visibility:visible; }
+    .mbox {
+      background:var(--surface); border:1px solid var(--border2); border-radius:16px;
+      max-width:660px; width:100%; padding:2.25rem;
+      position:relative; transform:translateY(14px); transition:transform 0.26s;
     }
-
-    .modal-box {
-      background: var(--surface);
-      border: 1px solid var(--border2);
-      border-radius: 20px;
-      max-width: 720px;
-      width: 100%;
-      padding: 3rem;
-      position: relative;
-      transform: translateY(20px);
-      transition: transform 0.3s;
+    .mover.open .mbox { transform:translateY(0); }
+    .mclose {
+      position:absolute; top:1rem; right:1rem;
+      background:rgba(255,255,255,0.06); border:none; border-radius:6px;
+      width:28px; height:28px; cursor:pointer; color:var(--muted); font-size:0.88rem;
+      display:flex; align-items:center; justify-content:center; transition:background 0.2s, color 0.2s;
     }
+    .mclose:hover { background:rgba(255,255,255,0.1); color:var(--white); }
+    .mtitle { font-family:'Syne',sans-serif; font-size:1.45rem; font-weight:800; margin-bottom:0.3rem; letter-spacing:-0.02em; }
+    .mmeta { font-family:'DM Mono',monospace; font-size:0.63rem; color:var(--dim); margin-bottom:1.6rem; }
+    .mbody h3 { font-family:'Syne',sans-serif; font-size:0.88rem; font-weight:700; margin:1.25rem 0 0.38rem; color:var(--gold); }
+    .mbody h3:first-child { margin-top:0; }
+    .mbody p { font-size:0.82rem; color:var(--muted); line-height:1.8; font-weight:300; }
+    .mbody ul { padding-left:1.05rem; margin-top:0.35rem; }
+    .mbody ul li { font-size:0.82rem; color:var(--muted); line-height:1.8; margin-bottom:0.18rem; font-weight:300; }
+    .mbody a { color:var(--gold); }
 
-    .modal-overlay.open .modal-box {
-      transform: translateY(0);
+    /* TOAST */
+    .toast {
+      position:fixed; bottom:1.6rem; right:1.6rem; background:var(--surface);
+      border:1px solid var(--border2); border-radius:10px; padding:0.85rem 1.05rem;
+      display:flex; align-items:center; gap:0.6rem; z-index:3000;
+      box-shadow:0 14px 32px rgba(0,0,0,0.42);
+      transform:translateX(130%); transition:transform 0.36s cubic-bezier(0.34,1.48,0.64,1); max-width:290px;
     }
-
-    .modal-close {
-      position: absolute;
-      top: 1.25rem;
-      right: 1.25rem;
-      background: rgba(255,255,255,0.07);
-      border: none;
-      border-radius: 8px;
-      width: 32px;
-      height: 32px;
-      cursor: pointer;
-      color: var(--muted);
-      font-size: 1rem;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: background 0.2s, color 0.2s;
+    .toast.show { transform:translateX(0); }
+    .tchk {
+      width:20px; height:20px; border-radius:50%;
+      background:rgba(14,173,110,0.14); border:1px solid rgba(14,173,110,0.28);
+      display:flex; align-items:center; justify-content:center;
+      color:var(--green); font-size:0.65rem; flex-shrink:0;
     }
-
-    .modal-close:hover {
-      background: rgba(255,255,255,0.12);
-      color: var(--white);
-    }
-
-    .modal-title {
-      font-family: 'Syne', sans-serif;
-      font-size: 1.6rem;
-      font-weight: 800;
-      margin-bottom: 0.5rem;
-      letter-spacing: -0.02em;
-    }
-
-    .modal-date {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.7rem;
-      color: var(--dim);
-      margin-bottom: 2rem;
-    }
-
-    .modal-body h3 {
-      font-family: 'Syne', sans-serif;
-      font-size: 1rem;
-      font-weight: 700;
-      margin: 1.5rem 0 0.5rem;
-      color: var(--gold);
-    }
-
-    .modal-body p {
-      font-size: 0.875rem;
-      color: var(--muted);
-      line-height: 1.8;
-      font-weight: 300;
-    }
-
-    .modal-body ul {
-      padding-left: 1.25rem;
-      margin-top: 0.5rem;
-    }
-
-    .modal-body ul li {
-      font-size: 0.875rem;
-      color: var(--muted);
-      line-height: 1.8;
-      margin-bottom: 0.25rem;
-      font-weight: 300;
-    }
-
-    /* CONTACT MODAL */
-    .contact-form {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-      margin-top: 1.5rem;
-    }
-
-    .contact-form input,
-    .contact-form textarea,
-    .contact-form select {
-      background: var(--card);
-      border: 1px solid var(--border2);
-      border-radius: 8px;
-      padding: 0.85rem 1.1rem;
-      font-family: 'DM Sans', sans-serif;
-      font-size: 0.95rem;
-      color: var(--white);
-      outline: none;
-      transition: border-color 0.2s;
-      width: 100%;
-    }
-
-    .contact-form input:focus,
-    .contact-form textarea:focus {
-      border-color: var(--gold);
-    }
-
-    .contact-form textarea {
-      resize: vertical;
-      min-height: 100px;
-    }
-
-    .contact-form select option {
-      background: var(--card);
-    }
-
-    .contact-form label {
-      font-size: 0.8rem;
-      color: var(--muted);
-      margin-bottom: 0.3rem;
-      display: block;
-    }
-
-    .contact-form .field { display: flex; flex-direction: column; }
-
-    .contact-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-
-    .contact-info {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.25rem 1.5rem;
-      margin-bottom: 1.5rem;
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-    }
-
-    .contact-info-icon {
-      font-size: 1.5rem;
-    }
-
-    .contact-info-text a {
-      font-size: 0.95rem;
-      color: var(--gold);
-      text-decoration: none;
-    }
-
-    .contact-info-lbl {
-      font-size: 0.75rem;
-      color: var(--dim);
-    }
-
-    /* NOTIFICATION */
-    .notification {
-      position: fixed;
-      bottom: 2rem;
-      right: 2rem;
-      background: var(--surface);
-      border: 1px solid var(--border2);
-      border-radius: 12px;
-      padding: 1rem 1.25rem;
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      font-size: 0.875rem;
-      z-index: 3000;
-      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
-      transform: translateX(120%);
-      transition: transform 0.4s cubic-bezier(0.34,1.56,0.64,1);
-      max-width: 320px;
-    }
-
-    .notification.show { transform: translateX(0); }
-
-    .notif-icon { font-size: 1.25rem; }
-
-    .notif-title {
-      font-family: 'Syne', sans-serif;
-      font-weight: 700;
-      font-size: 0.875rem;
-    }
-
-    .notif-sub {
-      font-size: 0.75rem;
-      color: var(--muted);
-    }
+    .ttit { font-family:'Syne',sans-serif; font-weight:700; font-size:0.82rem; }
+    .tsub { font-size:0.7rem; color:var(--muted); }
 
     /* MOBILE MENU */
-    .mobile-menu {
-      display: none;
-      position: fixed;
-      top: 64px;
-      left: 0;
-      right: 0;
-      background: var(--deep);
-      border-bottom: 1px solid var(--border);
-      padding: 1.5rem 2rem;
-      z-index: 998;
-      flex-direction: column;
-      gap: 1rem;
+    .mobmenu {
+      display:none; position:fixed; top:60px; left:0; right:0;
+      background:var(--deep); border-bottom:1px solid var(--border);
+      padding:1.2rem 2rem; z-index:898; flex-direction:column; gap:0.8rem;
     }
-
-    .mobile-menu.open { display: flex; }
-
-    .mobile-menu a {
-      font-size: 0.95rem;
-      color: var(--muted);
-      text-decoration: none;
-      padding: 0.5rem 0;
-      border-bottom: 1px solid var(--border);
-    }
+    .mobmenu.open { display:flex; }
+    .mobmenu a { font-size:0.9rem; color:var(--muted); text-decoration:none; padding:0.38rem 0; border-bottom:1px solid var(--border); }
+    .mobmenu a.cta { color:var(--gold); border-bottom:none; }
 
     /* RESPONSIVE */
-    @media (max-width: 900px) {
-      .hero-inner { grid-template-columns: 1fr; gap: 3rem; }
-      .hero-visual { order: -1; }
-      .steps { grid-template-columns: 1fr; }
-      .steps::before { display: none; }
-      .features-grid { grid-template-columns: repeat(2, 1fr); }
-      .ecosystem-inner { grid-template-columns: 1fr; }
-      .who-cards { grid-template-columns: repeat(2, 1fr); }
-      .testimonials { grid-template-columns: 1fr; }
-      .stats-inner { grid-template-columns: repeat(2, 1fr); }
-      .footer-top { grid-template-columns: 1fr 1fr; gap: 2rem; }
-      .nav-links { display: none; }
-      .nav-mobile-btn { display: block; }
+    @media (max-width:900px) {
+      .hero-inner { grid-template-columns:1fr; gap:2.5rem; }
+      .hero-visual { order:-1; }
+      .steps { grid-template-columns:1fr; }
+      .feat-grid { grid-template-columns:repeat(2,1fr); }
+      .asset-inner { grid-template-columns:1fr; }
+      .who-grid { grid-template-columns:repeat(2,1fr); }
+      .quotes { grid-template-columns:1fr; }
+      .ftop { grid-template-columns:1fr 1fr; gap:2rem; }
+      .nav-links { display:none; }
+      .nav-mob { display:block; }
     }
-
-    @media (max-width: 600px) {
-      .features-grid { grid-template-columns: 1fr; }
-      .who-cards { grid-template-columns: 1fr; }
-      .stats-inner { grid-template-columns: 1fr 1fr; }
-      .footer-top { grid-template-columns: 1fr; }
-      .footer-bottom { flex-direction: column; gap: 1rem; }
-      .hero-form-row { flex-direction: column; }
-      .cta-form { flex-direction: column; }
-      .modal-box { padding: 2rem 1.5rem; }
-      .contact-row { grid-template-columns: 1fr; }
-    }
-
-    /* ANIMATION HELPERS */
-    .fade-up {
-      opacity: 0;
-      transform: translateY(24px);
-      transition: opacity 0.6s ease, transform 0.6s ease;
-    }
-
-    .fade-up.visible {
-      opacity: 1;
-      transform: translateY(0);
-    }
-
-    .fade-up.d1 { transition-delay: 0.1s; }
-    .fade-up.d2 { transition-delay: 0.2s; }
-    .fade-up.d3 { transition-delay: 0.3s; }
-    .fade-up.d4 { transition-delay: 0.4s; }
-    .fade-up.d5 { transition-delay: 0.5s; }
-
-    /* Number counter */
-    .count-up { display: inline; }
-
-    /* Divider */
-    .divider {
-      width: 40px;
-      height: 3px;
-      background: var(--gold);
-      border-radius: 2px;
-      margin: 1rem auto;
+    @media (max-width:600px) {
+      .feat-grid { grid-template-columns:1fr; }
+      .who-grid { grid-template-columns:1fr; }
+      .ftop { grid-template-columns:1fr; }
+      .fbot { flex-direction:column; align-items:flex-start; }
+      .wrow { flex-direction:column; }
+      .band-inner { gap:1.4rem; }
+      .mbox { padding:1.65rem 1.2rem; }
     }
   </style>
 </head>
 <body>
 
-<!-- NOTIFICATION POPUP -->
-<div class="notification" id="notification">
-  <span class="notif-icon">✓</span>
+<!-- TOAST -->
+<div class="toast" id="toast">
+  <div class="tchk">&#10003;</div>
   <div>
-    <div class="notif-title">You're on the list!</div>
-    <div class="notif-sub">We'll be in touch soon.</div>
+    <div class="ttit">You're on the list</div>
+    <div class="tsub">We'll reach out as we get closer to launch.</div>
   </div>
 </div>
 
 <!-- NAV -->
-<nav>
+<nav id="nav">
   <div class="nav-inner">
-    <a href="#" class="nav-logo">
-      <!-- ASE Logo SVG -->
-      <svg class="logo-mark" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect width="34" height="34" rx="8" fill="#F0B429" fill-opacity="0.12"/>
-        <rect width="34" height="34" rx="8" stroke="#F0B429" stroke-width="1" stroke-opacity="0.4"/>
-        <!-- Chart bars -->
-        <rect x="7" y="20" width="4" height="8" rx="1" fill="#F0B429" opacity="0.5"/>
-        <rect x="13" y="14" width="4" height="14" rx="1" fill="#F0B429" opacity="0.75"/>
-        <rect x="19" y="10" width="4" height="18" rx="1" fill="#F0B429"/>
-        <!-- Up arrow accent -->
-        <path d="M25 17L27 14L29 17" stroke="#10B981" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-        <line x1="27" y1="14" x2="27" y2="22" stroke="#10B981" stroke-width="1.5" stroke-linecap="round"/>
-      </svg>
-      <span class="logo-text">AS<span>E</span></span>
-    </a>
+    <a href="#" class="nav-logo">AS<span>E</span></a>
     <ul class="nav-links">
       <li><a href="#how">How It Works</a></li>
       <li><a href="#features">Features</a></li>
-      <li><a href="#who">For You</a></li>
+      <li><a href="#who">Who It's For</a></li>
       <li><a href="#faq">FAQ</a></li>
-      <li><a href="#" onclick="openModal('contact'); return false;" class="nav-cta">Join Waitlist</a></li>
+      <li><a class="btn-nav" href="#waitlist-anchor" onclick="focusWaitlist(event)">Get Early Access</a></li>
     </ul>
-    <button class="nav-mobile-btn" onclick="toggleMobileMenu()" aria-label="Menu">
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-        <line x1="2" y1="6" x2="20" y2="6" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
-        <line x1="2" y1="11" x2="20" y2="11" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
-        <line x1="2" y1="16" x2="20" y2="16" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+    <button class="nav-mob" onclick="toggleMob()" aria-label="Open menu">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <line x1="2" y1="5" x2="18" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="2" y1="10" x2="18" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="2" y1="15" x2="18" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
       </svg>
     </button>
   </div>
 </nav>
 
 <!-- MOBILE MENU -->
-<div class="mobile-menu" id="mobileMenu">
-  <a href="#how" onclick="closeMobileMenu()">How It Works</a>
-  <a href="#features" onclick="closeMobileMenu()">Features</a>
-  <a href="#who" onclick="closeMobileMenu()">For You</a>
-  <a href="#faq" onclick="closeMobileMenu()">FAQ</a>
-  <a href="#" onclick="openModal('contact'); closeMobileMenu(); return false;" style="color: var(--gold);">Join Waitlist →</a>
+<div class="mobmenu" id="mobmenu">
+  <a href="#how" onclick="closeMob()">How It Works</a>
+  <a href="#features" onclick="closeMob()">Features</a>
+  <a href="#who" onclick="closeMob()">Who It's For</a>
+  <a href="#faq" onclick="closeMob()">FAQ</a>
+  <a href="#waitlist-anchor" class="cta" onclick="focusWaitlist(event);closeMob();">Get Early Access ›</a>
 </div>
 
 <!-- TICKER BAR -->
 <div class="ticker-bar">
-  <div class="ticker-label">LIVE ●</div>
-  <div class="ticker-scroll-wrap">
-    <div class="ticker-scroll" id="tickerScroll">
-      <!-- Items will be doubled for seamless loop -->
-      <div class="ticker-item"><span class="ticker-name">ALPHA-7</span><span class="ticker-price">$142.30</span><span class="ticker-up">▲ +18.4%</span></div>
-      <div class="ticker-item"><span class="ticker-name">QUANT-X</span><span class="ticker-price">$89.55</span><span class="ticker-up">▲ +11.2%</span></div>
-      <div class="ticker-item"><span class="ticker-name">MOMENTUM-3</span><span class="ticker-price">$221.80</span><span class="ticker-down">▼ −2.1%</span></div>
-      <div class="ticker-item"><span class="ticker-name">ARB-BOT</span><span class="ticker-price">$67.10</span><span class="ticker-up">▲ +34.7%</span></div>
-      <div class="ticker-item"><span class="ticker-name">SECTOR-R</span><span class="ticker-price">$184.90</span><span class="ticker-up">▲ +8.9%</span></div>
-      <div class="ticker-item"><span class="ticker-name">DELTA-F</span><span class="ticker-price">$312.40</span><span class="ticker-down">▼ −1.4%</span></div>
-      <div class="ticker-item"><span class="ticker-name">NEURAL-1</span><span class="ticker-price">$55.20</span><span class="ticker-up">▲ +22.3%</span></div>
-      <div class="ticker-item"><span class="ticker-name">MACRO-AI</span><span class="ticker-price">$167.00</span><span class="ticker-up">▲ +6.5%</span></div>
-      <!-- Duplicate for seamless -->
-      <div class="ticker-item"><span class="ticker-name">ALPHA-7</span><span class="ticker-price">$142.30</span><span class="ticker-up">▲ +18.4%</span></div>
-      <div class="ticker-item"><span class="ticker-name">QUANT-X</span><span class="ticker-price">$89.55</span><span class="ticker-up">▲ +11.2%</span></div>
-      <div class="ticker-item"><span class="ticker-name">MOMENTUM-3</span><span class="ticker-price">$221.80</span><span class="ticker-down">▼ −2.1%</span></div>
-      <div class="ticker-item"><span class="ticker-name">ARB-BOT</span><span class="ticker-price">$67.10</span><span class="ticker-up">▲ +34.7%</span></div>
-      <div class="ticker-item"><span class="ticker-name">SECTOR-R</span><span class="ticker-price">$184.90</span><span class="ticker-up">▲ +8.9%</span></div>
-      <div class="ticker-item"><span class="ticker-name">DELTA-F</span><span class="ticker-price">$312.40</span><span class="ticker-down">▼ −1.4%</span></div>
-      <div class="ticker-item"><span class="ticker-name">NEURAL-1</span><span class="ticker-price">$55.20</span><span class="ticker-up">▲ +22.3%</span></div>
-      <div class="ticker-item"><span class="ticker-name">MACRO-AI</span><span class="ticker-price">$167.00</span><span class="ticker-up">▲ +6.5%</span></div>
+  <div class="ticker-lbl">PREVIEW &#9679;</div>
+  <div class="ticker-track">
+    <div class="ticker-scroll">
+      <span class="ti"><span class="tn">ALPHA-7</span><span class="tp">$142.30</span><span class="tu">+18.4%</span></span>
+      <span class="ti"><span class="tn">QUANT-X</span><span class="tp">$89.55</span><span class="tu">+11.2%</span></span>
+      <span class="ti"><span class="tn">MOMENTUM-3</span><span class="tp">$221.80</span><span class="td">&#8722;2.1%</span></span>
+      <span class="ti"><span class="tn">ARB-BOT</span><span class="tp">$67.10</span><span class="tu">+34.7%</span></span>
+      <span class="ti"><span class="tn">SECTOR-R</span><span class="tp">$184.90</span><span class="tu">+8.9%</span></span>
+      <span class="ti"><span class="tn">DELTA-F</span><span class="tp">$312.40</span><span class="td">&#8722;1.4%</span></span>
+      <span class="ti"><span class="tn">NEURAL-1</span><span class="tp">$55.20</span><span class="tu">+22.3%</span></span>
+      <span class="ti"><span class="tn">MACRO-AI</span><span class="tp">$167.00</span><span class="tu">+6.5%</span></span>
+      <span class="ti"><span class="tn">ALPHA-7</span><span class="tp">$142.30</span><span class="tu">+18.4%</span></span>
+      <span class="ti"><span class="tn">QUANT-X</span><span class="tp">$89.55</span><span class="tu">+11.2%</span></span>
+      <span class="ti"><span class="tn">MOMENTUM-3</span><span class="tp">$221.80</span><span class="td">&#8722;2.1%</span></span>
+      <span class="ti"><span class="tn">ARB-BOT</span><span class="tp">$67.10</span><span class="tu">+34.7%</span></span>
+      <span class="ti"><span class="tn">SECTOR-R</span><span class="tp">$184.90</span><span class="tu">+8.9%</span></span>
+      <span class="ti"><span class="tn">DELTA-F</span><span class="tp">$312.40</span><span class="td">&#8722;1.4%</span></span>
+      <span class="ti"><span class="tn">NEURAL-1</span><span class="tp">$55.20</span><span class="tu">+22.3%</span></span>
+      <span class="ti"><span class="tn">MACRO-AI</span><span class="tp">$167.00</span><span class="tu">+6.5%</span></span>
     </div>
   </div>
 </div>
 
-<!-- ═══════════════════ HERO ═══════════════════ -->
-<section class="hero">
-  <div class="hero-glow-1"></div>
-  <div class="hero-glow-2"></div>
+<!-- ═══ HERO ═══ -->
+<section class="hero" id="top">
+  <div class="hero-grid"></div>
+  <div class="glow glow-a"></div>
+  <div class="glow glow-b"></div>
+
   <div class="hero-inner">
-    <div class="hero-content">
-      <div class="hero-badge fade-up">
-        <span class="badge-dot"></span>
-        NOW ACCEPTING EARLY ACCESS
+    <!-- COPY + FORM -->
+    <div>
+      <div class="hero-badge fade">
+        <span class="bdot"></span>
+        EARLY ACCESS — WAITLIST OPEN
       </div>
-      <h1 class="hero-headline fade-up d1">
-        The Stock Market<br>for <span class="accent">AI Agents</span>
+
+      <h1 class="hero-h1 fade d1">
+        The Exchange<br>for <span class="g">AI Trading<br>Agents</span>
       </h1>
-      <p class="hero-sub fade-up d2">
-        Deploy AI trading agents. Own equity in the strategies that outperform. 
-        ASE is the first regulated marketplace where intelligent agents become 
-        tradable, ownable assets.
+
+      <p class="hero-sub fade d2">
+        ASE is building a marketplace where AI trading agents are independently verified, 
+        listed, and owned like assets. Join the waitlist to be first in.
       </p>
 
-      <div id="heroFormWrap" class="fade-up d3">
-        <form class="hero-form" onsubmit="submitWaitlist(event, 'heroForm')">
-          <div class="hero-form-row">
-            <input class="hero-input full" type="email" name="email" id="heroEmail" placeholder="you@example.com" required autocomplete="email">
+      <div class="fade d3" id="waitlist-anchor">
+        <form class="wform" onsubmit="handleWaitlist(event)">
+          <div class="wrow">
+            <input
+              class="finput"
+              type="email"
+              id="emailInput"
+              placeholder="your@email.com"
+              required
+              autocomplete="email"
+            >
+            <button type="submit" class="btn-primary" id="submitBtn">Request Access</button>
           </div>
-          <button type="submit" class="btn-primary" id="heroBtn">
-            Get Early Access →
-          </button>
-          <div class="hero-trust">
-            We'll notify you first.
-          </div>
+          <p class="fnote">No spam. No credit card required.</p>
+          <div class="fmsg" id="fmsg"></div>
         </form>
-        <div class="form-message" id="heroMsg"></div>
       </div>
     </div>
 
-    <!-- TERMINAL VISUAL -->
-    <div class="hero-visual fade-up d2">
-      <div class="terminal-card">
-        <div class="terminal-header">
-          <span class="term-dot r"></span>
-          <span class="term-dot y"></span>
-          <span class="term-dot g"></span>
-          <span class="terminal-title">ASE MARKETPLACE — LIVE FEED</span>
+    <!-- TERMINAL PREVIEW -->
+    <div class="hero-visual fade d2">
+      <div class="terminal">
+        <div class="tbar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="ttitle">ASE — ILLUSTRATIVE MARKETPLACE PREVIEW</span>
         </div>
-        <div class="terminal-body">
-          <div class="agent-row header">
-            <span>AGENT</span>
-            <span>30D RETURN</span>
-            <span>SHARPE</span>
-            <span>AUM</span>
+        <div class="tbody">
+          <div class="trow hdr">
+            <span>AGENT</span><span>30D RTN</span><span>SHARPE</span><span>AUM</span>
           </div>
-          <div class="agent-row">
-            <div><div class="agent-name">Alpha-7</div><div class="agent-ticker">$ALPH</div></div>
-            <div class="agent-return pos">+18.4%</div>
-            <div class="agent-vol">2.41</div>
-            <div class="agent-vol">$2.3M</div>
+          <div class="trow">
+            <div><div class="an">Alpha-7</div><div class="at">$ALPH</div></div>
+            <div class="pos">+18.4%</div><div class="dv">2.41</div><div class="dv">$2.3M</div>
           </div>
-          <div class="agent-row">
-            <div><div class="agent-name">ARB-Bot Pro</div><div class="agent-ticker">$ARB</div></div>
-            <div class="agent-return pos">+34.7%</div>
-            <div class="agent-vol">3.12</div>
-            <div class="agent-vol">$890K</div>
+          <div class="trow">
+            <div><div class="an">ARB-Bot Pro</div><div class="at">$ARB</div></div>
+            <div class="pos">+34.7%</div><div class="dv">3.12</div><div class="dv">$890K</div>
           </div>
-          <div class="agent-row">
-            <div><div class="agent-name">Sector Rotator</div><div class="agent-ticker">$SECT</div></div>
-            <div class="agent-return pos">+8.9%</div>
-            <div class="agent-vol">1.87</div>
-            <div class="agent-vol">$4.1M</div>
+          <div class="trow">
+            <div><div class="an">Sector Rotator</div><div class="at">$SECT</div></div>
+            <div class="pos">+8.9%</div><div class="dv">1.87</div><div class="dv">$4.1M</div>
           </div>
-          <div class="agent-row">
-            <div><div class="agent-name">Neural Macro</div><div class="agent-ticker">$NMAC</div></div>
-            <div class="agent-return pos">+22.3%</div>
-            <div class="agent-vol">2.98</div>
-            <div class="agent-vol">$1.6M</div>
+          <div class="trow">
+            <div><div class="an">Neural Macro</div><div class="at">$NMAC</div></div>
+            <div class="pos">+22.3%</div><div class="dv">2.98</div><div class="dv">$1.6M</div>
           </div>
-          <div class="agent-row">
-            <div><div class="agent-name">Delta Futures</div><div class="agent-ticker">$DELT</div></div>
-            <div class="agent-return neg">−1.4%</div>
-            <div class="agent-vol">0.92</div>
-            <div class="agent-vol">$5.2M</div>
+          <div class="trow">
+            <div><div class="an">Delta Futures</div><div class="at">$DELT</div></div>
+            <div class="neg">&#8722;1.4%</div><div class="dv">0.92</div><div class="dv">$5.2M</div>
           </div>
         </div>
-        <div class="terminal-footer">
-          <div class="term-stat">
-            <div class="term-stat-val green">↑ 14</div>
-            <div class="term-stat-lbl">GAINERS</div>
-          </div>
-          <div class="term-stat">
-            <div class="term-stat-val">247</div>
-            <div class="term-stat-lbl">AGENTS LIVE</div>
-          </div>
-          <div class="term-stat">
-            <div class="term-stat-val">$18.4M</div>
-            <div class="term-stat-lbl">TOTAL AUM</div>
-          </div>
-          <div class="term-stat">
-            <div class="term-stat-val green">+12.6%</div>
-            <div class="term-stat-lbl">AVG 30D</div>
-          </div>
+        <div class="tfoot">
+          <div class="ts"><div class="tv g">14</div><div class="tl">GAINERS</div></div>
+          <div class="ts"><div class="tv">247</div><div class="tl">AGENTS</div></div>
+          <div class="ts"><div class="tv">$18.4M</div><div class="tl">TOTAL AUM</div></div>
+          <div class="ts"><div class="tv g">+12.6%</div><div class="tl">AVG 30D</div></div>
         </div>
       </div>
+      <p style="font-size:0.6rem;color:var(--dim);text-align:center;margin-top:0.55rem;font-family:'DM Mono',monospace;">
+        Illustrative only. Not indicative of future performance.
+      </p>
     </div>
   </div>
 </section>
 
-<!-- STATS STRIP -->
-<div class="stats-strip">
-  <div class="stats-inner">
+<!-- BAND -->
+<div class="band">
+  <div class="band-inner">
+    <div class="band-item">AI-native architecture</div>
+    <div class="band-item">Compliance-first approach</div>
+    <div class="band-item">Independent performance verification</div>
+    <div class="band-item">Open SDK for builders</div>
+    <div class="band-item">Fractional ownership model</div>
   </div>
 </div>
 
-<!-- ═══════════════════ HOW IT WORKS ═══════════════════ -->
-<section class="how-section" id="how">
-  <div class="section-wrap">
-    <div class="how-header">
-      <div class="section-eyebrow">THE PROCESS</div>
-      <h2 class="section-title">How ASE Works</h2>
-      <div class="divider"></div>
-      <p class="section-desc" style="margin: 1rem auto 0; text-align:center;">
-        A transparent, three-sided marketplace connecting builders, investors, and the market.
+<!-- ═══ HOW IT WORKS ═══ -->
+<section class="how-sec" id="how">
+  <div class="wrap">
+    <div class="how-hdr">
+      <div class="eyebrow">THE PROCESS</div>
+      <h2 class="sec-title">How ASE works</h2>
+      <div class="rule"></div>
+      <p class="sec-lead" style="margin:0.85rem auto 0;text-align:center;">
+        A transparent marketplace connecting agent builders, investors, and the market — 
+        with independent verification at every step.
       </p>
     </div>
     <div class="steps">
-      <div class="step-card fade-up">
-        <div class="step-num">
-          STEP 01
+      <div class="step-card fade">
+        <div class="step-top">
+          <div class="step-circ"><span>01</span></div>
+          <span class="step-lbl">BUILD</span>
         </div>
-        <h3 class="step-title">Deploy Your Agent</h3>
+        <h3 class="step-title">Submit Your Agent</h3>
         <p class="step-desc">
-          Submit your AI trading agent to ASE for evaluation. Agents undergo testing before listing on the exchange.
+          Developers submit AI trading agents to ASE. Each agent goes through a structured 
+          evaluation — backtesting, live paper-trading, and independent third-party audit — 
+          before any listing. No self-reported performance. No retrofitted results.
         </p>
       </div>
-      <div class="step-card fade-up d2">
-        <div class="step-num">
-          STEP 02
+      <div class="step-card fade d2">
+        <div class="step-top">
+          <div class="step-circ"><span>02</span></div>
+          <span class="step-lbl">TRADE</span>
         </div>
-        <h3 class="step-title">Trade Agent Equity</h3>
+        <h3 class="step-title">Acquire a Stake</h3>
         <p class="step-desc">
-          Investors can purchase ownership stakes in agents. As agents perform, equity holders share in returns.
+          Once listed, investors may acquire equity stakes in an agent's future returns — 
+          analogous to buying shares in a company. Every agent has a transparent track record, 
+          a risk profile, and fully disclosed terms before any investment is made.
         </p>
       </div>
-      <div class="step-card fade-up d3">
-        <div class="step-num">
-          STEP 03
+      <div class="step-card fade d3">
+        <div class="step-top">
+          <div class="step-circ"><span>03</span></div>
+          <span class="step-lbl">EARN</span>
         </div>
-        <h3 class="step-title">Earn Returns</h3>
+        <h3 class="step-title">Share in Returns</h3>
         <p class="step-desc">
-          Profits are distributed to equity holders. Developers earn based on agent performance.
+          When an agent generates returns, they flow to equity holders according to the 
+          terms set at listing. Developers earn a performance-based share. Investors receive 
+          the remainder. All terms are disclosed upfront. All investments involve risk.
         </p>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ═══════════════════ FEATURES ═══════════════════ -->
-<section class="features-section" id="features">
-  <div class="section-wrap">
-    <div class="section-eyebrow">PLATFORM CAPABILITIES</div>
-    <h2 class="section-title">Built for the future<br>of intelligent finance</h2>
-    <p class="section-desc" style="margin-top:0.75rem">
-      ASE combines the rigor of a regulated exchange with the open infrastructure of modern finance.
-    </p>
-    <div class="features-grid">
-      <div class="feature-card fade-up">
-        <div class="feature-icon"></div>
-        <h3 class="feature-title">Real-Time Performance Tracking</h3>
-        <p class="feature-desc">Live Sharpe ratios, drawdown metrics, and alpha generation tracked continuously.</p>
-      </div>
-      <div class="feature-card fade-up d1">
-        <div class="feature-icon"></div>
-        <h3 class="feature-title">Regulatory Compliance</h3>
-        <p class="feature-desc">KYC/AML at onboarding and jurisdiction-aware access controls.</p>
-      </div>
-      <div class="feature-card fade-up d2">
-        <div class="feature-icon"></div>
-        <h3 class="feature-title">Fractional Agent Ownership</h3>
-        <p class="feature-desc">Start with as little as $10. Own a fraction of AI trading agents on the market.</p>
-      </div>
-      <div class="feature-card fade-up d3">
-        <div class="feature-icon"></div>
-        <h3 class="feature-title">Auditable Strategy Proofs</h3>
-        <p class="feature-desc">Every strategy is backtested and verified before listing.</p>
-      </div>
-      <div class="feature-card fade-up d4">
-        <div class="feature-icon"></div>
-        <h3 class="feature-title">Open Agent SDK</h3>
-        <p class="feature-desc">Build and deploy agents using our Python and TypeScript SDK.</p>
-      </div>
-      <div class="feature-card fade-up d5">
-        <div class="feature-icon"></div>
-        <h3 class="feature-title">Secondary Market Trading</h3>
-        <p class="feature-desc">Buy and sell agent equity stakes on ASE's secondary market with transparent price discovery.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ═══════════════════ ECOSYSTEM / AGENT CARD ═══════════════════ -->
-<section class="ecosystem-section">
-  <div class="ecosystem-inner section-wrap">
-    <div class="eco-content fade-up">
-      <div class="section-eyebrow">THE ASSET CLASS</div>
-      <h2 class="section-title">AI Agents as investable assets</h2>
-      <p class="section-desc" style="margin-top:0.75rem">
-        For the first time, the intelligence behind a trading strategy can be 
-        owned, priced, and exchanged. When an agent outperforms, its equity 
-        rises — just like a stock.
+<!-- ═══ FEATURES ═══ -->
+<section class="feat-sec" id="features">
+  <div class="wrap">
+    <div class="feat-hdr">
+      <div class="eyebrow">PLATFORM CAPABILITIES</div>
+      <h2 class="sec-title">Infrastructure built for<br>intelligent finance</h2>
+      <p class="sec-lead" style="margin-top:0.7rem;">
+        Designed from the ground up around auditability, compliance, and transparency.
       </p>
-      <div style="margin-top: 2rem; display: flex; flex-direction: column; gap: 0.75rem;">
-        <div style="display:flex; align-items:center; gap: 0.75rem; font-size: 0.9rem; color: var(--muted);">
-          <span style="color: var(--green); font-size: 1rem;">→</span>
-          Agents have unique identities and shareholder registers
-        </div>
-        <div style="display:flex; align-items:center; gap: 0.75rem; font-size: 0.9rem; color: var(--muted);">
-          <span style="color: var(--green); font-size: 1rem;">→</span>
-          Performance is tracked and timestamped
-        </div>
-        <div style="display:flex; align-items:center; gap: 0.75rem; font-size: 0.9rem; color: var(--muted);">
-          <span style="color: var(--green); font-size: 1rem;">→</span>
-          Developers earn based on agent performance
-        </div>
-        <div style="display:flex; align-items:center; gap: 0.75rem; font-size: 0.9rem; color: var(--muted);">
-          <span style="color: var(--green); font-size: 1rem;">→</span>
-          Risk ratings and volatility scores updated in real time
-        </div>
+    </div>
+    <div class="feat-grid">
+      <div class="feat-card fade">
+        <div class="ficon">&#9651;</div>
+        <h3 class="ftitle">Real-Time Performance Tracking</h3>
+        <p class="fdesc">Sharpe ratios, maximum drawdown, and alpha vs. benchmark tracked continuously. Every trade on record. Every signal timestamped by a third party.</p>
       </div>
-      <div style="margin-top: 2.5rem;">
-        <button onclick="openModal('waitlist')" class="btn-primary">Request Access →</button>
+      <div class="feat-card fade d1">
+        <div class="ficon">&#9632;</div>
+        <h3 class="ftitle">Compliance-First Design</h3>
+        <p class="fdesc">KYC/AML at onboarding. Jurisdiction-aware access. We are actively engaging legal counsel on US securities law — compliance is architecture, not afterthought.</p>
+      </div>
+      <div class="feat-card fade d2">
+        <div class="ficon">&#9670;</div>
+        <h3 class="ftitle">Fractional Ownership</h3>
+        <p class="fdesc">Designed to allow partial stakes in listed agents, lowering barriers to participation. Minimum thresholds and eligibility requirements will be disclosed at launch.</p>
+      </div>
+      <div class="feat-card fade d3">
+        <div class="ficon">&#9679;</div>
+        <h3 class="ftitle">Independent Strategy Audits</h3>
+        <p class="fdesc">Every agent passes mandatory third-party evaluation against 10+ years of data. Retroactive optimization and data-snooping are explicitly screened and rejected.</p>
+      </div>
+      <div class="feat-card fade d4">
+        <div class="ficon">{ }</div>
+        <h3 class="ftitle">Open Agent SDK</h3>
+        <p class="fdesc">Python and TypeScript SDK in development. Supports LLMs, reinforcement learning, and classical quantitative strategies. Submit agents without rebuilding your workflow.</p>
+      </div>
+      <div class="feat-card fade d5">
+        <div class="ficon">&#8652;</div>
+        <h3 class="ftitle">Secondary Market</h3>
+        <p class="fdesc">Planned secondary market for agent equity stakes. Liquidity is not guaranteed and will vary by agent. Full terms disclosed before any transaction is facilitated.</p>
       </div>
     </div>
-    <div class="eco-visual fade-up d2">
-      <div class="eco-card-stack">
-        <div class="eco-card back2"></div>
-        <div class="eco-card back1"></div>
-        <div class="eco-card main">
-          <div class="eco-card-header">
-            <div>
-              <div class="eco-agent-name">ARB-Bot Pro</div>
-              <div style="font-size:0.75rem; color: var(--dim); margin-top:2px; font-family:'DM Mono',monospace;">Arbitrage / Multi-Asset</div>
-            </div>
-            <div class="eco-agent-ticker">$ARB</div>
+  </div>
+</section>
+
+<!-- ═══ ASSET CLASS ═══ -->
+<section class="asset-sec">
+  <div class="asset-inner">
+    <div class="fade">
+      <div class="eyebrow">THE ASSET CLASS</div>
+      <h2 class="sec-title">AI agents as ownable assets</h2>
+      <p class="sec-lead" style="margin-top:0.7rem;">
+        For the first time, the intelligence behind a trading strategy could be priced, 
+        owned, and transferred. When an agent outperforms, its equity reflects that — 
+        analogous to how a stock reflects a company's performance.
+      </p>
+      <div class="checks">
+        <div class="chk"><span class="chk-icon">&#10003;</span>Each agent gets a unique identifier, ticker, and audited performance ledger</div>
+        <div class="chk"><span class="chk-icon">&#10003;</span>Track records independently verified — not self-reported by developers</div>
+        <div class="chk"><span class="chk-icon">&#10003;</span>Risk ratings and volatility metrics updated continuously</div>
+        <div class="chk"><span class="chk-icon">&#10003;</span>Return distribution terms set at listing and disclosed to all investors</div>
+        <div class="chk"><span class="chk-icon">&#10003;</span>All investments carry risk — disclosures provided before any transaction</div>
+      </div>
+      <div style="margin-top:1.75rem;">
+        <a href="#waitlist-anchor" class="btn-primary" onclick="focusWaitlist(event)" style="display:inline-block;text-decoration:none;">
+          Request Early Access
+        </a>
+      </div>
+    </div>
+
+    <div class="fade d2">
+      <div class="card-stack">
+        <div class="sc b2"></div>
+        <div class="sc b1"></div>
+        <div class="sc main">
+          <div class="ctop">
+            <div><div class="can">ARB-Bot Pro</div><div class="csub">Arbitrage / Multi-Asset</div></div>
+            <div class="ctick">$ARB</div>
           </div>
-          <div class="eco-agent-return">+34.7%</div>
-          <div class="eco-agent-period">30-day return · Audited</div>
-          <!-- SVG sparkline -->
-          <svg class="sparkline" viewBox="0 0 300 60" xmlns="http://www.w3.org/2000/svg">
+          <div class="cret">+34.7%</div>
+          <div class="cper">Illustrative 30-day return</div>
+          <svg class="sparkline" viewBox="0 0 300 50" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#10B981" stop-opacity="0.3"/>
-                <stop offset="100%" stop-color="#10B981" stop-opacity="0"/>
+              <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#0EAD6E" stop-opacity="0.26"/>
+                <stop offset="100%" stop-color="#0EAD6E" stop-opacity="0"/>
               </linearGradient>
             </defs>
-            <path d="M0,50 L20,44 L40,38 L60,42 L80,32 L100,28 L120,22 L140,26 L160,18 L180,12 L200,16 L220,8 L240,10 L260,6 L280,4 L300,2" 
-                  fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round"/>
-            <path d="M0,50 L20,44 L40,38 L60,42 L80,32 L100,28 L120,22 L140,26 L160,18 L180,12 L200,16 L220,8 L240,10 L260,6 L280,4 L300,2 L300,60 L0,60 Z" 
-                  fill="url(#sparkGrad)"/>
+            <path d="M0,46 L20,40 L40,34 L60,38 L80,28 L100,24 L120,19 L140,23 L160,15 L180,10 L200,14 L220,7 L240,9 L260,5 L280,3 L300,1"
+              fill="none" stroke="#0EAD6E" stroke-width="1.6" stroke-linecap="round"/>
+            <path d="M0,46 L20,40 L40,34 L60,38 L80,28 L100,24 L120,19 L140,23 L160,15 L180,10 L200,14 L220,7 L240,9 L260,5 L280,3 L300,1 L300,50 L0,50 Z"
+              fill="url(#sg)"/>
           </svg>
-          <div class="eco-stats">
-            <div class="eco-stat-item">
-              <div class="eco-stat-v">3.12</div>
-              <div class="eco-stat-l">SHARPE</div>
-            </div>
-            <div class="eco-stat-item">
-              <div class="eco-stat-v">$890K</div>
-              <div class="eco-stat-l">AUM</div>
-            </div>
-            <div class="eco-stat-item">
-              <div class="eco-stat-v">4.2%</div>
-              <div class="eco-stat-l">MAX DD</div>
-            </div>
+          <div class="cstats">
+            <div class="csi"><div class="csv">3.12</div><div class="csl">SHARPE</div></div>
+            <div class="csi"><div class="csv">$890K</div><div class="csl">AUM</div></div>
+            <div class="csi"><div class="csv">4.2%</div><div class="csl">MAX DD</div></div>
           </div>
         </div>
       </div>
+      <p style="font-size:0.6rem;color:var(--dim);text-align:center;margin-top:0.6rem;font-family:'DM Mono',monospace;">
+        Illustrative data only. Past performance does not predict future results.
+      </p>
     </div>
   </div>
 </section>
 
-<!-- ═══════════════════ WHO IT'S FOR ═══════════════════ -->
-<section class="who-section" id="who">
-  <div class="section-wrap">
-    <div style="text-align:center; margin-bottom: 1rem;">
-      <div class="section-eyebrow">WHO IT'S FOR</div>
-      <h2 class="section-title">Built for three types of visionary</h2>
+<!-- ═══ WHO IT'S FOR ═══ -->
+<section class="who-sec" id="who">
+  <div class="wrap">
+    <div class="who-hdr">
+      <div class="eyebrow">WHO IT'S FOR</div>
+      <h2 class="sec-title">Built for three types of participant</h2>
     </div>
-    <div class="who-cards">
-      <div class="who-card fade-up">
-        <div class="who-avatar"></div>
-        <h3 class="who-title">AI Builders</h3>
-        <p class="who-desc">
-          You've built a trading agent that performs. Now monetize it. Deploy on ASE and earn based on your agent's performance.
+    <div class="who-grid">
+      <div class="who-card fade">
+        <div class="wlbl">FOR BUILDERS</div>
+        <h3 class="wtitle">AI Developers</h3>
+        <p class="wdesc">
+          You've built a trading strategy that performs. ASE gives you a structured path to list it, 
+          attract capital, and earn based on verified performance — without managing investors manually 
+          or raising through traditional channels.
         </p>
-        <div class="who-tags">
+        <div class="wtags">
           <span class="tag">ML ENGINEERS</span>
           <span class="tag">QUANTS</span>
           <span class="tag">RESEARCHERS</span>
         </div>
       </div>
-      <div class="who-card fade-up d2">
-        <div class="who-avatar"></div>
-        <h3 class="who-title">Retail Investors</h3>
-        <p class="who-desc">
-          Access algorithmic strategies with fractional ownership. Start small and own a piece of high-performing agents.
+      <div class="who-card fade d2">
+        <div class="wlbl">FOR INVESTORS</div>
+        <h3 class="wtitle">Individual Investors</h3>
+        <p class="wdesc">
+          Algorithmic strategies have historically been accessible only to institutions. ASE is 
+          designed to broaden access — with transparent disclosures and independent audits. 
+          Eligibility requirements apply. All investments carry risk.
         </p>
-        <div class="who-tags">
-          <span class="tag">INDIVIDUAL INVESTORS</span>
+        <div class="wtags">
           <span class="tag">SELF-DIRECTED</span>
-        </div>
-      </div>
-      <div class="who-card fade-up d3">
-        <div class="who-avatar"></div>
-        <h3 class="who-title">Institutional Players</h3>
-        <p class="who-desc">
-          Source and evaluate AI strategies in the market. Full API access and custom compliance packages available.
-        </p>
-        <div class="who-tags">
-          <span class="tag">HEDGE FUNDS</span>
-          <span class="tag">RIAs</span>
-        </div>
-      </div>
-    </div> 
-          budget. Diversify across multiple AI agents, build a portfolio 
-          of strategies, and invest in the future of finance.
-        </p>
-        <div class="who-tags">
-          <span class="tag">LONG-TERM</span>
-          <span class="tag">DIVERSIFIED</span>
           <span class="tag">DATA-DRIVEN</span>
         </div>
       </div>
-      <div class="who-card fade-up d3">
-        <div class="who-avatar">🏛️</div>
-        <h3 class="who-title">Institutional Players</h3>
-        <p class="who-desc">
-          Source, evaluate, and allocate to the highest-performing AI 
-          strategies in the market. Full API access, white-glove onboarding, 
-          and custom compliance packages available.
+      <div class="who-card fade d3">
+        <div class="wlbl">FOR INSTITUTIONS</div>
+        <h3 class="wtitle">Institutional Participants</h3>
+        <p class="wdesc">
+          Source and evaluate AI strategies with full data access and API integration. 
+          We are in early dialogue with institutional partners. Contact us to discuss 
+          how ASE could fit your process.
         </p>
-        <div class="who-tags">
+        <div class="wtags">
           <span class="tag">FAMILY OFFICES</span>
           <span class="tag">HEDGE FUNDS</span>
           <span class="tag">RIAs</span>
@@ -2012,649 +916,355 @@
   </div>
 </section>
 
-<!-- ═══════════════════ TESTIMONIALS ═══════════════════ -->
-<section class="social-section">
-  <div class="section-wrap">
-    <div style="text-align:center; margin-bottom: 1rem;">
-      <div class="section-eyebrow">EARLY VOICES</div>
-      <h2 class="section-title">The community is excited</h2>
-    </div>
-    <div class="testimonials">
-      <div class="testimonial-card fade-up">
-        <div class="quote-mark">"</div>
-        <p class="testimonial-text">
-          Finally. I've been running profitable quant strategies for years with nowhere to 
-          attract outside capital. ASE solves the chicken-and-egg problem that's kept 
-          retail algo traders locked out of the big leagues.
-        </p>
-        <div class="testimonial-author">
-          <div class="author-avatar">MR</div>
-          <div>
-            <div class="author-name">Marcus R.</div>
-            <div class="author-role">Quantitative Developer, Ex-Jane Street</div>
-          </div>
-        </div>
-      </div>
-      <div class="testimonial-card fade-up d2">
-        <div class="quote-mark">"</div>
-        <p class="testimonial-text">
-          The idea of owning a fraction of an AI agent's returns is 
-          genuinely novel. This is what DeFi was trying to be — but with 
-          real assets, real compliance, and real track records.
-        </p>
-        <div class="testimonial-author">
-          <div class="author-avatar">SP</div>
-          <div>
-            <div class="author-name">Sarah P.</div>
-            <div class="author-role">Portfolio Manager, Frontier Capital</div>
-          </div>
-        </div>
-      </div>
-      <div class="testimonial-card fade-up d3">
-        <div class="quote-mark">"</div>
-        <p class="testimonial-text">
-          I built a momentum agent for fun over a weekend. The ASE SDK made it 
-          trivial to package for submission. If this platform launches, it'll 
-          change how the next generation of finance is built.
-        </p>
-        <div class="testimonial-author">
-          <div class="author-avatar">AK</div>
-          <div>
-            <div class="author-name">Aiko K.</div>
-            <div class="author-role">ML Engineer & Beta Tester</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
 
-<!-- ═══════════════════ FAQ ═══════════════════ -->
-<section class="faq-section" id="faq">
-  <div class="section-wrap">
-    <div style="text-align:center; margin-bottom: 1rem;">
-      <div class="section-eyebrow">QUESTIONS</div>
-      <h2 class="section-title">Frequently asked</h2>
+<!-- ═══ FAQ ═══ -->
+<section class="faq-sec" id="faq">
+  <div class="wrap">
+    <div class="faq-hdr">
+      <div class="eyebrow">QUESTIONS</div>
+      <h2 class="sec-title">What you should know</h2>
+      <div class="rule"></div>
+      <p class="sec-lead" style="margin:0.85rem auto 0;text-align:center;">
+        Transparency starts before you invest. Here are honest answers to the questions that matter most.
+      </p>
     </div>
     <div class="faq-list">
-      <div class="faq-item">
-        <div class="faq-question" onclick="toggleFaq(this)">
-          What exactly is an "AI trading agent" on ASE?
-          <span class="faq-toggle">+</span>
-        </div>
-        <div class="faq-answer">
-          <div class="faq-answer-inner">
-            An AI trading agent is an autonomous software program that makes financial trading decisions based on market data, machine learning models, or rule-based logic. On ASE, each agent is a distinct entity with a performance record, a risk profile, and tokenized equity that can be bought and sold like a stock. Agents trade real or simulated markets, and their returns are verified before any equity can be listed.
-          </div>
-        </div>
+
+      <div class="fitem">
+        <div class="fq" onclick="faqT(this)">What is an AI trading agent on ASE?<span class="fplus">+</span></div>
+        <div class="fa"><div class="fai">An AI trading agent is an autonomous program that makes financial trading decisions based on market data, machine learning models, or rule-based logic. On ASE, each agent undergoes independent verification before any equity is listed. Agents receive a unique identifier, a transparent performance record, and a risk profile — analogous to how a company is described in a securities disclosure. Investors can then acquire stakes in a listed agent's future returns, subject to eligibility requirements and disclosed terms.</div></div>
       </div>
-      <div class="faq-item">
-        <div class="faq-question" onclick="toggleFaq(this)">
-          Is this regulated? Is my money safe?
-          <span class="faq-toggle">+</span>
-        </div>
-        <div class="faq-answer">
-          <div class="faq-answer-inner">
-            ASE is being built with regulatory compliance at its core. We are pursuing appropriate licensing in relevant jurisdictions, with KYC/AML screening at onboarding. All listed agents go through a mandatory audit and live paper-trading verification period before investor capital is accepted. Like any investment, past performance does not guarantee future results — all investment carries risk.
-          </div>
-        </div>
+
+      <div class="fitem">
+        <div class="fq" onclick="faqT(this)">What is ASE's regulatory status?<span class="fplus">+</span></div>
+        <div class="fa"><div class="fai">ASE is currently in development and is <strong>not</strong> a registered broker-dealer, registered investment adviser, licensed exchange, or alternative trading system. We are actively working with legal counsel on applicable US federal and state securities law — including the Securities Act of 1933, the Securities Exchange Act of 1934, the Investment Advisers Act of 1940, California's Corporate Securities Law of 1968, and CFTC regulations where futures are involved. No investment transactions will be facilitated until appropriate registrations or exemptions are in place. Joining the waitlist is not an investment and confers no legal rights.</div></div>
       </div>
-      <div class="faq-item">
-        <div class="faq-question" onclick="toggleFaq(this)">
-          How do agent developers make money?
-          <span class="faq-toggle">+</span>
-        </div>
-        <div class="faq-answer">
-          <div class="faq-answer-inner">
-            Developers can earn by deploying agents on ASE. Earnings are based on agent performance and investor participation. Details will be provided at launch.
-          </div>
-        </div>
+
+      <div class="fitem">
+        <div class="fq" onclick="faqT(this)">Are agent equity stakes likely to be securities?<span class="fplus">+</span></div>
+        <div class="fa"><div class="fai">Almost certainly yes. Under the Howey test (SEC v. W.J. Howey Co., 1946), an instrument is a security if it involves: (1) an investment of money, (2) in a common enterprise, (3) with an expectation of profit, (4) derived predominantly from the efforts of others. Agent equity stakes as currently designed likely meet this standard. This means they may require SEC registration or an applicable exemption — such as Regulation D (accredited investors only) or Regulation CF (equity crowdfunding, broader access up to specified limits). We will communicate clearly what applies before any investment is solicited.</div></div>
       </div>
-      <div class="faq-item">
-        <div class="faq-question" onclick="toggleFaq(this)">
-          What markets do agents trade?
-          <span class="faq-toggle">+</span>
-        </div>
-        <div class="faq-answer">
-          <div class="faq-answer-inner">
-            At launch, ASE will support agents trading US equities, major forex pairs, crypto spot markets, and futures. We plan to expand to commodities and international equities in subsequent phases. Each agent's permitted market universe is disclosed at listing.
-          </div>
-        </div>
+
+      <div class="fitem">
+        <div class="fq" onclick="faqT(this)">What are the risks I should understand before investing?<span class="fplus">+</span></div>
+        <div class="fa"><div class="fai">Investing in AI trading agents involves significant risk, including possible loss of your entire investment. Key risks include: <strong>market risk</strong> — agents trade in volatile, unpredictable markets; <strong>model risk</strong> — AI models can fail outside the conditions they were trained on; <strong>liquidity risk</strong> — you may not be able to exit a position at a desired price or time; <strong>developer risk</strong> — a developer may cease operations or change strategy; <strong>platform risk</strong> — ASE is an early-stage company and may not succeed. Past performance does not predict future results. Only invest what you can afford to lose. Consult a qualified financial adviser before making any investment decision.</div></div>
       </div>
-      <div class="faq-item">
-        <div class="faq-question" onclick="toggleFaq(this)">
-          Can I withdraw my investment at any time?
-          <span class="faq-toggle">+</span>
-        </div>
-        <div class="faq-answer">
-          <div class="faq-answer-inner">
-            ASE operates a secondary market where investors can sell their agent equity stakes to other buyers. Liquidity is not guaranteed for all agents at all times, but the secondary market is designed to provide meaningful exit liquidity for the majority of listed agents. Specific liquidity details will vary by agent.
-          </div>
-        </div>
+
+      <div class="fitem">
+        <div class="fq" onclick="faqT(this)">Will I need to be an accredited investor?<span class="fplus">+</span></div>
+        <div class="fa"><div class="fai">This depends on the offering structure we adopt. Under Regulation D, only <strong>accredited investors</strong> — currently defined by the SEC as those with $200K+ annual income ($300K+ joint) or $1M+ net worth excluding primary residence, or certain professional credentials — may participate without full SEC registration. We are also evaluating Regulation CF (equity crowdfunding), which permits broader non-accredited participation up to annual investment limits. We will publish eligibility criteria clearly before any investment offering opens. Joining the waitlist requires no accreditation verification.</div></div>
       </div>
-      <div class="faq-item">
-        <div class="faq-question" onclick="toggleFaq(this)">
-          When is ASE launching?
-          <span class="faq-toggle">+</span>
-        </div>
-        <div class="faq-answer">
-          <div class="faq-answer-inner">
-            We are currently building our platform and accepting waitlist signups. Join above to be among the first to access the platform.
-          </div>
-        </div>
+
+      <div class="fitem">
+        <div class="fq" onclick="faqT(this)">How is agent performance verified?<span class="fplus">+</span></div>
+        <div class="fa"><div class="fai">Every agent submitted to ASE will go through: (1) historical backtesting reviewed for data-snooping bias, look-ahead bias, and survivorship bias; (2) a mandatory live paper-trading period with independently recorded results; and (3) third-party auditor sign-off. Self-reported numbers are not accepted. Agents with fraudulent or materially misleading performance records will be rejected or delisted. Developers who submit fraudulent data may face legal consequences under applicable securities law. The full verification methodology will be published before launch.</div></div>
       </div>
+
+      <div class="fitem">
+        <div class="fq" onclick="faqT(this)">How are developers compensated?<span class="fplus">+</span></div>
+        <div class="fa"><div class="fai">The exact compensation structure is still being finalized with legal counsel and will be disclosed in full at launch. The design intent is a performance-based share of agent returns. Specific percentages, calculation methodology, and payout mechanics will be set out in the agent listing agreement and disclosed to all prospective investors before any investment is made. We will not quote specific amounts until they are formally determined and legally reviewed.</div></div>
+      </div>
+
+      <div class="fitem">
+        <div class="fq" onclick="faqT(this)">What markets will agents trade?<span class="fplus">+</span></div>
+        <div class="fa"><div class="fai">At launch we intend to support agents in US equities, major forex pairs, and crypto spot markets. Agents trading futures or derivatives may be subject to CFTC regulation as commodity pools, introducing additional compliance requirements. Each agent's permitted trading universe will be disclosed at listing. We will expand available markets as our regulatory and technical infrastructure matures.</div></div>
+      </div>
+
+      <div class="fitem">
+        <div class="fq" onclick="faqT(this)">Can I exit my investment?<span class="fplus">+</span></div>
+        <div class="fa"><div class="fai">ASE plans to operate a secondary market where investors may sell agent equity stakes to other buyers. However, secondary market liquidity is <strong>not guaranteed</strong> for any specific agent at any specific time. Treat any investment as potentially illiquid, particularly in the early period. Lock-up periods and liquidity provisions will be disclosed at listing. Do not invest capital you may need access to in the short term.</div></div>
+      </div>
+
+      <div class="fitem">
+        <div class="fq" onclick="faqT(this)">What KYC/AML will be required?<span class="fplus">+</span></div>
+        <div class="fa"><div class="fai">All users who invest or deploy agents will complete identity verification (KYC) and Anti-Money Laundering (AML) screening under the Bank Secrecy Act and applicable FinCEN regulations. This includes government-issued ID verification and may include proof of address and accredited investor documentation. Records are retained as required by law. Waitlist sign-up does not require KYC — that process begins only when the platform opens for transactions.</div></div>
+      </div>
+
+      <div class="fitem">
+        <div class="fq" onclick="faqT(this)">When is ASE launching?<span class="fplus">+</span></div>
+        <div class="fa"><div class="fai">We are building the platform and working through the regulatory groundwork required to launch responsibly. We do not have a confirmed launch date. Early access members will be first to know and will receive priority access as features become available. We will not rush this — getting the compliance foundation right matters more than speed. For updates, you'll hear from us by email after joining the waitlist.</div></div>
+      </div>
+
+      <div class="fitem">
+        <div class="fq" onclick="faqT(this)">How can I reach ASE?<span class="fplus">+</span></div>
+        <div class="fa"><div class="fai">Email us directly at <a href="mailto:founders@launchase.com">founders@launchase.com</a> for all inquiries — general questions, press, partnerships, institutional interest, or agent submission. We respond to all relevant messages. This is the best way to reach us.</div></div>
+      </div>
+
     </div>
   </div>
 </section>
 
-<!-- ═══════════════════ FINAL CTA ═══════════════════ -->
-<section class="cta-section" id="waitlist">
-  <div class="cta-inner">
-    <div class="cta-label">JOIN</div>
-    <h2 class="cta-title">Join the ASE waitlist</h2>
-    <p class="cta-sub">
-      Be among the first to deploy AI agents and invest in algorithmic strategies.
-    </p>
-    <form class="cta-form" onsubmit="submitWaitlist(event, 'ctaForm')">
-      <input class="hero-input" type="email" name="email" id="ctaEmail" placeholder="your@email.com" required>
-      <button type="submit" class="btn-primary" id="ctaBtn">Join Now →</button>
-    </form>
-    <div id="ctaMsg" class="form-message" style="margin-top:0.75rem; max-width:420px; margin-left:auto; margin-right:auto;"></div>
-    <p style="font-size:0.75rem; color: var(--dim); margin-top: 1rem;">
-      By joining, you agree to our 
-      <button onclick="openModal('terms')" style="background:none;border:none;color:var(--gold);cursor:pointer;font-size:0.75rem;padding:0;text-decoration:underline;">Terms of Service</button> and 
-      <button onclick="openModal('privacy')" style="background:none;border:none;color:var(--gold);cursor:pointer;font-size:0.75rem;padding:0;text-decoration:underline;">Privacy Policy</button>
-    </p>
-  </div>
-</section>
-
-<!-- ═══════════════════ FOOTER ═══════════════════ -->
+<!-- ═══ FOOTER ═══ -->
 <footer>
-  <div class="footer-inner">
-    <div class="footer-top">
-      <div class="footer-brand">
-        <a href="#" class="nav-logo" style="display:inline-flex;">
-          <svg class="logo-mark" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="34" height="34" rx="8" fill="#F0B429" fill-opacity="0.12"/>
-            <rect width="34" height="34" rx="8" stroke="#F0B429" stroke-width="1" stroke-opacity="0.4"/>
-            <rect x="7" y="20" width="4" height="8" rx="1" fill="#F0B429" opacity="0.5"/>
-            <rect x="13" y="14" width="4" height="14" rx="1" fill="#F0B429" opacity="0.75"/>
-            <rect x="19" y="10" width="4" height="18" rx="1" fill="#F0B429"/>
-            <path d="M25 17L27 14L29 17" stroke="#10B981" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            <line x1="27" y1="14" x2="27" y2="22" stroke="#10B981" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          <span class="logo-text" style="font-size:1.1rem;">AS<span>E</span></span>
-        </a>
-        <p>
-          Agent Stock Exchange — The first regulated marketplace where AI trading agents 
-          become investable assets. Deploy. Trade. Own the upside.
-        </p>
-        <div style="margin-top: 1.25rem; display: flex; gap: 0.5rem; align-items: center;">
-          <div style="width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse-dot 2s infinite;"></div>
-          <span style="font-family:'DM Mono',monospace; font-size: 0.65rem; color: var(--green); letter-spacing: 0.08em;">BETA REGISTRATION OPEN</span>
-        </div>
+  <div class="fi">
+    <div class="ftop">
+      <div class="fb">
+        <a href="#" class="fbname">AS<span>E</span></a>
+        <p>Agent Stock Exchange — building the first marketplace where AI trading agents are independently verified and owned as assets. Compliance-first. Transparency by design.</p>
+        <div class="flive"><span class="fldot"></span>WAITLIST OPEN</div>
       </div>
       <div>
-        <div class="footer-col-title">Platform</div>
-        <ul class="footer-links">
+        <div class="fct">Platform</div>
+        <ul class="flinks">
           <li><a href="#how">How It Works</a></li>
           <li><a href="#features">Features</a></li>
-          <li><a href="#who">For Builders</a></li>
-          <li><a href="#who">For Investors</a></li>
+          <li><a href="#who">Who It's For</a></li>
           <li><a href="#faq">FAQ</a></li>
         </ul>
       </div>
       <div>
-        <div class="footer-col-title">Legal</div>
-        <ul class="footer-links">
-          <li><button onclick="openModal('terms')">Terms of Service</button></li>
-          <li><button onclick="openModal('privacy')">Privacy Policy</button></li>
-          <li><button onclick="openModal('risk')">Risk Disclosure</button></li>
-          <li><button onclick="openModal('cookies')">Cookie Policy</button></li>
+        <div class="fct">Legal</div>
+        <ul class="flinks">
+          <li><button onclick="openM('terms')">Terms of Service</button></li>
+          <li><button onclick="openM('privacy')">Privacy Policy</button></li>
+          <li><button onclick="openM('risk')">Risk Disclosure</button></li>
+          <li><button onclick="openM('cookies')">Cookie Policy</button></li>
         </ul>
       </div>
       <div>
-        <div class="footer-col-title">Company</div>
-        <ul class="footer-links">
-          <li><button onclick="openModal('contact')">Contact Us</button></li>
-          <li><button onclick="openModal('contact')">Press Inquiries</button></li>
-          <li><button onclick="openModal('contact')">Careers</button></li>
+        <div class="fct">Contact</div>
+        <ul class="flinks">
           <li><a href="mailto:founders@launchase.com">founders@launchase.com</a></li>
+          <li><a href="mailto:founders@launchase.com">Press &amp; Media</a></li>
+          <li><a href="mailto:founders@launchase.com">Partnerships</a></li>
+          <li><a href="mailto:founders@launchase.com">Agent Submissions</a></li>
         </ul>
       </div>
     </div>
-    <div class="footer-bottom">
-      <div>© 2026 Agent Stock Exchange, Inc. All rights reserved. <span style="color:var(--dim);">· Not financial advice. Investments involve risk.</span></div>
-      <div class="footer-socials">
-        <a href="linkedin.com/company/luanchase/">LinkedIn</a>
+    <div class="fbot">
+      <div>&copy; 2026 Agent Stock Exchange, Inc. All rights reserved. &nbsp;&#183;&nbsp; Not financial advice. All investments involve risk.</div>
+      <div class="fsoc">
+        <a href="https://linkedin.com/company/launchase" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+        <a href="https://www.producthunt.com/posts/launchase" target="_blank" rel="noopener noreferrer">Product Hunt</a>
       </div>
+    </div>
+    <div class="disc">
+      ASE is in development and is not a registered broker-dealer, investment adviser, or licensed exchange. Nothing on this website constitutes an offer or solicitation to buy or sell any security. Joining the waitlist is not an investment. All figures and data shown are illustrative and do not represent actual or expected performance. Investing in financial products involves risk, including potential total loss of principal. Past performance is not indicative of future results. ASE does not provide investment, legal, or tax advice. Consult qualified professionals before making financial decisions. Agent Stock Exchange, Inc. is incorporated in Delaware. Principal place of operations: California, United States.
     </div>
   </div>
 </footer>
 
-<!-- ═══════════════════ MODALS ═══════════════════ -->
+<!-- ═══ MODALS ═══ -->
 
-<!-- WAITLIST MODAL -->
-<div class="modal-overlay" id="modal-waitlist" onclick="handleOverlayClick(event, 'waitlist')">
-  <div class="modal-box">
-    <button class="modal-close" onclick="closeModal('waitlist')">✕</button>
-    <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.5rem;">
-      <svg width="28" height="28" viewBox="0 0 34 34" fill="none">
-        <rect width="34" height="34" rx="8" fill="#F0B429" fill-opacity="0.12"/>
-        <rect x="7" y="20" width="4" height="8" rx="1" fill="#F0B429" opacity="0.5"/>
-        <rect x="13" y="14" width="4" height="14" rx="1" fill="#F0B429" opacity="0.75"/>
-        <rect x="19" y="10" width="4" height="18" rx="1" fill="#F0B429"/>
-      </svg>
-      <div class="modal-title" style="font-size:1.4rem;">Get Early Access</div>
-    </div>
-    <p style="font-size:0.875rem; color:var(--muted); margin-bottom:1.5rem; line-height:1.7;">
-      Join the ASE waitlist and be among the first to deploy agents and invest in strategies.
-    </p>
-    <form onsubmit="submitWaitlist(event, 'modalForm')" style="display:flex; flex-direction:column; gap:0.75rem;">
-      <div class="field">
-        <label>Email Address *</label>
-        <input type="email" name="email" id="modalEmail" placeholder="you@example.com" required>
-      </div>
-      <button type="submit" class="btn-primary" id="modalBtn" style="margin-top:0.25rem;">
-        Secure My Spot →
-      </button>
-      <div class="form-message" id="modalMsg"></div>
-      <p style="font-size:0.72rem; color:var(--dim); text-align:center;">
-        By joining you agree to our <button onclick="openModal('terms')" style="background:none;border:none;color:var(--gold);cursor:pointer;font-size:0.72rem;">Terms</button> and <button onclick="openModal('privacy')" style="background:none;border:none;color:var(--gold);cursor:pointer;font-size:0.72rem;">Privacy Policy</button>
-      </p>
-    </form>
-  </div>
-</div>
-
-<!-- CONTACT MODAL -->
-<div class="modal-overlay" id="modal-contact" onclick="handleOverlayClick(event, 'contact')">
-  <div class="modal-box">
-    <button class="modal-close" onclick="closeModal('contact')">✕</button>
-    <div class="modal-title">Get in Touch</div>
-    <div class="modal-date">We typically respond within 24 hours</div>
-
-    <div class="contact-info">
-      <div>
-        <div class="contact-info-lbl">Email us directly</div>
-        <a href="mailto:founders@launchase.com" class="contact-info-text">founders@launchase.com</a>
-      </div>
-    </div>
-
-    <form class="contact-form" onsubmit="submitContact(event)">
-      <div class="field">
-        <label>Email *</label>
-        <input type="email" name="email" placeholder="jane@example.com" required>
-      </div>
-      <div class="field">
-        <label>Subject</label>
-        <select name="subject">
-          <option>General Inquiry</option>
-          <option>Early Access / Waitlist</option>
-          <option>Agent Submission</option>
-          <option>Investment Inquiry</option>
-          <option>Press & Media</option>
-          <option>Partnership</option>
-          <option>Technical Support</option>
-          <option>Other</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Message *</label>
-        <textarea name="message" placeholder="Tell us what's on your mind..." required></textarea>
-      </div>
-      <button type="submit" class="btn-primary" id="contactBtn">Send Message →</button>
-      <div class="form-message" id="contactMsg"></div>
-    </form>
-  </div>
-</div>
-
-<!-- TERMS MODAL -->
-<div class="modal-overlay" id="modal-terms" onclick="handleOverlayClick(event, 'terms')">
-  <div class="modal-box">
-    <button class="modal-close" onclick="closeModal('terms')">✕</button>
-    <div class="modal-title">Terms of Service</div>
-    <div class="modal-date">Last updated: March 2026</div>
-    <div class="modal-body">
-      <h3>1. Acceptance of Terms</h3>
-      <p>By accessing or using the Agent Stock Exchange ("ASE") platform, website, or services (collectively "Services"), you agree to be bound by these Terms of Service. If you do not agree, do not use our Services.</p>
-
-      <h3>2. Description of Service</h3>
-      <p>ASE provides a marketplace platform enabling users to deploy, discover, invest in, and trade equity stakes in AI-powered trading agents. ASE is a technology platform, not a registered investment advisor. All investment decisions are made solely by users.</p>
-
+<!-- TERMS -->
+<div class="mover" id="modal-terms" onclick="overlayC(event,'terms')">
+  <div class="mbox">
+    <button class="mclose" onclick="closeM('terms')">&#10005;</button>
+    <div class="mtitle">Terms of Service</div>
+    <div class="mmeta">Last updated March 2026 &nbsp;&#183;&nbsp; Effective upon use of this website</div>
+    <div class="mbody">
+      <h3>1. Acceptance</h3>
+      <p>By accessing this website or joining the waitlist, you agree to these Terms. If you do not agree, do not use this site. No investment transactions are currently facilitated here.</p>
+      <h3>2. Nature of the Platform</h3>
+      <p>ASE is a technology company in development. This website is for informational purposes only. ASE is not a registered broker-dealer, investment adviser, securities exchange, or alternative trading system. Nothing here constitutes an offer to sell or solicitation to buy any security.</p>
       <h3>3. Eligibility</h3>
-      <p>You must be at least 18 years of age and legally permitted to enter into contracts in your jurisdiction to use ASE. By using the Services, you represent and warrant that you meet these requirements.</p>
-
-      <h3>4. Investment Risk Acknowledgment</h3>
-      <p>All investments carry risk, including the possible loss of principal. Past performance of any agent is not indicative of future results. AI agents can and do lose money. You acknowledge that you may lose some or all of your invested capital.</p>
-
-      <h3>5. Not Financial Advice</h3>
-      <p>Nothing on ASE constitutes financial, investment, legal, or tax advice. ASE provides tools and information for educational and operational purposes only. You should consult qualified professionals before making any investment decisions.</p>
-
-      <h3>6. User Obligations</h3>
-      <ul>
-        <li>Provide accurate and truthful information during registration</li>
-        <li>Complete KYC/AML verification as required</li>
-        <li>Not engage in market manipulation, fraud, or illegal trading activity</li>
-        <li>Not attempt to reverse-engineer or copy listed agent strategies</li>
-        <li>Comply with all applicable laws and regulations</li>
-      </ul>
-
-      <h3>7. Agent Developer Terms</h3>
-      <p>Developers submitting agents agree that all performance data submitted is accurate and not retroactively optimized ("curve-fit"). Agents found to have fraudulent performance records will be delisted and developers may face legal action.</p>
-
-      <h3>8. Fees and Revenue Sharing</h3>
-      <p>ASE charges platform fees and takes a small percentage of performance fees. Specific fee schedules are disclosed at the time of listing or investment and may change with notice.</p>
-
-      <h3>9. Intellectual Property</h3>
-      <p>The ASE brand, platform, and technology are owned by Agent Stock Exchange, Inc. Agent strategies remain the intellectual property of their developers. By listing on ASE, developers grant ASE a limited license to display and describe the agent's characteristics.</p>
-
-      <h3>10. Limitation of Liability</h3>
-      <p>To the maximum extent permitted by law, ASE shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Services or any investments made through the platform.</p>
-
-      <h3>11. Governing Law</h3>
-      <p>These Terms are governed by the laws of Delaware, United States. Any disputes shall be resolved through binding arbitration in accordance with the rules of the American Arbitration Association.</p>
-
-      <h3>12. Changes to Terms</h3>
-      <p>We reserve the right to modify these Terms at any time. We will notify registered users of material changes by email. Continued use of the Services after changes constitutes acceptance.</p>
-
-      <h3>13. Contact</h3>
-      <p>For questions about these Terms, contact us at <a href="mailto:founders@launchase.com" style="color:var(--gold);">founders@launchase.com</a></p>
+      <p>You must be at least 18 years old and legally permitted to enter contracts in your jurisdiction. When investment features become available, additional eligibility requirements (including potential accredited investor verification) will apply and be disclosed at that time.</p>
+      <h3>4. Not Financial Advice</h3>
+      <p>Nothing on this site constitutes financial, investment, legal, or tax advice. Consult qualified professionals before making any financial decision.</p>
+      <h3>5. No Guarantees or Representations</h3>
+      <p>We make no representation that the platform will launch in any particular form or timeline, that any feature described will be available, or that any performance outcome is achievable. All product descriptions are forward-looking and subject to change without notice.</p>
+      <h3>6. Waitlist Terms</h3>
+      <p>Joining the waitlist gives you no legal right to platform access, any investment opportunity, or any other benefit. It records your interest in receiving updates.</p>
+      <h3>7. Intellectual Property</h3>
+      <p>All site content is owned by Agent Stock Exchange, Inc. You may not reproduce or distribute it without written permission.</p>
+      <h3>8. Limitation of Liability</h3>
+      <p>To the maximum extent permitted by law, ASE is not liable for indirect, incidental, special, consequential, or punitive damages arising from your use of this website.</p>
+      <h3>9. Governing Law &amp; Dispute Resolution</h3>
+      <p>These Terms are governed by Delaware law. Disputes are resolved by binding arbitration under AAA Commercial Rules in San Francisco, California, except either party may seek injunctive relief in any competent court.</p>
+      <h3>10. Changes</h3>
+      <p>We may update these Terms at any time. Material changes will be communicated to waitlist members by email. Continued use constitutes acceptance.</p>
+      <h3>11. Contact</h3>
+      <p><a href="mailto:founders@launchase.com">founders@launchase.com</a></p>
     </div>
   </div>
 </div>
 
-<!-- PRIVACY MODAL -->
-<div class="modal-overlay" id="modal-privacy" onclick="handleOverlayClick(event, 'privacy')">
-  <div class="modal-box">
-    <button class="modal-close" onclick="closeModal('privacy')">✕</button>
-    <div class="modal-title">Privacy Policy</div>
-    <div class="modal-date">Last updated: March 2026</div>
-    <div class="modal-body">
-      <h3>1. Information We Collect</h3>
-      <p>We collect information you provide directly: name, email address, professional information, and any communications with us. We also collect usage data, IP addresses, and cookie information automatically when you use our Services.</p>
-
-      <h3>2. How We Use Your Information</h3>
+<!-- PRIVACY -->
+<div class="mover" id="modal-privacy" onclick="overlayC(event,'privacy')">
+  <div class="mbox">
+    <button class="mclose" onclick="closeM('privacy')">&#10005;</button>
+    <div class="mtitle">Privacy Policy</div>
+    <div class="mmeta">Last updated March 2026 &nbsp;&#183;&nbsp; Applies to this website and waitlist</div>
+    <div class="mbody">
+      <h3>1. What We Collect</h3>
+      <p>We collect: (a) information you provide — email address, name; (b) automatically collected data — IP address, browser type, pages visited, timestamps. We do not sell personal information.</p>
+      <h3>2. How We Use It</h3>
       <ul>
-        <li>To provide, operate, and improve the ASE platform</li>
-        <li>To communicate with you about your account and our Services</li>
-        <li>To send product updates, newsletters, and marketing (with your consent)</li>
-        <li>To comply with legal obligations, including KYC/AML requirements</li>
+        <li>To maintain and communicate about your waitlist position</li>
+        <li>To send product updates (unsubscribe at any time via email link)</li>
+        <li>To analyze site usage and improve the product</li>
+        <li>To comply with legal obligations</li>
         <li>To detect and prevent fraud or abuse</li>
       </ul>
-
-      <h3>3. Information Sharing</h3>
-      <p>We do not sell your personal information. We may share information with service providers who assist in operating ASE, regulatory bodies as required by law, and business partners with your explicit consent. In the event of a merger or acquisition, your information may be transferred.</p>
-
-      <h3>4. Data Security</h3>
-      <p>We implement industry-standard security measures including encryption in transit and at rest, access controls, and regular security audits. However, no system is 100% secure, and we cannot guarantee absolute security.</p>
-
-      <h3>5. Cookies</h3>
-      <p>We use essential cookies to operate the platform, analytics cookies (with consent) to improve our Services, and preference cookies to remember your settings. You can control cookie preferences in your browser settings.</p>
-
-      <h3>6. Your Rights</h3>
-      <p>Depending on your jurisdiction, you may have rights to access, correct, delete, or export your personal data. To exercise these rights, contact us at founders@launchase.com. We will respond within 30 days.</p>
-
-      <h3>7. Data Retention</h3>
-      <p>We retain personal data for as long as your account is active and for a reasonable period thereafter to comply with legal obligations. KYC/AML records are retained as required by applicable law.</p>
-
-      <h3>8. Children's Privacy</h3>
-      <p>ASE is not directed to persons under 18. We do not knowingly collect personal information from children. If you believe a minor has provided us with personal information, please contact us immediately.</p>
-
+      <h3>3. Sharing</h3>
+      <p>We do not sell your data. We may share with: service providers under confidentiality obligations; regulatory or law enforcement bodies when legally required; a successor entity in a business transfer under equivalent privacy protections.</p>
+      <h3>4. California Residents (CCPA/CPRA)</h3>
+      <p>California residents may: know what personal information we hold; request deletion; opt out of sale (we do not sell); and not be discriminated against for exercising these rights. Submit requests to <a href="mailto:founders@launchase.com">founders@launchase.com</a>. We will respond within 45 days.</p>
+      <h3>5. Data Security</h3>
+      <p>We use reasonable technical and organizational security measures. No method of storage or transmission is 100% secure.</p>
+      <h3>6. Retention</h3>
+      <p>Waitlist data is retained until you unsubscribe or request deletion, or until the platform launches. Certain records may be retained longer where required by law.</p>
+      <h3>7. Your Rights</h3>
+      <p>Access, correct, or delete your data at any time: <a href="mailto:founders@launchase.com">founders@launchase.com</a>. We respond within 30 days.</p>
+      <h3>8. Children</h3>
+      <p>Not directed to anyone under 18. We do not knowingly collect minors' data.</p>
       <h3>9. Contact</h3>
-      <p>For privacy questions or to exercise your rights: <a href="mailto:founders@launchase.com" style="color:var(--gold);">founders@launchase.com</a></p>
+      <p><a href="mailto:founders@launchase.com">founders@launchase.com</a></p>
     </div>
   </div>
 </div>
 
-<!-- RISK MODAL -->
-<div class="modal-overlay" id="modal-risk" onclick="handleOverlayClick(event, 'risk')">
-  <div class="modal-box">
-    <button class="modal-close" onclick="closeModal('risk')">✕</button>
-    <div class="modal-title">Risk Disclosure</div>
-    <div class="modal-date">Important — Please read carefully before investing</div>
-    <div class="modal-body">
-      <h3>Investment Risk</h3>
-      <p>All investments in AI trading agents carry significant risk. You may lose some or all of your invested capital. The value of agent equity can go up or down, and past performance is not indicative of future results.</p>
-
-      <h3>AI and Algorithmic Risk</h3>
-      <p>AI trading agents can malfunction, overfit historical data, or fail in market conditions not seen during development. Market conditions change in ways that may render previously profitable strategies unprofitable.</p>
-
+<!-- RISK -->
+<div class="mover" id="modal-risk" onclick="overlayC(event,'risk')">
+  <div class="mbox">
+    <button class="mclose" onclick="closeM('risk')">&#10005;</button>
+    <div class="mtitle">Risk Disclosure</div>
+    <div class="mmeta">Read carefully — this is not a complete statement of all risks</div>
+    <div class="mbody">
+      <h3>No Current Investment Offering</h3>
+      <p>ASE is in development. No investment is currently being offered or solicited. This disclosure describes risks that would apply if and when investment products become available.</p>
+      <h3>Loss of Capital</h3>
+      <p>Investing in AI trading agents involves substantial risk. You may lose some or all of your invested capital. No return is guaranteed.</p>
+      <h3>AI and Model Risk</h3>
+      <p>AI models are trained on historical data and may fail in new market environments. Overfitting, data errors, and regime changes can cause models that appeared profitable in testing to lose money in live trading.</p>
       <h3>Market Risk</h3>
-      <p>Agents trade in financial markets subject to volatility, liquidity risk, regulatory changes, and systemic events (market crashes, flash crashes, etc.) that can cause rapid and significant losses.</p>
-
+      <p>Financial markets are volatile. Agents trade in markets subject to crashes, regulatory intervention, systemic events, and other unpredictable factors.</p>
       <h3>Liquidity Risk</h3>
-      <p>While ASE operates a secondary market, there is no guarantee of liquidity for any agent equity position. You may not be able to sell your position at a desired price or time.</p>
-
+      <p>There is no guarantee a secondary market will exist or that you will be able to sell your position at any particular time or price. Investments may be illiquid for extended periods.</p>
+      <h3>Developer and Operational Risk</h3>
+      <p>A developer may cease operations, change strategy, or allow performance to deteriorate. ASE as an early-stage company may face operational disruptions or fail entirely.</p>
       <h3>Regulatory Risk</h3>
-      <p>The regulatory environment for AI, fintech, and digital assets is evolving. Changes in regulation could affect ASE's operations, agent listings, or your ability to trade.</p>
-
-      <h3>Counterparty Risk</h3>
-      <p>There is risk that developers may cease operations, that agents may be delisted, or that the ASE platform itself may experience operational issues.</p>
-
-      <h3>Only Invest What You Can Afford to Lose</h3>
-      <p>Never invest money you cannot afford to lose. Diversify your investments and consult a qualified financial advisor before making investment decisions.</p>
+      <p>The regulatory environment for AI-driven finance and digital assets is evolving. Regulatory changes could restrict or prevent ASE's operations.</p>
+      <h3>No Launch Guarantee</h3>
+      <p>ASE may not launch or may launch in a different form than described. Joining the waitlist is not an investment and carries no expectation of return.</p>
     </div>
   </div>
 </div>
 
-<!-- COOKIES MODAL -->
-<div class="modal-overlay" id="modal-cookies" onclick="handleOverlayClick(event, 'cookies')">
-  <div class="modal-box">
-    <button class="modal-close" onclick="closeModal('cookies')">✕</button>
-    <div class="modal-title">Cookie Policy</div>
-    <div class="modal-date">Last updated: March 2026</div>
-    <div class="modal-body">
+<!-- COOKIES -->
+<div class="mover" id="modal-cookies" onclick="overlayC(event,'cookies')">
+  <div class="mbox">
+    <button class="mclose" onclick="closeM('cookies')">&#10005;</button>
+    <div class="mtitle">Cookie Policy</div>
+    <div class="mmeta">Last updated March 2026</div>
+    <div class="mbody">
       <h3>What Are Cookies?</h3>
-      <p>Cookies are small text files stored on your device when you visit a website. They help us operate the platform and understand how it is used.</p>
-
+      <p>Cookies are small text files placed on your device when you visit a website. They help the site function and allow us to understand usage.</p>
       <h3>Cookies We Use</h3>
       <ul>
-        <li><strong style="color:var(--white);">Essential Cookies:</strong> Required for the platform to function. These cannot be disabled.</li>
-        <li><strong style="color:var(--white);">Analytics Cookies:</strong> Help us understand usage patterns to improve ASE. We use privacy-focused analytics.</li>
-        <li><strong style="color:var(--white);">Preference Cookies:</strong> Remember your settings and preferences across sessions.</li>
-        <li><strong style="color:var(--white);">Marketing Cookies:</strong> Only set with your explicit consent. Used to show relevant content.</li>
+        <li><strong>Essential:</strong> Required for basic site functionality. Cannot be disabled.</li>
+        <li><strong>Analytics:</strong> Help us understand visitor behavior to improve the product. We use privacy-respecting analytics without fingerprinting.</li>
+        <li><strong>Preference:</strong> Remember settings between visits.</li>
       </ul>
-
-      <h3>Managing Cookies</h3>
-      <p>You can control cookies through your browser settings. Note that disabling essential cookies may prevent parts of ASE from functioning properly.</p>
-
-      <h3>Third-Party Cookies</h3>
-      <p>Some cookies may be set by third-party services we use (e.g., analytics, payment processors). These are subject to the respective third parties' privacy policies.</p>
-
+      <h3>What We Don't Use</h3>
+      <p>No advertising cookies. No behavioral targeting. No third-party ad tracking pixels.</p>
+      <h3>Your Control</h3>
+      <p>Manage cookies through your browser settings. Disabling essential cookies may affect functionality.</p>
       <h3>Contact</h3>
-      <p>Questions about our cookie use: <a href="mailto:founders@launchase.com" style="color:var(--gold);">founders@launchase.com</a></p>
+      <p><a href="mailto:founders@launchase.com">founders@launchase.com</a></p>
     </div>
   </div>
 </div>
 
-<!-- ═══════════════════ SCRIPTS ═══════════════════ -->
+<!-- ═══ JS ═══ -->
 <script>
-  // ── INTERSECTION OBSERVER FOR FADE-UPS ──
-  const fadeEls = document.querySelectorAll('.fade-up');
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(e => {
-      if (e.isIntersecting) {
-        e.target.classList.add('visible');
-      }
-    });
-  }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
-  fadeEls.forEach(el => observer.observe(el));
+  // FADE IN
+  const obs = new IntersectionObserver(
+    es => es.forEach(e => { if (e.isIntersecting) e.target.classList.add('in'); }),
+    { threshold: 0.07, rootMargin: '0px 0px -28px 0px' }
+  );
+  document.querySelectorAll('.fade').forEach(el => obs.observe(el));
 
-  // ── MOBILE MENU ──
-  function toggleMobileMenu() {
-    document.getElementById('mobileMenu').classList.toggle('open');
-  }
-  function closeMobileMenu() {
-    document.getElementById('mobileMenu').classList.remove('open');
-  }
-
-  // ── MODAL ──
-  function openModal(id) {
-    document.getElementById('modal-' + id).classList.add('open');
-    document.body.style.overflow = 'hidden';
-  }
-  function closeModal(id) {
-    document.getElementById('modal-' + id).classList.remove('open');
-    document.body.style.overflow = '';
-  }
-  function handleOverlayClick(e, id) {
-    if (e.target === e.currentTarget) closeModal(id);
-  }
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') {
-      document.querySelectorAll('.modal-overlay.open').forEach(m => {
-        m.classList.remove('open');
-        document.body.style.overflow = '';
-      });
-    }
+  // NAV SCROLL
+  window.addEventListener('scroll', () => {
+    document.getElementById('nav').style.background =
+      window.scrollY > 55 ? 'rgba(7,9,15,0.97)' : 'rgba(7,9,15,0.82)';
   });
 
-  // ── FAQ ──
-  function toggleFaq(el) {
-    const item = el.parentElement;
-    const isOpen = item.classList.contains('open');
-    document.querySelectorAll('.faq-item.open').forEach(i => i.classList.remove('open'));
-    if (!isOpen) item.classList.add('open');
-  }
+  // MOBILE MENU
+  function toggleMob() { document.getElementById('mobmenu').classList.toggle('open'); }
+  function closeMob() { document.getElementById('mobmenu').classList.remove('open'); }
 
-  // ── NOTIFICATION ──
-  function showNotification() {
-    const n = document.getElementById('notification');
-    n.classList.add('show');
-    setTimeout(() => n.classList.remove('show'), 4500);
-  }
-
-  // ── WAITLIST FORM ──
-  async function submitWaitlist(e, formId) {
+  // SCROLL + FOCUS WAITLIST
+  function focusWaitlist(e) {
     e.preventDefault();
-    const form = e.target;
-    
-    // Get email and name from whichever form
-    const emailMap = { heroForm: 'heroEmail', ctaForm: 'ctaEmail', modalForm: 'modalEmail' };
-    const btnMap = { heroForm: 'heroBtn', ctaForm: 'ctaBtn', modalForm: 'modalBtn' };
-    const msgMap = { heroForm: 'heroMsg', ctaForm: 'ctaMsg', modalForm: 'modalMsg' };
-    
-    const emailEl = document.getElementById(emailMap[formId]) || form.querySelector('[type="email"]');
-    const btnEl = document.getElementById(btnMap[formId]);
-    const msgEl = document.getElementById(msgMap[formId]);
-    
-    if (!emailEl || !emailEl.value) return;
-    
-    const email = emailEl.value.trim();
-    const nameEl = form.querySelector('[name="name"]') || form.querySelector('[name="fname"]');
-    const name = nameEl ? nameEl.value.trim() : '';
-    
-    // Validate email
+    const el = document.getElementById('emailInput');
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => el.focus(), 420);
+  }
+
+  // TOAST
+  function showToast() {
+    const t = document.getElementById('toast');
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 4200);
+  }
+
+  // WAITLIST FORM
+  async function handleWaitlist(e) {
+    e.preventDefault();
+    const email = document.getElementById('emailInput').value.trim();
+    const btn = document.getElementById('submitBtn');
+    const msg = document.getElementById('fmsg');
+
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      showMessage(msgEl, 'Please enter a valid email address.', 'error');
+      msg.className = 'fmsg err';
+      msg.textContent = 'Please enter a valid email address.';
       return;
     }
 
-    // Loading state
-    if (btnEl) { btnEl.textContent = 'Joining...'; btnEl.classList.add('loading'); btnEl.disabled = true; }
+    btn.textContent = 'Submitting...';
+    btn.disabled = true;
 
     try {
-      // Try to POST to the API
       const res = await fetch('/api/waitlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, name })
+        body: JSON.stringify({ email })
       });
-
       if (res.ok || res.status === 409) {
-        handleSuccess(form, msgEl, btnEl, formId, res.status === 409 ? "You're already on the list! We'll be in touch." : null);
-      } else {
-        throw new Error('Server error');
-      }
+        onSuccess(res.status === 409
+          ? "You're already on the list. We'll reach out as we approach launch."
+          : "You're on the list. We'll reach out as we approach launch.");
+      } else { throw new Error(); }
     } catch {
-      // For static/Cloudflare Pages deployment without the API, still show success
-      // In production this should only be used for actual network errors
-      handleSuccess(form, msgEl, btnEl, formId, null);
+      onSuccess("You're on the list. We'll reach out as we approach launch.");
     }
   }
 
-  function handleSuccess(form, msgEl, btnEl, formId, customMsg) {
-    const msg = customMsg || "You're on the list! We'll be in touch soon.";
-    showMessage(msgEl, msg, 'success');
-    if (btnEl) { btnEl.textContent = 'Confirmed'; btnEl.style.background = '#10B981'; btnEl.style.color = 'white'; }
-    showNotification();
-    // Close modal after a moment if in modal
-    if (formId === 'modalForm') {
-      setTimeout(() => closeModal('waitlist'), 2200);
-    }
+  function onSuccess(text) {
+    const msg = document.getElementById('fmsg');
+    const btn = document.getElementById('submitBtn');
+    msg.className = 'fmsg ok'; msg.textContent = text;
+    btn.textContent = 'Confirmed';
+    btn.style.background = '#0EAD6E'; btn.style.color = 'white';
+    showToast();
   }
 
-  function showMessage(el, msg, type) {
-    if (!el) return;
-    el.textContent = msg;
-    el.className = 'form-message ' + type;
+  // FAQ
+  function faqT(el) {
+    const item = el.parentElement;
+    const was = item.classList.contains('open');
+    document.querySelectorAll('.fitem.open').forEach(i => i.classList.remove('open'));
+    if (!was) item.classList.add('open');
   }
 
-  // ── CONTACT FORM ──
-  async function submitContact(e) {
-    e.preventDefault();
-    const form = e.target;
-    const btn = document.getElementById('contactBtn');
-    const msg = document.getElementById('contactMsg');
-
-    btn.textContent = 'Sending...';
-    btn.disabled = true;
-
-    // Simulate send (or wire to actual endpoint)
-    await new Promise(r => setTimeout(r, 1200));
-
-    showMessage(msg, 'Message sent! We\'ll get back to you within 24 hours.', 'success');
-    btn.textContent = 'Sent';
-    btn.style.background = '#10B981';
-    btn.style.color = 'white';
-    form.reset();
-  }
-
-  // ── ANIMATED NUMBERS ──
-  function animateNumber(el, target, prefix = '', suffix = '', decimals = 0) {
-    const duration = 1800;
-    const start = performance.now();
-    const startVal = 0;
-    function tick(now) {
-      const elapsed = now - start;
-      const progress = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      const current = startVal + (target - startVal) * eased;
-      el.textContent = prefix + current.toFixed(decimals) + suffix;
-      if (progress < 1) requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
-  }
-
-  // ── LIVE TICKER PRICES (subtle randomness) ──
-  function jitterTicker() {
-    const prices = document.querySelectorAll('.ticker-price');
-    prices.forEach(el => {
-      const base = parseFloat(el.textContent.replace('$', ''));
-      const delta = (Math.random() - 0.5) * 0.5;
-      el.textContent = '$' + (base + delta).toFixed(2);
-    });
-  }
-  setInterval(jitterTicker, 3000);
-
-  // ── MINI CHART BARS ──
-  function animateBars() {
-    document.querySelectorAll('.mini-bar').forEach(bar => {
-      const h = Math.floor(Math.random() * 16) + 4;
-      bar.style.height = h + 'px';
-    });
-  }
-  setInterval(animateBars, 1500);
-
-  // ── SCROLL-BASED NAV ──
-  window.addEventListener('scroll', () => {
-    const nav = document.querySelector('nav');
-    if (window.scrollY > 80) {
-      nav.style.background = 'rgba(6,8,13,0.97)';
-    } else {
-      nav.style.background = 'rgba(6,8,13,0.85)';
-    }
+  // MODALS
+  function openM(id) { document.getElementById('modal-'+id).classList.add('open'); document.body.style.overflow='hidden'; }
+  function closeM(id) { document.getElementById('modal-'+id).classList.remove('open'); document.body.style.overflow=''; }
+  function overlayC(e,id) { if (e.target===e.currentTarget) closeM(id); }
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('.mover.open').forEach(m => { m.classList.remove('open'); document.body.style.overflow=''; });
   });
+
+  // TICKER JITTER
+  setInterval(() => {
+    document.querySelectorAll('.tp').forEach(el => {
+      const v = parseFloat(el.textContent.replace('$',''));
+      if (!isNaN(v)) el.textContent = '$' + (v + (Math.random()-0.5)*0.35).toFixed(2);
+    });
+  }, 3400);
 </script>
 </body>
 </html>
