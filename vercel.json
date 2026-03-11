@@ -1,0 +1,21 @@
+{
+  "name": "ase-agent-exchange",
+  "version": 2,
+  "public": true,
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "framework": "vanilla",
+  "env": {
+    "SENDGRID_API_KEY": {
+      "description": "SendGrid API key for email delivery"
+    },
+    "EMAIL_FROM": {
+      "description": "Sender email address",
+      "default": "noreply@ase.com"
+    },
+    "NODE_ENV": {
+      "description": "Environment",
+      "default": "production"
+    }
+  }
+}

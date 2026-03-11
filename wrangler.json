@@ -1,0 +1,31 @@
+{
+  "name": "ase-agent-exchange",
+  "type": "javascript",
+  "account_id": "",
+  "workers_dev": true,
+  "route": "",
+  "zone_id": "",
+  "build": {
+    "cwd": null,
+    "command": "npm run build",
+    "watch_paths": null
+  },
+  "env": {
+    "production": {
+      "name": "ase-agent-exchange-prod",
+      "route": "api.ase.com/*",
+      "zone_id": ""
+    }
+  },
+  "kv_namespaces": [
+    {
+      "binding": "WAITLIST_KV",
+      "id": "your-kv-namespace-id",
+      "preview_id": "your-preview-kv-id"
+    }
+  ],
+  "vars": {
+    "FROM_EMAIL": "noreply@ase.com",
+    "ENVIRONMENT": "production"
+  }
+}

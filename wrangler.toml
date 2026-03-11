@@ -1,0 +1,16 @@
+# Cloudflare Pages project configuration
+name = "ase-agent-exchange"
+type = "javascript"
+main = "server.js"
+
+# Environment variables
+[env.production]
+vars = { ENVIRONMENT = "production" }
+
+# Cloudflare KV binding for waitlist storage
+[[kv_namespaces]]
+binding = "WAITLIST_KV"
+id = "your-kv-namespace-id"
+
+# Pages Functions configuration
+[pages_build_caching]
