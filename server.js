@@ -2,13 +2,39 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
+const sqlite3 = require('sqlite3').verbose();
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// In-memory storage for demo (replace with database in production)
+// ------------------------------------------------------------------
+// SQLite database initialization (used for Node.js deployments)
+// ------------------------------------------------------------------
+const DB_PATH = process.env.DATABASE_PATH || './waitlist.db';
+let db;
+
+if (NODE_ENV !== 'cloudflare') {
+  // when running on plain Node.js, open SQLite file
+  db = new sqlite3.Database(DB_PATH, (err) => {
+    if (err) {
+      console.error('❌ SQLite open error:', err.message);
+    } else {
+      console.log('🗄️  Connected to SQLite database at', DB_PATH);
+      db.run(
+        `CREATE TABLE IF NOT EXISTS waitlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            created_at TEXT NOT NULL
+         );`
+      );
+    }
+  });
+}
+
+// note: in production we use SQLite (or Cloudflare D1 on workers)
+// fall back to in-memory only if DB isn't available
 const waitlist = [];
 
 // ──────────────────────────────────────────────────────────────
@@ -84,7 +110,39 @@ app.post('/api/waitlist', (req, res) => {
       });
     }
 
-    // Check for duplicates
+    // persist into database if available
+    if (db) {
+      return db.run(
+        `INSERT INTO waitlist (email, created_at) VALUES (?, ?)`,
+        [trimmedEmail, new Date().toISOString()],
+        function (err) {
+          if (err) {
+            if (err.message.includes('UNIQUE constraint failed')) {
+              return res.status(409).json({
+                error: 'Email already in waitlist',
+                code: 'DUPLICATE_EMAIL'
+              });
+            }
+            console.error('❌ DB insert error:', err.message);
+            return res.status(500).json({ error: 'Database error', code: 'DB_ERROR' });
+          }
+
+          const entry = {
+            id: this.lastID,
+            email: trimmedEmail,
+            created_at: new Date().toISOString()
+          };
+          console.log(`✉️  Waitlist signup: ${trimmedEmail}`);
+          return res.status(200).json({
+            success: true,
+            message: 'Successfully added to waitlist',
+            data: entry
+          });
+        }
+      );
+    }
+
+    // fallback to in-memory if no DB
     if (waitlist.some(e => e.email === trimmedEmail)) {
       return res.status(409).json({ 
         error: 'Email already in waitlist',
@@ -148,6 +206,25 @@ app.get('/api/waitlist', (req, res) => {
       });
     }
 
+    // if database present, query it
+    if (db) {
+      db.all(`SELECT id, email, created_at FROM waitlist ORDER BY created_at DESC`, [], (err, rows) => {
+        if (err) {
+          console.error('❌ DB fetch error:', err.message);
+          return res.status(500).json({ error: 'Database error', code: 'DB_ERROR' });
+        }
+        return res.json({
+          success: true,
+          data: rows,
+          count: rows.length,
+          timestamp: new Date().toISOString(),
+          environment: NODE_ENV
+        });
+      });
+      return;
+    }
+
+    // fallback to in-memory
     res.json({
       success: true,
       data: waitlist,

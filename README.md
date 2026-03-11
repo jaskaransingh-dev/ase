@@ -12,7 +12,7 @@ A modern, production-ready landing page and waitlist management system for the A
 - **🚀 Multiple Deployment Options** - Cloudflare Workers, Node.js/Express, Docker, or traditional hosting
 - **🔐 Production Security** - Email validation, CORS protection, admin token authentication
 - **📊 Admin Dashboard** - View statistics, manage entries, send batch emails
-- **💾 Persistent Storage** - SQLite for reliable local/self-hosted deployments
+- **💾 Persistent Storage** - Cloudflare D1 (used by Pages/Workers)
 - **🌍 Global Ready** - Cloudflare CDN support for worldwide distribution
 
 ## 🚀 Quick Start
@@ -143,9 +143,10 @@ Response includes count and all entries with timestamps.
 | **401** | Missing/invalid admin token |
 | **500** | Server error |
 
+
 ## ⚙️ Configuration
 
-All configuration via environment variables in `.env`:
+All configuration via environment variables in `.env` (or the Cloudflare dashboard):
 
 ```env
 # Server
@@ -161,13 +162,34 @@ ADMIN_TOKEN=your-super-secret-token-here
 
 # Optional
 FRONTEND_URL=https://ase.com
-DATABASE_PATH=./waitlist.db
 ```
 
-### Required Variables for Production
+### Required Variables for Production (Cloudflare)
 - `SENDGRID_API_KEY` - Get from [SendGrid](https://sendgrid.com)
 - `NODE_ENV=production`
 - `ADMIN_TOKEN` - Generate a random secure token (min 32 chars)
+
+Note: the local Node.js server is intentionally simple and stores waitlist
+entries in memory; the data will be lost on restart. Persistence is handled
+only by the Cloudflare Pages/Workers function via the D1 database.
+
+#### Cloudflare Functions / D1
+
+When deploying with Cloudflare Pages/Workers you also need to bind a D1
+database and (optionally) KV namespace. Example `wrangler.toml` entries:
+
+```toml
+[[d1_databases]]
+binding = "DB"
+database_name = "ase_waitlist"
+
+[[kv_namespaces]]
+binding = "WAITLIST_KV"
+id = "<your-kv-id>"
+```
+
+The function code uses `env.DB` for D1; ensure the database exists and has
+the `waitlist_users` table (see PRODUCTION_CHECKLIST.md for SQL schema).
 
 ### Optional Variables
 - `PORT` - Default: 3001
@@ -205,7 +227,7 @@ Before deploying to production:
 - [ ] Use `.env` files, never commit secrets
 - [ ] Enable rate limiting on `/api/waitlist`
 - [ ] Monitor `/api/health` with uptime service
-- [ ] Backup SQLite database regularly
+- [ ] (Cloudflare) ensure D1 backups as needed
 - [ ] Use environment-specific configs
 - [ ] Update dependencies: `npm audit fix`
 
@@ -230,7 +252,7 @@ Monitor uptime and server status. Use with services like StatusPage or Better Up
 |-------|------------|
 | **Frontend** | HTML5, CSS3, Vanilla JavaScript |
 | **Backend** | Node.js 16+, Express.js 4.18+ |
-| **Database** | SQLite 3 |
+| **Database** | Cloudflare D1 |
 | **Email** | SendGrid API |
 | **Hosting** | Node.js, Docker, Cloudflare, Vercel |
 
@@ -275,8 +297,7 @@ kill -9 <PID>
 ```
 
 **Database locked?**
-- Restart server: `npm start`
-- Check file permissions on `waitlist.db`
+- Only applicable for local SQLite; not relevant when using Cloudflare D1
 
 ### Logs & Debugging
 ```bash
@@ -286,8 +307,7 @@ NODE_ENV=development npm run dev
 # Verbose logging
 DEBUG=* npm start
 
-# Check database
-sqlite3 waitlist.db "SELECT COUNT(*) FROM waitlist;"
+<!-- local database commands removed; D1 usage only -->
 ```
 
 ## 📚 Documentation
