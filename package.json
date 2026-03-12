@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "pages:dev": "wrangler pages dev --local",
-    "pages:deploy": "wrangler pages publish",
+    "pages:dev": "WRANGLER_LOG_PATH=.wrangler/logs wrangler pages dev public --local",
+    "pages:deploy": "WRANGLER_LOG_PATH=.wrangler/logs wrangler pages deploy public --project-name ase",
     "build": "echo 'No build needed for static assets'"
   },
   "dependencies": {

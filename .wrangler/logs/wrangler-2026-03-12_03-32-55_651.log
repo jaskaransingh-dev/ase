@@ -1,0 +1,121 @@
+
+--- 2026-03-12T03:32:55.740Z debug
+🪵  Writing logs to "/Users/jaz/Desktop/work-projects/agent exchange/.wrangler/logs/wrangler-2026-03-12_03-32-55_651.log"
+---
+
+--- 2026-03-12T03:32:55.740Z debug
+.env file not found at "/Users/jaz/Desktop/work-projects/agent exchange/.env.local". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+---
+
+--- 2026-03-12T03:32:55.743Z log
+
+ ⛅️ wrangler 4.72.0
+───────────────────
+---
+
+--- 2026-03-12T03:32:55.745Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"wrangler command started","timestamp":1773286375745,"properties":{"amplitude_session_id":1773286375744,"amplitude_event_id":0,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":true,"hasAssets":false,"agent":null,"argsUsed":["environment","format","projectName","samplingRate"],"argsCombination":"environment, format, projectName, samplingRate","sanitizedCommand":"pages deployment tail","sanitizedArgs":{"format":"pretty"}}}
+---
+
+--- 2026-03-12T03:32:55.753Z debug
+Retrieving cached values for account_id and project_name from node_modules/.cache/wrangler
+---
+
+--- 2026-03-12T03:32:55.758Z debug
+-- START CF API REQUEST: GET https://api.cloudflare.com/client/v4/accounts/12ba092394bed6dc56f9ef901c637f0a/pages/projects/ase/deployments
+---
+
+--- 2026-03-12T03:32:55.758Z debug
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:32:55.758Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:32:55.758Z debug
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:32:55.758Z debug
+-- END CF API REQUEST
+---
+
+--- 2026-03-12T03:32:56.292Z debug
+-- START CF API RESPONSE: OK 200
+---
+
+--- 2026-03-12T03:32:56.292Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:32:56.292Z debug
+RESPONSE: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:32:56.292Z debug
+-- END CF API RESPONSE
+---
+
+--- 2026-03-12T03:32:56.293Z log
+No deployment specified. Using latest deployment for production environment.
+---
+
+--- 2026-03-12T03:32:56.294Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"begin pages log stream","timestamp":1773286376294,"properties":{"amplitude_session_id":1773286376294,"amplitude_event_id":0,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":true,"hasAssets":false,"agent":null,"category":"Workers","os":"darwin:arm64"}}
+---
+
+--- 2026-03-12T03:32:56.296Z debug
+-- START CF API REQUEST: POST https://api.cloudflare.com/client/v4/accounts/12ba092394bed6dc56f9ef901c637f0a/pages/projects/ase/deployments/35a7f234-5576-41a6-82df-af448d220942/tails
+---
+
+--- 2026-03-12T03:32:56.296Z debug
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:32:56.296Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:32:56.296Z debug
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:32:56.296Z debug
+-- END CF API REQUEST
+---
+
+--- 2026-03-12T03:32:56.866Z debug
+-- START CF API RESPONSE: OK 200
+---
+
+--- 2026-03-12T03:32:56.866Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:32:56.866Z debug
+RESPONSE: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:32:56.866Z debug
+-- END CF API RESPONSE
+---
+
+--- 2026-03-12T03:32:57.071Z log
+Connected to deployment 35a7f234-5576-41a6-82df-af448d220942, waiting for logs...
+---
+
+--- 2026-03-12T03:32:57.072Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"wrangler command completed","timestamp":1773286377072,"properties":{"amplitude_session_id":1773286375744,"amplitude_event_id":1,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":true,"hasAssets":false,"agent":null,"argsUsed":["environment","format","projectName","samplingRate"],"argsCombination":"environment, format, projectName, samplingRate","sanitizedCommand":"pages deployment tail","sanitizedArgs":{"format":"pretty"},"durationMs":1330}}
+---
+
+--- 2026-03-12T03:33:12.024Z log
+POST https://35a7f234.ase-8tk.pages.dev/api/waitlist - Ok @ 3/11/2026, 8:33:11 PM
+---
+
+--- 2026-03-12T03:33:12.024Z log
+  (error) waitlist_insert_failed {
+  email: 'test+codex3@launchase.com',
+  error: "Cannot read properties of undefined (reading 'waitUntil')"
+}
+---

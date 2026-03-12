@@ -1,0 +1,114 @@
+
+--- 2026-03-12T03:36:01.907Z debug
+🪵  Writing logs to "/Users/jaz/Desktop/work-projects/agent exchange/.wrangler/logs/wrangler-2026-03-12_03-36-01_839.log"
+---
+
+--- 2026-03-12T03:36:01.907Z debug
+.env file not found at "/Users/jaz/Desktop/work-projects/agent exchange/.env.local". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+---
+
+--- 2026-03-12T03:36:01.910Z log
+
+ ⛅️ wrangler 4.72.0
+───────────────────
+---
+
+--- 2026-03-12T03:36:01.912Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"wrangler command started","timestamp":1773286561912,"properties":{"amplitude_session_id":1773286561910,"amplitude_event_id":0,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":true,"hasAssets":false,"agent":null,"argsUsed":["projectName"],"argsCombination":"projectName","sanitizedCommand":"pages secret put","sanitizedArgs":{}}}
+---
+
+--- 2026-03-12T03:36:01.919Z debug
+Configuration file belonging to ⚡️ Pages ⚡️ project detected.
+---
+
+--- 2026-03-12T03:36:01.919Z debug
+Retrieving cached values for account_id and project_name from node_modules/.cache/wrangler
+---
+
+--- 2026-03-12T03:36:01.924Z debug
+-- START CF API REQUEST: GET https://api.cloudflare.com/client/v4/accounts/12ba092394bed6dc56f9ef901c637f0a/pages/projects/ase
+---
+
+--- 2026-03-12T03:36:01.924Z debug
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:36:01.924Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:36:01.924Z debug
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:36:01.924Z debug
+-- END CF API REQUEST
+---
+
+--- 2026-03-12T03:36:03.712Z debug
+-- START CF API RESPONSE: OK 200
+---
+
+--- 2026-03-12T03:36:03.712Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:36:03.712Z debug
+RESPONSE: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:36:03.712Z debug
+-- END CF API RESPONSE
+---
+
+--- 2026-03-12T03:36:11.556Z log
+🌀 Creating the secret for the Pages project "ase" (production)
+---
+
+--- 2026-03-12T03:36:11.556Z debug
+-- START CF API REQUEST: PATCH https://api.cloudflare.com/client/v4/accounts/12ba092394bed6dc56f9ef901c637f0a/pages/projects/ase
+---
+
+--- 2026-03-12T03:36:11.556Z debug
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:36:11.557Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:36:11.557Z debug
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:36:11.557Z debug
+-- END CF API REQUEST
+---
+
+--- 2026-03-12T03:36:15.713Z debug
+-- START CF API RESPONSE: OK 200
+---
+
+--- 2026-03-12T03:36:15.714Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:36:15.714Z debug
+RESPONSE: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:36:15.714Z debug
+-- END CF API RESPONSE
+---
+
+--- 2026-03-12T03:36:15.716Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"create pages encrypted variable","timestamp":1773286575716,"properties":{"amplitude_session_id":1773286575715,"amplitude_event_id":0,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":true,"hasAssets":false,"agent":null,"category":"Workers","os":"darwin:arm64","secretOperation":"single","secretSource":"interactive","hasEnvironment":false}}
+---
+
+--- 2026-03-12T03:36:15.717Z log
+✨ Success! Uploaded secret EMAIL_FROM
+---
+
+--- 2026-03-12T03:36:15.718Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"wrangler command completed","timestamp":1773286575718,"properties":{"amplitude_session_id":1773286561910,"amplitude_event_id":1,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":true,"hasAssets":false,"agent":null,"argsUsed":["projectName"],"argsCombination":"projectName","sanitizedCommand":"pages secret put","sanitizedArgs":{},"durationMs":13809}}
+---

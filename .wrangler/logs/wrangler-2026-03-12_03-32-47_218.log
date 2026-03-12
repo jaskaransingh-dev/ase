@@ -1,0 +1,89 @@
+
+--- 2026-03-12T03:32:47.299Z debug
+🪵  Writing logs to "/Users/jaz/Desktop/work-projects/agent exchange/.wrangler/logs/wrangler-2026-03-12_03-32-47_218.log"
+---
+
+--- 2026-03-12T03:32:47.299Z debug
+.env file not found at "/Users/jaz/Desktop/work-projects/agent exchange/.env.local". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+---
+
+--- 2026-03-12T03:32:47.302Z log
+
+ ⛅️ wrangler 4.72.0
+───────────────────
+---
+
+--- 2026-03-12T03:32:47.305Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"wrangler command started","timestamp":1773286367305,"properties":{"amplitude_session_id":1773286367303,"amplitude_event_id":0,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":true,"hasAssets":false,"agent":null,"argsUsed":["environment","format","projectName","samplingRate","status"],"argsCombination":"environment, format, projectName, samplingRate, status","sanitizedCommand":"pages deployment tail","sanitizedArgs":{"format":"pretty"}}}
+---
+
+--- 2026-03-12T03:32:47.313Z debug
+Retrieving cached values for account_id and project_name from node_modules/.cache/wrangler
+---
+
+--- 2026-03-12T03:32:47.321Z debug
+-- START CF API REQUEST: GET https://api.cloudflare.com/client/v4/accounts/12ba092394bed6dc56f9ef901c637f0a/pages/projects/ase/deployments
+---
+
+--- 2026-03-12T03:32:47.322Z debug
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:32:47.322Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:32:47.322Z debug
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:32:47.322Z debug
+-- END CF API REQUEST
+---
+
+--- 2026-03-12T03:32:47.713Z debug
+-- START CF API RESPONSE: OK 200
+---
+
+--- 2026-03-12T03:32:47.713Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:32:47.713Z debug
+RESPONSE: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:32:47.713Z debug
+-- END CF API RESPONSE
+---
+
+--- 2026-03-12T03:32:47.714Z log
+No deployment specified. Using latest deployment for production environment.
+---
+
+--- 2026-03-12T03:32:47.715Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"wrangler command errored","timestamp":1773286367715,"properties":{"amplitude_session_id":1773286367303,"amplitude_event_id":1,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":true,"hasAssets":false,"agent":null,"argsUsed":["environment","format","projectName","samplingRate","status"],"argsCombination":"environment, format, projectName, samplingRate, status","sanitizedCommand":"pages deployment tail","sanitizedArgs":{"format":"pretty"},"durationMs":414,"errorType":"UserError"}}
+---
+
+--- 2026-03-12T03:32:47.716Z log
+
+---
+
+--- 2026-03-12T03:32:47.751Z error
+✘ [ERROR] A sampling rate must be between 0 and 1 in order to have any effect.
+
+  For example, a sampling rate of 0.25 means 25% of events will be logged.
+
+
+---
+
+--- 2026-03-12T03:32:47.751Z debug
+Error: A sampling rate must be between 0 and 1 in order to have any effect.
+For example, a sampling rate of 0.25 means 25% of events will be logged.
+    at parseSamplingRate (/Users/jaz/.nvm/versions/node/v25.8.0/lib/node_modules/wrangler/wrangler-dist/cli.js:227904:11)
+    at translateCLICommandToFilterMessage (/Users/jaz/.nvm/versions/node/v25.8.0/lib/node_modules/wrangler/wrangler-dist/cli.js:227878:21)
+    at Object.handler (/Users/jaz/.nvm/versions/node/v25.8.0/lib/node_modules/wrangler/wrangler-dist/cli.js:228415:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /Users/jaz/.nvm/versions/node/v25.8.0/lib/node_modules/wrangler/wrangler-dist/cli.js:169238:26
+    at async Object.handler (/Users/jaz/.nvm/versions/node/v25.8.0/lib/node_modules/wrangler/wrangler-dist/cli.js:169187:7)
+---

@@ -1,16 +1,18 @@
-# Cloudflare Pages project configuration
-name = "ase-agent-exchange"
-type = "javascript"
-main = "server.js"
+name = "ase"
+compatibility_date = "2026-03-11"
 
-# Environment variables
-[env.production]
-vars = { ENVIRONMENT = "production" }
+# Cloudflare Pages
+pages_build_output_dir = "public"
 
-# Cloudflare KV binding for waitlist storage
-[[kv_namespaces]]
-binding = "WAITLIST_KV"
-id = "your-kv-namespace-id"
+# D1
+migrations_dir = "migrations"
 
-# Pages Functions configuration
-[pages_build_caching]
+[[d1_databases]]
+binding = "DB"
+database_name = "database"
+database_id = "8f4c4163-0e2c-40c0-beb9-47f5dbc1e3ac"
+
+[vars]
+FRONTEND_URL = "https://example.com"
+EMAIL_FROM = "noreply@example.com"
+EMAIL_FROM_NAME = "ASE"

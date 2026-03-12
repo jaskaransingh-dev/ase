@@ -1,0 +1,200 @@
+
+--- 2026-03-12T03:29:17.243Z debug
+🪵  Writing logs to "/Users/jaz/Desktop/work-projects/agent exchange/.wrangler/logs/wrangler-2026-03-12_03-29-17_178.log"
+---
+
+--- 2026-03-12T03:29:17.243Z debug
+.env file not found at "/Users/jaz/Desktop/work-projects/agent exchange/.env.local". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+---
+
+--- 2026-03-12T03:29:17.246Z log
+
+ ⛅️ wrangler 4.72.0
+───────────────────
+---
+
+--- 2026-03-12T03:29:17.246Z log
+Resource location: remote 
+
+---
+
+--- 2026-03-12T03:29:17.248Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"wrangler command started","timestamp":1773286157248,"properties":{"amplitude_session_id":1773286157248,"amplitude_event_id":0,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"json","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":false,"hasAssets":false,"agent":null,"argsUsed":["remote"],"argsCombination":"remote","sanitizedCommand":"d1 migrations apply","sanitizedArgs":{}}}
+---
+
+--- 2026-03-12T03:29:17.258Z log
+🌀 Executing on remote database database (8f4c4163-0e2c-40c0-beb9-47f5dbc1e3ac):
+---
+
+--- 2026-03-12T03:29:17.258Z log
+🌀 To execute on your local development database, remove the --remote flag from your wrangler command.
+---
+
+--- 2026-03-12T03:29:17.258Z debug
+-- START CF API REQUEST: POST https://api.cloudflare.com/client/v4/accounts/12ba092394bed6dc56f9ef901c637f0a/d1/database/8f4c4163-0e2c-40c0-beb9-47f5dbc1e3ac/query
+---
+
+--- 2026-03-12T03:29:17.258Z debug
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:17.258Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:17.258Z debug
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:17.258Z debug
+-- END CF API REQUEST
+---
+
+--- 2026-03-12T03:29:18.163Z debug
+-- START CF API RESPONSE: OK 200
+---
+
+--- 2026-03-12T03:29:18.163Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:18.163Z debug
+RESPONSE: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:18.163Z debug
+-- END CF API RESPONSE
+---
+
+--- 2026-03-12T03:29:18.164Z log
+🚣 Executed 1 command in 0.59ms
+---
+
+--- 2026-03-12T03:29:18.164Z log
+🌀 Executing on remote database database (8f4c4163-0e2c-40c0-beb9-47f5dbc1e3ac):
+---
+
+--- 2026-03-12T03:29:18.164Z log
+🌀 To execute on your local development database, remove the --remote flag from your wrangler command.
+---
+
+--- 2026-03-12T03:29:18.164Z debug
+-- START CF API REQUEST: POST https://api.cloudflare.com/client/v4/accounts/12ba092394bed6dc56f9ef901c637f0a/d1/database/8f4c4163-0e2c-40c0-beb9-47f5dbc1e3ac/query
+---
+
+--- 2026-03-12T03:29:18.164Z debug
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:18.164Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:18.164Z debug
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:18.164Z debug
+-- END CF API REQUEST
+---
+
+--- 2026-03-12T03:29:18.330Z debug
+-- START CF API RESPONSE: OK 200
+---
+
+--- 2026-03-12T03:29:18.331Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:18.331Z debug
+RESPONSE: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:18.331Z debug
+-- END CF API RESPONSE
+---
+
+--- 2026-03-12T03:29:18.331Z log
+🚣 Executed 1 command in 0.19ms
+---
+
+--- 2026-03-12T03:29:18.332Z log
+Migrations to be applied:
+---
+
+--- 2026-03-12T03:29:18.336Z log
+┌─────────────────────────┐
+│ name                    │
+├─────────────────────────┤
+│ 0001_waitlist_users.sql │
+└─────────────────────────┘
+---
+
+--- 2026-03-12T03:29:18.336Z log
+? About to apply 1 migration(s)
+Your database may not be available to serve requests during the migration, continue?
+---
+
+--- 2026-03-12T03:29:18.336Z log
+🤖 Using fallback value in non-interactive context: yes
+---
+
+--- 2026-03-12T03:29:18.337Z log
+🌀 Executing on remote database database (8f4c4163-0e2c-40c0-beb9-47f5dbc1e3ac):
+---
+
+--- 2026-03-12T03:29:18.337Z log
+🌀 To execute on your local development database, remove the --remote flag from your wrangler command.
+---
+
+--- 2026-03-12T03:29:18.338Z debug
+-- START CF API REQUEST: POST https://api.cloudflare.com/client/v4/accounts/12ba092394bed6dc56f9ef901c637f0a/d1/database/8f4c4163-0e2c-40c0-beb9-47f5dbc1e3ac/query
+---
+
+--- 2026-03-12T03:29:18.338Z debug
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:18.338Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:18.338Z debug
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:18.338Z debug
+-- END CF API REQUEST
+---
+
+--- 2026-03-12T03:29:18.473Z debug
+-- START CF API RESPONSE: OK 200
+---
+
+--- 2026-03-12T03:29:18.473Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:18.473Z debug
+RESPONSE: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:18.473Z debug
+-- END CF API RESPONSE
+---
+
+--- 2026-03-12T03:29:18.473Z log
+🚣 Executed 4 commands in 0.54ms
+---
+
+--- 2026-03-12T03:29:18.473Z log
+┌─────────────────────────┬────────┐
+│ name                    │ status │
+├─────────────────────────┼────────┤
+│ 0001_waitlist_users.sql │ ✅     │
+└─────────────────────────┴────────┘
+---
+
+--- 2026-03-12T03:29:18.474Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"wrangler command completed","timestamp":1773286158474,"properties":{"amplitude_session_id":1773286157248,"amplitude_event_id":1,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"json","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":false,"hasAssets":false,"agent":null,"argsUsed":["remote"],"argsCombination":"remote","sanitizedCommand":"d1 migrations apply","sanitizedArgs":{},"durationMs":1230}}
+---

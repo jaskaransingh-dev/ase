@@ -1,0 +1,74 @@
+
+--- 2026-03-12T03:29:35.165Z debug
+🪵  Writing logs to "/Users/jaz/Desktop/work-projects/agent exchange/.wrangler/logs/wrangler-2026-03-12_03-29-35_097.log"
+---
+
+--- 2026-03-12T03:29:35.165Z debug
+.env file not found at "/Users/jaz/Desktop/work-projects/agent exchange/.env.local". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+---
+
+--- 2026-03-12T03:29:35.168Z log
+
+ ⛅️ wrangler 4.72.0
+───────────────────
+---
+
+--- 2026-03-12T03:29:35.169Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"wrangler command started","timestamp":1773286175169,"properties":{"amplitude_session_id":1773286175168,"amplitude_event_id":0,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":false,"hasAssets":false,"agent":null,"argsUsed":["compatibilityDate","productionBranch"],"argsCombination":"compatibilityDate, productionBranch","sanitizedCommand":"pages project create","sanitizedArgs":{}}}
+---
+
+--- 2026-03-12T03:29:35.180Z debug
+-- START CF API REQUEST: POST https://api.cloudflare.com/client/v4/accounts/12ba092394bed6dc56f9ef901c637f0a/pages/projects
+---
+
+--- 2026-03-12T03:29:35.180Z debug
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:35.180Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:35.180Z debug
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:35.180Z debug
+-- END CF API REQUEST
+---
+
+--- 2026-03-12T03:29:38.925Z debug
+-- START CF API RESPONSE: OK 200
+---
+
+--- 2026-03-12T03:29:38.925Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:38.925Z debug
+RESPONSE: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:29:38.925Z debug
+-- END CF API RESPONSE
+---
+
+--- 2026-03-12T03:29:38.926Z debug
+Saving to cache: {"account_id":"12ba092394bed6dc56f9ef901c637f0a","project_name":"ase"}
+---
+
+--- 2026-03-12T03:29:38.927Z log
+✨ Successfully created the 'ase' project. It will be available at https://ase-8tk.pages.dev/ once you create your first deployment.
+---
+
+--- 2026-03-12T03:29:38.927Z log
+To deploy a folder of assets, run 'wrangler pages deploy [directory]'.
+---
+
+--- 2026-03-12T03:29:38.928Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"create pages project","timestamp":1773286178928,"properties":{"amplitude_session_id":1773286178927,"amplitude_event_id":0,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":false,"hasAssets":false,"agent":null,"category":"Workers","os":"darwin:arm64"}}
+---
+
+--- 2026-03-12T03:29:38.930Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"wrangler command completed","timestamp":1773286178929,"properties":{"amplitude_session_id":1773286175168,"amplitude_event_id":1,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":false,"hasAssets":false,"agent":null,"argsUsed":["compatibilityDate","productionBranch"],"argsCombination":"compatibilityDate, productionBranch","sanitizedCommand":"pages project create","sanitizedArgs":{},"durationMs":3763}}
+---

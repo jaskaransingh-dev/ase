@@ -1,31 +1,12 @@
 {
-  "name": "ase-agent-exchange",
-  "type": "javascript",
-  "account_id": "",
-  "workers_dev": true,
-  "route": "",
-  "zone_id": "",
-  "build": {
-    "cwd": null,
-    "command": "npm run build",
-    "watch_paths": null
-  },
-  "env": {
-    "production": {
-      "name": "ase-agent-exchange-prod",
-      "route": "api.ase.com/*",
-      "zone_id": ""
-    }
-  },
-  "kv_namespaces": [
+  "name": "ase",
+  "compatibility_date": "2026-03-11",
+  "pages_build_output_dir": "public",
+  "d1_databases": [
     {
-      "binding": "WAITLIST_KV",
-      "id": "your-kv-namespace-id",
-      "preview_id": "your-preview-kv-id"
+      "binding": "DB",
+      "database_name": "database",
+      "database_id": "8f4c4163-0e2c-40c0-beb9-47f5dbc1e3ac"
     }
-  ],
-  "vars": {
-    "FROM_EMAIL": "noreply@ase.com",
-    "ENVIRONMENT": "production"
-  }
+  ]
 }

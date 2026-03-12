@@ -75,7 +75,7 @@ docker build -t ase .
 docker run -p 3001:3001 --env-file .env ase
 ```
 
-### Option 3: Cloudflare Workers
+### Option 3: Cloudflare Pages (Frontend) + Functions (API)
 
 ```bash
 npm install -g wrangler
@@ -189,7 +189,21 @@ id = "<your-kv-id>"
 ```
 
 The function code uses `env.DB` for D1; ensure the database exists and has
-the `waitlist_users` table (see PRODUCTION_CHECKLIST.md for SQL schema).
+the `waitlist_users` table and has had migrations applied:
+
+```bash
+# Apply D1 migrations (creates/updates waitlist_users table)
+WRANGLER_LOG_PATH=.wrangler/logs wrangler d1 migrations apply waitlist
+```
+
+For confirmation emails, set these variables in your **Cloudflare Pages project**
+environment (Dashboard: Pages -> Settings -> Environment variables):
+
+- `SENDGRID_API_KEY` (secret)
+- `EMAIL_FROM` (verified sender)
+- `EMAIL_FROM_NAME` (optional)
+- `ADMIN_TOKEN` (secret, for GET /api/waitlist)
+- `FRONTEND_URL` (optional CORS allowlist; omit to disable CORS headers)
 
 ### Optional Variables
 - `PORT` - Default: 3001

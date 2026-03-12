@@ -1,0 +1,76 @@
+
+--- 2026-03-12T03:31:48.579Z debug
+🪵  Writing logs to "/Users/jaz/Desktop/work-projects/agent exchange/.wrangler/logs/wrangler-2026-03-12_03-31-48_507.log"
+---
+
+--- 2026-03-12T03:31:48.579Z debug
+.env file not found at "/Users/jaz/Desktop/work-projects/agent exchange/.env.local". Continuing... For more details, refer to https://developers.cloudflare.com/workers/wrangler/system-environment-variables/
+---
+
+--- 2026-03-12T03:31:48.582Z log
+
+ ⛅️ wrangler 4.72.0
+───────────────────
+---
+
+--- 2026-03-12T03:31:48.584Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"wrangler command started","timestamp":1773286308584,"properties":{"amplitude_session_id":1773286308583,"amplitude_event_id":0,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":false,"hasAssets":false,"agent":null,"argsUsed":["environment","projectName"],"argsCombination":"environment, projectName","sanitizedCommand":"pages deployment list","sanitizedArgs":{}}}
+---
+
+--- 2026-03-12T03:31:48.595Z debug
+-- START CF API REQUEST: GET https://api.cloudflare.com/client/v4/accounts/12ba092394bed6dc56f9ef901c637f0a/pages/projects/ase/deployments
+---
+
+--- 2026-03-12T03:31:48.595Z debug
+QUERY STRING: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:31:48.595Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:31:48.595Z debug
+INIT: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:31:48.595Z debug
+-- END CF API REQUEST
+---
+
+--- 2026-03-12T03:31:48.897Z debug
+-- START CF API RESPONSE: OK 200
+---
+
+--- 2026-03-12T03:31:48.897Z debug
+HEADERS: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:31:48.897Z debug
+RESPONSE: omitted; set WRANGLER_LOG_SANITIZE=false to include sanitized data
+---
+
+--- 2026-03-12T03:31:48.897Z debug
+-- END CF API RESPONSE
+---
+
+--- 2026-03-12T03:31:48.898Z debug
+Saving to cache: {"account_id":"12ba092394bed6dc56f9ef901c637f0a"}
+---
+
+--- 2026-03-12T03:31:48.901Z log
+┌──────────────────────────────────────┬─────────────┬────────┬─────────┬────────────────────────────────────┬────────────────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Id                                   │ Environment │ Branch │ Source  │ Deployment                         │ Status         │ Build                                                                                                            │
+├──────────────────────────────────────┼─────────────┼────────┼─────────┼────────────────────────────────────┼────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ 35a7f234-5576-41a6-82df-af448d220942 │ Production  │ main   │ 98bbe90 │ https://35a7f234.ase-8tk.pages.dev │ 55 seconds ago │ https://dash.cloudflare.com/12ba092394bed6dc56f9ef901c637f0a/pages/view/ase/35a7f234-5576-41a6-82df-af448d220942 │
+├──────────────────────────────────────┼─────────────┼────────┼─────────┼────────────────────────────────────┼────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ 19724bd6-e7c8-4a11-a197-2ae7baa2f033 │ Production  │ main   │ 98bbe90 │ https://19724bd6.ase-8tk.pages.dev │ 1 minute ago   │ https://dash.cloudflare.com/12ba092394bed6dc56f9ef901c637f0a/pages/view/ase/19724bd6-e7c8-4a11-a197-2ae7baa2f033 │
+└──────────────────────────────────────┴─────────────┴────────┴─────────┴────────────────────────────────────┴────────────────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+---
+
+--- 2026-03-12T03:31:48.901Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"list pages deployments","timestamp":1773286308901,"properties":{"amplitude_session_id":1773286308901,"amplitude_event_id":0,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":false,"hasAssets":false,"agent":null,"category":"Workers","os":"darwin:arm64"}}
+---
+
+--- 2026-03-12T03:31:48.901Z debug
+Metrics dispatcher: Posting data {"deviceId":"245b2653-e8ee-4bd1-bf88-c889d462bfc2","event":"wrangler command completed","timestamp":1773286308901,"properties":{"amplitude_session_id":1773286308583,"amplitude_event_id":1,"wranglerVersion":"4.72.0","wranglerMajorVersion":4,"wranglerMinorVersion":72,"wranglerPatchVersion":0,"osPlatform":"Mac OS","osVersion":"Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132","nodeVersion":25,"isFirstUsage":false,"configFileType":"none","isCI":false,"isPagesCI":false,"isWorkersCI":false,"isInteractive":false,"hasAssets":false,"agent":null,"argsUsed":["environment","projectName"],"argsCombination":"environment, projectName","sanitizedCommand":"pages deployment list","sanitizedArgs":{},"durationMs":321}}
+---
