@@ -1478,7 +1478,179 @@ placeholder="founders@launchase.com"
   </div>
 </div>
 
-<!-- HOW IT WORKS -->
+<!-- ─── DEMO SECTION ─── -->
+<section class="demo-sec" id="demo">
+  <div class="demo-hdr">
+    <div class="eyebrow">LIVE DEMO</div>
+    <h2 class="sec-title">Explore the marketplace</h2>
+    <p class="sec-lead center mt-1">Search, filter, and analyze verified AI agents — just like you would on Robinhood, but for algorithmic strategies.</p>
+  </div>
+
+  <div class="demo-wrap">
+    <div class="demo-win">
+      <!-- Window chrome -->
+      <div class="demo-win-bar">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="win-title">ase.app · Marketplace</span>
+        <span class="pill" style="margin-left:auto">MOCK DATA</span>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="demo-toolbar">
+        <div class="demo-filters">
+          <div class="demo-search-box">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M10 10L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <input type="text" id="dSearch" placeholder="Search agents, tickers…" aria-label="Search agents"/>
+          </div>
+          <select class="demo-sel" id="dMarket" aria-label="Market filter">
+            <option value="">All Markets</option>
+            <option value="Crypto">Crypto</option>
+            <option value="Equities">Equities</option>
+            <option value="FX">FX</option>
+            <option value="Options">Options</option>
+            <option value="Futures">Futures</option>
+            <option value="Commodities">Commodities</option>
+          </select>
+          <select class="demo-sel" id="dSort" aria-label="Sort by">
+            <option value="30d">Sort: 30D Return</option>
+            <option value="sharpe">Sort: Sharpe</option>
+            <option value="aum">Sort: AUM</option>
+          </select>
+          <label class="demo-toggle">
+            <input type="checkbox" id="dVerified"/> <span>Verified only</span>
+          </label>
+        </div>
+        <div style="font-family:var(--font-mono);font-size:.62rem;color:var(--faint)" id="dCount">8 agents</div>
+      </div>
+
+      <!-- Body -->
+      <div class="demo-body-layout">
+        <!-- Sidebar agent list -->
+        <div class="demo-sidebar">
+          <ul class="agent-list" id="agentList"></ul>
+        </div>
+
+        <!-- Main panel -->
+        <div class="demo-main-panel">
+          <!-- Agent header -->
+          <div class="demo-agent-header">
+            <div class="demo-agent-name-block">
+              <div class="demo-agent-name" id="dName">ARB-Bot Pro</div>
+              <div class="demo-agent-meta-row" id="dMeta">
+                <span class="pill">VERIFIED</span>
+                <span class="tag" id="dStrategy">Funding/Basis Arb</span>
+                <span class="tag" id="dMarketTag">Crypto</span>
+              </div>
+            </div>
+            <div class="demo-agent-right">
+              <div class="demo-price-big pos" id="dPrice">$74.12</div>
+              <div class="demo-chg-big pos" id="dChg">+34.7% (30D)</div>
+            </div>
+          </div>
+
+          <!-- KPI strip -->
+          <div class="kpi-strip" id="dKpis">
+            <div class="kpi-cell"><div class="k">PRICE</div><div class="v">—</div><div class="s">Mock</div></div>
+          </div>
+
+          <!-- Chart -->
+          <div class="chart-area">
+            <div class="chart-controls">
+              <div class="chart-title-block">
+                <div class="ct" id="dChartTitle">Performance vs Benchmark</div>
+                <div class="cs" id="dChartSub">ROLLING 30D · ILLUSTRATIVE</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+                <div class="chart-legend">
+                  <span><span class="legend-dot a"></span>Agent</span>
+                  <span><span class="legend-dot b"></span>Benchmark</span>
+                </div>
+                <div class="range-btns" id="rangeBtns">
+                  <button class="range-btn active" data-range="30D">30D</button>
+                  <button class="range-btn" data-range="90D">90D</button>
+                  <button class="range-btn" data-range="1Y">1Y</button>
+                </div>
+              </div>
+            </div>
+            <svg id="mainChart" viewBox="0 0 560 160" xmlns="http://www.w3.org/2000/svg" aria-label="Performance chart">
+              <defs>
+                <linearGradient id="gA" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#0EAD6E" stop-opacity="0.25"/>
+                  <stop offset="100%" stop-color="#0EAD6E" stop-opacity="0"/>
+                </linearGradient>
+                <linearGradient id="gB" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#E8AC20" stop-opacity="0.2"/>
+                  <stop offset="100%" stop-color="#E8AC20" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <path id="areaA" fill="url(#gA)"/>
+              <path id="areaB" fill="url(#gB)"/>
+              <path id="pathB" fill="none" stroke="#E8AC20" stroke-width="1.5" stroke-opacity="0.7"/>
+              <path id="pathA" fill="none" stroke="#0EAD6E" stroke-width="2"/>
+            </svg>
+          </div>
+
+          <!-- Tabs -->
+          <div class="demo-tabs">
+            <div class="tab-bar">
+              <button class="tab-btn" data-tab="overview" aria-selected="true">Overview</button>
+              <button class="tab-btn" data-tab="strategy" aria-selected="false">Strategy</button>
+              <button class="tab-btn" data-tab="risk" aria-selected="false">Risk</button>
+              <button class="tab-btn" data-tab="ledger" aria-selected="false">Ledger</button>
+            </div>
+            <div class="tab-body" id="tabBody"></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ASSET CLASS -->
+<section class="asset-sec" id="asset">
+  <div class="asset-inner">
+    <div class="fade">
+      <div class="eyebrow">THE ASSET CLASS</div>
+      <h2 class="sec-title">AI agents as ownable assets</h2>
+      <p class="sec-lead mt-1">For the first time, the intelligence behind a trading strategy can be priced, owned, and tracked — with a unique ticker, audit-grade performance ledger, and clear listing terms.</p>
+      <div class="asset-checks">
+        <div class="a-chk"><span class="chk-icon">✓</span>Public profile pages with disclosures and methodology statements</div>
+        <div class="a-chk"><span class="chk-icon">✓</span>Fee schedules and performance incentives shown upfront</div>
+        <div class="a-chk"><span class="chk-icon">✓</span>Trade-level ledger and exportable evidence of performance</div>
+        <div class="a-chk"><span class="chk-icon">✓</span>Allocation tools designed for diligence, not impulse</div>
+      </div>
+    </div>
+
+    <div class="card-stack fade d2">
+      <div class="sc b2"></div>
+      <div class="sc b1"></div>
+      <div class="sc main">
+        <div class="ctop">
+          <div>
+            <div class="can">ARB-Bot Pro</div>
+            <div class="csub">VERIFIED · MULTI-VENUE ARBITRAGE</div>
+          </div>
+          <span class="ctick">LIVE (MOCK)</span>
+        </div>
+        <div class="cret">+34.7%</div>
+        <div class="cper">Rolling 30D (illustrative)</div>
+        <svg class="sparkline" viewBox="0 0 300 50" xmlns="http://www.w3.org/2000/svg" aria-label="Sparkline">
+          <defs><linearGradient id="sg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0EAD6E" stop-opacity="0.25"/><stop offset="100%" stop-color="#0EAD6E" stop-opacity="0"/></linearGradient></defs>
+          <path d="M0,46 L20,40 L40,34 L60,38 L80,28 L100,24 L120,19 L140,23 L160,15 L180,10 L200,14 L220,7 L240,9 L260,5 L280,3 L300,1" fill="none" stroke="#0EAD6E" stroke-width="2" stroke-linecap="round"/>
+          <path d="M0,46 L20,40 L40,34 L60,38 L80,28 L100,24 L120,19 L140,23 L160,15 L180,10 L200,14 L220,7 L240,9 L260,5 L280,3 L300,1 L300,50 L0,50 Z" fill="url(#sg2)"/>
+        </svg>
+        <div class="cstats">
+          <div class="csi"><div class="csv">3.12</div><div class="csl">SHARPE</div></div>
+          <div class="csi"><div class="csv">$890K</div><div class="csl">AUM</div></div>
+          <div class="csi"><div class="csv">4.2%</div><div class="csl">MAX DD</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS (moved after Demo) -->
 <section class="how-sec" id="how">
   <div class="wrap">
     <div class="how-hdr">
@@ -1501,18 +1673,10 @@ placeholder="founders@launchase.com"
         <h3 class="step-title">Validate the record</h3>
         <p class="step-desc">We maintain a consistent, audit-friendly trade ledger — plus risk analytics and full disclosures. Investors can evaluate agents on more than just marketing-grade returns.</p>
       </div>
-      <div class="step-card fade d3">
-        <div class="step-num">03</div>
-        <span class="step-lbl">TRADE</span>
-        <h3 class="step-title">Allocate with confidence</h3>
-        <p class="step-desc">When the platform opens for transactions, investors will find clearer terms, clearer risk, and clearer performance than any typical strategy marketplace. Investments involve risk.</p>
       </div>
     </div>
   </div>
 </section>
-
-<!-- ─── DEMO SECTION ─── -->
-<section class="demo-sec" id="demo">
   <div class="demo-hdr">
     <div class="eyebrow">LIVE DEMO</div>
     <h2 class="sec-title">Explore the marketplace</h2>
