@@ -423,7 +423,7 @@ h1,h2,h3,h4{font-family:var(--font-head);line-height:1.1;letter-spacing:-.02em}
 .rot-wrap{
   display:block;
   overflow:hidden;
-  height:1.2em;
+  height:1.4em;
   margin:.1em 0;
 }
 .rot-inner{
@@ -431,7 +431,7 @@ h1,h2,h3,h4{font-family:var(--font-head);line-height:1.1;letter-spacing:-.02em}
   transition:transform .55s cubic-bezier(.4,0,.2,1);
 }
 .rot-item{
-  display:block;height:1.2em;line-height:1.2;
+  display:block;line-height:1.4em;
   color:var(--muted);
   font-size:0.85em;
   font-weight:600;
@@ -648,10 +648,10 @@ h1,h2,h3,h4{font-family:var(--font-head);line-height:1.1;letter-spacing:-.02em}
 .demo-toggle input{accent-color:var(--gold)}
 .demo-body-layout{
   display:grid;grid-template-columns:300px 1fr;
-  height:640px;
+  height:800px;
 }
-.demo-sidebar{height:100%;border-right:1px solid var(--border);display:flex;flex-direction:column;}
-.agent-list{flex:1;overflow-y:auto;padding:0.25rem 0;}
+.demo-sidebar{height:100%;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:0;}
+.agent-list{flex:1;overflow-y:auto;padding:0;}
 .demo-sidebar{border-right:1px solid var(--border)}
 .agent-list{list-style:none;margin:0;padding:0;max-height:600px;overflow-y:auto}
 .agent-item{
@@ -665,9 +665,9 @@ h1,h2,h3,h4{font-family:var(--font-head);line-height:1.1;letter-spacing:-.02em}
 .agent-item:not(.active){border-left:2px solid transparent}
 .agent-row{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
 .agent-name{font-weight:800;font-size:.9rem}
-.agent-ticker{font-family:var(--font-mono);font-size:.6rem;color:var(--gold);margin-top:.1rem}
+.agent-ticker{font-family:var(--font-mono);font-size:.6rem;color:var(--gold);margin-top:0}
 .agent-meta{
-  display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.4rem;
+  display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.2rem;
   font-family:var(--font-mono);font-size:.55rem;
 }
 .agent-pill-tag{
@@ -763,7 +763,7 @@ h1,h2,h3,h4{font-family:var(--font-head);line-height:1.1;letter-spacing:-.02em}
   border-color:rgba(232,172,32,0.25);
   color:var(--gold);background:rgba(232,172,32,0.08);
 }
-.tab-body{padding:1rem 1.25rem;flex:1;overflow-y:auto}
+.tab-body{padding:1rem 1.25rem;flex:1;overflow-y:scroll}
 .tab-grid{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
 .tab-card{
   background:rgba(255,255,255,0.02);
@@ -1301,17 +1301,7 @@ footer{
 <nav id="nav" aria-label="Primary">
   <div class="nav-inner">
     <a href="#top" class="nav-logo" aria-label="ASE home">
-      <!-- Logo mark -->
-    <svg class="logo-mark" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <rect width="34" height="34" rx="10" fill="#E8AC20" fill-opacity="0.12"/>
-        <rect width="34" height="34" rx="10" stroke="#E8AC20" stroke-opacity="0.3" stroke-width="1"/>
-        <!-- A letterform with chart line -->
-        <path d="M10 24L17 10L24 24" stroke="#E8AC20" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M12.5 19.5H21.5" stroke="#E8AC20" stroke-width="1.8" stroke-linecap="round"/>
-        <!-- small chart uptick accent -->
-        <circle cx="24" cy="24" r="2" fill="#0EAD6E"/>
-      </svg>
-      <span class="logo-word">AS<em>E</em></span>
+      <span class="logo-word" style="gap:.4rem">AS<em>E</em></span>
     </a>
 
     <ul class="nav-links">
@@ -1478,135 +1468,6 @@ placeholder="founders@launchase.com"
   </div>
 </div>
 
-<!-- ─── DEMO SECTION ─── -->
-<section class="demo-sec" id="demo">
-  <div class="demo-hdr">
-    <div class="eyebrow">LIVE DEMO</div>
-    <h2 class="sec-title">Explore the marketplace</h2>
-    <p class="sec-lead center mt-1">Search, filter, and analyze verified AI agents — just like you would on Robinhood, but for algorithmic strategies.</p>
-  </div>
-
-  <div class="demo-wrap">
-    <div class="demo-win">
-      <!-- Window chrome -->
-      <div class="demo-win-bar">
-        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-        <span class="win-title">ase.app · Marketplace</span>
-        <span class="pill" style="margin-left:auto">MOCK DATA</span>
-      </div>
-
-      <!-- Toolbar -->
-      <div class="demo-toolbar">
-        <div class="demo-filters">
-          <div class="demo-search-box">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M10 10L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-            <input type="text" id="dSearch" placeholder="Search agents, tickers…" aria-label="Search agents"/>
-          </div>
-          <select class="demo-sel" id="dMarket" aria-label="Market filter">
-            <option value="">All Markets</option>
-            <option value="Crypto">Crypto</option>
-            <option value="Equities">Equities</option>
-            <option value="FX">FX</option>
-            <option value="Options">Options</option>
-            <option value="Futures">Futures</option>
-            <option value="Commodities">Commodities</option>
-          </select>
-          <select class="demo-sel" id="dSort" aria-label="Sort by">
-            <option value="30d">Sort: 30D Return</option>
-            <option value="sharpe">Sort: Sharpe</option>
-            <option value="aum">Sort: AUM</option>
-          </select>
-          <label class="demo-toggle">
-            <input type="checkbox" id="dVerified"/> <span>Verified only</span>
-          </label>
-        </div>
-        <div style="font-family:var(--font-mono);font-size:.62rem;color:var(--faint)" id="dCount">8 agents</div>
-      </div>
-
-      <!-- Body -->
-      <div class="demo-body-layout">
-        <!-- Sidebar agent list -->
-        <div class="demo-sidebar">
-          <ul class="agent-list" id="agentList"></ul>
-        </div>
-
-        <!-- Main panel -->
-        <div class="demo-main-panel">
-          <!-- Agent header -->
-          <div class="demo-agent-header">
-            <div class="demo-agent-name-block">
-              <div class="demo-agent-name" id="dName">ARB-Bot Pro</div>
-              <div class="demo-agent-meta-row" id="dMeta">
-                <span class="pill">VERIFIED</span>
-                <span class="tag" id="dStrategy">Funding/Basis Arb</span>
-                <span class="tag" id="dMarketTag">Crypto</span>
-              </div>
-            </div>
-            <div class="demo-agent-right">
-              <div class="demo-price-big pos" id="dPrice">$74.12</div>
-              <div class="demo-chg-big pos" id="dChg">+34.7% (30D)</div>
-            </div>
-          </div>
-
-          <!-- KPI strip -->
-          <div class="kpi-strip" id="dKpis">
-            <div class="kpi-cell"><div class="k">PRICE</div><div class="v">—</div><div class="s">Mock</div></div>
-          </div>
-
-          <!-- Chart -->
-          <div class="chart-area">
-            <div class="chart-controls">
-              <div class="chart-title-block">
-                <div class="ct" id="dChartTitle">Performance vs Benchmark</div>
-                <div class="cs" id="dChartSub">ROLLING 30D · ILLUSTRATIVE</div>
-              </div>
-              <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-                <div class="chart-legend">
-                  <span><span class="legend-dot a"></span>Agent</span>
-                  <span><span class="legend-dot b"></span>Benchmark</span>
-                </div>
-                <div class="range-btns" id="rangeBtns">
-                  <button class="range-btn active" data-range="30D">30D</button>
-                  <button class="range-btn" data-range="90D">90D</button>
-                  <button class="range-btn" data-range="1Y">1Y</button>
-                </div>
-              </div>
-            </div>
-            <svg id="mainChart" viewBox="0 0 560 160" xmlns="http://www.w3.org/2000/svg" aria-label="Performance chart">
-              <defs>
-                <linearGradient id="gA" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#0EAD6E" stop-opacity="0.25"/>
-                  <stop offset="100%" stop-color="#0EAD6E" stop-opacity="0"/>
-                </linearGradient>
-                <linearGradient id="gB" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#E8AC20" stop-opacity="0.2"/>
-                  <stop offset="100%" stop-color="#E8AC20" stop-opacity="0"/>
-                </linearGradient>
-              </defs>
-              <path id="areaA" fill="url(#gA)"/>
-              <path id="areaB" fill="url(#gB)"/>
-              <path id="pathB" fill="none" stroke="#E8AC20" stroke-width="1.5" stroke-opacity="0.7"/>
-              <path id="pathA" fill="none" stroke="#0EAD6E" stroke-width="2"/>
-            </svg>
-          </div>
-
-          <!-- Tabs -->
-          <div class="demo-tabs">
-            <div class="tab-bar">
-              <button class="tab-btn" data-tab="overview" aria-selected="true">Overview</button>
-              <button class="tab-btn" data-tab="strategy" aria-selected="false">Strategy</button>
-              <button class="tab-btn" data-tab="risk" aria-selected="false">Risk</button>
-              <button class="tab-btn" data-tab="ledger" aria-selected="false">Ledger</button>
-            </div>
-            <div class="tab-body" id="tabBody"></div>
-          </div>
-
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
 <!-- ASSET CLASS -->
 <section class="asset-sec" id="asset">
   <div class="asset-inner">
@@ -1650,37 +1511,12 @@ placeholder="founders@launchase.com"
   </div>
 </section>
 
-<!-- HOW IT WORKS (moved after Demo) -->
-<section class="how-sec" id="how">
-  <div class="wrap">
-    <div class="how-hdr">
-      <div class="eyebrow">THE PROCESS</div>
-      <h2 class="sec-title">How ASE works</h2>
-      <div class="rule center"></div>
-      <p class="sec-lead center">A transparent marketplace connecting AI strategy builders, investors, and the market — with independent verification at every step.</p>
-    </div>
-
-    <div class="steps">
-      <div class="step-card fade">
-        <div class="step-num">01</div>
-        <span class="step-lbl">BUILD</span>
-        <h3 class="step-title">Submit your strategy</h3>
-        <p class="step-desc">Builders submit AI trading agents to ASE. Each listing follows a structured evaluation process designed to reduce self-reported performance and make strategies genuinely comparable.</p>
-      </div>
-      <div class="step-card fade d2">
-        <div class="step-num">02</div>
-        <span class="step-lbl">VERIFY</span>
-        <h3 class="step-title">Validate the record</h3>
-        <p class="step-desc">We maintain a consistent, audit-friendly trade ledger — plus risk analytics and full disclosures. Investors can evaluate agents on more than just marketing-grade returns.</p>
-      </div>
-      </div>
-    </div>
-  </div>
-</section>
-  <div class="demo-hdr">
+<!-- ─── DEMO SECTION ─── -->
+<section class="demo-sec" id="demo">
+    <div class="demo-hdr">
     <div class="eyebrow">LIVE DEMO</div>
-    <h2 class="sec-title">Explore the marketplace</h2>
-    <p class="sec-lead center mt-1">Search, filter, and analyze verified AI agents — just like you would on Robinhood, but for algorithmic strategies.</p>
+    <h2 class="sec-title">Explore the exchange</h2>
+        <p class="sec-lead center mt-1">Search, filter, and analyze verified AI agents — just like you would on Robinhood, but for algorithmic strategies on the exchange.</p>
   </div>
 
   <div class="demo-wrap">
@@ -1801,9 +1637,6 @@ placeholder="founders@launchase.com"
         </div>
       </div>
     </div>
-  </div>
-</section>
-    <p style="text-align:center;font-family:var(--font-mono);font-size:.62rem;color:var(--faint);margin-top:.9rem">All data illustrative. Not financial advice. Mock environment only.</p>
   </div>
 </section>
 
@@ -2062,49 +1895,6 @@ placeholder="founders@launchase.com"
   </div>
 </section>
 
-<!-- ASSET CLASS -->
-<section class="asset-sec" id="asset">
-  <div class="asset-inner">
-    <div class="fade">
-      <div class="eyebrow">THE ASSET CLASS</div>
-      <h2 class="sec-title">AI agents as ownable assets</h2>
-      <p class="sec-lead mt-1">For the first time, the intelligence behind a trading strategy can be priced, owned, and tracked — with a unique ticker, audit-grade performance ledger, and clear listing terms.</p>
-      <div class="asset-checks">
-        <div class="a-chk"><span class="chk-icon">✓</span>Public profile pages with disclosures and methodology statements</div>
-        <div class="a-chk"><span class="chk-icon">✓</span>Fee schedules and performance incentives shown upfront</div>
-        <div class="a-chk"><span class="chk-icon">✓</span>Trade-level ledger and exportable evidence of performance</div>
-        <div class="a-chk"><span class="chk-icon">✓</span>Allocation tools designed for diligence, not impulse</div>
-      </div>
-    </div>
-
-    <div class="card-stack fade d2">
-      <div class="sc b2"></div>
-      <div class="sc b1"></div>
-      <div class="sc main">
-        <div class="ctop">
-          <div>
-            <div class="can">ARB-Bot Pro</div>
-            <div class="csub">VERIFIED · MULTI-VENUE ARBITRAGE</div>
-          </div>
-          <span class="ctick">LIVE (MOCK)</span>
-        </div>
-        <div class="cret">+34.7%</div>
-        <div class="cper">Rolling 30D (illustrative)</div>
-        <svg class="sparkline" viewBox="0 0 300 50" xmlns="http://www.w3.org/2000/svg" aria-label="Sparkline">
-          <defs><linearGradient id="sg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0EAD6E" stop-opacity="0.25"/><stop offset="100%" stop-color="#0EAD6E" stop-opacity="0"/></linearGradient></defs>
-          <path d="M0,46 L20,40 L40,34 L60,38 L80,28 L100,24 L120,19 L140,23 L160,15 L180,10 L200,14 L220,7 L240,9 L260,5 L280,3 L300,1" fill="none" stroke="#0EAD6E" stroke-width="2" stroke-linecap="round"/>
-          <path d="M0,46 L20,40 L40,34 L60,38 L80,28 L100,24 L120,19 L140,23 L160,15 L180,10 L200,14 L220,7 L240,9 L260,5 L280,3 L300,1 L300,50 L0,50 Z" fill="url(#sg2)"/>
-        </svg>
-        <div class="cstats">
-          <div class="csi"><div class="csv">3.12</div><div class="csl">SHARPE</div></div>
-          <div class="csi"><div class="csv">$890K</div><div class="csl">AUM</div></div>
-          <div class="csi"><div class="csv">4.2%</div><div class="csl">MAX DD</div></div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
 <!-- WHO IT'S FOR -->
 <section class="who-sec" id="who">
   <div class="who-hdr">
@@ -2243,12 +2033,12 @@ placeholder="founders@launchase.com"
         <div class="fa"><div class="fai">We don't have a confirmed launch date. We're deliberately building in stages — verified data layer first, allocation tooling next, and liquidity only after the regulatory groundwork is complete. Early access members will be the first to know as each milestone ships.</div></div>
       </div>
       <div class="fitem">
-        <button class="fq" type="button" data-faq>I'm an AI developer. How do I list a strategy?<span class="fplus">+</span></button>
-Email <a href="mailto:founders@launchase.com">founders@launchase.com</a>
+<button class="fq" type="button" data-faq>I'm an AI developer. How do I list a strategy?<span class="fplus">+</span></button>
+        <div class="fa"><div class="fai"><p><a href="mailto:builders@launchase.com">builders@launchase.com</a> - Include strategy description, backtest methodology, live trading evidence.</p></div></div>
       </div>
       <div class="fitem">
-        <button class="fq" type="button" data-faq>How can I contact the team?<span class="fplus">+</span></button>
-Email <a href="mailto:founders@launchase.com">founders@launchase.com</a>
+<button class="fq" type="button" data-faq>How can I contact the team?<span class="fplus">+</span></button>
+        <div class="fa"><div class="fai"><p><a href="mailto:hello@ase.markets">hello@ase.markets</a></p></div></div>
       </div>
     </div>
   </div>
@@ -2296,10 +2086,9 @@ placeholder="founders@launchase.com"
   <div class="fi">
     <div class="ftop">
       <div class="fb">
-        <a href="#top" class="fbname">
-          <svg width="24" height="24" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="34" height="34" rx="10" fill="#E8AC20" fill-opacity="0.12"/><path d="M10 24L17 10L24 24" stroke="#E8AC20" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.5 19.5H21.5" stroke="#E8AC20" stroke-width="1.8" stroke-linecap="round"/><circle cx="24" cy="24" r="2" fill="#0EAD6E"/></svg>
+        <div class="fbname" style="gap:.4rem">
           AS<em>E</em>
-        </a>
+        </div>
         <p>ASE — building the first marketplace where AI trading agents are independently verified and owned as assets. Compliance-first. Transparency by design.</p>
         <div class="flive"><span class="fldot"></span>WAITLIST OPEN</div>
       </div>
