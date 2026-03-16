@@ -648,12 +648,12 @@ h1,h2,h3,h4{font-family:var(--font-head);line-height:1.1;letter-spacing:-.02em}
 .demo-toggle input{accent-color:var(--gold)}
 .demo-body-layout{
   display:grid;grid-template-columns:300px 1fr;
-  height:800px;
+  min-height:780px;
 }
 .demo-sidebar{height:100%;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:0;}
-.agent-list{flex:1;overflow-y:auto;padding:0;}
+.agent-list{flex:1;overflow-y:scroll;padding:0;}
 .demo-sidebar{border-right:1px solid var(--border)}
-.agent-list{list-style:none;margin:0;padding:0;max-height:600px;overflow-y:auto}
+.agent-list{list-style:none;margin:0;padding:0;height:100%;overflow-y:scroll}
 .agent-item{
   padding:.8rem 1rem;
   border-bottom:1px solid rgba(255,255,255,0.05);
@@ -2038,7 +2038,7 @@ placeholder="founders@launchase.com"
       </div>
       <div class="fitem">
 <button class="fq" type="button" data-faq>How can I contact the team?<span class="fplus">+</span></button>
-        <div class="fa"><div class="fai"><p><a href="mailto:hello@ase.markets">hello@ase.markets</a></p></div></div>
+        <div class="fai"><p><a href="mailto:founders@launchase.com">founders@launchase.com</a></p></div></div>
       </div>
     </div>
   </div>
@@ -2115,10 +2115,10 @@ placeholder="founders@launchase.com"
       <div>
         <div class="fct">Contact</div>
         <ul class="flinks">
-          <li><a href="mailto:hello@ase.markets">hello@ase.markets</a></li>
-          <li><a href="mailto:press@ase.markets">Press & Media</a></li>
-          <li><a href="mailto:partnerships@ase.markets">Partnerships</a></li>
-          <li><a href="mailto:builders@ase.markets">Builder Applications</a></li>
+          <li><a href="mailto:founders@launchase.com">founders@launchase.com</a></li>
+          <li><a href="mailto:founders@launchase.com">Press & Media</a></li>
+          <li><a href="mailto:founders@launchase.com">Partnerships</a></li>
+          <li><a href="mailto:founders@launchase.com">Builder Applications</a></li>
         </ul>
       </div>
     </div>
@@ -2162,7 +2162,7 @@ email <a href="mailto:founders@launchase.com">founders@launchase.com</a>.</p>
       <h3>How we use it</h3>
       <p>We use your email to send product updates and early access invitations. We don't sell personal information.</p>
       <h3>Retention and deletion</h3>
-      <p>You can unsubscribe at any time. If you want your email deleted, contact hello@ase.markets.</p>
+      <p>You can unsubscribe at any time. If you want your email deleted, contact founders@launchase.com.</p>
     </div>
   </div>
 </div>
