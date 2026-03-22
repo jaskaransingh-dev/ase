@@ -19,18 +19,15 @@ export const fmtPct = (pct: number, decimals = 1): string => {
 }
 
 export const fmtDate = (date: string | Date): string => {
-  return new Date(date).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
+  const d = new Date(date)
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
 }
 
 export const fmtDateTime = (date: string | Date): string => {
-  return new Date(date).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  const d = new Date(date)
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const hours = d.getHours().toString().padStart(2, '0')
+  const minutes = d.getMinutes().toString().padStart(2, '0')
+  return `${months[d.getMonth()]} ${d.getDate()}, ${hours}:${minutes}`
 }

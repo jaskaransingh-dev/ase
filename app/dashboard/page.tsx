@@ -36,24 +36,25 @@ export default async function DashboardPage() {
   const totalPortfolio = balance + totalCurrentValue
 
   const txTypeLabel: Record<string, string> = {
-    deposit: '⊕ Deposit',
-    invest: '→ Invested',
-    divest: '← Divested',
-    return: '↑ Return',
-  }
-  const txColor: Record<string, string> = {
-    deposit: 'var(--green)',
-    divest: 'var(--green)',
-    return: 'var(--green)',
-    invest: 'var(--red)',
+    deposit: 'Deposit',
+    invest: 'Invested',
+    divest: 'Divested',
+    return: 'Return',
   }
 
   return (
-    <div style={{ padding: '2rem 2.5rem', maxWidth: 1100 }}>
+    <div style={{ 
+      padding: '2rem', 
+      maxWidth: '1200px', 
+      margin: '0 auto',
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: 'column'
+    }}>
       {/* Header */}
-      <div style={{ marginBottom: '2rem' }}>
+      <div style={{ marginBottom: '2rem', textAlign: 'center' }}>
         <div className="eyebrow" style={{ marginBottom: '.35rem' }}>PORTFOLIO OVERVIEW</div>
-        <h1 style={{ fontFamily: 'var(--font-head)', fontSize: '1.8rem', fontWeight: 800 }}>Your Dashboard</h1>
+        <h1 style={{ fontFamily: 'var(--font-head)', fontSize: '1.8rem', fontWeight: 800 }}>Investment Dashboard</h1>
       </div>
 
       {/* Stats strip */}

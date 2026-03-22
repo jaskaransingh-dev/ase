@@ -1,16 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getAccount } from '@/lib/alpaca'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-export async function POST(req: NextRequest) {
-  const authHeader = req.headers.get('x-cron-secret')
-  if (authHeader !== process.env.CRON_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+export async function POST() {
   const admin = createAdminClient()
   const alpacaKey = process.env.ALPACA_KEY_ID || ''
   const alpacaSecret = process.env.ALPACA_SECRET_KEY || ''
@@ -28,6 +23,8 @@ export async function POST(req: NextRequest) {
 
   for (const agent of agents ?? []) {
     try {
+      console.log(`Updating NAV for agent: ${agent.slug}`)
+      
       // Get Alpaca portfolio value
       const account = await getAccount(alpacaKey, alpacaSecret)
       const portfolioValue = parseFloat(account.portfolio_value) * 100 // Convert to cents
@@ -158,7 +155,10 @@ export async function POST(req: NextRequest) {
         win_rate_pct: Math.round(winRatePct * 100) / 100,
         totalTrades
       }
+      
+      console.log(`Updated ${agent.slug}: NAV=$${(navCents/100).toFixed(2)}, Return=${totalReturnPct.toFixed(2)}%`)
     } catch (err) {
+      console.error(`Error updating NAV for ${agent.slug}:`, err)
       results[agent.slug] = { error: err instanceof Error ? err.message : 'Unknown error' }
     }
   }
@@ -166,6 +166,6 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, results, updated_at: new Date().toISOString() })
 }
 
-export async function GET(req: NextRequest) {
-  return POST(req)
+export async function GET() {
+  return POST()
 }

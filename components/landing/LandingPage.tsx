@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { HoverLink } from '@/components/ui/hover-link'
 import { HoverCard } from '@/components/ui/hover-card'
@@ -50,12 +50,11 @@ const FAQ_ITEMS = [
 
 export default function LandingPage() {
   const [rotIdx, setRotIdx] = useState(0)
-  const [openFaq, setOpenFaq] = useState<number | null>(null)
   const [email, setEmail] = useState('')
   const [wlMsg, setWlMsg] = useState('')
   const [wlLoading, setWlLoading] = useState(false)
   const [navScrolled, setNavScrolled] = useState(false)
-  const [mobOpen, setMobOpen] = useState(false)
+  const [openFaq, setOpenFaq] = useState<number | null>(null)
 
   useEffect(() => {
     const iv = setInterval(() => setRotIdx(i => (i + 1) % ROT_WORDS.length), 2800)
@@ -79,7 +78,7 @@ export default function LandingPage() {
         body: JSON.stringify({ email }),
       })
       if (res.ok) {
-        setWlMsg("✓ You're on the list — we'll be in touch.")
+        setWlMsg("You're on the list — we'll be in touch.")
         setEmail('')
       } else {
         setWlMsg('Something went wrong. Try again.')
@@ -234,7 +233,7 @@ export default function LandingPage() {
               { n: '01', title: 'Sign up & deposit credits', desc: 'Create an account and add ASE credits via Stripe. Credits are used for paper trading simulation — no real funds are invested.' },
               { n: '02', title: 'Discover verified agents', desc: 'Browse the marketplace of AI trading agents with transparent performance records, Sharpe ratios, and trade-level ledgers.' },
               { n: '03', title: 'Invest & track returns', desc: 'Allocate credits to agents you believe in. Monitor performance in real-time as agents trade using Alpaca Paper Trading.' },
-            ].map((s, i) => (
+            ].map((s) => (
               <HoverCard key={s.n} className="card" style={{ padding: '2rem 1.75rem' }}>
                 <div style={{ width: 42, height: 42, borderRadius: 14, background: 'rgba(232,172,32,.1)', border: '1px solid rgba(232,172,32,.2)', display: 'grid', placeItems: 'center', fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--gold)', fontWeight: 700, marginBottom: '1.25rem' }}>{s.n}</div>
                 <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.1rem', fontWeight: 800, marginBottom: '.65rem' }}>{s.title}</div>
@@ -337,12 +336,12 @@ export default function LandingPage() {
       <section style={{ padding: '80px 1.5rem', background: 'rgba(0,0,0,.2)' }}>
         <div style={{ maxWidth: 1160, margin: '0 auto' }}>
           <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-            <div className="eyebrow">WHO IT'S FOR</div>
+            <div className="eyebrow">WHO IT&apos;S FOR</div>
             <h2 style={{ fontFamily: 'var(--font-head)', fontSize: 'clamp(1.8rem,3.5vw,2.5rem)', fontWeight: 800, marginTop: '.5rem' }}>Built for three types of participant</h2>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.5rem' }} className="who-grid">
             {[
-              { label: 'FOR BUILDERS', title: 'AI Developers & Quants', desc: "You've built a strategy that genuinely performs. List on ASE with clear methodology, reach real demand, and get paid — without running investor operations yourself.", tags: ['ML ENGINEERS','QUANTS','RESEARCHERS'] },
+              { label: 'FOR BUILDERS', title: 'AI Developers & Quants', desc: "You&apos;ve built a strategy that genuinely performs. List on ASE with clear methodology, reach real demand, and get paid — without running investor operations yourself.", tags: ['ML ENGINEERS','QUANTS','RESEARCHERS'] },
               { label: 'FOR INVESTORS', title: 'Self-Directed Traders', desc: 'Algorithmic strategies have historically been gated behind large minimums. ASE democratizes access with transparent data, verified ledgers, and paper trading to start.', tags: ['SELF-DIRECTED','DATA-DRIVEN','RETAIL'] },
               { label: 'FOR INSTITUTIONS', title: 'Institutional Participants', desc: 'Evaluate agents with full data access, exportable reports, and API integration. We are in early dialogue with design partners who need auditable AI strategy access.', tags: ['FAMILY OFFICES','HEDGE FUNDS','RIAs'] },
             ].map(w => (

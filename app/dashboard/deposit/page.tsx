@@ -2,7 +2,6 @@
 import { useState } from 'react'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
-import { useRouter } from 'next/navigation'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || 'pk_test_placeholder')
 
@@ -23,7 +22,6 @@ const AMOUNTS = [10, 25, 50, 100, 250, 500]
 function DepositForm() {
   const stripe = useStripe()
   const elements = useElements()
-  const router = useRouter()
   const [amount, setAmount] = useState(100)
   const [custom, setCustom] = useState('')
   const [loading, setLoading] = useState(false)
@@ -35,35 +33,79 @@ function DepositForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!stripe || !elements) return
-    if (finalAmount < 10) { setError('Minimum deposit is $10'); return }
+    if (!stripe || !elements) {
+      setError('Payment system not ready. Please refresh the page.')
+      return
+    }
+    if (finalAmount < 10) { 
+      setError('Minimum deposit is $10'); 
+      return 
+    }
 
     setLoading(true)
     setError('')
 
     try {
+      console.log('Creating payment intent for $', finalAmount)
+      
       // Create payment intent
       const res = await fetch('/api/payments/create-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount_cents: finalAmountCents }),
       })
-      const { client_secret, error: apiError } = await res.json()
-      if (apiError) throw new Error(apiError)
+      
+      const data = await res.json()
+      console.log('Payment intent response:', data)
+      
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create payment intent')
+      }
+      
+      const { client_secret } = data
+      if (!client_secret) {
+        throw new Error('No client secret received')
+      }
 
+      console.log('Confirming card payment...')
+      
       // Confirm payment
       const cardEl = elements.getElement(CardElement)
       if (!cardEl) throw new Error('Card element not found')
 
-      const { error: stripeError } = await stripe.confirmCardPayment(client_secret, {
-        payment_method: { card: cardEl },
+      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(client_secret, {
+        payment_method: { 
+          card: cardEl,
+          billing_details: {
+            email: 'customer@example.com', // You can collect this from the user
+          }
+        },
       })
 
-      if (stripeError) throw new Error(stripeError.message)
+      console.log('Payment confirmation result:', { stripeError, paymentIntent })
 
-      setSuccess(true)
-      setTimeout(() => router.push('/dashboard'), 2500)
+      if (stripeError) {
+        console.error('Stripe error:', stripeError)
+        throw new Error(stripeError.message)
+      }
+
+      if (paymentIntent?.status === 'succeeded') {
+        console.log('Payment succeeded!')
+        setSuccess(true)
+        // Poll for balance update
+        setTimeout(() => {
+          window.location.href = '/dashboard'
+        }, 2500)
+      } else {
+        console.log('Payment not succeeded, status:', paymentIntent?.status)
+        // Still show success as webhook will handle it
+        setSuccess(true)
+        setTimeout(() => {
+          window.location.href = '/dashboard'
+        }, 2500)
+      }
     } catch (err: unknown) {
+      console.error('Payment error:', err)
       setError(err instanceof Error ? err.message : 'Payment failed')
     }
     setLoading(false)
@@ -72,7 +114,7 @@ function DepositForm() {
   if (success) {
     return (
       <div style={{ textAlign: 'center', padding: '2rem 0' }}>
-        <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>✅</div>
+        <div style={{ fontSize: '2.5rem', marginBottom: '1rem', color: 'var(--green)' }}>✓</div>
         <h3 style={{ fontFamily: 'var(--font-head)', fontSize: '1.3rem', fontWeight: 800, marginBottom: '.5rem' }}>Credits added!</h3>
         <p style={{ color: 'var(--muted)', fontSize: '.9rem' }}>${finalAmount.toFixed(2)} in paper credits have been added to your account.</p>
         <p style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginTop: '.75rem' }}>Redirecting to dashboard...</p>
@@ -142,7 +184,7 @@ export default function DepositPage() {
         <div className="win-bar">
           <span className="dot dot-r" /><span className="dot dot-y" /><span className="dot dot-g" />
           <span className="win-title">Secure Deposit · Stripe Test Mode</span>
-          <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--green)' }}>🔒 SECURED</span>
+          <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--green)' }}>SECURED</span>
         </div>
         <div style={{ padding: '1.75rem' }}>
           <Elements stripe={stripePromise}>

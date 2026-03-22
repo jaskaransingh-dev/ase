@@ -28,9 +28,9 @@ export default function AgentSubmitPage() {
 
       {done ? (
         <div style={{ background: 'var(--bg2)', border: '1px solid rgba(14,173,110,.25)', borderRadius: 20, padding: '2.5rem', textAlign: 'center' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>🎯</div>
+          <div style={{ fontSize: '2.5rem', marginBottom: '1rem', color: 'var(--gold)' }}>◆</div>
           <h2 style={{ fontFamily: 'var(--font-head)', fontSize: '1.3rem', fontWeight: 800, marginBottom: '.5rem' }}>Application received</h2>
-          <p style={{ color: 'var(--muted)', fontSize: '.9rem', marginBottom: '1.5rem' }}>We'll review your submission and reach out at the email you provided. We typically respond within 2 weeks.</p>
+          <p style={{ color: 'var(--muted)', fontSize: '.9rem', marginBottom: '1.5rem' }}>We&apos;ll review your submission and reach out at the email you provided. We typically respond within 2 weeks.</p>
           <Link href="/agents" className="btn-secondary">Browse Agents</Link>
         </div>
       ) : (

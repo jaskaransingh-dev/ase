@@ -31,7 +31,7 @@ export default function ForgotPasswordPage() {
         <div style={{ padding: '2rem' }}>
           {done ? (
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>📬</div>
+              <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>✉</div>
               <h2 style={{ fontFamily: 'var(--font-head)', fontSize: '1.3rem', fontWeight: 800, marginBottom: '.5rem' }}>Check your email</h2>
               <p style={{ color: 'var(--muted)', fontSize: '.9rem', marginBottom: '1.5rem' }}>We sent a reset link to {email}</p>
               <Link href="/login" className="btn-secondary" style={{ justifyContent: 'center', display: 'flex' }}>Back to Login</Link>

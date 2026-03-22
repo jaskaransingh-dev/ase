@@ -30,7 +30,7 @@ export default function AccountClient({ user, transactions }: Props) {
     setProfileLoading(true)
     setProfileMsg('')
     const { error } = await supabase.from('profiles').update({ display_name: name }).eq('id', user.id)
-    setProfileMsg(error ? error.message : '✅ Profile updated')
+    setProfileMsg(error ? error.message : 'Profile updated')
     setProfileLoading(false)
   }
 
@@ -41,7 +41,7 @@ export default function AccountClient({ user, transactions }: Props) {
     setPwLoading(true)
     setPwMsg('')
     const { error } = await supabase.auth.updateUser({ password })
-    setPwMsg(error ? error.message : '✅ Password updated')
+    setPwMsg(error ? error.message : 'Password updated')
     if (!error) { setPassword(''); setPwConfirm('') }
     setPwLoading(false)
   }
@@ -63,7 +63,7 @@ export default function AccountClient({ user, transactions }: Props) {
             <label style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '.65rem', letterSpacing: '.08em', color: 'var(--faint)', marginBottom: '.45rem' }}>EMAIL (READ-ONLY)</label>
             <input type="email" value={user.email} readOnly className="input-base" style={{ opacity: .5, cursor: 'not-allowed' }} />
           </div>
-          {profileMsg && <div style={{ fontSize: '.85rem', color: profileMsg.startsWith('✅') ? 'var(--green)' : 'var(--red)' }}>{profileMsg}</div>}
+          {profileMsg && <div style={{ fontSize: '.85rem', color: profileMsg.includes('updated') ? 'var(--green)' : 'var(--red)' }}>{profileMsg}</div>}
           <div>
             <button type="submit" disabled={profileLoading} className="btn-secondary" style={{ fontSize: '.85rem', padding: '.6rem 1.1rem' }}>
               {profileLoading ? <><span className="spinner" />Saving...</> : 'Save Changes'}
@@ -84,7 +84,7 @@ export default function AccountClient({ user, transactions }: Props) {
             <label style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '.65rem', letterSpacing: '.08em', color: 'var(--faint)', marginBottom: '.45rem' }}>CONFIRM PASSWORD</label>
             <input type="password" value={pwConfirm} onChange={e => setPwConfirm(e.target.value)} placeholder="••••••••" className="input-base" />
           </div>
-          {pwMsg && <div style={{ fontSize: '.85rem', color: pwMsg.startsWith('✅') ? 'var(--green)' : 'var(--red)' }}>{pwMsg}</div>}
+          {pwMsg && <div style={{ fontSize: '.85rem', color: pwMsg.includes('updated') ? 'var(--green)' : 'var(--red)' }}>{pwMsg}</div>}
           <div>
             <button type="submit" disabled={pwLoading} className="btn-secondary" style={{ fontSize: '.85rem', padding: '.6rem 1.1rem' }}>
               {pwLoading ? <><span className="spinner" />Updating...</> : 'Update Password'}

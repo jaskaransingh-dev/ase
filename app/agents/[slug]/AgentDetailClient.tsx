@@ -2,11 +2,13 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { fmtUSD, fmtPct, fmtDateTime, fmtDate } from '@/lib/utils'
+import RealtimePrice from '@/components/ui/realtime-price'
+import OrderForm from '@/components/ui/order-form'
 
-interface Agent { id: string; name: string; slug: string; description: string; strategy_type: string; status: string; total_aum_cents: number }
-interface Stats { id: string; nav_cents: number; total_return_pct: number; sharpe_ratio: number; max_drawdown_pct: number; win_rate_pct: number; total_trades: number; snapshot_at: string }
+interface Agent { id: string; name: string; slug: string; ticker?: string; description: string; strategy_type: string; status: string; total_aum_cents: number }
+interface Stats { id: string; nav_cents: number; bid_cents?: number; ask_cents?: number; total_return_pct: number; sharpe_ratio: number; max_drawdown_pct: number; win_rate_pct: number; total_trades: number; snapshot_at: string }
 interface Trade { id: string; symbol: string; side: string; qty: number; fill_price: number; filled_at: string; pnl_cents: number }
 interface Holding { id: string; shares: number; invested_cents: number; current_value_cents: number; entry_nav_cents: number }
 
@@ -71,7 +73,7 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      setMsg('✅ Investment successful!')
+      setMsg('Investment successful!')
       setShowInvest(false)
       setTimeout(() => router.refresh(), 1000)
     } catch (e: unknown) {
@@ -92,7 +94,7 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      setMsg('✅ Position closed. Credits returned.')
+      setMsg('Position closed. Credits returned.')
       setShowSell(false)
       setTimeout(() => router.refresh(), 1000)
     } catch (e: unknown) {
@@ -127,7 +129,7 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
           <p style={{ color: 'var(--muted)', fontSize: '.9rem', lineHeight: 1.7, maxWidth: 560 }}>{agent.description}</p>
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.8rem', fontWeight: 800, color: pos ? 'var(--green)' : 'var(--red)' }}>{fmtUSD(nav)}</div>
+          <RealtimePrice agentId={agent.id} className="text-right" />
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.82rem', color: pos ? 'var(--green)' : 'var(--red)', marginTop: '.15rem' }}>{fmtPct(ret)} total return</div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: 'var(--faint)', marginTop: '.2rem' }}>NAV per share (paper)</div>
         </div>
@@ -302,7 +304,7 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
       </div>
 
       {msg && (
-        <div style={{ marginTop: '.75rem', padding: '.75rem 1rem', background: msg.startsWith('✅') ? 'rgba(14,173,110,.08)' : 'rgba(232,64,64,.08)', border: `1px solid ${msg.startsWith('✅') ? 'rgba(14,173,110,.2)' : 'rgba(232,64,64,.2)'}`, borderRadius: 10, fontSize: '.88rem', color: msg.startsWith('✅') ? 'var(--green)' : 'var(--red)' }}>
+        <div style={{ marginTop: '.75rem', padding: '.75rem 1rem', background: msg.includes('successful') || msg.includes('closed') ? 'rgba(14,173,110,.08)' : 'rgba(232,64,64,.08)', border: `1px solid ${msg.includes('successful') || msg.includes('closed') ? 'rgba(14,173,110,.2)' : 'rgba(232,64,64,.2)'}`, borderRadius: 10, fontSize: '.88rem', color: msg.includes('successful') || msg.includes('closed') ? 'var(--green)' : 'var(--red)' }}>
           {msg}
         </div>
       )}
@@ -322,7 +324,7 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
             </div>
           </div>
           <div style={{ padding: '.75rem 1rem', background: 'rgba(232,172,32,.05)', border: '1px solid rgba(232,172,32,.12)', borderRadius: 10, fontSize: '.82rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>
-            ⚠️ This is a paper trading simulation. No real funds are invested.
+            Note: This is a paper trading simulation. No real funds are invested.
           </div>
           <button onClick={handleInvest} disabled={loading} className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
             {loading ? <><span className="spinner" />Investing...</> : `Invest $${investAmount} →`}
@@ -347,6 +349,24 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
         </Modal>
       )}
 
+      {/* Order Form */}
+      {isLoggedIn && (
+        <div style={{ marginTop: '2rem' }}>
+          <OrderForm 
+            agent={{
+              ...agent,
+              ticker: agent.ticker || agent.slug.toUpperCase().replace('-', '').slice(0, 4)
+            }} 
+            currentPrice={latestStats ? {
+              nav_cents: latestStats.nav_cents,
+              bid_cents: latestStats.bid_cents || Math.round(latestStats.nav_cents * 0.9985),
+              ask_cents: latestStats.ask_cents || Math.round(latestStats.nav_cents * 1.0015),
+            } : null}
+            onOrderPlaced={() => router.refresh()}
+          />
+        </div>
+      )}
+
       <style>{`
         @media(max-width:768px){.kpi-strip{grid-template-columns:repeat(3,1fr)!important}.tab-grid{grid-template-columns:1fr!important}}
       `}</style>
@@ -358,7 +378,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem', backdropFilter: 'blur(6px)' }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 20, padding: '2rem', maxWidth: 440, width: '100%', boxShadow: '0 40px 100px rgba(0,0,0,.8)', position: 'relative', animation: 'fadeUp .3s ease' }}>
-        <button onClick={onClose} style={{ position: 'absolute', top: '1rem', right: '1rem', width: 28, height: 28, borderRadius: 8, border: '1px solid var(--border2)', background: 'var(--surface)', color: 'var(--muted)', display: 'grid', placeItems: 'center', cursor: 'pointer', fontSize: '.75rem' }}>✕</button>
+        <button onClick={onClose} style={{ position: 'absolute', top: '1rem', right: '1rem', width: 28, height: 28, borderRadius: 8, border: '1px solid var(--border2)', background: 'var(--surface)', color: 'var(--muted)', display: 'grid', placeItems: 'center', cursor: 'pointer', fontSize: '.75rem' }}>×</button>
         <h2 style={{ fontFamily: 'var(--font-head)', fontSize: '1.2rem', fontWeight: 800, marginBottom: '1.5rem' }}>{title}</h2>
         {children}
       </div>

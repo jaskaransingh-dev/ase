@@ -39,14 +39,15 @@ export async function POST(req: NextRequest) {
 
     const { data: latestStats } = await admin
       .from('agent_stats')
-      .select('nav_cents')
+      .select('nav_cents, ask_cents')
       .eq('agent_id', agent_id)
       .order('snapshot_at', { ascending: false })
       .limit(1)
       .single()
 
     const navCents = latestStats?.nav_cents ?? 10000 // Default $100.00
-    const shares = amount_cents / navCents
+    const askCents = latestStats?.ask_cents ?? (navCents * 10015 / 10000) // 0.15% spread
+    const shares = amount_cents / askCents
 
     // Atomic operations
     // 1. Deduct from wallet
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         agent_id,
         shares,
-        entry_nav_cents: navCents,
+        entry_nav_cents: askCents,
         invested_cents: amount_cents,
         current_value_cents: amount_cents,
         status: 'active',

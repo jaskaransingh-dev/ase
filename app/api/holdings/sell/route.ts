@@ -46,8 +46,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Calculate return value
-    const currentValue = holding.current_value_cents ?? holding.invested_cents
+    // Get current bid price
+    const { data: latestStats } = await admin
+      .from('agent_stats')
+      .select('bid_cents')
+      .eq('agent_id', holding.agent_id)
+      .order('snapshot_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    const bidCents = latestStats?.bid_cents ?? holding.current_value_cents
+    const currentValue = Math.round(holding.shares * bidCents)
     const returnAmount = currentValue - holding.invested_cents
 
     // Fetch current wallet

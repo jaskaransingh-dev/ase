@@ -12,10 +12,10 @@ interface Props {
 }
 
 const NAV_ITEMS = [
-  { href: '/dashboard', label: 'Portfolio', icon: '◈' },
-  { href: '/agents', label: 'Agents', icon: '⬡' },
-  { href: '/dashboard/deposit', label: 'Add Credits', icon: '⊕' },
-  { href: '/account', label: 'Account', icon: '⊙' },
+  { href: '/dashboard', label: 'Portfolio' },
+  { href: '/agents', label: 'Agents' },
+  { href: '/dashboard/deposit', label: 'Add Credits' },
+  { href: '/account', label: 'Account' },
 ]
 
 export default function DashboardShell({ user, initialBalance, children }: Props) {
@@ -38,7 +38,7 @@ export default function DashboardShell({ user, initialBalance, children }: Props
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [user.id])
+  }, [supabase, user.id])
 
   async function handleSignOut() {
     await supabase.auth.signOut()
@@ -68,7 +68,6 @@ export default function DashboardShell({ user, initialBalance, children }: Props
           return (
             <Link key={item.href} href={item.href}
               style={{ display: 'flex', alignItems: 'center', gap: '.75rem', padding: '.65rem .85rem', borderRadius: 12, marginBottom: '.2rem', fontSize: '.9rem', fontWeight: 600, color: active ? 'var(--white)' : 'var(--muted)', background: active ? 'rgba(255,255,255,.06)' : 'transparent', border: active ? '1px solid var(--border2)' : '1px solid transparent', transition: 'all .15s' }}>
-              <span style={{ fontSize: '.9rem', opacity: active ? 1 : .6 }}>{item.icon}</span>
               {item.label}
               {item.label === 'Add Credits' && (
                 <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '.58rem', padding: '.15rem .4rem', borderRadius: 6, background: 'rgba(232,172,32,.15)', color: 'var(--gold)', border: '1px solid rgba(232,172,32,.2)' }}>+ ADD</span>

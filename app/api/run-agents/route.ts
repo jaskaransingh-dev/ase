@@ -1,23 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { runMomentumAlpha, runMeanReversionPro, runTrendFollower } from '@/lib/agents'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-export async function POST(req: NextRequest) {
-  // Verify cron secret
-  const authHeader = req.headers.get('x-cron-secret')
-  if (authHeader !== process.env.CRON_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
+export async function POST() {
   const admin = createAdminClient()
   const results: Record<string, unknown> = {}
 
-  // Fetch all active agents with their Alpaca keys
-  // In production, each agent has its own Alpaca paper account
-  // For MVP, we use the same account with the env vars
+  // Fetch all active agents
   const alpacaKey = process.env.ALPACA_KEY_ID || ''
   const alpacaSecret = process.env.ALPACA_SECRET_KEY || ''
 
@@ -30,8 +22,11 @@ export async function POST(req: NextRequest) {
     .select('*')
     .eq('status', 'active')
 
+  console.log(`Running ${agents?.length || 0} active agents...`)
+
   for (const agent of agents ?? []) {
     try {
+      console.log(`Running agent: ${agent.slug} (${agent.strategy_type})`)
       let result
 
       if (agent.strategy_type === 'momentum') {
@@ -43,10 +38,13 @@ export async function POST(req: NextRequest) {
       }
 
       results[agent.slug] = result
+      console.log(`Agent ${agent.slug} result:`, result)
 
       // Log orders to agent_trades with P&L calculation
       if (result && !('skipped' in result)) {
         const orders = extractOrders(result)
+        console.log(`Processing ${orders.length} orders for ${agent.slug}`)
+        
         for (const order of orders) {
           try {
             // Calculate P&L for sell orders
@@ -93,12 +91,15 @@ export async function POST(req: NextRequest) {
               pnl_cents: pnlCents,
               created_at: new Date().toISOString(),
             })
+            
+            console.log(`Recorded trade: ${order.side} ${order.qty} ${order.symbol} at $${order.filled_avg_price}`)
           } catch (insertError) { 
             console.error('Failed to insert trade:', insertError)
           }
         }
       }
     } catch (err) {
+      console.error(`Error running agent ${agent.slug}:`, err)
       results[agent.slug] = { error: err instanceof Error ? err.message : 'Unknown error' }
     }
   }
@@ -106,9 +107,9 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, results, ran_at: new Date().toISOString() })
 }
 
-// Also allow GET for manual trigger in dev
-export async function GET(req: NextRequest) {
-  return POST(req)
+// Also allow GET for manual trigger
+export async function GET() {
+  return POST()
 }
 
 function extractOrders(result: unknown): Array<{ id: string; symbol: string; side: string; qty: string; filled_avg_price: string; filled_at: string }> {

@@ -1,21 +1,20 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { HoverCard } from '@/components/ui/hover-card'
-import { fmtUSD, fmtUSDK, fmtPct } from '@/lib/utils'
+import { fmtUSD, fmtPct } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
 
 export default async function AgentsPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
 
-  const { data: agents } = await supabase
+  const { data } = await supabase
     .from('agents')
     .select('*, agent_stats(nav_cents,total_return_pct,sharpe_ratio,max_drawdown_pct,win_rate_pct,total_trades,snapshot_at)')
     .eq('status', 'active')
     .order('created_at')
 
-  const agentsList = agents ?? []
+  const agentsList = data ?? []
 
   const strategyInfo: Record<string, { label: string; color: string }> = {
     momentum: { label: 'Momentum', color: 'var(--gold)' },
