@@ -1,9 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { runMomentumAlpha, runMeanReversionPro, runTrendFollower } from '@/lib/agents'
+import { runBtcMomentum, runEthMeanRevert, runCryptoTrend, runSolBreakout, runDefiBasket } from '@/lib/agents'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
+
+const STRATEGY_RUNNERS: Record<string, (key: string, secret: string) => Promise<unknown>> = {
+  crypto_momentum_btc: runBtcMomentum,
+  crypto_mean_reversion_eth: runEthMeanRevert,
+  crypto_momentum_multi: runCryptoTrend,
+  crypto_momentum_sol: runSolBreakout,
+  crypto_momentum_defi: runDefiBasket,
+}
+
+// Map agent slugs to their runner
+const SLUG_TO_RUNNER: Record<string, string> = {
+  'btc-momentum': 'crypto_momentum_btc',
+  'eth-mean-revert': 'crypto_mean_reversion_eth',
+  'crypto-trend': 'crypto_momentum_multi',
+  'sol-breakout': 'crypto_momentum_sol',
+  'defi-basket': 'crypto_momentum_defi',
+}
 
 export async function POST(req: NextRequest) {
   // Verify cron secret
@@ -15,9 +32,6 @@ export async function POST(req: NextRequest) {
   const admin = createAdminClient()
   const results: Record<string, unknown> = {}
 
-  // Fetch all active agents with their Alpaca keys
-  // In production, each agent has its own Alpaca paper account
-  // For MVP, we use the same account with the env vars
   const alpacaKey = process.env.ALPACA_KEY_ID || ''
   const alpacaSecret = process.env.ALPACA_SECRET_KEY || ''
 
@@ -32,27 +46,24 @@ export async function POST(req: NextRequest) {
 
   for (const agent of agents ?? []) {
     try {
-      let result
+      const runnerKey = SLUG_TO_RUNNER[agent.slug]
+      const runner = runnerKey ? STRATEGY_RUNNERS[runnerKey] : null
 
-      if (agent.strategy_type === 'momentum') {
-        result = await runMomentumAlpha(alpacaKey, alpacaSecret)
-      } else if (agent.strategy_type === 'mean_reversion') {
-        result = await runMeanReversionPro(alpacaKey, alpacaSecret)
-      } else if (agent.strategy_type === 'trend_following') {
-        result = await runTrendFollower(alpacaKey, alpacaSecret)
+      if (!runner) {
+        results[agent.slug] = { skipped: true, reason: 'No runner configured' }
+        continue
       }
 
+      const result = await runner(alpacaKey, alpacaSecret)
       results[agent.slug] = result
 
-      // Log orders to agent_trades with P&L calculation
-      if (result && !('skipped' in result)) {
+      // Log orders to agent_trades
+      if (result && typeof result === 'object' && !('skipped' in (result as Record<string, unknown>))) {
         const orders = extractOrders(result)
         for (const order of orders) {
           try {
-            // Calculate P&L for sell orders
             let pnlCents = null
             if (order.side === 'sell') {
-              // Find corresponding buy order for P&L calculation
               const { data: buyOrders } = await admin
                 .from('agent_trades')
                 .select('fill_price, qty')
@@ -62,15 +73,14 @@ export async function POST(req: NextRequest) {
                 .is('pnl_cents', null)
                 .order('filled_at', { ascending: true })
                 .limit(1)
-              
+
               if (buyOrders && buyOrders.length > 0) {
                 const buyOrder = buyOrders[0]
                 const buyPrice = parseFloat(buyOrder.fill_price || '0')
                 const sellPrice = parseFloat(order.filled_avg_price || '0')
                 const quantity = Math.min(parseFloat(order.qty || '0'), parseFloat(buyOrder.qty || '0'))
-                pnlCents = Math.round((sellPrice - buyPrice) * quantity * 100) // Convert to cents
-                
-                // Mark buy order as closed
+                pnlCents = Math.round((sellPrice - buyPrice) * quantity * 100)
+
                 await admin
                   .from('agent_trades')
                   .update({ pnl_cents: 0 })
@@ -81,7 +91,7 @@ export async function POST(req: NextRequest) {
                   .is('pnl_cents', null)
               }
             }
-            
+
             await admin.from('agent_trades').insert({
               agent_id: agent.id,
               alpaca_order_id: order.id,
@@ -91,9 +101,8 @@ export async function POST(req: NextRequest) {
               fill_price: parseFloat(order.filled_avg_price || '0'),
               filled_at: order.filled_at || new Date().toISOString(),
               pnl_cents: pnlCents,
-              created_at: new Date().toISOString(),
             })
-          } catch (insertError) { 
+          } catch (insertError) {
             console.error('Failed to insert trade:', insertError)
           }
         }
@@ -106,7 +115,6 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, results, ran_at: new Date().toISOString() })
 }
 
-// Also allow GET for manual trigger in dev
 export async function GET(req: NextRequest) {
   return POST(req)
 }
@@ -115,7 +123,6 @@ function extractOrders(result: unknown): Array<{ id: string; symbol: string; sid
   const orders: Array<{ id: string; symbol: string; side: string; qty: string; filled_avg_price: string; filled_at: string }> = []
   if (!result || typeof result !== 'object') return orders
 
-  // Handle different result shapes from different agents
   const r = result as Record<string, unknown>
 
   if (Array.isArray(r.orders)) orders.push(...r.orders)

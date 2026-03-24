@@ -73,3 +73,4 @@ h1,h2,h3,h4{font-family:var(--font-head);line-height:1.1;letter-spacing:-.02em}
 .data-table th{color:var(--faint);font-size:.62rem;letter-spacing:.08em;text-align:left;padding:.4rem .6rem;border-bottom:1px solid var(--border)}
 .data-table td{padding:.5rem .6rem;border-bottom:1px solid rgba(255,255,255,.03)}
 .data-table tr:hover td{background:rgba(255,255,255,.02)}
+.trade-link:hover{opacity:1 !important}

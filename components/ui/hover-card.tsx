@@ -33,9 +33,11 @@ export function HoverCard({ href, children, className = '', style = {}, asLink =
 
   if (asLink && href) {
     return (
-      <Link href={href} className={className} style={baseStyle} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
-        {children}
-      </Link>
+      <div className={className} style={baseStyle} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+        <Link href={href} style={{ display: 'contents', textDecoration: 'none', color: 'inherit' }}>
+          {children}
+        </Link>
+      </div>
     )
   }
 

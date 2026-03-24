@@ -1,6 +1,6 @@
 -- ============================================================
 -- ASE — Agent Security Exchange
--- Supabase SQL Schema
+-- Supabase SQL Schema (Crypto Agents MVP)
 -- Run this in Supabase SQL Editor
 -- ============================================================
 
@@ -36,11 +36,15 @@ create table if not exists public.agents (
   id                uuid primary key default gen_random_uuid(),
   slug              text unique not null,
   name              text not null,
+  ticker            text,
   description       text,
-  strategy_type     text not null check (strategy_type in ('momentum', 'mean_reversion', 'trend_following')),
+  strategy_type     text not null check (strategy_type in ('momentum', 'mean_reversion', 'trend_following', 'crypto_momentum', 'crypto_mean_reversion')),
+  asset_class       text default 'crypto',
   status            text default 'active' check (status in ('active', 'paused', 'pending_review')),
   alpaca_account    text,
   total_aum_cents   bigint default 0,
+  share_price_cents bigint default 10000,
+  total_shares      bigint default 100000,
   created_at        timestamptz default now()
 );
 
@@ -50,6 +54,8 @@ create table if not exists public.agent_stats (
   agent_id          uuid references public.agents(id) on delete cascade,
   snapshot_at       timestamptz default now(),
   nav_cents         bigint default 10000,
+  bid_cents         bigint,
+  ask_cents         bigint,
   total_return_pct  numeric default 0,
   sharpe_ratio      numeric default 0,
   max_drawdown_pct  numeric default 0,
@@ -75,13 +81,14 @@ create table if not exists public.holdings (
 create table if not exists public.agent_trades (
   id              uuid primary key default gen_random_uuid(),
   agent_id        uuid references public.agents(id) on delete cascade,
-  alpaca_order_id text unique,
+  alpaca_order_id text,
   symbol          text not null,
   side            text not null check (side in ('buy', 'sell')),
   qty             numeric,
   fill_price      numeric,
   filled_at       timestamptz,
-  pnl_cents       bigint
+  pnl_cents       bigint,
+  created_at      timestamptz default now()
 );
 
 -- ── AGENT SUBMISSIONS ────────────────────────────────────────
@@ -102,7 +109,7 @@ create table if not exists public.waitlist (
   created_at  timestamptz default now()
 );
 
--- ── RPC HELPER ──────────────────────────────────────────────
+-- ── RPC HELPERS ──────────────────────────────────────────────
 create or replace function public.increment_agent_aum(p_agent_id uuid, p_amount bigint)
 returns void as $$
 begin
@@ -112,7 +119,7 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- Auto-create profile on signup
+-- Auto-create profile + wallet on signup
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
@@ -137,90 +144,99 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
--- ── SEED AGENTS ─────────────────────────────────────────────
-insert into public.agents (slug, name, description, strategy_type, status)
+-- ── SEED 5 CRYPTO AGENTS ────────────────────────────────────
+insert into public.agents (slug, name, ticker, description, strategy_type, asset_class, status, share_price_cents, total_shares)
 values
   (
-    'momentum-alpha',
-    'Momentum Alpha',
-    'Targets the top 5 momentum stocks from a liquid 50-stock watchlist. Rebalances weekly based on 3-month price returns with 20% position caps.',
-    'momentum',
-    'active'
+    'btc-momentum',
+    'BTC Momentum',
+    'BTCM',
+    'Rides Bitcoin momentum using 20/50 EMA crossovers on BTC/USD. Goes long when short-term trend is bullish, exits on bearish cross.',
+    'crypto_momentum',
+    'crypto',
+    'active',
+    10000,
+    100000
   ),
   (
-    'mean-reversion-pro',
-    'Mean Reversion Pro',
-    'Buys oversold blue chips when RSI drops below 30. Exits at RSI > 55 or +8% gain. Max 3 concurrent positions.',
-    'mean_reversion',
-    'active'
+    'eth-mean-revert',
+    'ETH Mean Revert',
+    'ETHR',
+    'Buys ETH when RSI drops below 35 and sells when RSI exceeds 60. Targets oversold bounces on Ethereum.',
+    'crypto_mean_reversion',
+    'crypto',
+    'active',
+    10000,
+    100000
   ),
   (
-    'trend-follower',
-    'Trend Follower',
-    'Classic 50/200 EMA crossover on SPY, QQQ, and IWM. Long when trend is up, flat when trend is down.',
-    'trend_following',
-    'active'
+    'crypto-trend',
+    'Crypto Trend',
+    'CRTR',
+    'Systematic trend follower across BTC, ETH, and SOL. Uses 10/30 EMA on 1D bars with equal-weight allocation.',
+    'crypto_momentum',
+    'crypto',
+    'active',
+    10000,
+    100000
+  ),
+  (
+    'sol-breakout',
+    'SOL Breakout',
+    'SOLB',
+    'Detects SOL/USD breakouts using Bollinger Band expansion. Enters on upper band breaks with tight stop-loss at middle band.',
+    'crypto_momentum',
+    'crypto',
+    'active',
+    10000,
+    100000
+  ),
+  (
+    'defi-basket',
+    'DeFi Basket',
+    'DEFI',
+    'Rotates between top DeFi tokens (LINK, UNI, AAVE, AVAX) based on 14-day momentum. Weekly rebalance into top 2.',
+    'crypto_momentum',
+    'crypto',
+    'active',
+    10000,
+    100000
   )
 on conflict (slug) do nothing;
 
--- ── SEED INITIAL STATS ───────────────────────────────────────
+-- ── SEED INITIAL STATS (60 days of simulated data) ──────────
 do $$
 declare
-  agent_id_momentum uuid;
-  agent_id_reversion uuid;
-  agent_id_trend uuid;
+  aid uuid;
+  slug_list text[] := ARRAY['btc-momentum','eth-mean-revert','crypto-trend','sol-breakout','defi-basket'];
+  drift_list numeric[] := ARRAY[0.005, 0.003, 0.004, 0.006, 0.0035];
+  vol_list numeric[] := ARRAY[0.012, 0.008, 0.010, 0.015, 0.009];
   i integer;
+  j integer;
   base_date timestamptz := now() - interval '60 days';
 begin
-  select id into agent_id_momentum from public.agents where slug = 'momentum-alpha';
-  select id into agent_id_reversion from public.agents where slug = 'mean-reversion-pro';
-  select id into agent_id_trend from public.agents where slug = 'trend-follower';
+  for j in 1..5 loop
+    select id into aid from public.agents where slug = slug_list[j];
+    if aid is null then continue; end if;
 
-  for i in 0..60 loop
-    insert into public.agent_stats (
-      agent_id, snapshot_at, nav_cents, total_return_pct,
-      sharpe_ratio, max_drawdown_pct, win_rate_pct, total_trades
-    )
-    values (
-      agent_id_momentum,
-      base_date + (i || ' days')::interval,
-      round((10000 * (1 + (i::numeric * 0.004) + (random() * 0.008 - 0.004)))::numeric)::bigint,
-      round(((i::numeric * 0.4) + (random() * 0.8 - 0.4))::numeric, 2),
-      round((2.5 + random() * 0.8)::numeric, 2),
-      round((2 + random() * 4)::numeric, 2),
-      round((58 + random() * 10)::numeric, 1),
-      i * 2
-    );
-
-    insert into public.agent_stats (
-      agent_id, snapshot_at, nav_cents, total_return_pct,
-      sharpe_ratio, max_drawdown_pct, win_rate_pct, total_trades
-    )
-    values (
-      agent_id_reversion,
-      base_date + (i || ' days')::interval,
-      round((10000 * (1 + (i::numeric * 0.002) + (random() * 0.006 - 0.003)))::numeric)::bigint,
-      round(((i::numeric * 0.2) + (random() * 0.4 - 0.2))::numeric, 2),
-      round((1.8 + random() * 0.6)::numeric, 2),
-      round((3 + random() * 5)::numeric, 2),
-      round((62 + random() * 8)::numeric, 1),
-      i * 5
-    );
-
-    insert into public.agent_stats (
-      agent_id, snapshot_at, nav_cents, total_return_pct,
-      sharpe_ratio, max_drawdown_pct, win_rate_pct, total_trades
-    )
-    values (
-      agent_id_trend,
-      base_date + (i || ' days')::interval,
-      round((10000 * (1 + (i::numeric * 0.003) + (random() * 0.007 - 0.003)))::numeric)::bigint,
-      round(((i::numeric * 0.3) + (random() * 0.6 - 0.3))::numeric, 2),
-      round((2.2 + random() * 0.7)::numeric, 2),
-      round((4 + random() * 6)::numeric, 2),
-      round((55 + random() * 12)::numeric, 1),
-      i * 1
-    );
+    for i in 0..60 loop
+      insert into public.agent_stats (
+        agent_id, snapshot_at, nav_cents, bid_cents, ask_cents,
+        total_return_pct, sharpe_ratio, max_drawdown_pct, win_rate_pct, total_trades
+      )
+      values (
+        aid,
+        base_date + (i || ' days')::interval,
+        round((10000 * (1 + (i::numeric * drift_list[j]) + (random() * vol_list[j] * 2 - vol_list[j])))::numeric)::bigint,
+        round((10000 * (1 + (i::numeric * drift_list[j]) + (random() * vol_list[j] * 2 - vol_list[j])) * 0.998)::numeric)::bigint,
+        round((10000 * (1 + (i::numeric * drift_list[j]) + (random() * vol_list[j] * 2 - vol_list[j])) * 1.002)::numeric)::bigint,
+        round(((i::numeric * drift_list[j] * 100) + (random() * vol_list[j] * 200 - vol_list[j] * 100))::numeric, 2),
+        round((1.5 + random() * 2.0)::numeric, 2),
+        round((2 + random() * 6)::numeric, 2),
+        round((52 + random() * 16)::numeric, 1),
+        i * (2 + j)
+      );
+    end loop;
   end loop;
 end $$;
 
@@ -235,7 +251,7 @@ alter table public.agent_trades enable row level security;
 alter table public.agent_submissions enable row level security;
 alter table public.waitlist enable row level security;
 
--- Optional: drop old policies first so reruns do not fail
+-- Drop old policies
 drop policy if exists "Users can read own profile" on public.profiles;
 drop policy if exists "Users can update own profile" on public.profiles;
 drop policy if exists "Users can read own wallet" on public.wallets;
@@ -248,40 +264,29 @@ drop policy if exists "Anyone can join waitlist" on public.waitlist;
 drop policy if exists "Anyone can submit agent" on public.agent_submissions;
 
 -- Profiles
-create policy "Users can read own profile"
-  on public.profiles for select using (auth.uid() = id);
-
-create policy "Users can update own profile"
-  on public.profiles for update using (auth.uid() = id);
+create policy "Users can read own profile" on public.profiles for select using (auth.uid() = id);
+create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id);
 
 -- Wallets
-create policy "Users can read own wallet"
-  on public.wallets for select using (auth.uid() = user_id);
+create policy "Users can read own wallet" on public.wallets for select using (auth.uid() = user_id);
 
 -- Transactions
-create policy "Users can read own transactions"
-  on public.transactions for select using (auth.uid() = user_id);
+create policy "Users can read own transactions" on public.transactions for select using (auth.uid() = user_id);
 
 -- Holdings
-create policy "Users can read own holdings"
-  on public.holdings for select using (auth.uid() = user_id);
+create policy "Users can read own holdings" on public.holdings for select using (auth.uid() = user_id);
 
--- Agents
-create policy "Anyone can read agents"
-  on public.agents for select using (true);
+-- Agents (public)
+create policy "Anyone can read agents" on public.agents for select using (true);
 
--- Agent stats
-create policy "Anyone can read agent stats"
-  on public.agent_stats for select using (true);
+-- Agent stats (public)
+create policy "Anyone can read agent stats" on public.agent_stats for select using (true);
 
--- Agent trades
-create policy "Anyone can read agent trades"
-  on public.agent_trades for select using (true);
+-- Agent trades (public)
+create policy "Anyone can read agent trades" on public.agent_trades for select using (true);
 
 -- Waitlist
-create policy "Anyone can join waitlist"
-  on public.waitlist for insert with check (true);
+create policy "Anyone can join waitlist" on public.waitlist for insert with check (true);
 
 -- Agent submissions
-create policy "Anyone can submit agent"
-  on public.agent_submissions for insert with check (true);
+create policy "Anyone can submit agent" on public.agent_submissions for insert with check (true);

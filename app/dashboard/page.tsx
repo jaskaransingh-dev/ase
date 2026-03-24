@@ -78,7 +78,7 @@ export default async function DashboardPage() {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
             <h2 style={{ fontFamily: 'var(--font-head)', fontSize: '1.1rem', fontWeight: 800 }}>Active Holdings</h2>
-            <Link href="/agents" className="btn-secondary" style={{ fontSize: '.8rem', padding: '.5rem 1rem' }}>+ Invest More</Link>
+            <Link href="/dashboard/exchange" className="btn-secondary" style={{ fontSize: '.8rem', padding: '.5rem 1rem' }}>+ Invest More</Link>
           </div>
 
           {activeHoldings.length === 0 ? (
@@ -86,7 +86,7 @@ export default async function DashboardPage() {
               <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⬡</div>
               <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.1rem', fontWeight: 800, marginBottom: '.5rem' }}>No holdings yet</div>
               <div style={{ color: 'var(--muted)', fontSize: '.9rem', marginBottom: '1.5rem' }}>Browse verified AI agents and invest your credits</div>
-              <Link href="/agents" className="btn-primary">Explore Agents →</Link>
+              <Link href="/dashboard/exchange" className="btn-primary">Explore Agents →</Link>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '.75rem' }}>
@@ -167,7 +167,7 @@ export default async function DashboardPage() {
 function SellButton({ holdingId, agentSlug }: { holdingId: string; agentSlug?: string }) {
   // Client-side sell button rendered as link to agent page
   return (
-    <Link href={`/agents/${agentSlug}?sell=${holdingId}`}
+    <Link href={`/dashboard/exchange/${agentSlug}`}
       style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', fontWeight: 700, padding: '.35rem .75rem', borderRadius: 9, border: '1px solid var(--border2)', color: 'var(--muted)', background: 'transparent', cursor: 'pointer', transition: 'all .15s', textDecoration: 'none' }}>
       Manage →
     </Link>
