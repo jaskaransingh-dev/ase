@@ -1,9 +1,12 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
   title: 'ASE — AI Trading Agent Exchange',
   description: 'The marketplace for verified AI trading agents.',
+}
+
+export const viewport: Viewport = {
   themeColor: '#07090F',
 }
 

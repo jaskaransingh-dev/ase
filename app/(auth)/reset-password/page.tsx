@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
 export const dynamic = 'force-dynamic'
@@ -13,10 +14,19 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [sessionReady, setSessionReady] = useState<'checking' | 'ok' | 'invalid'>('checking')
   const supabase = createClient()
 
   useEffect(() => {
     setMounted(true)
+    // Verify there's an active recovery session before showing the form
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setSessionReady('ok')
+      } else {
+        setSessionReady('invalid')
+      }
+    })
   }, [])
 
   async function handle(e: React.FormEvent) {
@@ -47,6 +57,36 @@ export default function ResetPasswordPage() {
   }
 
   if (!mounted) return null
+
+  if (sessionReady === 'checking') {
+    return (
+      <div style={{ width: '100%', maxWidth: 420 }}>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 20, padding: '2rem', textAlign: 'center', boxShadow: '0 40px 100px rgba(0,0,0,.6)' }}>
+          <span className="spinner" style={{ margin: '0 auto 1rem', display: 'block', width: 24, height: 24 }} />
+          <p style={{ color: 'var(--muted)', fontSize: '.9rem' }}>Verifying reset link...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (sessionReady === 'invalid') {
+    return (
+      <div style={{ width: '100%', maxWidth: 420 }}>
+        <div style={{ background: 'var(--bg2)', border: '1px solid rgba(232,64,64,.25)', borderRadius: 20, padding: '2rem', textAlign: 'center', boxShadow: '0 40px 100px rgba(0,0,0,.6)' }}>
+          <div style={{ fontSize: '2.5rem', marginBottom: '1rem', color: 'var(--red)' }}>✕</div>
+          <h2 style={{ fontFamily: 'var(--font-head)', fontSize: '1.3rem', fontWeight: 800, marginBottom: '.5rem', color: 'var(--red)' }}>
+            Link expired or invalid
+          </h2>
+          <p style={{ color: 'var(--muted)', fontSize: '.9rem', lineHeight: 1.6, marginBottom: '1.5rem' }}>
+            This password reset link has expired or already been used. Please request a new one.
+          </p>
+          <Link href="/forgot-password" className="btn-primary" style={{ display: 'flex', justifyContent: 'center' }}>
+            Request new link →
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   if (success) {
     return (

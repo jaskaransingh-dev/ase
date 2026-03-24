@@ -9,6 +9,9 @@ export async function GET(request: NextRequest) {
   const code = requestUrl.searchParams.get('code')
   const next = requestUrl.searchParams.get('next') || '/dashboard'
 
+  // Validate next to prevent open redirect
+  const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/dashboard'
+
   if (code) {
     const cookieStore = await cookies()
     const supabase = createServerClient(
@@ -25,22 +28,24 @@ export async function GET(request: NextRequest) {
                 cookieStore.set(name, value, options)
               )
             } catch {
-              // Handle errors when setting cookies
+              // Can fail in middleware, safe to ignore
             }
           },
         },
       }
     )
 
-    // Exchange code for session
     const { error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!error) {
-      // Successfully exchanged code for session
-      return NextResponse.redirect(new URL(next, request.url))
+      return NextResponse.redirect(new URL(safeNext, request.url))
     }
+
+    // Code exchange failed — link expired or already used
+    const errorUrl = new URL('/login', request.url)
+    errorUrl.searchParams.set('error', 'Link expired or already used. Please try again.')
+    return NextResponse.redirect(errorUrl)
   }
 
-  // Return to login on error
   return NextResponse.redirect(new URL('/login', request.url))
 }

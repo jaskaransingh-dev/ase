@@ -7,10 +7,12 @@ import { createClient } from '@/lib/supabase/client'
 export default function LoginForm() {
   const router = useRouter()
   const params = useSearchParams()
-  const redirect = params.get('redirect') || '/dashboard'
+  // Validate redirect to prevent open redirect attacks — only allow relative paths
+  const rawRedirect = params.get('redirect') || '/dashboard'
+  const redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') ? rawRedirect : '/dashboard'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(params.get('error') || '')
   const [loading, setLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
   const supabase = createClient()
@@ -184,6 +186,10 @@ export default function LoginForm() {
             </button>
           </form>
 
+          <style>{`
+            .login-link-muted:hover { color: var(--gold) !important; }
+            .login-link-gold:hover { opacity: 0.8; }
+          `}</style>
           <div
             style={{
               display: 'flex',
@@ -195,34 +201,24 @@ export default function LoginForm() {
           >
             <Link
               href="/forgot-password"
+              className="login-link-muted"
               style={{
                 fontFamily: 'var(--font-mono)',
                 fontSize: '.68rem',
                 color: 'var(--faint)',
                 transition: 'color 0.2s ease',
               }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = 'var(--gold)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'var(--faint)'
-              }}
             >
               Forgot password?
             </Link>
             <Link
               href="/signup"
+              className="login-link-gold"
               style={{
                 fontFamily: 'var(--font-mono)',
                 fontSize: '.68rem',
                 color: 'var(--gold)',
-                transition: 'color 0.2s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = 'var(--gold2)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'var(--gold)'
+                transition: 'opacity 0.2s ease',
               }}
             >
               Create account →

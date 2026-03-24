@@ -64,21 +64,16 @@ export async function POST(req: NextRequest) {
 
       if (!wallet) {
         console.log('Creating new wallet for user:', userId)
-        await supabase.from('wallets').insert({ 
-          user_id: userId, 
-          balance_cents: amountCents,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+        await supabase.from('wallets').insert({
+          user_id: userId,
+          balance_cents: amountCents
         })
       } else {
         console.log('Updating existing wallet. Current balance:', wallet.balance_cents)
         const newBalance = wallet.balance_cents + amountCents
         await supabase
           .from('wallets')
-          .update({ 
-            balance_cents: newBalance, 
-            updated_at: new Date().toISOString() 
-          })
+          .update({ balance_cents: newBalance })
           .eq('user_id', userId)
         console.log('New balance:', newBalance)
       }
@@ -89,8 +84,7 @@ export async function POST(req: NextRequest) {
         type: 'deposit',
         amount_cents: amountCents,
         reference_id: pi.id,
-        note: `Stripe deposit — ${pi.id}`,
-        created_at: new Date().toISOString(),
+        note: `Stripe deposit — ${pi.id}`
       })
 
       console.log('Transaction recorded')

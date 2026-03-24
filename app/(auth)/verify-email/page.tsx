@@ -15,70 +15,55 @@ function VerifyEmailContent() {
     const verifyAndLogin = async () => {
       const supabase = createClient()
 
+      const redirectTo = () => {
+        setStatus('success')
+        setMessage('Email verified successfully!')
+        setTimeout(() => router.push('/dashboard'), 2000)
+      }
+      const failWith = (msg: string) => {
+        setStatus('error')
+        setMessage(msg)
+        setTimeout(() => router.push('/login'), 3000)
+      }
+
+      // 1. PKCE flow — Supabase sends ?code=xxx (most common with SSR)
+      const code = searchParams.get('code')
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code)
+        if (error) return failWith('Verification link expired or already used')
+        return redirectTo()
+      }
+
+      // 2. OTP flow — Supabase sends ?token_hash=xxx&type=signup
+      const tokenHash = searchParams.get('token_hash')
+      const type = searchParams.get('type')
+      if (tokenHash && type) {
+        const { error } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: type as 'signup',
+        })
+        if (error) return failWith('Verification link expired or already used')
+        return redirectTo()
+      }
+
+      // 3. Implicit flow — Supabase sends #access_token=xxx (legacy)
       const accessToken = searchParams.get('access_token')
       const refreshToken = searchParams.get('refresh_token')
-
       if (accessToken && refreshToken) {
         const { error } = await supabase.auth.setSession({
           access_token: accessToken,
           refresh_token: refreshToken,
         })
-
-        if (error) {
-          console.error('Session setting failed:', error)
-          setStatus('error')
-          setMessage('Failed to verify email')
-          setTimeout(() => {
-            router.push('/login')
-          }, 2000)
-        } else {
-          setStatus('success')
-          setMessage('Email verified successfully!')
-          setTimeout(() => {
-            router.push('/dashboard')
-          }, 2000)
-        }
-      } else {
-        const { data: { user }, error } = await supabase.auth.getUser()
-
-        if (user && !error) {
-          setStatus('success')
-          setMessage('Already logged in!')
-          setTimeout(() => {
-            router.push('/dashboard')
-          }, 2000)
-        } else {
-          const tokenHash = searchParams.get('token_hash')
-          const type = searchParams.get('type')
-
-          if (tokenHash && type) {
-            const { error } = await supabase.auth.verifyOtp({
-              token_hash: tokenHash,
-              type: type as 'signup',
-            })
-
-            if (error) {
-              setStatus('error')
-              setMessage('Verification link expired')
-              setTimeout(() => {
-                router.push('/login')
-              }, 2000)
-            } else {
-              setStatus('success')
-              setMessage('Email verified successfully!')
-              setTimeout(() => {
-                router.push('/dashboard')
-              }, 2000)
-            }
-          } else {
-            setStatus('error')
-            setMessage('Invalid verification link')
-            setTimeout(() => {
-              router.push('/login')
-            }, 2000)
-          }
-        }
+        if (error) return failWith('Failed to verify email')
+        return redirectTo()
       }
+
+      // 4. Already logged in — just redirect
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) return redirectTo()
+
+      // Nothing matched
+      failWith('Invalid verification link — please sign up again')
     }
 
     verifyAndLogin()

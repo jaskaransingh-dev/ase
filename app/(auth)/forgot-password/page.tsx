@@ -22,11 +22,11 @@ export default function ForgotPasswordPage() {
     setLoading(true)
     setError('')
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: `${window.location.origin}/api/auth/callback?next=/reset-password`,
     })
+    setLoading(false)
     if (error) {
       setError(error.message)
-      setLoading(false)
     } else {
       setDone(true)
     }
@@ -207,21 +207,17 @@ export default function ForgotPasswordPage() {
               <div style={{ textAlign: 'center', marginTop: '1rem' }}>
                 <Link
                   href="/login"
+                  className="auth-back-link"
                   style={{
                     fontFamily: 'var(--font-mono)',
                     fontSize: '.68rem',
                     color: 'var(--faint)',
                     transition: 'color 0.2s ease',
                   }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.color = 'var(--gold)'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color = 'var(--faint)'
-                  }}
                 >
                   ← Back to login
                 </Link>
+                <style>{`.auth-back-link:hover{color:var(--gold)!important}`}</style>
               </div>
             </>
           )}

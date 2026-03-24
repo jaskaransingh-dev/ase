@@ -17,8 +17,6 @@ export async function POST(req: Request) {
     const { error } = await supabase.from('wallets').insert({
       user_id,
       balance_cents: 10000, // $100 in cents
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     })
 
     if (error) {
@@ -33,7 +31,6 @@ export async function POST(req: Request) {
       amount_cents: 10000,
       reference_id: 'signup_bonus',
       note: 'Welcome bonus - $100 paper credits',
-      created_at: new Date().toISOString(),
     })
 
     return NextResponse.json({ success: true, balance: 10000 })
