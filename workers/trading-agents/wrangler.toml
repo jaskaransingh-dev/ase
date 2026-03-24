@@ -1,16 +1,18 @@
-name = "ase-trading-agents"
-main = "src/index.ts"
-compatibility_date = "2024-12-01"
+name = "ase"
+main = ".open-next/worker.js"
+compatibility_date = "2026-03-24"
+compatibility_flags = ["nodejs_compat"]
 
 [triggers]
 crons = ["*/15 * * * *"]
 
 [vars]
-APP_URL = "https://your-app.vercel.app"
+NEXT_PUBLIC_APP_URL = "https://ase.jazing14.workers.dev"
 
-# Set these as secrets via `wrangler secret put`:
-# ALPACA_KEY_ID
-# ALPACA_SECRET_KEY
-# CRON_SECRET
-# SUPABASE_URL
-# SUPABASE_SERVICE_ROLE_KEY
+NEXT_PUBLIC_SUPABASE_URL = "https://frlgckqtrloqunkhbhtp.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZybGdja3F0cmxvcXVua2hiaHRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI3NTUsImV4cCI6MjA4OTY5ODc1NX0.WGkI_y6tK_4x6lZuOjvOJ2J___7WWG1D8ibohQD2Vmg"
+
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_test_51TDX2dAtzHSmf8PpCH7NXIKntUodtOxw1ruzfcl7IhOrYOxlFHPRq9Acwcb3AxxbzW0aaNWIDDhv6itFTMay0izm00lOiuT86u"
+
+ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
+ALPACA_KEY_ID = "PKILN4ZAIIMEYCZ2DLUZNCXG5R"
