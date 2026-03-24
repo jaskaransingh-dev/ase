@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { fmtUSD } from '@/lib/utils'
 
@@ -19,9 +19,12 @@ interface Props {
 export default function RealtimePrice({ agentId, className }: Props) {
   const [price, setPrice] = useState<PriceData | null>(null)
   const [prevPrice, setPrevPrice] = useState<number | null>(null)
-  const supabase = createClient()
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
 
   useEffect(() => {
+    const supabase = supabaseRef.current!
+    if (!supabase) return
+
     // Get initial price
     async function getInitialPrice() {
       try {
@@ -90,7 +93,7 @@ export default function RealtimePrice({ agentId, className }: Props) {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [agentId, supabase])
+  }, [agentId])
 
   if (!price) {
     return (

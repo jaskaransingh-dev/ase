@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { fmtUSD } from '@/lib/utils'
 
@@ -43,7 +43,13 @@ export default function OrderForm({ agent, currentPrice, onOrderPlaced }: Props)
   const [recurringInterval, setRecurringInterval] = useState<'weekly' | 'monthly'>('weekly')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const supabase = createClient()
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      supabaseRef.current = createClient()
+    }
+  }, [])
 
   const isBuy = side === 'buy'
   const executionPrice = orderType === 'market' 
@@ -57,6 +63,13 @@ export default function OrderForm({ agent, currentPrice, onOrderPlaced }: Props)
     e.preventDefault()
     setLoading(true)
     setError('')
+
+    const supabase = supabaseRef.current
+    if (!supabase) {
+      setError('Supabase not ready')
+      setLoading(false)
+      return
+    }
 
     try {
       const { data: { user } } = await supabase.auth.getUser()
