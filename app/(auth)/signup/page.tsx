@@ -12,11 +12,9 @@ export default function SignupPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
-  const [mounted, setMounted] = useState(false)
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
 
   useEffect(() => {
-    setMounted(true)
     if (typeof window !== 'undefined') {
       supabaseRef.current = createClient()
     }
@@ -37,7 +35,6 @@ async function handleSignup(e: React.FormEvent) {
       setLoading(false)
       return
     }
-
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -69,8 +66,6 @@ async function handleSignup(e: React.FormEvent) {
       }
     }
   }
-
-  if (!mounted) return null
 
   if (done) {
     return (

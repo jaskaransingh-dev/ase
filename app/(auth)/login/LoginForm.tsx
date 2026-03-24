@@ -14,11 +14,9 @@ export default function LoginForm() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState(params.get('error') || '')
   const [loading, setLoading] = useState(false)
-  const [mounted, setMounted] = useState(false)
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
 
   useEffect(() => {
-    setMounted(true)
     if (typeof window !== 'undefined') {
       supabaseRef.current = createClient()
     }
@@ -43,8 +41,6 @@ export default function LoginForm() {
       router.refresh()
     }
   }
-
-  if (!mounted) return null
 
   return (
     <div

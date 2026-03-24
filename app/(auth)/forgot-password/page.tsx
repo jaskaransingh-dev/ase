@@ -10,11 +10,9 @@ export default function ForgotPasswordPage() {
   const [done, setDone] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [mounted, setMounted] = useState(false)
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
 
   useEffect(() => {
-    setMounted(true)
     if (typeof window !== 'undefined') {
       supabaseRef.current = createClient()
     }
@@ -40,8 +38,6 @@ export default function ForgotPasswordPage() {
       setDone(true)
     }
   }
-
-  if (!mounted) return null
 
   return (
     <div

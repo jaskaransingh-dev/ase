@@ -13,12 +13,10 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
-  const [mounted, setMounted] = useState(false)
   const [sessionReady, setSessionReady] = useState<'checking' | 'ok' | 'invalid'>('checking')
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
 
   useEffect(() => {
-    setMounted(true)
     if (typeof window !== 'undefined') {
       supabaseRef.current = createClient()
       // Verify there's an active recovery session before showing the form
@@ -64,8 +62,6 @@ export default function ResetPasswordPage() {
       }, 2000)
     }
   }
-
-  if (!mounted) return null
 
   if (sessionReady === 'checking') {
     return (
