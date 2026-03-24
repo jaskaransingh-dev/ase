@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getOpenOrders } from '@/lib/alpaca'
 import { sendSellConfirmation } from '@/lib/email'
 
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient()

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getAccount } from '@/lib/alpaca'
 
+export const dynamic = 'force-dynamic'
+
 export const runtime = 'nodejs'
 export const maxDuration = 60
 

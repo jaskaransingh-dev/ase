@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
 
+export const dynamic = 'force-dynamic'
+
 const FROM = 'ASE <noreply@launchase.com>'
 
 export async function POST(req: Request) {

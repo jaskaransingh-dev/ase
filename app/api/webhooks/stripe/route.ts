@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendDepositConfirmation } from '@/lib/email'
 import Stripe from 'stripe'
 
+export const dynamic = 'force-dynamic'
+
 export const runtime = 'nodejs'
 
 export async function POST(req: NextRequest) {
