@@ -1,16 +1,37 @@
+/**
+ * POST /api/cron/update-nav
+ *
+ * Updates NAV (Net Asset Value) for every active agent based on:
+ *   - Realized P&L: sum of pnl_cents on closed trades in agent_trades
+ *   - Unrealized P&L: open positions × (current_price - avg_entry)
+ *   - Total return % vs initial $10k capital
+ *
+ * Inserts snapshots into agent_stats and price_ticks.
+ * Updates agent.share_price_cents so the exchange reflects current NAV.
+ * Updates holdings.current_value_cents for each investor.
+ *
+ * Run every 5–15 minutes via your cron scheduler.
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getAccount } from '@/lib/alpaca'
+import { getCryptoBars } from '@/lib/alpaca'
+import { getAgentPositions } from '@/lib/agents'
 
 export const dynamic = 'force-dynamic'
-
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
+const INITIAL_CAPITAL_CENTS = 1_000_000 // $10,000 paper capital per agent
+const BASE_NAV_CENTS = 10_000           // $100.00 starting NAV per share
+
 export async function POST(req: NextRequest) {
-  const authHeader = req.headers.get('x-cron-secret')
-  if (authHeader !== process.env.CRON_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const cronSecret = process.env.CRON_SECRET
+  if (cronSecret) {
+    const authHeader = req.headers.get('x-cron-secret')
+    if (authHeader !== cronSecret) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
   }
 
   const admin = createAdminClient()
@@ -18,154 +39,169 @@ export async function POST(req: NextRequest) {
   const alpacaSecret = process.env.ALPACA_SECRET_KEY || ''
 
   if (!alpacaKey) {
-    return NextResponse.json({ skipped: true, reason: 'No Alpaca credentials configured' })
+    return NextResponse.json({ skipped: true, reason: 'No Alpaca credentials' })
   }
 
   const { data: agents } = await admin
     .from('agents')
-    .select('*')
+    .select('id, slug, total_aum_cents')
     .eq('status', 'active')
 
   const results: Record<string, unknown> = {}
+  const now = new Date().toISOString()
 
   for (const agent of agents ?? []) {
     try {
-      // Get Alpaca portfolio value
-      const account = await getAccount(alpacaKey, alpacaSecret)
-      const portfolioValue = parseFloat(account.portfolio_value) * 100 // Convert to cents
-
-      // Get total shares outstanding for this agent
-      const { data: activeHoldings } = await admin
-        .from('holdings')
-        .select('shares, invested_cents')
-        .eq('agent_id', agent.id)
-        .eq('status', 'active')
-
-      const totalShares = (activeHoldings ?? []).reduce((sum, h) => sum + h.shares, 0)
-      const totalInvested = (activeHoldings ?? []).reduce((sum, h) => sum + h.invested_cents, 0)
-
-      // Get historical NAV for drawdown calculation
-      const { data: historicalStats } = await admin
-        .from('agent_stats')
-        .select('nav_cents')
-        .eq('agent_id', agent.id)
-        .order('created_at', { ascending: false })
-        .limit(30) // Last 30 snapshots
-
-      // Calculate NAV based on actual portfolio performance
-      let navCents = 10000 // Default $100 NAV
-      let maxDrawdownPct = 0
-
-      if (totalShares > 0 && totalInvested > 0) {
-        // NAV scales with portfolio performance from initial investment
-        const performanceRatio = portfolioValue / totalInvested
-        navCents = Math.round(10000 * performanceRatio)
-
-        // Calculate max drawdown from historical data
-        if (historicalStats && historicalStats.length > 0) {
-          const historicalNavs = historicalStats.map(s => s.nav_cents).concat(navCents)
-          const peakNav = Math.max(...historicalNavs)
-          const currentDrawdown = ((peakNav - navCents) / peakNav) * 100
-          maxDrawdownPct = Math.max(currentDrawdown, 
-            ...historicalStats.map(s => {
-              const prevPeak = historicalNavs.slice(0, historicalNavs.indexOf(s) + 1).reduce((max, nav) => Math.max(max, nav), 0)
-              return ((prevPeak - s.nav_cents) / prevPeak) * 100
-            })
-          )
-        }
-      }
-
-      // Get performance metrics
-      const lastEquity = parseFloat(account.last_equity) * 100
-      const dailyReturnPct = lastEquity > 0
-        ? ((portfolioValue - lastEquity) / lastEquity) * 100
-        : 0
-
-      // Calculate total return from initial investment
-      const totalReturnPct = totalInvested > 0
-        ? ((portfolioValue - totalInvested) / totalInvested) * 100
-        : 0
-
-      // Get trade count for win rate calculation
-      const { data: trades } = await admin
+      // ── 1. REALIZED P&L ──────────────────────────────────────────────
+      const { data: closedTrades } = await admin
         .from('agent_trades')
         .select('pnl_cents')
         .eq('agent_id', agent.id)
         .not('pnl_cents', 'is', null)
-        .order('filled_at', { ascending: false })
-        .limit(100)
 
-      const totalTrades = trades?.length || 0
-      const winningTrades = trades?.filter(t => (t.pnl_cents || 0) > 0).length || 0
+      const realizedPnlCents = (closedTrades ?? []).reduce(
+        (sum, t) => sum + (Number(t.pnl_cents) || 0), 0
+      )
+      const totalTrades = closedTrades?.length || 0
+      const winningTrades = (closedTrades ?? []).filter(t => (Number(t.pnl_cents) || 0) > 0).length
       const winRatePct = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0
 
-      // Calculate Sharpe ratio (simplified - using daily returns)
-      const sharpeRatio = totalReturnPct > 0 ? Math.min(totalReturnPct / 15, 5.0) : 0
+      // ── 2. UNREALIZED P&L ─────────────────────────────────────────────
+      const openPositions = await getAgentPositions(admin, agent.id)
+      let unrealizedPnlCents = 0
 
-      // Insert comprehensive stats snapshot
+      // Cache prices for symbols we need
+      const priceCache: Record<string, number> = {}
+
+      for (const pos of openPositions) {
+        if (!priceCache[pos.symbol]) {
+          const bars = await getCryptoBars(pos.symbol, '1Day', 1)
+          priceCache[pos.symbol] = bars.length > 0 ? bars[bars.length - 1].c : pos.avg_entry
+        }
+        const currentPrice = priceCache[pos.symbol]
+        const unrealizedDollars = pos.qty * (currentPrice - pos.avg_entry)
+        unrealizedPnlCents += Math.round(unrealizedDollars * 100)
+      }
+
+      // ── 3. NAV CALCULATION ────────────────────────────────────────────
+      // NAV scales with total P&L as a percentage of initial capital
+      // If P&L = +$1,000 on $10,000 capital → NAV = $110 (10% gain)
+      const totalPnlCents = realizedPnlCents + unrealizedPnlCents
+      const navCents = Math.round(BASE_NAV_CENTS * (INITIAL_CAPITAL_CENTS + totalPnlCents) / INITIAL_CAPITAL_CENTS)
+      const totalReturnPct = (totalPnlCents / INITIAL_CAPITAL_CENTS) * 100
+      const dailyReturnPct = 0 // TODO: compare to yesterday's NAV snapshot
+
+      // Simplified Sharpe (annualized return / assumed volatility)
+      const sharpeRatio = totalReturnPct > 0
+        ? Math.min(parseFloat((totalReturnPct / 15).toFixed(2)), 5.0)
+        : 0
+
+      // ── 4. MAX DRAWDOWN ───────────────────────────────────────────────
+      const { data: navHistory } = await admin
+        .from('agent_stats')
+        .select('nav_cents')
+        .eq('agent_id', agent.id)
+        .order('snapshot_at', { ascending: true })
+        .limit(30)
+
+      let maxDrawdownPct = 0
+      if (navHistory && navHistory.length > 0) {
+        const allNavs = navHistory.map(s => Number(s.nav_cents)).concat(navCents)
+        let peakNav = allNavs[0]
+        for (const nav of allNavs) {
+          if (nav > peakNav) peakNav = nav
+          const drawdown = peakNav > 0 ? ((peakNav - nav) / peakNav) * 100 : 0
+          if (drawdown > maxDrawdownPct) maxDrawdownPct = drawdown
+        }
+      }
+
+      // ── 5. PORTFOLIO VALUE ────────────────────────────────────────────
+      const portfolioValueCents = INITIAL_CAPITAL_CENTS + totalPnlCents
+
+      // ── 6. WRITE agent_stats SNAPSHOT ─────────────────────────────────
       await admin.from('agent_stats').insert({
         agent_id: agent.id,
+        snapshot_at: now,
         nav_cents: navCents,
-        bid_cents: Math.round(navCents * 0.9985),
-        ask_cents: Math.round(navCents * 1.0015),
-        total_return_pct: totalReturnPct,
+        // bid/ask generated columns — do not insert them (they're computed)
+        total_return_pct: parseFloat(totalReturnPct.toFixed(4)),
         sharpe_ratio: sharpeRatio,
-        max_drawdown_pct: Math.round(maxDrawdownPct * 100) / 100, // Round to 2 decimals
-        win_rate_pct: Math.round(winRatePct * 100) / 100,
-        totalTrades: totalTrades,
-        daily_return_pct: Math.round(dailyReturnPct * 100) / 100,
-        portfolio_value_cents: portfolioValue,
-        volume_shares: totalShares,
-        snapshot_at: new Date().toISOString(),
+        max_drawdown_pct: parseFloat(maxDrawdownPct.toFixed(4)),
+        win_rate_pct: parseFloat(winRatePct.toFixed(4)),
+        total_trades: totalTrades,
+        volume_shares: openPositions.reduce((s, p) => s + p.qty, 0),
+        daily_return_pct: dailyReturnPct,
+        portfolio_value_cents: portfolioValueCents,
       })
 
-      // Insert price tick for real-time data
-      await admin.from('price_ticks').insert({
+      // ── 7. WRITE price_ticks ──────────────────────────────────────────
+      // Note: column names from the migration schema
+      await admin.from('price_ticks').upsert({
         agent_id: agent.id,
+        tick_at: now,                                  // NOT snapshot_at
         price_cents: navCents,
         bid_cents: Math.round(navCents * 0.9985),
         ask_cents: Math.round(navCents * 1.0015),
-        volume_shares: totalShares,
-        snapshot_at: new Date().toISOString(),
+        volume: openPositions.reduce((s, p) => s + p.qty, 0),  // NOT volume_shares
       })
 
-      // Update all holdings current_value_cents
-      for (const holding of activeHoldings ?? []) {
-        const currentValue = Math.round(holding.shares * navCents)
-        await admin
-          .from('holdings')
-          .update({ 
-            current_value_cents: currentValue,
-            updated_at: new Date().toISOString()
-          })
-          .eq('agent_id', agent.id)
-          .eq('status', 'active')
-          .eq('shares', holding.shares)
-      }
-
-      // Update agent AUM
+      // ── 8. UPDATE agent share price ────────────────────────────────────
       await admin
         .from('agents')
-        .update({ 
-          total_aum_cents: totalInvested,
-          updated_at: new Date().toISOString()
-        })
+        .update({ share_price_cents: navCents })
         .eq('id', agent.id)
 
-      results[agent.slug] = { 
-        nav_cents: navCents, 
-        total_return_pct: Math.round(totalReturnPct * 100) / 100,
-        portfolio_value: portfolioValue,
-        max_drawdown_pct: Math.round(maxDrawdownPct * 100) / 100,
-        win_rate_pct: Math.round(winRatePct * 100) / 100,
-        totalTrades
+      // ── 9. UPDATE holdings current value ─────────────────────────────
+      const { data: activeHoldings } = await admin
+        .from('holdings')
+        .select('id, shares, invested_cents')
+        .eq('agent_id', agent.id)
+        .eq('status', 'active')
+
+      for (const holding of activeHoldings ?? []) {
+        const currentValue = Math.round(Number(holding.shares) * (navCents / BASE_NAV_CENTS) * Number(holding.invested_cents))
+        await admin
+          .from('holdings')
+          .update({ current_value_cents: currentValue })
+          .eq('id', holding.id)
+      }
+
+      // ── 10. UPDATE agent AUM ──────────────────────────────────────────
+      const totalInvested = (activeHoldings ?? []).reduce(
+        (sum, h) => sum + Number(h.invested_cents), 0
+      )
+      if (totalInvested > 0) {
+        await admin
+          .from('agents')
+          .update({ total_aum_cents: totalInvested })
+          .eq('id', agent.id)
+      }
+
+      results[agent.slug] = {
+        nav_cents: navCents,
+        nav_usd: (navCents / 100).toFixed(2),
+        total_return_pct: parseFloat(totalReturnPct.toFixed(2)),
+        realized_pnl_usd: (realizedPnlCents / 100).toFixed(2),
+        unrealized_pnl_usd: (unrealizedPnlCents / 100).toFixed(2),
+        open_positions: openPositions.length,
+        total_trades: totalTrades,
+        win_rate_pct: parseFloat(winRatePct.toFixed(1)),
+        sharpe_ratio: sharpeRatio,
+        max_drawdown_pct: parseFloat(maxDrawdownPct.toFixed(2)),
       }
     } catch (err) {
-      results[agent.slug] = { error: err instanceof Error ? err.message : 'Unknown error' }
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      console.error(`NAV update failed for ${agent.slug}:`, msg)
+      results[agent.slug] = { error: msg }
     }
   }
 
-  return NextResponse.json({ ok: true, results, updated_at: new Date().toISOString() })
+  return NextResponse.json({
+    ok: true,
+    updated_at: now,
+    agents_updated: Object.keys(results).length,
+    results,
+  })
 }
 
 export async function GET(req: NextRequest) {

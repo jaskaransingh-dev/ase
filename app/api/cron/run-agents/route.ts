@@ -1,181 +1,126 @@
+/**
+ * POST /api/cron/run-agents
+ *
+ * Runs all 5 trading strategies against live Alpaca crypto market data.
+ * Each agent:
+ *   1. Checks its own open positions from agent_trades (DB-tracked, per-agent)
+ *   2. Fetches real crypto bars from Alpaca v1beta3 endpoint
+ *   3. Calculates signal (EMA crossover, RSI, Bollinger, momentum)
+ *   4. Executes orders via Alpaca paper trading if signal fires
+ *   5. Logs fills to agent_trades immediately with fill price + P&L
+ *
+ * Protected by CRON_SECRET header. Safe to call every minute.
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { runBtcMomentum, runEthMeanRevert, runCryptoTrend, runSolBreakout, runDefiBasket } from '@/lib/agents'
-import { getOpenOrders, getOrderHistory } from '@/lib/alpaca'
+import {
+  runBtcMomentum,
+  runEthMeanRevert,
+  runCryptoTrend,
+  runSolBreakout,
+  runDefiBasket,
+  StrategyResult,
+} from '@/lib/agents'
 
 export const dynamic = 'force-dynamic'
-
 export const runtime = 'nodejs'
 export const maxDuration = 120
 
-const STRATEGY_RUNNERS: Record<string, (key: string, secret: string, capitalAllocation?: number) => Promise<unknown>> = {
-  crypto_momentum_btc: runBtcMomentum,
-  crypto_mean_reversion_eth: runEthMeanRevert,
-  crypto_momentum_multi: runCryptoTrend,
-  crypto_momentum_sol: runSolBreakout,
-  crypto_momentum_defi: runDefiBasket,
-}
-
-// Map agent slugs to their runner
-const SLUG_TO_RUNNER: Record<string, string> = {
-  'btc-momentum': 'crypto_momentum_btc',
-  'eth-mean-revert': 'crypto_mean_reversion_eth',
-  'crypto-trend': 'crypto_momentum_multi',
-  'sol-breakout': 'crypto_momentum_sol',
-  'defi-basket': 'crypto_momentum_defi',
+// Map agent DB slug → strategy runner
+const STRATEGY_MAP: Record<
+  string,
+  (admin: ReturnType<typeof createAdminClient>, agentId: string, key: string, secret: string, capital: number) => Promise<StrategyResult>
+> = {
+  'btc-momentum':   runBtcMomentum,
+  'eth-mean-revert': runEthMeanRevert,
+  'crypto-trend':   runCryptoTrend,
+  'sol-breakout':   runSolBreakout,
+  'defi-basket':    runDefiBasket,
 }
 
 export async function POST(req: NextRequest) {
-  // Verify cron secret
-  const authHeader = req.headers.get('x-cron-secret')
-  if (authHeader !== process.env.CRON_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Auth: require CRON_SECRET header (skip check if secret not configured in dev)
+  const cronSecret = process.env.CRON_SECRET
+  if (cronSecret) {
+    const authHeader = req.headers.get('x-cron-secret')
+    if (authHeader !== cronSecret) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
   }
-
-  const admin = createAdminClient()
-  const results: Record<string, unknown> = {}
 
   const alpacaKey = process.env.ALPACA_KEY_ID || ''
   const alpacaSecret = process.env.ALPACA_SECRET_KEY || ''
 
-  if (!alpacaKey) {
-    return NextResponse.json({ skipped: true, reason: 'No Alpaca credentials configured' })
+  if (!alpacaKey || !alpacaSecret) {
+    return NextResponse.json(
+      { error: 'Alpaca credentials not configured', env_vars: ['ALPACA_KEY_ID', 'ALPACA_SECRET_KEY'] },
+      { status: 500 }
+    )
   }
 
-  // Get all active agents
-  const { data: agents } = await admin
+  const admin = createAdminClient()
+  const ran_at = new Date().toISOString()
+
+  // Load all active agents from DB
+  const { data: agents, error: agentsError } = await admin
     .from('agents')
-    .select('*')
+    .select('id, slug, total_aum_cents')
     .eq('status', 'active')
 
-  // Get filled orders before running strategies (to detect new fills)
-  const existingOrderIds = new Set<string>()
-  try {
-    const { data: existingTrades } = await admin
-      .from('agent_trades')
-      .select('alpaca_order_id')
-    if (existingTrades) {
-      existingTrades.forEach(t => {
-        if (t.alpaca_order_id) existingOrderIds.add(t.alpaca_order_id)
-      })
-    }
-  } catch (e) {
-    console.error('Failed to fetch existing trades:', e)
+  if (agentsError || !agents?.length) {
+    return NextResponse.json({
+      ok: false,
+      error: agentsError?.message || 'No active agents found',
+      ran_at,
+    })
   }
 
-  for (const agent of agents ?? []) {
+  const results: Record<string, StrategyResult | { error: string }> = {}
+  let totalTrades = 0
+
+  for (const agent of agents) {
+    const runner = STRATEGY_MAP[agent.slug]
+    if (!runner) {
+      results[agent.slug] = { agent_slug: agent.slug, actions: [], error: 'No strategy runner configured' }
+      continue
+    }
+
     try {
-      const runnerKey = SLUG_TO_RUNNER[agent.slug]
-      const runner = runnerKey ? STRATEGY_RUNNERS[runnerKey] : null
+      // Capital = max($10k base, agent's actual AUM)
+      const baseCapitalCents = 1_000_000 // $10,000
+      const aumCents = Number(agent.total_aum_cents) || 0
+      const capitalCents = Math.max(baseCapitalCents, aumCents)
 
-      if (!runner) {
-        results[agent.slug] = { skipped: true, reason: 'No runner configured' }
-        continue
-      }
+      console.log(`Running ${agent.slug} with $${(capitalCents / 100).toFixed(0)} capital`)
 
-      // Calculate capital allocation based on agent AUM
-      // Base allocation: $10K (1,000,000 cents)
-      // Scale up if agent has more AUM
-      const baseAllocationCents = 1000000 // $10,000
-      const agentAumCents = agent.total_aum_cents ?? 0
-      const capitalAllocation = Math.max(baseAllocationCents, agentAumCents)
+      const result = await runner(admin, agent.id, alpacaKey, alpacaSecret, capitalCents)
+      results[agent.slug] = result
 
-      // Run the strategy - it will execute trades via Alpaca
-      const strategyResult = await runner(alpacaKey, alpacaSecret, capitalAllocation)
-      results[agent.slug] = strategyResult
+      // Count actual trades (BUY or SELL actions)
+      const tradeCount = result.actions.filter(a => a.action === 'BUY' || a.action === 'SELL').length
+      totalTrades += tradeCount
 
-      // After running strategy, fetch recently filled orders and log them
-      try {
-        const orderHistory = await getOrderHistory(alpacaKey, alpacaSecret, 'all')
-
-        // Filter for new orders filled since last check
-        const newFills = (orderHistory || []).filter((order: any) => {
-          return (
-            order.status === 'filled' &&
-            !existingOrderIds.has(order.id) &&
-            order.filled_at &&
-            // Only process orders from last few minutes
-            new Date(order.filled_at).getTime() > Date.now() - 5 * 60 * 1000
-          )
-        })
-
-        // Log each filled order
-        for (const order of newFills) {
-          try {
-            const fillPrice = parseFloat(order.filled_avg_price || '0')
-            const qty = parseFloat(order.qty || '0')
-            const side = order.side?.toLowerCase() || 'buy'
-            const symbol = order.symbol || ''
-
-            // Calculate P&L if this is a sell order
-            let pnlCents = null
-            if (side === 'sell') {
-              // Find matching buy order
-              const { data: buyOrders } = await admin
-                .from('agent_trades')
-                .select('fill_price, qty')
-                .eq('agent_id', agent.id)
-                .eq('symbol', symbol)
-                .eq('side', 'buy')
-                .is('pnl_cents', null)
-                .order('filled_at', { ascending: true })
-                .limit(1)
-
-              if (buyOrders && buyOrders.length > 0) {
-                const buyOrder = buyOrders[0]
-                const buyPrice = parseFloat(buyOrder.fill_price || '0')
-                const matchQty = Math.min(qty, parseFloat(buyOrder.qty || '0'))
-
-                // P&L = (sell_price - buy_price) * quantity * 100 (convert to cents)
-                pnlCents = Math.round((fillPrice - buyPrice) * matchQty * 100)
-
-                // Mark buy order with realized P&L
-                await admin
-                  .from('agent_trades')
-                  .update({ pnl_cents: pnlCents })
-                  .eq('agent_id', agent.id)
-                  .eq('symbol', symbol)
-                  .eq('side', 'buy')
-                  .eq('fill_price', buyPrice.toString())
-                  .is('pnl_cents', null)
-              }
-            }
-
-            // Insert trade record
-            await admin.from('agent_trades').insert({
-              agent_id: agent.id,
-              alpaca_order_id: order.id,
-              symbol: symbol,
-              side: side,
-              qty: qty,
-              fill_price: fillPrice,
-              filled_at: order.filled_at || new Date().toISOString(),
-              pnl_cents: pnlCents,
-            })
-
-            existingOrderIds.add(order.id)
-            console.log(`Logged trade: ${agent.slug} ${side} ${qty} ${symbol} @ ${fillPrice}`)
-          } catch (insertError) {
-            console.error(`Failed to log trade for ${agent.slug}:`, insertError)
-          }
-        }
-      } catch (orderError) {
-        console.error(`Failed to fetch order history for ${agent.slug}:`, orderError)
+      if (tradeCount > 0) {
+        console.log(`${agent.slug}: ${tradeCount} trade(s) executed`)
       }
     } catch (err) {
-      results[agent.slug] = { error: err instanceof Error ? err.message : 'Unknown error' }
-      console.error(`Agent execution error for ${agent.slug}:`, err)
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      console.error(`Agent ${agent.slug} failed:`, msg)
+      results[agent.slug] = { agent_slug: agent.slug, actions: [], error: msg }
     }
   }
 
   return NextResponse.json({
     ok: true,
+    ran_at,
+    agents_run: agents.length,
+    total_trades: totalTrades,
     results,
-    ran_at: new Date().toISOString(),
-    agents_run: (agents ?? []).length
   })
 }
 
+// Allow GET for easy manual testing in browser
 export async function GET(req: NextRequest) {
   return POST(req)
 }
