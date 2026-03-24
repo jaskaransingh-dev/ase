@@ -41,75 +41,6 @@ function Spark({ data, pos }: { data: number[]; pos: boolean }) {
   )
 }
 
-function WaitlistForm() {
-  const [email, setEmail] = useState('')
-  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
-  const [msg, setMsg] = useState('')
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!email) return
-
-    setStatus('loading')
-    try {
-      const res = await fetch('/api/waitlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      })
-      if (res.ok) {
-        setStatus('success')
-        setMsg('You\'re on the waitlist!')
-        setEmail('')
-        setTimeout(() => {
-          setStatus('idle')
-          setMsg('')
-        }, 3000)
-      } else {
-        setStatus('error')
-        setMsg('Something went wrong.')
-      }
-    } catch {
-      setStatus('error')
-      setMsg('Network error. Try again.')
-    }
-  }
-
-  return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '.5rem', maxWidth: 400, position: 'relative' }}>
-      <input
-        type="email"
-        placeholder="your@email.com"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        className="input-base"
-        style={{ flex: 1 }}
-        disabled={status === 'loading'}
-      />
-      <button
-        type="submit"
-        className="btn-primary"
-        disabled={status === 'loading' || !email}
-        style={{ whiteSpace: 'nowrap' }}
-      >
-        {status === 'loading' ? 'Joining...' : 'Join'}
-      </button>
-      {msg && (
-        <div style={{
-          position: 'absolute',
-          top: -28,
-          left: 0,
-          fontSize: '.82rem',
-          color: status === 'success' ? 'var(--green)' : 'var(--red)',
-          whiteSpace: 'nowrap'
-        }}>
-          {msg}
-        </div>
-      )}
-    </form>
-  )
-}
-
 function ScrollFadeUp({ children }: { children: React.ReactNode }) {
   const [visible, setVisible] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -210,20 +141,22 @@ export default function LandingPage() {
                 5 AGENTS LIVE · TRADING NOW
               </div>
 
-              <h1 style={{ fontFamily: 'var(--font-head)', fontSize: 'clamp(2.8rem,6vw,4.2rem)', fontWeight: 800, letterSpacing: '-.03em', lineHeight: 1.08, marginBottom: '1.25rem', minHeight: '1.2em' }}>
-                <span style={{ display: 'block', overflow: 'hidden', position: 'relative', height: '1.2em' }}>
+              <h1 style={{ fontFamily: 'var(--font-head)', fontSize: 'clamp(2.8rem,6vw,4.2rem)', fontWeight: 800, letterSpacing: '-.03em', lineHeight: 1.15, marginBottom: '1.25rem' }}>
+                <span style={{ display: 'inline-block', overflow: 'hidden', position: 'relative', verticalAlign: 'text-bottom', minHeight: '1.15em' }}>
                   {ROT_WORDS.map((w, i) => (
                     <span key={w} style={{
                       display: 'block',
                       position: 'absolute',
                       top: 0,
                       left: 0,
+                      whiteSpace: 'nowrap',
                       transition: 'transform .6s cubic-bezier(.4,0,.2,1), opacity .6s',
-                      transform: i === rotIdx ? 'translateY(0)' : i < rotIdx ? 'translateY(-120%)' : 'translateY(120%)',
+                      transform: i === rotIdx ? 'translateY(0)' : i < rotIdx ? 'translateY(-100%)' : 'translateY(100%)',
                       opacity: i === rotIdx ? 1 : 0,
                       background: 'linear-gradient(135deg,#E8AC20,#F5C842)',
                       WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent'
+                      WebkitTextFillColor: 'transparent',
+                      backgroundClip: 'text'
                     }}>
                       {w}
                     </span>
@@ -235,11 +168,8 @@ export default function LandingPage() {
                 Invest in verified trading strategies as assets — with full transparency, real performance, and aligned incentives.
               </p>
 
-              <div style={{ display: 'flex', gap: '.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-                <Link href="#agents" className="btn-primary">View Live Agents</Link>
-                <div style={{ position: 'relative' }}>
-                  <WaitlistForm />
-                </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <Link href="/signup" className="btn-primary">Get Started →</Link>
               </div>
             </div>
           </ScrollFadeUp>
@@ -548,12 +478,10 @@ export default function LandingPage() {
       <section style={{ padding: '100px 1.5rem', textAlign: 'center', background: 'rgba(232,172,32,.02)' }}>
         <div style={{ maxWidth: 700, margin: '0 auto' }}>
           <h2 style={{ fontFamily: 'var(--font-head)', fontSize: 'clamp(2rem,4.5vw,3.2rem)', fontWeight: 800, marginBottom: '1rem' }}>The first exchange where you own the algorithm</h2>
-          <p style={{ fontSize: '1.05rem', color: 'var(--muted)', lineHeight: 1.75, marginBottom: '2.5rem' }}>Join thousands of investors and developers building the future of algorithmic trading.</p>
+          <p style={{ fontSize: '1.05rem', color: 'var(--muted)', lineHeight: 1.75, marginBottom: '2.5rem' }}>Start investing in verified trading strategies. No real funds at risk — paper trading only.</p>
           <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <div style={{ position: 'relative' }}>
-              <WaitlistForm />
-            </div>
-            <Link href="/agents/submit" className="btn-secondary">Apply as Developer</Link>
+            <Link href="/signup" className="btn-primary">Create Free Account →</Link>
+            <Link href="/agents/submit" className="btn-secondary">Submit Your Agent</Link>
           </div>
         </div>
       </section>

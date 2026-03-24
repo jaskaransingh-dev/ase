@@ -79,6 +79,15 @@ export async function getRecentOrders(apiKey?: string, secretKey?: string, limit
   return res.json()
 }
 
+export async function getOrderHistory(apiKey?: string, secretKey?: string, status = 'all', limit = 100): Promise<AlpacaOrder[]> {
+  const statusParam = status === 'all' ? '' : `&status=${status}`
+  const res = await fetch(`${ALPACA_BASE_URL}/v2/orders?limit=${limit}${statusParam}`, {
+    headers: getHeaders(apiKey, secretKey),
+  })
+  if (!res.ok) return []
+  return res.json()
+}
+
 export async function submitOrder(params: {
   symbol: string
   qty: number

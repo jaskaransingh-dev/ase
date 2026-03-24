@@ -100,7 +100,7 @@ function calcEMA(bars: AlpacaBar[], period: number): number {
 }
 
 // ── BTC MOMENTUM ──────────────────────────────────────────────────────
-export async function runBtcMomentum(apiKey: string, secretKey: string, capitalAllocation: number = 1000000) {
+export async function runBtcMomentum(apiKey: string, secretKey: string, capitalAllocationCents: number = 1000000) {
   const symbol = CRYPTO_SYMBOLS.BTC
   const bars = await getBars(symbol, '1Day', 60)
   if (bars.length < 50) return { skipped: true, reason: 'Not enough BTC data' }
@@ -111,7 +111,8 @@ export async function runBtcMomentum(apiKey: string, secretKey: string, capitalA
 
   const positions = await getPositions(apiKey, secretKey)
   const pos = positions.find(p => p.symbol === symbol || p.symbol === 'BTCUSD')
-  const allocation = (capitalAllocation / 100) * 0.30 // 30% of capital allocation
+  // Allocate 30% of capital to BTC momentum
+  const allocation = (capitalAllocationCents / 100) * 0.30
 
   const results: unknown[] = []
 
@@ -139,7 +140,7 @@ export async function runBtcMomentum(apiKey: string, secretKey: string, capitalA
 }
 
 // ── ETH MEAN REVERT ──────────────────────────────────────────────────
-export async function runEthMeanRevert(apiKey: string, secretKey: string, capitalAllocation: number = 1000000) {
+export async function runEthMeanRevert(apiKey: string, secretKey: string, capitalAllocationCents: number = 1000000) {
   const symbol = CRYPTO_SYMBOLS.ETH
   const bars = await getBars(symbol, '1Day', 20)
   if (bars.length < 15) return { skipped: true, reason: 'Not enough ETH data' }
@@ -163,7 +164,8 @@ export async function runEthMeanRevert(apiKey: string, secretKey: string, capita
 
   // Check entry
   if (!pos && rsi < 35) {
-    const allocation = (capitalAllocation / 100) * 0.25 // 25% of capital allocation
+    // Allocate 25% of capital to ETH mean reversion
+    const allocation = (capitalAllocationCents / 100) * 0.25
     const price = bars[bars.length - 1].c
     const qty = Math.max(0.01, Math.floor((allocation / price) * 100) / 100)
     try {
@@ -178,10 +180,11 @@ export async function runEthMeanRevert(apiKey: string, secretKey: string, capita
 }
 
 // ── CRYPTO TREND ──────────────────────────────────────────────────────
-export async function runCryptoTrend(apiKey: string, secretKey: string, capitalAllocation: number = 1000000) {
+export async function runCryptoTrend(apiKey: string, secretKey: string, capitalAllocationCents: number = 1000000) {
   const symbols = [CRYPTO_SYMBOLS.BTC, CRYPTO_SYMBOLS.ETH, CRYPTO_SYMBOLS.SOL]
   const positions = await getPositions(apiKey, secretKey)
-  const perPosition = (capitalAllocation / 100) / symbols.length * 0.30 // 10% per asset
+  // Allocate 30% total, split equally across 3 assets = 10% per asset
+  const perPosition = (capitalAllocationCents / 100) / symbols.length * 0.30
 
   const results: unknown[] = []
 
@@ -219,7 +222,7 @@ export async function runCryptoTrend(apiKey: string, secretKey: string, capitalA
 }
 
 // ── SOL BREAKOUT ──────────────────────────────────────────────────────
-export async function runSolBreakout(apiKey: string, secretKey: string, capitalAllocation: number = 1000000) {
+export async function runSolBreakout(apiKey: string, secretKey: string, capitalAllocationCents: number = 1000000) {
   const symbol = CRYPTO_SYMBOLS.SOL
   const bars = await getBars(symbol, '1Day', 25)
   if (bars.length < 20) return { skipped: true, reason: 'Not enough SOL data' }
@@ -241,7 +244,8 @@ export async function runSolBreakout(apiKey: string, secretKey: string, capitalA
   const results: unknown[] = []
 
   if (breakingOut && !pos) {
-    const allocation = (capitalAllocation / 100) * 0.20 // 20% of capital allocation
+    // Allocate 20% of capital to SOL breakout
+    const allocation = (capitalAllocationCents / 100) * 0.20
     const qty = Math.max(0.1, Math.floor((allocation / currentPrice) * 10) / 10)
     try {
       const order = await submitOrder({ symbol, qty, side: 'buy' }, apiKey, secretKey)
@@ -264,7 +268,7 @@ export async function runSolBreakout(apiKey: string, secretKey: string, capitalA
 }
 
 // ── DEFI BASKET ──────────────────────────────────────────────────────
-export async function runDefiBasket(apiKey: string, secretKey: string, capitalAllocation: number = 1000000) {
+export async function runDefiBasket(apiKey: string, secretKey: string, capitalAllocationCents: number = 1000000) {
   const defiSymbols = [CRYPTO_SYMBOLS.LINK, CRYPTO_SYMBOLS.UNI, CRYPTO_SYMBOLS.AAVE, CRYPTO_SYMBOLS.AVAX]
 
   // Calculate 14-day momentum for each
@@ -280,7 +284,8 @@ export async function runDefiBasket(apiKey: string, secretKey: string, capitalAl
   const top2 = returns.slice(0, 2).map(r => r.symbol)
 
   const positions = await getPositions(apiKey, secretKey)
-  const perPosition = (capitalAllocation / 100) * 0.15 // 15% per position
+  // Allocate 30% total, split into top 2 = 15% per position
+  const perPosition = (capitalAllocationCents / 100) * 0.15
 
   const results: unknown[] = []
 

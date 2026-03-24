@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { runBtcMomentum, runEthMeanRevert, runCryptoTrend, runSolBreakout, runDefiBasket } from '@/lib/agents'
+import { getOpenOrders, getOrderHistory } from '@/lib/alpaca'
 
 export const dynamic = 'force-dynamic'
 
 export const runtime = 'nodejs'
-export const maxDuration = 60
+export const maxDuration = 120
 
 const STRATEGY_RUNNERS: Record<string, (key: string, secret: string, capitalAllocation?: number) => Promise<unknown>> = {
   crypto_momentum_btc: runBtcMomentum,
@@ -41,10 +42,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ skipped: true, reason: 'No Alpaca credentials configured' })
   }
 
+  // Get all active agents
   const { data: agents } = await admin
     .from('agents')
     .select('*')
     .eq('status', 'active')
+
+  // Get filled orders before running strategies (to detect new fills)
+  const existingOrderIds = new Set<string>()
+  try {
+    const { data: existingTrades } = await admin
+      .from('agent_trades')
+      .select('alpaca_order_id')
+    if (existingTrades) {
+      existingTrades.forEach(t => {
+        if (t.alpaca_order_id) existingOrderIds.add(t.alpaca_order_id)
+      })
+    }
+  } catch (e) {
+    console.error('Failed to fetch existing trades:', e)
+  }
 
   for (const agent of agents ?? []) {
     try {
@@ -56,26 +73,49 @@ export async function POST(req: NextRequest) {
         continue
       }
 
-      // Calculate capital allocation: max($10K, agent AUM)
-      const baseAllocation = 1000000 // $10K in cents
-      const agentAum = agent.total_aum_cents ?? 0
-      const capitalAllocation = Math.max(baseAllocation, agentAum)
+      // Calculate capital allocation based on agent AUM
+      // Base allocation: $10K (1,000,000 cents)
+      // Scale up if agent has more AUM
+      const baseAllocationCents = 1000000 // $10,000
+      const agentAumCents = agent.total_aum_cents ?? 0
+      const capitalAllocation = Math.max(baseAllocationCents, agentAumCents)
 
-      const result = await runner(alpacaKey, alpacaSecret, capitalAllocation)
-      results[agent.slug] = result
+      // Run the strategy - it will execute trades via Alpaca
+      const strategyResult = await runner(alpacaKey, alpacaSecret, capitalAllocation)
+      results[agent.slug] = strategyResult
 
-      // Log orders to agent_trades
-      if (result && typeof result === 'object' && !('skipped' in (result as Record<string, unknown>))) {
-        const orders = extractOrders(result)
-        for (const order of orders) {
+      // After running strategy, fetch recently filled orders and log them
+      try {
+        const orderHistory = await getOrderHistory(alpacaKey, alpacaSecret, 'all')
+
+        // Filter for new orders filled since last check
+        const newFills = (orderHistory || []).filter((order: any) => {
+          return (
+            order.status === 'filled' &&
+            !existingOrderIds.has(order.id) &&
+            order.filled_at &&
+            // Only process orders from last few minutes
+            new Date(order.filled_at).getTime() > Date.now() - 5 * 60 * 1000
+          )
+        })
+
+        // Log each filled order
+        for (const order of newFills) {
           try {
+            const fillPrice = parseFloat(order.filled_avg_price || '0')
+            const qty = parseFloat(order.qty || '0')
+            const side = order.side?.toLowerCase() || 'buy'
+            const symbol = order.symbol || ''
+
+            // Calculate P&L if this is a sell order
             let pnlCents = null
-            if (order.side === 'sell') {
+            if (side === 'sell') {
+              // Find matching buy order
               const { data: buyOrders } = await admin
                 .from('agent_trades')
                 .select('fill_price, qty')
                 .eq('agent_id', agent.id)
-                .eq('symbol', order.symbol)
+                .eq('symbol', symbol)
                 .eq('side', 'buy')
                 .is('pnl_cents', null)
                 .order('filled_at', { ascending: true })
@@ -84,64 +124,58 @@ export async function POST(req: NextRequest) {
               if (buyOrders && buyOrders.length > 0) {
                 const buyOrder = buyOrders[0]
                 const buyPrice = parseFloat(buyOrder.fill_price || '0')
-                const sellPrice = parseFloat(order.filled_avg_price || '0')
-                const quantity = Math.min(parseFloat(order.qty || '0'), parseFloat(buyOrder.qty || '0'))
-                pnlCents = Math.round((sellPrice - buyPrice) * quantity * 100)
+                const matchQty = Math.min(qty, parseFloat(buyOrder.qty || '0'))
 
+                // P&L = (sell_price - buy_price) * quantity * 100 (convert to cents)
+                pnlCents = Math.round((fillPrice - buyPrice) * matchQty * 100)
+
+                // Mark buy order with realized P&L
                 await admin
                   .from('agent_trades')
-                  .update({ pnl_cents: 0 })
+                  .update({ pnl_cents: pnlCents })
                   .eq('agent_id', agent.id)
-                  .eq('symbol', order.symbol)
+                  .eq('symbol', symbol)
                   .eq('side', 'buy')
-                  .eq('fill_price', buyPrice)
+                  .eq('fill_price', buyPrice.toString())
                   .is('pnl_cents', null)
               }
             }
 
+            // Insert trade record
             await admin.from('agent_trades').insert({
               agent_id: agent.id,
               alpaca_order_id: order.id,
-              symbol: order.symbol,
-              side: order.side,
-              qty: parseFloat(order.qty || '0'),
-              fill_price: parseFloat(order.filled_avg_price || '0'),
+              symbol: symbol,
+              side: side,
+              qty: qty,
+              fill_price: fillPrice,
               filled_at: order.filled_at || new Date().toISOString(),
               pnl_cents: pnlCents,
             })
+
+            existingOrderIds.add(order.id)
+            console.log(`Logged trade: ${agent.slug} ${side} ${qty} ${symbol} @ ${fillPrice}`)
           } catch (insertError) {
-            console.error('Failed to insert trade:', insertError)
+            console.error(`Failed to log trade for ${agent.slug}:`, insertError)
           }
         }
+      } catch (orderError) {
+        console.error(`Failed to fetch order history for ${agent.slug}:`, orderError)
       }
     } catch (err) {
       results[agent.slug] = { error: err instanceof Error ? err.message : 'Unknown error' }
+      console.error(`Agent execution error for ${agent.slug}:`, err)
     }
   }
 
-  return NextResponse.json({ ok: true, results, ran_at: new Date().toISOString() })
+  return NextResponse.json({
+    ok: true,
+    results,
+    ran_at: new Date().toISOString(),
+    agents_run: (agents ?? []).length
+  })
 }
 
 export async function GET(req: NextRequest) {
   return POST(req)
-}
-
-function extractOrders(result: unknown): Array<{ id: string; symbol: string; side: string; qty: string; filled_avg_price: string; filled_at: string }> {
-  const orders: Array<{ id: string; symbol: string; side: string; qty: string; filled_avg_price: string; filled_at: string }> = []
-  if (!result || typeof result !== 'object') return orders
-
-  const r = result as Record<string, unknown>
-
-  if (Array.isArray(r.orders)) orders.push(...r.orders)
-  if (Array.isArray(r.entries)) {
-    for (const e of r.entries as Array<{ order: unknown }>) {
-      if (e.order) orders.push(e.order as typeof orders[0])
-    }
-  }
-  if (Array.isArray(r.results)) {
-    for (const e of r.results as Array<{ order: unknown }>) {
-      if (e.order) orders.push(e.order as typeof orders[0])
-    }
-  }
-  return orders
 }
