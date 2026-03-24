@@ -273,7 +273,7 @@ export default function ExchangeClient({
                         fontFamily: 'var(--font-mono)',
                         fontSize: '0.8rem'
                       }}
-                      formatter={(v: number) => `${fmtUSD(v * 100)}`}
+                      formatter={(v: any) => v ? `${fmtUSD(v * 100)}` : 'N/A'}
                     />
                     <Line
                       type="monotone"
@@ -554,14 +554,7 @@ export default function ExchangeClient({
                           cursor: 'pointer',
                           transition: 'all .15s'
                         }}
-                        onMouseEnter={e => {
-                          (e.currentTarget as HTMLButtonElement).style.color = 'var(--gold)'
-                          (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(232,172,32,.2)'
-                        }}
-                        onMouseLeave={e => {
-                          (e.currentTarget as HTMLButtonElement).style.color = 'var(--muted)'
-                          (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border2)'
-                        }}
+                        className="max-button"
                       >
                         MAX
                       </button>
@@ -746,6 +739,10 @@ export default function ExchangeClient({
       </div>
 
       <style>{`
+        .max-button:hover {
+          color: #E8AC20 !important;
+          border-color: rgba(232,172,32,.2) !important;
+        }
         @media(max-width:1100px){
           [style*="grid-template-columns: 1fr 380px"] {
             grid-template-columns: 1fr !important;

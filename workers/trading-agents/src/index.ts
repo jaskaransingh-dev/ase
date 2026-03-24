@@ -6,6 +6,15 @@
  * Updates Supabase with trade data and NAV snapshots.
  */
 
+interface ScheduledEvent {
+  cron: string
+}
+
+interface ExecutionContext {
+  waitUntil(promise: Promise<any>): void
+  passThroughOnException(): void
+}
+
 interface Env {
   ALPACA_KEY_ID: string
   ALPACA_SECRET_KEY: string
