@@ -1,11 +1,18 @@
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
-
 const FROM = 'ASE <noreply@launchase.com>'
+
+function getResend() {
+  const apiKey = process.env.RESEND_API_KEY
+  if (!apiKey) {
+    throw new Error('RESEND_API_KEY is not set')
+  }
+  return new Resend(apiKey)
+}
 
 export async function sendDepositConfirmation(email: string, amountCents: number) {
   const amount = (amountCents / 100).toFixed(2)
+  const resend = getResend()
   try {
     await resend.emails.send({
       from: FROM,
@@ -28,6 +35,7 @@ export async function sendDepositConfirmation(email: string, amountCents: number
 export async function sendSellConfirmation(email: string, agentName: string, returnCents: number) {
   const amount = (returnCents / 100).toFixed(2)
   const positive = returnCents >= 0
+  const resend = getResend()
   try {
     await resend.emails.send({
       from: FROM,
