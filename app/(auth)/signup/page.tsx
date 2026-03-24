@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
@@ -13,13 +13,16 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
   const [mounted, setMounted] = useState(false)
-  const supabase = createClient()
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
 
   useEffect(() => {
     setMounted(true)
+    if (typeof window !== 'undefined') {
+      supabaseRef.current = createClient()
+    }
   }, [])
 
-  async function handleSignup(e: React.FormEvent) {
+async function handleSignup(e: React.FormEvent) {
     e.preventDefault()
     if (password.length < 8) {
       setError('Password must be at least 8 characters')
@@ -27,6 +30,13 @@ export default function SignupPage() {
     }
     setLoading(true)
     setError('')
+
+    const supabase = supabaseRef.current
+    if (!supabase) {
+      setError('Supabase not ready')
+      setLoading(false)
+      return
+    }
 
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -38,20 +48,14 @@ export default function SignupPage() {
     })
 
     if (error) {
-      setError(error.message)
+      if (error.message.includes('already registered') || error.message.includes('already exists') || error.status === 422) {
+        setError('Account already exists. Try logging in instead.')
+      } else {
+        setError(error.message)
+      }
       setLoading(false)
     } else {
-      if (data.user) {
-        try {
-          await fetch('/api/create-wallet', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: data.user.id }),
-          })
-        } catch {
-          // Continue even if wallet creation fails
-        }
-      }
+      // Wallet auto-created by Supabase trigger
 
       try {
         await fetch('/api/send-verification', {

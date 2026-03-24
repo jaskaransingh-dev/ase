@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
@@ -11,16 +11,25 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [mounted, setMounted] = useState(false)
-  const supabase = createClient()
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
 
   useEffect(() => {
     setMounted(true)
+    if (typeof window !== 'undefined') {
+      supabaseRef.current = createClient()
+    }
   }, [])
 
   async function handle(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
+    const supabase = supabaseRef.current
+    if (!supabase) {
+      setError('Supabase not ready')
+      setLoading(false)
+      return
+    }
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/api/auth/callback?next=/reset-password`,
     })

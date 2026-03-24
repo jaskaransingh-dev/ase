@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -15,18 +15,21 @@ export default function ResetPasswordPage() {
   const [success, setSuccess] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [sessionReady, setSessionReady] = useState<'checking' | 'ok' | 'invalid'>('checking')
-  const supabase = createClient()
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
 
   useEffect(() => {
     setMounted(true)
-    // Verify there's an active recovery session before showing the form
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        setSessionReady('ok')
-      } else {
-        setSessionReady('invalid')
-      }
-    })
+    if (typeof window !== 'undefined') {
+      supabaseRef.current = createClient()
+      // Verify there's an active recovery session before showing the form
+      supabaseRef.current.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+          setSessionReady('ok')
+        } else {
+          setSessionReady('invalid')
+        }
+      })
+    }
   }, [])
 
   async function handle(e: React.FormEvent) {
@@ -44,6 +47,12 @@ export default function ResetPasswordPage() {
     }
 
     setLoading(true)
+    const supabase = supabaseRef.current
+    if (!supabase) {
+      setError('Supabase not ready')
+      setLoading(false)
+      return
+    }
     const { error } = await supabase.auth.updateUser({ password })
     if (error) {
       setError(error.message)

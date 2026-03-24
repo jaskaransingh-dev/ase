@@ -12,19 +12,30 @@ export async function POST(req: Request) {
     }
 
     const supabase = createAdminClient()
-    
-    // Create wallet with $100 initial credits
-    const { error } = await supabase.from('wallets').insert({
-      user_id,
-      balance_cents: 10000, // $100 in cents
+
+    // Ensure profiles row exists
+    const { error: profileError } = await supabase.from('profiles').upsert({
+      id: user_id,
+      display_name: 'User', // Default, update later via account page
     })
 
-    if (error) {
-      console.error('Wallet creation error:', error)
+    if (profileError) {
+      console.error('Profile creation error:', profileError)
+      return NextResponse.json({ error: 'Failed to initialize profile' }, { status: 500 })
+    }
+
+    // Create or update wallet with $100 initial credits
+    const { error: walletError } = await supabase.from('wallets').upsert({
+      user_id,
+      balance_cents: 10000,
+    }, { onConflict: 'user_id' })
+
+    if (walletError) {
+      console.error('Wallet creation error:', walletError)
       return NextResponse.json({ error: 'Failed to create wallet' }, { status: 500 })
     }
 
-    // Record initial transaction
+    // Record initial transaction if new wallet
     await supabase.from('transactions').insert({
       user_id,
       type: 'deposit',

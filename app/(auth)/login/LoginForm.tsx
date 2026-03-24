@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -15,16 +15,25 @@ export default function LoginForm() {
   const [error, setError] = useState(params.get('error') || '')
   const [loading, setLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
-  const supabase = createClient()
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
 
   useEffect(() => {
     setMounted(true)
+    if (typeof window !== 'undefined') {
+      supabaseRef.current = createClient()
+    }
   }, [])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
+    const supabase = supabaseRef.current
+    if (!supabase) {
+      setError('Supabase not ready')
+      setLoading(false)
+      return
+    }
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
       setError(error.message)
