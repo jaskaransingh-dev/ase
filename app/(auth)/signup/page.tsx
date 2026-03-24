@@ -5,6 +5,16 @@ import { createClient } from '@/lib/supabase/client'
 
 export const dynamic = 'force-dynamic'
 
+function calculatePasswordStrength(password: string): number {
+  let strength = 0
+  if (password.length >= 8) strength += 25
+  if (password.length >= 12) strength += 25
+  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) strength += 25
+  if (/\d/.test(password)) strength += 12.5
+  if (/[^a-zA-Z\d]/.test(password)) strength += 12.5
+  return Math.min(strength, 100)
+}
+
 export default function SignupPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -12,6 +22,7 @@ export default function SignupPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
+  const [passwordStrength, setPasswordStrength] = useState(0)
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
 
   useEffect(() => {
@@ -20,50 +31,101 @@ export default function SignupPage() {
     }
   }, [])
 
-async function handleSignup(e: React.FormEvent) {
+  useEffect(() => {
+    setPasswordStrength(calculatePasswordStrength(password))
+  }, [password])
+
+  async function handleSignup(e: React.FormEvent) {
     e.preventDefault()
+
+    // Validate inputs
+    if (!name.trim()) {
+      setError('Please enter your display name')
+      return
+    }
+
     if (password.length < 8) {
       setError('Password must be at least 8 characters')
       return
     }
+
     setLoading(true)
     setError('')
 
-    const supabase = supabaseRef.current
-    if (!supabase) {
-      setError('Supabase not ready')
-      setLoading(false)
-      return
-    }
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { display_name: name },
-        emailRedirectTo: `${typeof window !== 'undefined' ? window.location.origin : ''}/verify-email`,
-      },
-    })
+    try {
+      // Check if email already exists
+      const checkRes = await fetch('/api/auth/check-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
 
-    if (error) {
-      if (error.message.includes('already registered') || error.message.includes('already exists') || error.status === 422) {
-        setError('Account already exists. Try logging in instead.')
-      } else {
-        setError(error.message)
+      const checkData = await checkRes.json()
+
+      if (checkData.exists) {
+        setError('An account with this email already exists. Try logging in instead.')
+        setLoading(false)
+        return
       }
-      setLoading(false)
-    } else {
-      // Wallet auto-created by Supabase trigger
 
+      const supabase = supabaseRef.current
+      if (!supabase) {
+        setError('Application error: Supabase not ready')
+        setLoading(false)
+        return
+      }
+
+      const { data, error: signupError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { display_name: name },
+          emailRedirectTo: `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/verify-email`,
+        },
+      })
+
+      if (signupError) {
+        if (
+          signupError.message.includes('already registered') ||
+          signupError.message.includes('already exists') ||
+          signupError.status === 422
+        ) {
+          setError('An account with this email already exists. Try logging in instead.')
+        } else if (signupError.message.includes('weak')) {
+          setError('Password is too weak. Use a mix of uppercase, lowercase, numbers, and symbols.')
+        } else if (signupError.message.includes('invalid email')) {
+          setError('Please enter a valid email address')
+        } else {
+          setError('Failed to create account. Please try again.')
+        }
+        setLoading(false)
+        return
+      }
+
+      // Check if identities array is empty (edge case where user exists but signup returned success)
+      if (data.user && (!data.user.identities || data.user.identities.length === 0)) {
+        setError('An account with this email already exists. Try logging in instead.')
+        setLoading(false)
+        return
+      }
+
+      // Send welcome email
       try {
-        await fetch('/api/send-verification', {
+        await fetch('/api/auth/send-welcome', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, name }),
         })
-        setDone(true)
-      } catch {
-        setDone(true)
+      } catch (emailError) {
+        console.error('Failed to send welcome email:', emailError)
+        // Don't fail signup if email fails
       }
+
+      setDone(true)
+    } catch (error) {
+      console.error('Signup error:', error)
+      setError('An unexpected error occurred. Please try again.')
+      setLoading(false)
     }
   }
 
@@ -289,6 +351,60 @@ async function handleSignup(e: React.FormEvent) {
                 placeholder="••••••••"
                 className="input-base"
               />
+              {password && (
+                <div style={{ marginTop: '.5rem' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: '.35rem',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div
+                      style={{
+                        flex: 1,
+                        height: '4px',
+                        background: 'rgba(255,255,255,.1)',
+                        borderRadius: '2px',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: '100%',
+                          background:
+                            passwordStrength < 33
+                              ? 'var(--red)'
+                              : passwordStrength < 66
+                              ? '#FFA500'
+                              : 'var(--green)',
+                          width: `${passwordStrength}%`,
+                          transition: 'width 0.2s ease, background 0.2s ease',
+                        }}
+                      />
+                    </div>
+                    <span
+                      style={{
+                        fontSize: '.65rem',
+                        fontFamily: 'var(--font-mono)',
+                        color:
+                          passwordStrength < 33
+                            ? 'var(--red)'
+                            : passwordStrength < 66
+                            ? '#FFA500'
+                            : 'var(--green)',
+                        letterSpacing: '.04em',
+                      }}
+                    >
+                      {passwordStrength < 33
+                        ? 'Weak'
+                        : passwordStrength < 66
+                        ? 'Medium'
+                        : 'Strong'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {error && (

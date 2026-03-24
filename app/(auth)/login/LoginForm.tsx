@@ -14,6 +14,8 @@ export default function LoginForm() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState(params.get('error') || '')
   const [loading, setLoading] = useState(false)
+  const [showResendVerification, setShowResendVerification] = useState(false)
+  const [resendLoading, setResendLoading] = useState(false)
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
 
   useEffect(() => {
@@ -26,19 +28,65 @@ export default function LoginForm() {
     e.preventDefault()
     setLoading(true)
     setError('')
+    setShowResendVerification(false)
+
     const supabase = supabaseRef.current
     if (!supabase) {
-      setError('Supabase not ready')
+      setError('Application error: Supabase not ready')
       setLoading(false)
       return
     }
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      setError(error.message)
+
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+
+    if (signInError) {
+      // Check if error is due to unconfirmed email
+      if (signInError.message.includes('Email not confirmed') || signInError.message.includes('email_not_confirmed')) {
+        setError('Please verify your email before signing in.')
+        setShowResendVerification(true)
+      } else if (
+        signInError.message.includes('Invalid login credentials') ||
+        signInError.message.includes('Invalid email or password')
+      ) {
+        setError('Invalid email or password.')
+      } else if (signInError.message.includes('User not found')) {
+        setError('No account found with this email. Create an account to get started.')
+      } else {
+        setError('Failed to sign in. Please try again.')
+      }
       setLoading(false)
     } else {
       router.push(redirect)
       router.refresh()
+    }
+  }
+
+  async function handleResendVerification() {
+    if (!email) {
+      setError('Please enter your email address')
+      return
+    }
+
+    setResendLoading(true)
+
+    try {
+      const res = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+
+      if (res.ok) {
+        setError('Verification email sent! Check your inbox.')
+        setShowResendVerification(false)
+      } else {
+        setError('Failed to resend verification email. Please try again.')
+      }
+    } catch (err) {
+      console.error('Resend verification error:', err)
+      setError('Failed to resend verification email. Please try again.')
+    } finally {
+      setResendLoading(false)
     }
   }
 
@@ -159,15 +207,55 @@ export default function LoginForm() {
               <div
                 style={{
                   padding: '.75rem 1rem',
-                  background: 'rgba(232,64,64,.08)',
-                  border: '1px solid rgba(232,64,64,.2)',
+                  background:
+                    error.toLowerCase().includes('verify') || error.toLowerCase().includes('sent')
+                      ? 'rgba(14,173,110,.08)'
+                      : 'rgba(232,64,64,.08)',
+                  border:
+                    error.toLowerCase().includes('verify') || error.toLowerCase().includes('sent')
+                      ? '1px solid rgba(14,173,110,.2)'
+                      : '1px solid rgba(232,64,64,.2)',
                   borderRadius: 10,
                   fontSize: '.85rem',
-                  color: 'var(--red)',
+                  color:
+                    error.toLowerCase().includes('verify') || error.toLowerCase().includes('sent')
+                      ? 'var(--green)'
+                      : 'var(--red)',
                 }}
               >
                 {error}
               </div>
+            )}
+
+            {showResendVerification && (
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={resendLoading}
+                style={{
+                  width: '100%',
+                  padding: '.75rem 1rem',
+                  background: 'transparent',
+                  border: '1px solid rgba(14,173,110,.3)',
+                  borderRadius: 10,
+                  color: 'var(--green)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '.85rem',
+                  fontWeight: 600,
+                  cursor: resendLoading ? 'not-allowed' : 'pointer',
+                  opacity: resendLoading ? 0.6 : 1,
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                {resendLoading ? (
+                  <>
+                    <span className="spinner" style={{ marginRight: '.5rem' }} />
+                    Sending...
+                  </>
+                ) : (
+                  '↻ Resend Verification Email'
+                )}
+              </button>
             )}
 
             <button

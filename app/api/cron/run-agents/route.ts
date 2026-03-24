@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-const STRATEGY_RUNNERS: Record<string, (key: string, secret: string) => Promise<unknown>> = {
+const STRATEGY_RUNNERS: Record<string, (key: string, secret: string, capitalAllocation?: number) => Promise<unknown>> = {
   crypto_momentum_btc: runBtcMomentum,
   crypto_mean_reversion_eth: runEthMeanRevert,
   crypto_momentum_multi: runCryptoTrend,
@@ -56,7 +56,12 @@ export async function POST(req: NextRequest) {
         continue
       }
 
-      const result = await runner(alpacaKey, alpacaSecret)
+      // Calculate capital allocation: max($10K, agent AUM)
+      const baseAllocation = 1000000 // $10K in cents
+      const agentAum = agent.total_aum_cents ?? 0
+      const capitalAllocation = Math.max(baseAllocation, agentAum)
+
+      const result = await runner(alpacaKey, alpacaSecret, capitalAllocation)
       results[agent.slug] = result
 
       // Log orders to agent_trades

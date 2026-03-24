@@ -74,3 +74,77 @@ h1,h2,h3,h4{font-family:var(--font-head);line-height:1.1;letter-spacing:-.02em}
 .data-table td{padding:.5rem .6rem;border-bottom:1px solid rgba(255,255,255,.03)}
 .data-table tr:hover td{background:rgba(255,255,255,.02)}
 .trade-link:hover{opacity:1 !important}
+
+/* ── Enhanced Animations ────────────────────────── */
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideInRight{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:none}}
+@keyframes slideInLeft{from{opacity:0;transform:translateX(-30px)}to{opacity:1;transform:none}}
+@keyframes scaleIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+@keyframes floatUp{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes gradientShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+@keyframes borderGlow{0%,100%{border-color:rgba(232,172,32,.15)}50%{border-color:rgba(232,172,32,.4)}}
+@keyframes countUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes pulseGreen{0%,100%{box-shadow:0 0 0 0 rgba(14,173,110,.3)}70%{box-shadow:0 0 0 8px rgba(14,173,110,0)}}
+@keyframes skeletonLoad{0%{background-position:-200% 0}100%{background-position:200% 0}}
+
+.fade-in{animation:fadeIn .5s ease both}
+.slide-in-right{animation:slideInRight .6s ease both}
+.slide-in-left{animation:slideInLeft .6s ease both}
+.scale-in{animation:scaleIn .4s ease both}
+.float{animation:floatUp 3s ease-in-out infinite}
+
+/* ── Skeleton Loading ────────────────────────── */
+.skeleton{background:linear-gradient(90deg,var(--bg2) 25%,rgba(255,255,255,.06) 50%,var(--bg2) 75%);background-size:400% 100%;animation:skeletonLoad 1.5s ease infinite;border-radius:8px}
+.skeleton-text{height:14px;width:80%;margin-bottom:8px}
+.skeleton-title{height:24px;width:60%;margin-bottom:12px}
+.skeleton-card{height:120px;border-radius:16px;margin-bottom:12px}
+.skeleton-stat{height:80px;border-radius:16px}
+
+/* ── Loading Page ────────────────────────── */
+.loading-page{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:1.5rem}
+.loading-logo{font-family:var(--font-head);font-size:2.5rem;font-weight:800;animation:pulse 1.5s ease-in-out infinite}
+.loading-bar{width:200px;height:3px;background:var(--bg2);border-radius:3px;overflow:hidden;position:relative}
+.loading-bar::after{content:'';position:absolute;top:0;left:0;height:100%;width:40%;background:linear-gradient(90deg,transparent,var(--gold),transparent);animation:shimmer 1.2s ease infinite;border-radius:3px}
+
+/* ── Card hover enhancements ────────────────────────── */
+.card:hover{border-color:rgba(232,172,32,.2);transform:translateY(-2px)}
+.card-glow:hover{box-shadow:0 0 30px rgba(232,172,32,.08)}
+.card-interactive{transition:all .25s cubic-bezier(.4,0,.2,1)}
+.card-interactive:hover{border-color:rgba(232,172,32,.25);transform:translateY(-3px);box-shadow:0 20px 60px rgba(0,0,0,.4)}
+
+/* ── Stagger animations ────────────────────────── */
+.stagger-1{animation-delay:.05s}
+.stagger-2{animation-delay:.1s}
+.stagger-3{animation-delay:.15s}
+.stagger-4{animation-delay:.2s}
+.stagger-5{animation-delay:.25s}
+.stagger-6{animation-delay:.3s}
+
+/* ── Smooth page transitions ────────────────────────── */
+.page-enter{animation:fadeUp .4s ease both}
+
+/* ── Nav glass effect ────────────────────────── */
+.nav-glass{background:rgba(7,9,15,.85);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%)}
+
+/* ── Metric highlight ────────────────────────── */
+.metric-value{font-family:var(--font-head);font-weight:800;font-variant-numeric:tabular-nums}
+.metric-label{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.12em;color:var(--faint);text-transform:uppercase}
+
+/* ── Terminal/Bloomberg style ────────────────────────── */
+.terminal-row{display:flex;align-items:center;padding:.6rem .75rem;border-bottom:1px solid rgba(255,255,255,.04);transition:background .15s}
+.terminal-row:hover{background:rgba(255,255,255,.02)}
+.terminal-row:last-child{border-bottom:none}
+
+/* ── Pulse dot for live indicators ────────────────────────── */
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;animation:pulseGreen 2s ease infinite}
+
+/* ── Responsive helpers ────────────────────────── */
+@media(max-width:900px){
+  .hide-mobile{display:none!important}
+  .mobile-stack{flex-direction:column!important}
+  .mobile-full{grid-template-columns:1fr!important}
+}
+@media(max-width:600px){
+  .hide-sm{display:none!important}
+  .sm-stack{flex-direction:column!important}
+}
