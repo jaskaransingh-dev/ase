@@ -4,9 +4,10 @@ compatibility_date = "2026-03-24"
 compatibility_flags = ["nodejs_compat"]
 
 [triggers]
-crons = ["*/15 * * * *"]
+crons = ["* * * * *"]
 
 [vars]
+# Update this to your Cloudflare Pages domain (e.g., https://ase.pages.dev)
 NEXT_PUBLIC_APP_URL = "https://ase.jazing14.workers.dev"
 
 NEXT_PUBLIC_SUPABASE_URL = "https://frlgckqtrloqunkhbhtp.supabase.co"
@@ -16,3 +17,8 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_test_51TDX2dAtzHSmf8PpCH7NXIKntUodtOxw1
 
 ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
 ALPACA_KEY_ID = "PKILN4ZAIIMEYCZ2DLUZNCXG5R"
+ALPACA_SECRET_KEY = "EPEnyGvBJtrkZ3vpiQARwrsjhCjvB14AcN1VFusTNwiQ"
+
+SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZybGdja3F0cmxvcXVua2hiaHRwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDEyMjc1NSwiZXhwIjoyMDg5Njk4NzU1fQ.br7uvSU4BpBS-_7vbjwSGBzxki7QAEcCmV3Nx510-Js"
+
+CRON_SECRET = "9f3c2b7a1e8d4c6f0a2b9e7d1c4f8a6b"
