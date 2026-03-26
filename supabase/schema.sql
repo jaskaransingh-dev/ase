@@ -204,41 +204,14 @@ values
   )
 on conflict (slug) do nothing;
 
--- ── SEED INITIAL STATS (60 days of simulated data) ──────────
-do $$
-declare
-  aid uuid;
-  slug_list text[] := ARRAY['btc-momentum','eth-mean-revert','crypto-trend','sol-breakout','defi-basket'];
-  drift_list numeric[] := ARRAY[0.005, 0.003, 0.004, 0.006, 0.0035];
-  vol_list numeric[] := ARRAY[0.012, 0.008, 0.010, 0.015, 0.009];
-  i integer;
-  j integer;
-  base_date timestamptz := now() - interval '60 days';
-begin
-  for j in 1..5 loop
-    select id into aid from public.agents where slug = slug_list[j];
-    if aid is null then continue; end if;
-
-    for i in 0..60 loop
-      insert into public.agent_stats (
-        agent_id, snapshot_at, nav_cents, bid_cents, ask_cents,
-        total_return_pct, sharpe_ratio, max_drawdown_pct, win_rate_pct, total_trades
-      )
-      values (
-        aid,
-        base_date + (i || ' days')::interval,
-        round((10000 * (1 + (i::numeric * drift_list[j]) + (random() * vol_list[j] * 2 - vol_list[j])))::numeric)::bigint,
-        round((10000 * (1 + (i::numeric * drift_list[j]) + (random() * vol_list[j] * 2 - vol_list[j])) * 0.998)::numeric)::bigint,
-        round((10000 * (1 + (i::numeric * drift_list[j]) + (random() * vol_list[j] * 2 - vol_list[j])) * 1.002)::numeric)::bigint,
-        round(((i::numeric * drift_list[j] * 100) + (random() * vol_list[j] * 200 - vol_list[j] * 100))::numeric, 2),
-        round((1.5 + random() * 2.0)::numeric, 2),
-        round((2 + random() * 6)::numeric, 2),
-        round((52 + random() * 16)::numeric, 1),
-        i * (2 + j)
-      );
-    end loop;
-  end loop;
-end $$;
+-- ── REMOVED: 60-day simulated data seed ──────────────────────────────
+-- REASON: Now using real statistics calculated from agent_trades
+-- Stats are calculated by /api/cron/update-nav every 5 minutes
+-- based on actual trading P&L and positions
+--
+-- Previous seeding code (left as reference):
+-- Agents were seeded with 60 days of simulated returns using random drift+volatility
+-- This has been replaced with real calculations from agent_trades table
 
 -- ── ROW LEVEL SECURITY ───────────────────────────────────────
 alter table public.profiles enable row level security;

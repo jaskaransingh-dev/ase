@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell } from 'recharts'
 import { fmtUSD, fmtPct, fmtDate, fmtDateTime } from '@/lib/utils'
 
 interface Agent { id: string; name: string; slug: string; ticker: string; description: string; strategy_type: string; status: string; total_aum_cents: number }
@@ -23,6 +23,111 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
   const winRate = latestStats?.win_rate_pct ?? 0
   const totalTrades = latestStats?.total_trades ?? 0
 
+  // Calculate real metrics from statsHistory and trades
+  const calculateVolatility = () => {
+    if (statsHistory.length <= 1) return 0
+    const dailyReturns = statsHistory.slice(1).map((s, i) =>
+      (s.nav_cents - statsHistory[i].nav_cents) / Math.max(1, statsHistory[i].nav_cents)
+    )
+    const variance = dailyReturns.reduce((s, r) => s + r * r, 0) / Math.max(1, dailyReturns.length)
+    return Math.sqrt(variance) * Math.sqrt(365) * 100
+  }
+
+  const calculateSortinoRatio = () => {
+    if (statsHistory.length <= 1) return 0
+    const dailyReturns = statsHistory.slice(1).map((s, i) =>
+      (s.nav_cents - statsHistory[i].nav_cents) / Math.max(1, statsHistory[i].nav_cents)
+    )
+    const meanReturn = dailyReturns.reduce((s, r) => s + r, 0) / Math.max(1, dailyReturns.length)
+    const negReturns = dailyReturns.filter(r => r < 0)
+    const downsideDev = Math.sqrt(negReturns.reduce((s, r) => s + r * r, 0) / Math.max(1, negReturns.length))
+    return downsideDev > 0 ? (meanReturn / downsideDev) * Math.sqrt(365) : 0
+  }
+
+  const calculateCalmarRatio = () => {
+    if (statsHistory.length === 0) return 0
+    const firstNav = statsHistory[0].nav_cents
+    const lastNav = statsHistory[statsHistory.length - 1].nav_cents
+    const annualReturn = ((lastNav - firstNav) / Math.max(1, firstNav)) * 100
+    const maxDrawdown = Math.abs(Math.min(...statsHistory.map(s => s.max_drawdown_pct)))
+    return maxDrawdown > 0 ? annualReturn / maxDrawdown : 0
+  }
+
+  const calculateExposure = () => {
+    if (agent.total_aum_cents === 0) return 0
+    const activeTradeValue = trades.reduce((sum, t) => sum + (t.qty * t.fill_price * 100), 0)
+    return (activeTradeValue / Math.max(1, agent.total_aum_cents)) * 100
+  }
+
+  const calculateAvgTradePnL = () => {
+    if (trades.length === 0) return 0
+    const closedTrades = trades.filter(t => t.pnl_cents !== null)
+    if (closedTrades.length === 0) return 0
+    return closedTrades.reduce((s, t) => s + (t.pnl_cents || 0), 0) / closedTrades.length
+  }
+
+  const calculateProfitFactor = () => {
+    const winningTrades = trades.filter(t => t.pnl_cents !== null && t.pnl_cents > 0)
+    const losingTrades = trades.filter(t => t.pnl_cents !== null && t.pnl_cents < 0)
+
+    const totalWins = winningTrades.reduce((s, t) => s + (t.pnl_cents || 0), 0)
+    const totalLosses = Math.abs(losingTrades.reduce((s, t) => s + (t.pnl_cents || 0), 0))
+
+    return totalLosses > 0 ? totalWins / totalLosses : (totalWins > 0 ? Infinity : 0)
+  }
+
+  const calculateDaysActive = () => {
+    if (trades.length === 0) return 0
+    const sortedTrades = [...trades].sort((a, b) => new Date(a.filled_at).getTime() - new Date(b.filled_at).getTime())
+    const firstDate = new Date(sortedTrades[0].filled_at)
+    const lastDate = new Date(sortedTrades[trades.length - 1].filled_at)
+    return Math.floor((lastDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24))
+  }
+
+  const calculateAvgHoldTime = () => {
+    if (trades.length === 0) return 0
+    const buyTrades = trades.filter(t => t.side === 'buy')
+    const sellTrades = trades.filter(t => t.side === 'sell')
+    if (buyTrades.length === 0 || sellTrades.length === 0) return 0
+
+    let totalHoldTime = 0
+    let matchCount = 0
+    for (const buyTrade of buyTrades) {
+      const matchingSell = sellTrades.find(s => new Date(s.filled_at) > new Date(buyTrade.filled_at))
+      if (matchingSell) {
+        totalHoldTime += new Date(matchingSell.filled_at).getTime() - new Date(buyTrade.filled_at).getTime()
+        matchCount++
+      }
+    }
+    return matchCount > 0 ? Math.floor(totalHoldTime / matchCount / (1000 * 60 * 60)) : 0
+  }
+
+  const calculateConsecutiveMetrics = () => {
+    const closedTrades = [...trades].filter(t => t.pnl_cents !== null).sort((a, b) => new Date(a.filled_at).getTime() - new Date(b.filled_at).getTime())
+    let maxWins = 0, maxLosses = 0, currentWins = 0, currentLosses = 0
+
+    for (const trade of closedTrades) {
+      if ((trade.pnl_cents || 0) > 0) {
+        currentWins++
+        currentLosses = 0
+        maxWins = Math.max(maxWins, currentWins)
+      } else if ((trade.pnl_cents || 0) < 0) {
+        currentLosses++
+        currentWins = 0
+        maxLosses = Math.max(maxLosses, currentLosses)
+      }
+    }
+    return { wins: maxWins, losses: maxLosses }
+  }
+
+  const calculateTotalRealizedPnL = () => {
+    return trades.filter(t => t.pnl_cents !== null).reduce((s, t) => s + (t.pnl_cents || 0), 0)
+  }
+
+  const calculateUnrealizedPnL = () => {
+    return trades.filter(t => t.pnl_cents === null).reduce((s, t) => s + (t.qty * t.fill_price * 100), 0)
+  }
+
   // Prepare chart data
   const chartData = statsHistory.map(s => ({
     date: fmtDate(s.snapshot_at),
@@ -32,6 +137,27 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
   }))
 
   const sortedTrades = [...trades].sort((a, b) => new Date(b.filled_at).getTime() - new Date(a.filled_at).getTime())
+
+  // Calculate distribution of P&L
+  const pnlDistribution = trades
+    .filter(t => t.pnl_cents !== null)
+    .reduce((acc: Record<string, number>, t) => {
+      const bucket = t.pnl_cents! >= 0 ? 'wins' : 'losses'
+      acc[bucket] = (acc[bucket] || 0) + 1
+      return acc
+    }, {})
+
+  const volatility = calculateVolatility()
+  const sortinoRatio = calculateSortinoRatio()
+  const calmarRatio = calculateCalmarRatio()
+  const exposure = calculateExposure()
+  const avgTradePnL = calculateAvgTradePnL()
+  const profitFactor = calculateProfitFactor()
+  const daysActive = calculateDaysActive()
+  const avgHoldTime = calculateAvgHoldTime()
+  const consecutiveMetrics = calculateConsecutiveMetrics()
+  const totalRealizedPnL = calculateTotalRealizedPnL()
+  const totalUnrealizedPnL = calculateUnrealizedPnL()
 
   return (
     <div style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto', minHeight: '100vh', fontFamily: 'var(--font-body)', color: '#E0E0E0' }}>
@@ -138,64 +264,76 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
               </div>
             </div>
           </div>
+
+          {/* Return Distribution */}
+          <div style={{ background: '#0D1018', border: '1px solid #1a1f2e', borderRadius: '12px', padding: '1.5rem' }}>
+            <h2 style={{ fontFamily: 'var(--font-head)', fontSize: '1rem', fontWeight: 700, marginBottom: '1.5rem' }}>P&L Summary</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '2rem' }}>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: '#666', marginBottom: '.5rem' }}>REALIZED P&L</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.5rem', fontWeight: 700, color: totalRealizedPnL >= 0 ? '#0EAD6E' : '#E84040' }}>
+                  {totalRealizedPnL >= 0 ? '+' : ''}{fmtUSD(totalRealizedPnL)}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: '#666', marginBottom: '.5rem' }}>UNREALIZED P&L</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.5rem', fontWeight: 700, color: totalUnrealizedPnL >= 0 ? '#0EAD6E' : '#E84040' }}>
+                  {totalUnrealizedPnL >= 0 ? '+' : ''}{fmtUSD(totalUnrealizedPnL)}
+                </div>
+              </div>
+            </div>
+            {pnlDistribution.wins !== undefined || pnlDistribution.losses !== undefined ? (
+              <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontFamily: 'var(--font-mono)', fontSize: '.85rem' }}>
+                  <div style={{ width: '12px', height: '12px', background: '#0EAD6E', borderRadius: '2px' }} />
+                  <span>Winning Trades: {pnlDistribution.wins || 0}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontFamily: 'var(--font-mono)', fontSize: '.85rem' }}>
+                  <div style={{ width: '12px', height: '12px', background: '#E84040', borderRadius: '2px' }} />
+                  <span>Losing Trades: {pnlDistribution.losses || 0}</span>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
       )}
 
       {tab === 'Risk' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
-          {/* Auth data cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
+          {/* Real Risk Metrics */}
           {[
-            { label: 'PBO SCORE', value: '0.22', status: 'below_threshold', threshold: '0.40', color: '#E84040' },
-            { label: 'DSR SCORE', value: '1.85', status: 'above_threshold', threshold: '1.25', color: '#0EAD6E' },
-            { label: 'OOS PERFORMANCE', value: '+12.4%', status: 'passed', color: '#0EAD6E' },
-            { label: 'PAPER TRACK', value: '87/90', status: 'in_progress', color: '#E8AC20' },
+            { label: 'VOLATILITY', value: volatility.toFixed(2), unit: '%', color: '#E8AC20' },
+            { label: 'SORTINO RATIO', value: sortinoRatio.toFixed(2), color: '#4A90E2' },
+            { label: 'CALMAR RATIO', value: calmarRatio.toFixed(2), color: '#0EAD6E' },
+            { label: 'AVG TRADE P&L', value: fmtUSD(avgTradePnL), color: avgTradePnL >= 0 ? '#0EAD6E' : '#E84040' },
+            { label: 'PROFIT FACTOR', value: profitFactor === Infinity ? '∞' : profitFactor.toFixed(2), color: profitFactor > 1 ? '#0EAD6E' : '#E84040' },
+            { label: 'EXPOSURE', value: exposure.toFixed(1), unit: '%', color: '#4A90E2' },
           ].map((item, i) => (
             <div key={i} style={{ background: '#0D1018', border: '1px solid #1a1f2e', borderRadius: '12px', padding: '1.5rem' }}>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', letterSpacing: '.12em', color: '#666', marginBottom: '.5rem', textTransform: 'uppercase' }}>
                 {item.label}
               </div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.4rem', fontWeight: 700, color: item.color, marginBottom: '.75rem' }}>
-                {item.value}
-              </div>
-              <div style={{ fontSize: '.75rem', color: '#999' }}>
-                {item.status === 'below_threshold' && `Below threshold (${item.threshold})`}
-                {item.status === 'above_threshold' && `Above threshold (${item.threshold})`}
-                {item.status === 'passed' && 'Out-of-sample passed'}
-                {item.status === 'in_progress' && `Days complete`}
-              </div>
-              <div style={{ marginTop: '1rem', height: '4px', background: '#1a1f2e', borderRadius: '2px', overflow: 'hidden' }}>
-                <div
-                  style={{
-                    height: '100%',
-                    background: item.color,
-                    width: item.status === 'below_threshold' ? '55%' : item.status === 'above_threshold' ? '76%' : item.status === 'passed' ? '100%' : '97%',
-                    transition: 'width .3s',
-                  }}
-                />
+                {item.value}{item.unit || ''}
               </div>
             </div>
           ))}
 
-          {/* Volatility card */}
+          {/* Drawdown Chart */}
           <div style={{ background: '#0D1018', border: '1px solid #1a1f2e', borderRadius: '12px', padding: '1.5rem', gridColumn: '1 / -1' }}>
-            <h3 style={{ fontFamily: 'var(--font-head)', fontSize: '1rem', fontWeight: 700, marginBottom: '1.5rem' }}>Capacity & Status</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
-              <div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: '#666', marginBottom: '.5rem' }}>TOTAL AUM</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.5rem', fontWeight: 700, color: '#E8AC20' }}>
-                  {fmtUSD(agent.total_aum_cents)}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: '#666', marginBottom: '.5rem' }}>STATUS</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
-                  <div style={{ width: '8px', height: '8px', background: '#0EAD6E', borderRadius: '50%' }} />
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: '#0EAD6E' }}>
-                    {agent.status === 'active' ? 'ACTIVE' : 'INACTIVE'}
-                  </span>
-                </div>
-              </div>
-            </div>
+            <h3 style={{ fontFamily: 'var(--font-head)', fontSize: '1rem', fontWeight: 700, marginBottom: '1.5rem' }}>Drawdown Over Time</h3>
+            {chartData.length > 1 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <AreaChart data={chartData}>
+                  <XAxis dataKey="date" stroke="#666" style={{ fontSize: '.75rem' }} />
+                  <YAxis stroke="#666" style={{ fontSize: '.75rem' }} />
+                  <Tooltip contentStyle={{ background: '#0D1018', border: '1px solid #1a1f2e', borderRadius: '8px' }} />
+                  <Area type="monotone" dataKey="dd" stroke="#E84040" fill="#E84040" fillOpacity={0.1} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>Insufficient data</div>
+            )}
           </div>
         </div>
       )}
@@ -241,11 +379,14 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
 
       {tab === 'Auth' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
+          {/* Real Verification Metrics */}
           {[
-            { label: 'PBO SCORE', value: '0.22', threshold: '0.40', color: '#E84040', description: 'Portfolio Beta Optimization score below threshold' },
-            { label: 'DSR SCORE', value: '1.85', threshold: '1.25', color: '#0EAD6E', description: 'Drawdown Severity Ratio above threshold (safer)' },
-            { label: 'OOS PERFORMANCE', value: '+12.4%', color: '#0EAD6E', description: 'Out-of-sample test returned 12.4% positive' },
-            { label: 'PAPER TRACK', value: '87/90', color: '#E8AC20', description: '87 days of 90 complete in paper trading' },
+            { label: 'TOTAL TRADES', value: trades.length.toString(), color: '#4A90E2', description: 'Total number of executed trades' },
+            { label: 'DAYS ACTIVE', value: daysActive.toString(), color: '#E8AC20', description: 'Days between first and last trade' },
+            { label: 'BEST TRADE', value: trades.length > 0 ? fmtUSD(Math.max(0, ...trades.map(t => t.pnl_cents || 0))) : '$0', color: '#0EAD6E', description: 'Maximum single trade profit' },
+            { label: 'WORST TRADE', value: trades.length > 0 ? fmtUSD(Math.min(0, ...trades.map(t => t.pnl_cents || 0))) : '$0', color: '#E84040', description: 'Maximum single trade loss' },
+            { label: 'AVG HOLD TIME', value: avgHoldTime > 0 ? `${avgHoldTime}h` : 'N/A', color: '#4A90E2', description: 'Average time holding a position' },
+            { label: 'CONSECUTIVE WINS', value: consecutiveMetrics.wins.toString(), color: '#0EAD6E', description: `Max winning streak: ${consecutiveMetrics.wins} trades` },
           ].map((item, i) => (
             <div key={i} style={{ background: '#0D1018', border: '1px solid #1a1f2e', borderRadius: '12px', padding: '1.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem' }}>
@@ -262,11 +403,6 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
               <div style={{ fontSize: '.8rem', color: '#999', lineHeight: '1.4' }}>
                 {item.description}
               </div>
-              {item.threshold && (
-                <div style={{ marginTop: '.75rem', fontSize: '.7rem', color: '#666' }}>
-                  Threshold: {item.threshold}
-                </div>
-              )}
             </div>
           ))}
         </div>

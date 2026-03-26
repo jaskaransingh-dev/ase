@@ -13,6 +13,7 @@ interface Agent { id: string; name: string; slug: string; ticker: string }
 interface Holding { id: string; agent_id: string; shares: number; invested_cents: number; current_value_cents: number; status: string; agents: Agent }
 interface AgentTrade { id: string; agent_id: string; symbol: string; side: string; qty: number; fill_price: number; filled_at: string; pnl_cents: number | null; agents: Agent }
 interface Transaction { id: string; type: string; amount_cents: number; created_at: string }
+interface AgentActivity { agent_id: string; agent_name: string; agent_ticker: string; status: 'BUYING' | 'SELLING' | 'SCANNING' | 'OFFLINE'; symbol: string; last_trade_at: string; side?: string; signal_summary?: string }
 
 const COLORS = ['#E8AC20', '#0EAD6E', '#4A90E2', '#FF6B6B', '#9B59B6', '#F39C12']
 
@@ -24,6 +25,7 @@ export default function DashboardPage() {
   const [holdings, setHoldings] = useState<Holding[]>([])
   const [trades, setTrades] = useState<AgentTrade[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [agentActivity, setAgentActivity] = useState<AgentActivity[]>([])
   const [user, setUser] = useState<any>(null)
 
   useEffect(() => {
@@ -35,17 +37,65 @@ export default function DashboardPage() {
       }
       setUser(authUser)
 
-      const [walletRes, holdingsRes, tradesRes, txnsRes] = await Promise.all([
+      const [walletRes, holdingsRes, tradesRes, txnsRes, agentsRes] = await Promise.all([
         supabase.from('wallets').select('balance_cents').eq('user_id', authUser.id).single(),
         supabase.from('holdings').select('*, agents(id, name, slug, ticker)').eq('user_id', authUser.id).eq('status', 'active'),
         supabase.from('agent_trades').select('*, agents(id, name, slug, ticker)').order('filled_at', { ascending: false }).limit(20),
         supabase.from('transactions').select('*').eq('user_id', authUser.id).order('created_at', { ascending: false }).limit(10),
+        supabase.from('agents').select('id, name, ticker, signal_summary, last_run_at').eq('status', 'active'),
       ])
 
       setWallet(walletRes.data)
       setHoldings(holdingsRes.data ?? [])
       setTrades(tradesRes.data ?? [])
       setTransactions(txnsRes.data ?? [])
+
+      // Build agent activity
+      if (agentsRes.data && tradesRes.data) {
+        const now = new Date()
+        const tenMinutesAgo = new Date(now.getTime() - 10 * 60000)
+
+        const activityMap: Record<string, AgentActivity> = {}
+
+        // Initialize all agents — use signal_summary from DB if available
+        for (const agent of agentsRes.data) {
+          const lastRun = agent.last_run_at ? new Date(agent.last_run_at) : null
+          const isStale = !lastRun || lastRun < new Date(now.getTime() - 5 * 60000)
+          activityMap[agent.id] = {
+            agent_id: agent.id,
+            agent_name: agent.name,
+            agent_ticker: agent.ticker,
+            status: isStale ? 'OFFLINE' : 'SCANNING',
+            symbol: '',
+            last_trade_at: '',
+            signal_summary: agent.signal_summary ?? '',
+          }
+        }
+
+        // Get the most recent trade per agent
+        const tradesByAgent: Record<string, AgentTrade> = {}
+        for (const trade of tradesRes.data) {
+          if (!tradesByAgent[trade.agent_id]) {
+            tradesByAgent[trade.agent_id] = trade
+          }
+        }
+
+        // Override status if a trade happened recently
+        for (const [agentId, trade] of Object.entries(tradesByAgent)) {
+          if (activityMap[agentId]) {
+            const tradeTime = new Date(trade.filled_at)
+            if (tradeTime >= tenMinutesAgo) {
+              activityMap[agentId].status = trade.side === 'buy' ? 'BUYING' : 'SELLING'
+            }
+            activityMap[agentId].symbol = trade.symbol
+            activityMap[agentId].last_trade_at = trade.filled_at
+            activityMap[agentId].side = trade.side
+          }
+        }
+
+        setAgentActivity(Object.values(activityMap))
+      }
+
       setLoading(false)
     }
     load()
@@ -88,6 +138,16 @@ export default function DashboardPage() {
     return: 'Return',
   }
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'BUYING': return '#0EAD6E'
+      case 'SELLING': return '#E84040'
+      case 'SCANNING': return '#E8AC20'
+      case 'OFFLINE': return '#555'
+      default: return '#666'
+    }
+  }
+
   return (
     <div style={{
       padding: '2rem',
@@ -123,6 +183,61 @@ export default function DashboardPage() {
         ))}
       </div>
 
+      {/* Agent Activity Panel */}
+      {agentActivity.length > 0 && (
+        <div style={{ background: '#0D1018', border: '1px solid #1a1f2e', borderRadius: '12px', padding: '1.5rem', marginBottom: '2rem' }}>
+          <h2 style={{ fontFamily: 'var(--font-head)', fontSize: '1.1rem', fontWeight: 800, marginBottom: '1rem' }}>Agent Activity</h2>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+            {agentActivity.map((activity) => (
+              <div key={activity.agent_id} style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '.5rem',
+                padding: '.75rem 1rem',
+                background: '#0A0D14',
+                border: `1px solid #1a1f2e`,
+                borderRadius: '8px',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '.85rem'
+              }}>
+                <div>
+                  <div style={{ fontWeight: 700, marginBottom: '.2rem' }}>
+                    {activity.agent_name}
+                  </div>
+                  <div style={{ color: '#666', fontSize: '.7rem' }}>
+                    {activity.symbol || 'N/A'}
+                  </div>
+                </div>
+                <div style={{ marginLeft: '.5rem', paddingLeft: '.5rem', borderLeft: '1px solid #1a1f2e', minWidth: 0, flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                    <span style={{
+                      display: 'inline-block',
+                      width: '8px',
+                      height: '8px',
+                      flexShrink: 0,
+                      background: getStatusColor(activity.status),
+                      borderRadius: '50%',
+                      animation: activity.status !== 'OFFLINE' ? 'pulse 2s infinite' : 'none'
+                    }} />
+                    <span style={{ color: getStatusColor(activity.status), fontWeight: 700 }}>
+                      {activity.status}
+                    </span>
+                  </div>
+                  {activity.signal_summary && activity.status !== 'OFFLINE' && (
+                    <div style={{ color: '#666', fontSize: '.6rem', marginTop: '.2rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
+                      {activity.signal_summary}
+                    </div>
+                  )}
+                  {activity.status === 'OFFLINE' && (
+                    <div style={{ color: '#444', fontSize: '.6rem', marginTop: '.2rem' }}>not deployed / no cron</div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Main grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '1.5rem', alignItems: 'start' }}>
         {/* Holdings table */}
@@ -152,6 +267,7 @@ export default function DashboardPage() {
                     <th style={{ padding: '1rem', textAlign: 'right', color: '#666', fontWeight: 600, fontSize: '.7rem', letterSpacing: '.1em' }}>POSITION</th>
                     <th style={{ padding: '1rem', textAlign: 'right', color: '#666', fontWeight: 600, fontSize: '.7rem', letterSpacing: '.1em' }}>ENTRY/CURRENT</th>
                     <th style={{ padding: '1rem', textAlign: 'right', color: '#666', fontWeight: 600, fontSize: '.7rem', letterSpacing: '.1em' }}>P&L</th>
+                    <th style={{ padding: '1rem', textAlign: 'right', color: '#666', fontWeight: 600, fontSize: '.7rem', letterSpacing: '.1em' }}>P&L %</th>
                     <th style={{ padding: '1rem', textAlign: 'center', color: '#666', fontWeight: 600, fontSize: '.7rem', letterSpacing: '.1em' }}>STATUS</th>
                     <th style={{ padding: '1rem', textAlign: 'right', color: '#666', fontWeight: 600, fontSize: '.7rem', letterSpacing: '.1em' }}></th>
                   </tr>
@@ -176,7 +292,10 @@ export default function DashboardPage() {
                           {fmtUSD(entryPrice * 100)} → {fmtUSD(currentPrice * 100)}
                         </td>
                         <td style={{ padding: '1rem', textAlign: 'right', color: ret >= 0 ? '#0EAD6E' : '#E84040', fontWeight: 600 }}>
-                          {ret >= 0 ? '+' : ''}{fmtUSD(ret)} ({fmtPct(retPct)})
+                          {ret >= 0 ? '+' : ''}{fmtUSD(ret)}
+                        </td>
+                        <td style={{ padding: '1rem', textAlign: 'right', color: retPct >= 0 ? '#0EAD6E' : '#E84040', fontWeight: 600 }}>
+                          {retPct >= 0 ? '+' : ''}{fmtPct(retPct)}
                         </td>
                         <td style={{ padding: '1rem', textAlign: 'center' }}>
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', padding: '.3rem .6rem', background: '#0EAD6E', color: '#000', borderRadius: '6px', fontWeight: 700 }}>
@@ -238,6 +357,7 @@ export default function DashboardPage() {
                       <div style={{ color: t.side === 'buy' ? '#0EAD6E' : '#E84040', fontWeight: 700, marginBottom: '.2rem' }}>
                         {t.side === 'buy' ? '↓ BUY' : '↑ SELL'} {t.symbol}
                       </div>
+                      <div style={{ color: '#888', fontSize: '.65rem' }}>{t.agents?.name}</div>
                       <div style={{ color: '#666', fontSize: '.65rem' }}>{fmtDateTime(t.filled_at)}</div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
@@ -282,6 +402,10 @@ export default function DashboardPage() {
       </div>
 
       <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
         @media(max-width:1000px){
           div:has(> h2) { grid-template-columns: 1fr !important; }
         }

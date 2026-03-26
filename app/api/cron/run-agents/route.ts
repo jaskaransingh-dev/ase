@@ -1,13 +1,14 @@
 /**
  * POST /api/cron/run-agents
  *
- * Runs all 5 trading strategies against live Alpaca crypto market data.
+ * Runs all 5 sophisticated trading strategies against live Alpaca crypto market data.
  * Each agent:
  *   1. Checks its own open positions from agent_trades (DB-tracked, per-agent)
  *   2. Fetches real crypto bars from Alpaca v1beta3 endpoint
- *   3. Calculates signal (EMA crossover, RSI, Bollinger, momentum)
+ *   3. Calculates advanced indicators and signals
  *   4. Executes orders via Alpaca paper trading if signal fires
  *   5. Logs fills to agent_trades immediately with fill price + P&L
+ *   6. Stores decision state: signal_summary and portfolio snapshot
  *
  * Protected by CRON_SECRET header. Safe to call every minute.
  */
@@ -24,8 +25,6 @@ import {
 } from '@/lib/agents'
 
 export const dynamic = 'force-dynamic'
-export const runtime = 'nodejs'
-export const maxDuration = 120
 
 // Map agent DB slug → strategy runner
 const STRATEGY_MAP: Record<
@@ -76,13 +75,16 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  const results: Record<string, StrategyResult | { error: string }> = {}
+  const results: Record<string, StrategyResult | { error: string; agent_slug: string }> = {}
   let totalTrades = 0
 
   for (const agent of agents) {
     const runner = STRATEGY_MAP[agent.slug]
     if (!runner) {
-      results[agent.slug] = { agent_slug: agent.slug, actions: [], error: 'No strategy runner configured' }
+      results[agent.slug] = {
+        agent_slug: agent.slug,
+        error: 'No strategy runner configured',
+      }
       continue
     }
 
@@ -97,6 +99,21 @@ export async function POST(req: NextRequest) {
       const result = await runner(admin, agent.id, alpacaKey, alpacaSecret, capitalCents)
       results[agent.slug] = result
 
+      // Store latest signal summary + portfolio state on the agents row itself
+      // (agent_stats is a time-series table; live state lives on agents)
+      try {
+        await admin
+          .from('agents')
+          .update({
+            signal_summary: result.signal_summary || 'SCANNING',
+            portfolio_json: JSON.stringify(result.portfolio),
+            last_run_at: ran_at,
+          })
+          .eq('id', agent.id)
+      } catch (statsErr) {
+        console.warn(`Failed to store signal state for ${agent.slug}:`, statsErr)
+      }
+
       // Count actual trades (BUY or SELL actions)
       const tradeCount = result.actions.filter(a => a.action === 'BUY' || a.action === 'SELL').length
       totalTrades += tradeCount
@@ -107,7 +124,10 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
       console.error(`Agent ${agent.slug} failed:`, msg)
-      results[agent.slug] = { agent_slug: agent.slug, actions: [], error: msg }
+      results[agent.slug] = {
+        agent_slug: agent.slug,
+        error: msg,
+      }
     }
   }
 
