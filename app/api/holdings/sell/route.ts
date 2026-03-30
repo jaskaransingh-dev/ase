@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getOpenOrders } from '@/lib/alpaca'
 import { sendSellConfirmation } from '@/lib/email'
 
 export const dynamic = 'force-dynamic'
@@ -20,7 +19,7 @@ export async function POST(req: NextRequest) {
     // Fetch holding with agent info
     const { data: holding } = await admin
       .from('holdings')
-      .select('*, agents(id, name, slug, alpaca_account)')
+      .select('*, agents(id, name, slug, share_price_cents, total_aum_cents)')
       .eq('id', holding_id)
       .eq('user_id', user.id)
       .eq('status', 'active')
@@ -30,35 +29,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Holding not found or already closed' }, { status: 404 })
     }
 
-    // Check if agent has open Alpaca orders (sell lock)
-    if (holding.agents?.alpaca_account && process.env.ALPACA_KEY_ID) {
-      try {
-        const openOrders = await getOpenOrders(
-          process.env.ALPACA_KEY_ID,
-          process.env.ALPACA_SECRET_KEY
-        )
-        if (openOrders.length > 0) {
-          return NextResponse.json({
-            error: 'Agent currently has open trades. You can sell after positions settle.',
-            open_orders: openOrders.length,
-          }, { status: 409 })
-        }
-      } catch {
-        // If Alpaca check fails, allow sell (don't block on infra issue)
-      }
-    }
-
-    // Get current bid price
+    // Get latest NAV (bid price = NAV * 0.9985 for 0.15% sell spread)
     const { data: latestStats } = await admin
       .from('agent_stats')
-      .select('bid_cents')
+      .select('nav_cents')
       .eq('agent_id', holding.agent_id)
       .order('snapshot_at', { ascending: false })
       .limit(1)
       .single()
 
-    const bidCents = latestStats?.bid_cents ?? holding.current_value_cents
-    const currentValue = Math.round(holding.shares * bidCents)
+    const navCents = latestStats?.nav_cents ?? holding.agents?.share_price_cents ?? 10_000
+    const bidCents = Math.round(navCents * 0.9985) // 0.15% spread
+    const currentValue = Math.round(Number(holding.shares) * bidCents)
     const returnAmount = currentValue - holding.invested_cents
 
     // Fetch current wallet
@@ -70,7 +52,7 @@ export async function POST(req: NextRequest) {
 
     if (!wallet) return NextResponse.json({ error: 'Wallet not found' }, { status: 400 })
 
-    // 1. Credit wallet
+    // 1. Credit wallet with current value
     await admin
       .from('wallets')
       .update({
@@ -97,20 +79,60 @@ export async function POST(req: NextRequest) {
       note: `Closed position in ${holding.agents?.name}`,
     })
 
-    // 4. Send email
+    // 4. Recalculate AUM from remaining active holdings
+    const { data: remainingHoldings } = await admin
+      .from('holdings')
+      .select('invested_cents')
+      .eq('agent_id', holding.agent_id)
+      .eq('status', 'active')
+
+    const newAum = (remainingHoldings ?? []).reduce((s, h) => s + Number(h.invested_cents), 0)
+
+    // 5. Apply SELL price pressure to share price
+    // Selling removes capital → agent trades smaller → mild downward pressure
+    // Sell impact: -0.2% per 1% of AUM sold (capped at -1.5%)
+    const currentAum = Math.max(1_000_000, Number(holding.agents?.total_aum_cents) || 1_000_000)
+    const sellFraction = holding.invested_cents / currentAum
+    const sellPressurePct = Math.min(1.5, sellFraction * 20)
+    const newSharePrice = Math.round(navCents * (1 - sellPressurePct / 100))
+
+    await admin.from('agents').update({
+      total_aum_cents: Math.max(0, newAum),
+      share_price_cents: newSharePrice,
+    }).eq('id', holding.agent_id)
+
+    // 6. Insert price tick for the sell event
+    await admin.from('price_ticks').upsert({
+      agent_id: holding.agent_id,
+      tick_at: new Date().toISOString(),
+      price_cents: newSharePrice,
+      bid_cents: Math.round(newSharePrice * 0.9985),
+      ask_cents: Math.round(newSharePrice * 1.0015),
+      volume: Number(holding.shares),
+    }, { onConflict: 'agent_id,tick_at' })
+
+    // 7. Send email
     const { data: authUser } = await admin.auth.admin.getUserById(user.id)
     if (authUser?.user?.email) {
-      await sendSellConfirmation(
-        authUser.user.email,
-        holding.agents?.name || 'Unknown Agent',
-        currentValue
-      )
+      try {
+        await sendSellConfirmation(
+          authUser.user.email,
+          holding.agents?.name || 'Unknown Agent',
+          currentValue
+        )
+      } catch {
+        // Email failure shouldn't block the sell
+      }
     }
 
     return NextResponse.json({
       ok: true,
       returned_cents: currentValue,
       pnl_cents: returnAmount,
+      nav_cents: navCents,
+      bid_cents: bidCents,
+      new_aum_cents: newAum,
+      sell_pressure_pct: sellPressurePct.toFixed(3),
     })
   } catch (err: unknown) {
     console.error('sell error:', err)

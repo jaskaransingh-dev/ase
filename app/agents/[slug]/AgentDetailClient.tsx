@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
@@ -48,16 +48,22 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
     ret: s.total_return_pct,
   }))
 
-  // Fallback mock chart data if no real data
-  const displayChartData = chartData.length > 1 ? chartData : [
-    { date: 'Day 1', nav: 100, ret: 0 },
-    { date: 'Day 10', nav: 102, ret: 2 },
-    { date: 'Day 20', nav: 105, ret: 5 },
-    { date: 'Day 30', nav: 103, ret: 3 },
-    { date: 'Day 40', nav: 108, ret: 8 },
-    { date: 'Day 50', nav: 112, ret: 12 },
-    { date: 'Day 60', nav: nav / 100, ret },
-  ]
+  // Only render the chart when there's real data — never show fake data
+  const hasChartData = chartData.length > 1
+
+  // Real annualized volatility from NAV history (std dev of daily returns × √365)
+  const annualizedVolPct = useMemo(() => {
+    if (statsHistory.length < 3) return null
+    const navs = statsHistory.map(s => s.nav_cents)
+    const returns: number[] = []
+    for (let i = 1; i < navs.length; i++) {
+      if (navs[i - 1] > 0) returns.push((navs[i] - navs[i - 1]) / navs[i - 1])
+    }
+    if (returns.length < 2) return null
+    const mean = returns.reduce((a, b) => a + b, 0) / returns.length
+    const variance = returns.reduce((s, r) => s + Math.pow(r - mean, 2), 0) / returns.length
+    return Math.sqrt(variance) * Math.sqrt(365) * 100
+  }, [statsHistory])
 
   async function handleInvest() {
     const cents = Math.round(parseFloat(investAmount) * 100)
@@ -163,14 +169,21 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
             <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: pos ? 'var(--green)' : 'var(--red)', marginRight: '.3rem' }} />Agent NAV</span>
           </div>
         </div>
-        <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={displayChartData} margin={{ top: 5, right: 10, bottom: 5, left: -10 }}>
-            <XAxis dataKey="date" tick={{ fill: 'rgba(238,242,255,.28)', fontSize: 10, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-            <YAxis tick={{ fill: 'rgba(238,242,255,.28)', fontSize: 10, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-            <Tooltip contentStyle={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 10, fontFamily: 'var(--font-mono)', fontSize: 11 }} labelStyle={{ color: 'var(--faint)' }} itemStyle={{ color: pos ? 'var(--green)' : 'var(--red)' }} formatter={(v: unknown) => [`$${Number(v).toFixed(2)}`, 'NAV']} />
-            <Line type="monotone" dataKey="nav" stroke={pos ? '#0EAD6E' : '#E84040'} strokeWidth={2} dot={false} />
-          </LineChart>
-        </ResponsiveContainer>
+        {hasChartData ? (
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: -10 }}>
+              <XAxis dataKey="date" tick={{ fill: 'rgba(238,242,255,.28)', fontSize: 10, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+              <YAxis tick={{ fill: 'rgba(238,242,255,.28)', fontSize: 10, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+              <Tooltip contentStyle={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 10, fontFamily: 'var(--font-mono)', fontSize: 11 }} labelStyle={{ color: 'var(--faint)' }} itemStyle={{ color: pos ? 'var(--green)' : 'var(--red)' }} formatter={(v: unknown) => [`$${Number(v).toFixed(2)}`, 'NAV']} />
+              <Line type="monotone" dataKey="nav" stroke={pos ? '#0EAD6E' : '#E84040'} strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <div style={{ height: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', gap: '.5rem' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', letterSpacing: '.08em' }}>NO DATA YET</div>
+            <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>NAV history will appear after the first cron run</div>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -218,8 +231,15 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
             <div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.75rem', marginBottom: '1rem' }} className="tab-grid">
                 {[
-                  { title: 'Risk Snapshot', body: `Annualized Vol: est. ${(Math.random() * 5 + 8).toFixed(1)}% · Max Drawdown: ${fmtPct(-maxDD, 1)} · Sharpe: ${sharpe.toFixed(2)}` },
-                  { title: 'Liquidity Risk', body: 'Paper trading uses real bid/ask spreads. Execution may differ from simulation in live markets.' },
+                  {
+                    title: 'Risk Snapshot',
+                    body: annualizedVolPct != null
+                      ? `Annualized Vol: ${annualizedVolPct.toFixed(1)}% · Max Drawdown: ${fmtPct(-maxDD, 1)} · Sharpe: ${sharpe.toFixed(2)}`
+                      : statsHistory.length < 3
+                        ? 'Insufficient history — volatility will be calculated once 3+ NAV snapshots exist.'
+                        : `Max Drawdown: ${fmtPct(-maxDD, 1)} · Sharpe: ${sharpe.toFixed(2)}`,
+                  },
+                  { title: 'Liquidity Risk', body: 'Paper trading uses real bid/ask spreads from Alpaca. Execution may differ from simulation in live markets.' },
                 ].map(({ title, body }) => (
                   <div key={title} style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 12, padding: '.9rem 1rem' }}>
                     <h4 style={{ fontFamily: 'var(--font-head)', fontSize: '.9rem', fontWeight: 800, marginBottom: '.5rem' }}>{title}</h4>
@@ -228,16 +248,49 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
                 ))}
               </div>
               <div style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 12, padding: '.9rem 1rem' }}>
-                <h4 style={{ fontFamily: 'var(--font-head)', fontSize: '.9rem', fontWeight: 800, marginBottom: '.75rem' }}>Regime Sensitivity (paper)</h4>
-                {[['Bull Market', 72], ['Bear Market', 45], ['High Volatility', 30], ['Sideways/Choppy', 55]].map(([label, pct]) => (
-                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '.75rem', marginBottom: '.5rem', fontSize: '.82rem' }}>
-                    <span style={{ width: 120, color: 'var(--muted)', flexShrink: 0 }}>{label}</span>
-                    <div style={{ flex: 1, height: 5, background: 'rgba(255,255,255,.06)', borderRadius: 3, overflow: 'hidden' }}>
-                      <div style={{ width: `${pct}%`, height: '100%', background: (pct as number) > 50 ? 'var(--green)' : (pct as number) > 35 ? 'var(--gold)' : 'var(--red)', borderRadius: 3, transition: 'width .8s ease' }} />
+                <h4 style={{ fontFamily: 'var(--font-head)', fontSize: '.9rem', fontWeight: 800, marginBottom: '.75rem' }}>Strategy Characteristics</h4>
+                {(() => {
+                  const regimeMap: Record<string, { label: string; desc: string; color: string }[]> = {
+                    crypto_momentum: [
+                      { label: 'Strong trends', desc: 'Thrives when price makes sustained directional moves with volume confirmation', color: 'var(--green)' },
+                      { label: 'Choppy / sideways', desc: 'Struggles — crossovers whipsaw and generate false signals', color: 'var(--red)' },
+                      { label: 'High volatility', desc: 'Mixed — large moves can trigger entries but also stop-losses quickly', color: 'var(--gold)' },
+                    ],
+                    crypto_mean_reversion: [
+                      { label: 'Sideways / ranging', desc: 'Ideal — oversold bounces happen frequently with clear reversion targets', color: 'var(--green)' },
+                      { label: 'Strong uptrend', desc: 'Risky — RSI oversold may not lead to reversion, trend resumes', color: 'var(--red)' },
+                      { label: 'High volatility', desc: 'Challenging — wide Bollinger bands delay %B entry signals', color: 'var(--gold)' },
+                    ],
+                    momentum: [
+                      { label: 'Bull market', desc: 'Excellent — momentum factor historically strongest in rising markets', color: 'var(--green)' },
+                      { label: 'Bear market', desc: 'Poor — all stocks fall together, momentum factor weakens', color: 'var(--red)' },
+                      { label: 'Low volatility', desc: 'Good — steady rotations into leading names with minimal noise', color: 'var(--green)' },
+                    ],
+                    mean_reversion: [
+                      { label: 'Ranging / sideways', desc: 'Best fit — RSI extremes reliably mark short-term turning points', color: 'var(--green)' },
+                      { label: 'Trending market', desc: 'Difficult — RSI < 30 may keep falling in a momentum-driven selloff', color: 'var(--red)' },
+                      { label: 'High volatility', desc: 'Mixed — larger swings create better entry points but wider stops', color: 'var(--gold)' },
+                    ],
+                    trend_following: [
+                      { label: 'Strong trend', desc: 'Optimal — 50/200 EMA crossover captures sustained directional moves', color: 'var(--green)' },
+                      { label: 'Choppy / sideways', desc: 'Poorly — frequent crossovers produce whipsaw losses', color: 'var(--red)' },
+                      { label: 'Slow-moving market', desc: 'Neutral — remains positioned correctly but few signals fire', color: 'var(--gold)' },
+                    ],
+                  }
+                  const regimes = regimeMap[agent.strategy_type] || [
+                    { label: 'Trending markets', desc: 'Strategy is designed for directional price movement', color: 'var(--green)' },
+                    { label: 'Range-bound markets', desc: 'May produce mixed results in sideways conditions', color: 'var(--gold)' },
+                  ]
+                  return regimes.map(({ label, desc, color }) => (
+                    <div key={label} style={{ marginBottom: '.75rem', paddingBottom: '.75rem', borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginBottom: '.2rem' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }} />
+                        <span style={{ fontSize: '.82rem', fontWeight: 700 }}>{label}</span>
+                      </div>
+                      <p style={{ fontSize: '.78rem', color: 'var(--muted)', lineHeight: 1.5, paddingLeft: '1.2rem' }}>{desc}</p>
                     </div>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--muted)', width: 40, textAlign: 'right' }}>{pct}%</span>
-                  </div>
-                ))}
+                  ))
+                })()}
               </div>
             </div>
           )}

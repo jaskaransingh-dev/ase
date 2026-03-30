@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "main": ".open-next/worker.js",
+  "main": "src/worker.ts",
   "name": "ase",
   "compatibility_date": "2025-09-27",
   "compatibility_flags": ["nodejs_compat"],
@@ -19,8 +19,10 @@
   "observability": {
     "enabled": true
   },
-  // Crons are handled by the separate "ase-cron" worker in workers/trading-agents/
-  // That worker calls /api/cron/run-agents and /api/cron/update-nav via HTTP.
+  // Cron fires every minute → src/worker.ts scheduled() handler runs trading agents
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
   "vars": {
     "NEXT_PUBLIC_APP_URL": "https://ase.jazing14.workers.dev",
     "NEXT_PUBLIC_SUPABASE_URL": "https://frlgckqtrloqunkhbhtp.supabase.co",

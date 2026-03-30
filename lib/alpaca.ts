@@ -174,14 +174,26 @@ export async function closePosition(symbol: string, apiKey?: string, secretKey?:
 // Symbol: 'BTC/USD', 'ETH/USD', etc.
 // Response: { bars: { 'BTC/USD': [ {t,o,h,l,c,v}, ... ] } }
 //
-// WORKAROUND: Alpaca paper trading only returns ~1 bar of crypto history.
-// If insufficient bars (< 10), we generate synthetic historical data by simulating
-// realistic price movement backwards from the latest bar. This allows strategies to run
-// with real current prices while having enough history for technical indicators.
+// Uses data.alpaca.markets (the real-data API, not the paper trading API) which
+// provides full historical crypto OHLCV going back years. A start date is calculated
+// from `limit` so we always retrieve the requested number of bars.
 export async function getCryptoBars(symbol: string, timeframe = '1Day', limit = 60): Promise<AlpacaBar[]> {
   const encodedSymbol = encodeURIComponent(symbol) // BTC/USD → BTC%2FUSD
+
+  // Build a start date so the API returns enough bars.
+  // Crypto trades 24/7 so every calendar day has a bar — pad by 10% to be safe.
+  const start = new Date()
+  if (timeframe === '1Day') {
+    start.setDate(start.getDate() - Math.ceil(limit * 1.1))
+  } else if (timeframe === '1Hour') {
+    start.setHours(start.getHours() - Math.ceil(limit * 1.1))
+  } else {
+    // For any other timeframe just rely on limit
+  }
+  const startParam = `&start=${encodeURIComponent(start.toISOString())}`
+
   const res = await fetch(
-    `${ALPACA_DATA_URL}/v1beta3/crypto/us/bars?symbols=${encodedSymbol}&timeframe=${timeframe}&limit=${limit}&sort=asc`,
+    `${ALPACA_DATA_URL}/v1beta3/crypto/us/bars?symbols=${encodedSymbol}&timeframe=${timeframe}&limit=${limit}${startParam}&sort=asc`,
     {
       headers: {
         'APCA-API-KEY-ID': process.env.ALPACA_KEY_ID!,
@@ -190,71 +202,20 @@ export async function getCryptoBars(symbol: string, timeframe = '1Day', limit = 
     }
   )
 
-  let bars: AlpacaBar[] = []
-
-  if (res.ok) {
-    const data = await res.json()
-    bars = data.bars?.[symbol] || []
-  } else {
+  if (!res.ok) {
     const err = await res.text()
     console.error(`getCryptoBars error for ${symbol}:`, err)
-  }
-
-  // WORKAROUND: If Alpaca returns too few bars (< 10), generate synthetic history
-  // This is necessary because paper trading doesn't have full historical data
-  if (bars.length < 10 && timeframe === '1Day') {
-    console.warn(`⚠️  getCryptoBars: Alpaca returned only ${bars.length} bars for ${symbol}. Generating synthetic history...`)
-    return generateSyntheticBars(bars, limit)
-  }
-
-  return bars
-}
-
-// Generate synthetic historical bars by simulating price movement backwards
-// Uses the latest real bar as anchor and creates realistic price movement
-function generateSyntheticBars(realBars: AlpacaBar[], limit: number): AlpacaBar[] {
-  if (realBars.length === 0) {
-    console.error('Cannot generate synthetic bars: no real bars provided')
     return []
   }
 
-  const latest = realBars[realBars.length - 1]
-  const synthetic: AlpacaBar[] = []
-  let price = latest.c
+  const data = await res.json()
+  const bars: AlpacaBar[] = data.bars?.[symbol] || []
 
-  // Generate backwards from today
-  const today = new Date(latest.t)
-
-  for (let i = limit - 1; i >= 0; i--) {
-    const barDate = new Date(today)
-    barDate.setDate(barDate.getDate() - (limit - 1 - i))
-
-    // Simulate random walk with slight drift (realistic crypto movement)
-    // Daily volatility ~2-3%, slight upward drift
-    const drift = 0.0003 // 0.03% daily drift
-    const volatility = 0.02 // 2% daily volatility
-    const randomWalk = (Math.random() - 0.5) * 2 * volatility
-    const dailyReturn = drift + randomWalk
-
-    const newPrice = price * (1 + dailyReturn)
-    const high = newPrice * (1 + Math.abs(randomWalk) / 2)
-    const low = newPrice * (1 - Math.abs(randomWalk) / 2)
-    const open = price
-
-    synthetic.push({
-      t: barDate.toISOString(),
-      o: parseFloat(open.toFixed(2)),
-      h: parseFloat(high.toFixed(2)),
-      l: parseFloat(low.toFixed(2)),
-      c: parseFloat(newPrice.toFixed(2)),
-      v: Math.random() * 10, // Fake volume
-    })
-
-    price = newPrice
+  if (bars.length < 5) {
+    console.warn(`getCryptoBars: only ${bars.length} bars returned for ${symbol} (requested ${limit})`)
   }
 
-  console.log(`✅ Generated ${synthetic.length} synthetic bars for ${synthetic[0]?.t?.split('T')[0]} → ${latest.t.split('T')[0]} (latest price: $${latest.c})`)
-  return synthetic
+  return bars
 }
 
 // Stock bars: uses v2/stocks endpoint

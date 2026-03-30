@@ -138,11 +138,18 @@ export async function POST(req: NextRequest) {
       }
 
       // ── 3. NAV CALCULATION ────────────────────────────────────────────
-      // NAV scales with total P&L as a percentage of initial capital
-      // If P&L = +$1,000 on $10,000 capital → NAV = $110 (10% gain)
+      // Capital base = actual AUM (what all investors have put in).
+      // Falls back to $10k if no investors yet.
+      // As more people buy shares → AUM grows → agent trades larger positions
+      // → more P&L opportunity → NAV rises → share price rises.
+      //
+      // Example: 10 investors × 100 shares @ $100 = $100k AUM
+      //   If +10% return → NAV = $110, share price = $110
+      //   Agent was trading $100k, not just $10k
+      const capitalCents = Math.max(INITIAL_CAPITAL_CENTS, Number(agent.total_aum_cents) || 0)
       const totalPnlCents = realizedPnlCents + unrealizedPnlCents
-      const navCents = Math.round(BASE_NAV_CENTS * (INITIAL_CAPITAL_CENTS + totalPnlCents) / INITIAL_CAPITAL_CENTS)
-      const totalReturnPct = (totalPnlCents / INITIAL_CAPITAL_CENTS) * 100
+      const navCents = Math.round(BASE_NAV_CENTS * (capitalCents + totalPnlCents) / capitalCents)
+      const totalReturnPct = (totalPnlCents / capitalCents) * 100
 
       // ── 4. DAILY RETURN (vs previous NAV snapshot) ────────────────────
       const { data: previousStats } = await admin
@@ -217,7 +224,7 @@ export async function POST(req: NextRequest) {
       }
 
       // ── 7. PORTFOLIO VALUE ────────────────────────────────────────────
-      const portfolioValueCents = INITIAL_CAPITAL_CENTS + totalPnlCents
+      const portfolioValueCents = capitalCents + totalPnlCents
 
       // ── 8. WRITE agent_stats SNAPSHOT ─────────────────────────────────
       await admin.from('agent_stats').insert({
@@ -237,15 +244,25 @@ export async function POST(req: NextRequest) {
       })
 
       // ── 9. WRITE price_ticks ──────────────────────────────────────────
-      // Note: column names from the migration schema
+      // Dynamic spread based on portfolio exposure:
+      //   - 10 bps each side when fully in cash (tightest)
+      //   - Up to 50 bps each side when fully deployed (widest — reflects position risk)
+      // After each NAV update, price snaps back to exact NAV as the mid.
+      // (Between NAV updates, run-agents injects live bid/ask on every trade.)
+      const investedCents = openPositions.reduce((s, p) => s + Math.round(p.qty * p.avg_entry * 100), 0)
+      const exposureFraction = capitalCents > 0 ? Math.min(1, investedCents / capitalCents) : 0
+      const spreadBps = Math.round(10 + exposureFraction * 40) // 10–50 bps
+      const bidCents  = Math.round(navCents * (1 - spreadBps / 10_000))
+      const askCents  = Math.round(navCents * (1 + spreadBps / 10_000))
+
       await admin.from('price_ticks').upsert({
         agent_id: agent.id,
-        tick_at: now,                                  // NOT snapshot_at
+        tick_at: now,
         price_cents: navCents,
-        bid_cents: Math.round(navCents * 0.9985),
-        ask_cents: Math.round(navCents * 1.0015),
-        volume: openPositions.reduce((s, p) => s + p.qty, 0),  // NOT volume_shares
-      })
+        bid_cents: bidCents,
+        ask_cents: askCents,
+        volume: openPositions.reduce((s, p) => s + p.qty, 0),
+      }, { onConflict: 'agent_id,tick_at' })
 
       // ── 10. UPDATE agent share price ────────────────────────────────
       await admin
@@ -285,6 +302,7 @@ export async function POST(req: NextRequest) {
       results[agent.slug] = {
         nav_cents: navCents,
         nav_usd: (navCents / 100).toFixed(2),
+        capital_usd: (capitalCents / 100).toFixed(0),  // AUM-based trading capital
         total_return_pct: parseFloat(totalReturnPct.toFixed(2)),
         realized_pnl_usd: (realizedPnlCents / 100).toFixed(2),
         unrealized_pnl_usd: (unrealizedPnlCents / 100).toFixed(2),

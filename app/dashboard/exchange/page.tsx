@@ -12,6 +12,7 @@ export default async function ExchangePage() {
   if (!user) redirect('/login')
 
   const [{ data: agents }, { data: holdings }] = await Promise.all([
+    // Fetch 2 most-recent agent_stats per agent so we can compute real 24h return
     supabase
       .from('agents')
       .select('*, agent_stats(nav_cents, total_return_pct, sharpe_ratio, max_drawdown_pct, win_rate_pct, total_trades, snapshot_at)')
@@ -59,10 +60,18 @@ export default async function ExchangePage() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: '1.5rem' }}>
           {agentsList.map((agent) => {
-            const latestStats = agent.agent_stats?.[0]
+            // agent_stats comes back unsorted — sort desc to get latest first
+            const sortedStats = [...(agent.agent_stats ?? [])].sort(
+              (a, b) => new Date(b.snapshot_at).getTime() - new Date(a.snapshot_at).getTime()
+            )
+            const latestStats = sortedStats[0] ?? null
+            const prevStats   = sortedStats[1] ?? null   // snapshot before latest
             const nav = latestStats?.nav_cents ?? 10000
             const return30d = latestStats?.total_return_pct ?? 0
-            const return24h = 0 // Would need separate data
+            // Real 24h return: (latest NAV - previous NAV) / previous NAV
+            const return24h = (latestStats && prevStats && prevStats.nav_cents > 0)
+              ? ((latestStats.nav_cents - prevStats.nav_cents) / prevStats.nav_cents) * 100
+              : null
             const sharpe = latestStats?.sharpe_ratio ?? 0
             const maxDD = latestStats?.max_drawdown_pct ?? 0
             const winRate = latestStats?.win_rate_pct ?? 0
@@ -105,7 +114,10 @@ export default async function ExchangePage() {
                   <div style={{ display: 'flex', gap: '1rem', fontSize: '.8rem' }}>
                     <div>
                       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: 'var(--faint)', marginBottom: '.1rem' }}>24H</div>
-                      <div style={{ color: return24h >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>{fmtPct(return24h)}</div>
+                      {return24h != null
+                        ? <div style={{ color: return24h >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>{fmtPct(return24h)}</div>
+                        : <div style={{ color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.75rem' }}>—</div>
+                      }
                     </div>
                     <div>
                       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: 'var(--faint)', marginBottom: '.1rem' }}>30D</div>
