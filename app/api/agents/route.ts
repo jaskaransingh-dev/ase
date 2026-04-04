@@ -7,11 +7,14 @@ interface AgentData {
   id: string
   name: string
   slug: string
+  ticker?: string
   description: string
   strategy_type: string
   status: string
   total_aum_cents: number
-  ticker?: string
+  share_price_cents?: number
+  signal_summary?: string
+  last_run_at?: string
   agent_stats: {
     nav_cents: number
     bid_cents?: number
@@ -22,7 +25,7 @@ interface AgentData {
     win_rate_pct: number
     total_trades: number
     snapshot_at: string
-  }
+  } | null
 }
 
 export async function GET() {
@@ -30,14 +33,14 @@ export async function GET() {
 
   const { data } = await supabase
     .from('agents')
-    .select('id, name, slug, description, strategy_type, status, total_aum_cents, agent_stats(nav_cents, bid_cents, ask_cents, total_return_pct, sharpe_ratio, max_drawdown_pct, win_rate_pct, total_trades, snapshot_at)')
+    .select('id, name, slug, ticker, description, strategy_type, status, total_aum_cents, share_price_cents, signal_summary, last_run_at, agent_stats(nav_cents, bid_cents, ask_cents, total_return_pct, sharpe_ratio, max_drawdown_pct, win_rate_pct, total_trades, snapshot_at)')
     .eq('status', 'active')
     .order('created_at')
 
-  // Add ticker field if missing
+  // Ensure ticker is always populated (fallback to slug-derived ticker)
   const agentsWithTicker = (data as unknown as AgentData[] ?? []).map(agent => ({
     ...agent,
-    ticker: agent.ticker || agent.slug.toUpperCase().replace('-', '').slice(0, 4)
+    ticker: agent.ticker || agent.slug.toUpperCase().replace(/-/g, '').slice(0, 4)
   }))
 
   return NextResponse.json({ data: agentsWithTicker })
