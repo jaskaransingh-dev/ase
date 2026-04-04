@@ -1,7 +1,6 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,32 +9,31 @@ export default function ForgotPasswordPage() {
   const [done, setDone] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      supabaseRef.current = createClient()
-    }
-  }, [])
 
   async function handle(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
-    const supabase = supabaseRef.current
-    if (!supabase) {
-      setError('Supabase not ready')
+
+    try {
+      const response = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        setError(data.error || 'Failed to send reset link')
+        setLoading(false)
+        return
+      }
+
       setLoading(false)
-      return
-    }
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/api/auth/callback?next=/reset-password`,
-    })
-    setLoading(false)
-    if (error) {
-      setError(error.message)
-    } else {
       setDone(true)
+    } catch (err) {
+      setLoading(false)
+      setError(err instanceof Error ? err.message : 'An error occurred')
     }
   }
 

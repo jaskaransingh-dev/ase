@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { mergeHoldingPosition, reduceHoldingPosition, syncAgentMarketState } from '@/lib/exchange'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,6 +24,7 @@ interface Agent {
   id: string
   slug: string
   name: string
+  total_aum_cents: number
 }
 
 
@@ -42,7 +44,7 @@ export async function POST(req: NextRequest) {
     // Get all active agents with current pricing
     const { data: agents } = await admin
       .from('agents')
-      .select('id, slug, name')
+      .select('id, slug, name, total_aum_cents')
       .eq('status', 'active')
 
     for (const agent of agents ?? []) {
@@ -153,16 +155,20 @@ async function executeStopLoss(admin: ReturnType<typeof createAdminClient>, orde
     .update({ balance_cents: wallet.balance_cents + totalCents })
     .eq('user_id', order.user_id)
 
-  // Close holding
-  await admin
+  const { data: existingHolding } = await admin
     .from('holdings')
-    .update({ 
-      status: 'sold', 
-      sold_at: new Date().toISOString() 
-    })
+    .select('id, shares')
     .eq('user_id', order.user_id)
     .eq('agent_id', agent.id)
     .eq('status', 'active')
+    .single()
+
+  if (!existingHolding) return
+
+  await reduceHoldingPosition(admin, {
+    holdingId: existingHolding.id,
+    sharesToSell: Math.min(shares, Number(existingHolding.shares) || 0),
+  })
 
   // Record fill
   await admin.from('order_fills').insert({
@@ -195,6 +201,13 @@ async function executeStopLoss(admin: ReturnType<typeof createAdminClient>, orde
     reference_id: order.id,
     note: `Stop-loss triggered for ${agent.name} at $${(currentBid / 100).toFixed(2)}`,
   })
+
+  await syncAgentMarketState(admin, {
+    agentId: agent.id,
+    previousInvestorCapitalCents: Number(agent.total_aum_cents) || 0,
+    previousNavCents: currentBid,
+    volumeShares: shares,
+  })
 }
 
 async function executeLimitOrder(admin: ReturnType<typeof createAdminClient>, order: LimitOrder, executionPrice: number, agent: Agent) {
@@ -220,21 +233,13 @@ async function executeLimitOrder(admin: ReturnType<typeof createAdminClient>, or
       .update({ balance_cents: wallet.balance_cents - totalCents })
       .eq('user_id', order.user_id)
 
-    // Create or update holding
-    await admin
-      .from('holdings')
-      .upsert({
-        user_id: order.user_id,
-        agent_id: agent.id,
-        shares: shares,
-        entry_nav_cents: executionPrice,
-        invested_cents: totalCents,
-        current_value_cents: totalCents,
-        status: 'active',
-      }, {
-        onConflict: 'user_id,agent_id',
-        ignoreDuplicates: false
-      })
+    await mergeHoldingPosition(admin, {
+      userId: order.user_id,
+      agentId: agent.id,
+      shares,
+      executionPriceCents: executionPrice,
+      investedCents: totalCents,
+    })
   } else {
     // Credit wallet for sell
     await admin
@@ -242,16 +247,20 @@ async function executeLimitOrder(admin: ReturnType<typeof createAdminClient>, or
       .update({ balance_cents: wallet.balance_cents + totalCents })
       .eq('user_id', order.user_id)
 
-    // Close holding
-    await admin
+    const { data: existingHolding } = await admin
       .from('holdings')
-      .update({ 
-        status: 'sold', 
-        sold_at: new Date().toISOString() 
-      })
+      .select('id, shares')
       .eq('user_id', order.user_id)
       .eq('agent_id', agent.id)
       .eq('status', 'active')
+      .single()
+
+    if (!existingHolding) return
+
+    await reduceHoldingPosition(admin, {
+      holdingId: existingHolding.id,
+      sharesToSell: Math.min(shares, Number(existingHolding.shares) || 0),
+    })
   }
 
   // Calculate spread earned
@@ -299,6 +308,13 @@ async function executeLimitOrder(admin: ReturnType<typeof createAdminClient>, or
     reference_id: order.id,
     note: `Limit order filled for ${agent.name} at $${(executionPrice / 100).toFixed(2)}`,
   })
+
+  await syncAgentMarketState(admin, {
+    agentId: agent.id,
+    previousInvestorCapitalCents: Number(agent.total_aum_cents) || 0,
+    previousNavCents: executionPrice,
+    volumeShares: shares,
+  })
 }
 
 async function executeRecurringOrder(admin: ReturnType<typeof createAdminClient>, order: LimitOrder, askPrice: number, agent: Agent) {
@@ -320,21 +336,13 @@ async function executeRecurringOrder(admin: ReturnType<typeof createAdminClient>
     .update({ balance_cents: wallet.balance_cents - totalCents })
     .eq('user_id', order.user_id)
 
-  // Create or update holding
-  await admin
-    .from('holdings')
-    .upsert({
-      user_id: order.user_id,
-      agent_id: agent.id,
-      shares: shares,
-      entry_nav_cents: askPrice,
-      invested_cents: totalCents,
-      current_value_cents: totalCents,
-      status: 'active',
-    }, {
-      onConflict: 'user_id,agent_id',
-      ignoreDuplicates: false
-    })
+  await mergeHoldingPosition(admin, {
+    userId: order.user_id,
+    agentId: agent.id,
+    shares,
+    executionPriceCents: askPrice,
+    investedCents: totalCents,
+  })
 
   // Record fill
   await admin.from('order_fills').insert({
@@ -370,5 +378,12 @@ async function executeRecurringOrder(admin: ReturnType<typeof createAdminClient>
     amount_cents: -totalCents,
     reference_id: order.id,
     note: `Recurring buy for ${agent.name}: $${(totalCents / 100).toFixed(2)}`,
+  })
+
+  await syncAgentMarketState(admin, {
+    agentId: agent.id,
+    previousInvestorCapitalCents: Number(agent.total_aum_cents) || 0,
+    previousNavCents: askPrice,
+    volumeShares: shares,
   })
 }

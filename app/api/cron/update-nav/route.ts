@@ -25,11 +25,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getCryptoBars } from '@/lib/alpaca'
 import { getAgentPositions } from '@/lib/agents'
+import { calculateHoldingValueCents, calculateNavFromState, calculateQuoteFromNav, PLATFORM_SEED_CAPITAL_CENTS } from '@/lib/market'
 
 export const dynamic = 'force-dynamic'
-
-const INITIAL_CAPITAL_CENTS = 1_000_000 // $10,000 paper capital per agent
-const BASE_NAV_CENTS = 10_000           // $100.00 starting NAV per share
 
 /**
  * Calculate Sharpe Ratio from daily returns
@@ -96,6 +94,17 @@ export async function POST(req: NextRequest) {
 
   for (const agent of agents ?? []) {
     try {
+      const { data: activeHoldings } = await admin
+        .from('holdings')
+        .select('id, shares, invested_cents')
+        .eq('agent_id', agent.id)
+        .eq('status', 'active')
+
+      const investorCapitalCents = (activeHoldings ?? []).reduce(
+        (sum, holding) => sum + (Number(holding.invested_cents) || 0),
+        0
+      )
+
       // ── 1. REALIZED P&L (from closed trades with pnl_cents) ────────────
       const { data: closedTrades } = await admin
         .from('agent_trades')
@@ -137,19 +146,15 @@ export async function POST(req: NextRequest) {
         unrealizedPnlCents += Math.round(unrealizedDollars * 100)
       }
 
-      // ── 3. NAV CALCULATION ────────────────────────────────────────────
-      // Capital base = actual AUM (what all investors have put in).
-      // Falls back to $10k if no investors yet.
-      // As more people buy shares → AUM grows → agent trades larger positions
-      // → more P&L opportunity → NAV rises → share price rises.
-      //
-      // Example: 10 investors × 100 shares @ $100 = $100k AUM
-      //   If +10% return → NAV = $110, share price = $110
-      //   Agent was trading $100k, not just $10k
-      const capitalCents = Math.max(INITIAL_CAPITAL_CENTS, Number(agent.total_aum_cents) || 0)
-      const totalPnlCents = realizedPnlCents + unrealizedPnlCents
-      const navCents = Math.round(BASE_NAV_CENTS * (capitalCents + totalPnlCents) / capitalCents)
-      const totalReturnPct = (totalPnlCents / capitalCents) * 100
+      const totalPnlCents    = realizedPnlCents + unrealizedPnlCents
+      const navState = calculateNavFromState({
+        investorCapitalCents,
+        totalPnlCents,
+      })
+      const capitalCents = PLATFORM_SEED_CAPITAL_CENTS + investorCapitalCents
+      const navCents = navState.navCents
+      const totalPoolCents = navState.totalPoolCents
+      const totalReturnPct = navState.totalReturnPct
 
       // ── 4. DAILY RETURN (vs previous NAV snapshot) ────────────────────
       const { data: previousStats } = await admin
@@ -243,66 +248,78 @@ export async function POST(req: NextRequest) {
         portfolio_value_cents: portfolioValueCents,
       })
 
-      // ── 9. WRITE price_ticks ──────────────────────────────────────────
-      // Dynamic spread based on portfolio exposure:
-      //   - 10 bps each side when fully in cash (tightest)
-      //   - Up to 50 bps each side when fully deployed (widest — reflects position risk)
-      // After each NAV update, price snaps back to exact NAV as the mid.
-      // (Between NAV updates, run-agents injects live bid/ask on every trade.)
+      // ── 9. QUOTE GENERATION ────────────────────────────────────────────
       const investedCents = openPositions.reduce((s, p) => s + Math.round(p.qty * p.avg_entry * 100), 0)
       const exposureFraction = capitalCents > 0 ? Math.min(1, investedCents / capitalCents) : 0
-      const spreadBps = Math.round(10 + exposureFraction * 40) // 10–50 bps
-      const bidCents  = Math.round(navCents * (1 - spreadBps / 10_000))
-      const askCents  = Math.round(navCents * (1 + spreadBps / 10_000))
+      const { data: openOrders } = await admin
+        .from('limit_orders')
+        .select('side, notional_cents, shares')
+        .eq('agent_id', agent.id)
+        .eq('status', 'open')
+
+      const pendingBuyCents = (openOrders ?? [])
+        .filter(order => order.side === 'buy')
+        .reduce((sum, order) => sum + (Number(order.notional_cents) || calculateHoldingValueCents(Number(order.shares) || 0, navCents)), 0)
+
+      const pendingSellCents = (openOrders ?? [])
+        .filter(order => order.side === 'sell')
+        .reduce((sum, order) => sum + (Number(order.notional_cents) || calculateHoldingValueCents(Number(order.shares) || 0, navCents)), 0)
+
+      const quote = calculateQuoteFromNav({
+        navCents,
+        totalPoolCents,
+        pendingBuyCents,
+        pendingSellCents,
+        exposureFraction,
+      })
 
       await admin.from('price_ticks').upsert({
         agent_id: agent.id,
         tick_at: now,
         price_cents: navCents,
-        bid_cents: bidCents,
-        ask_cents: askCents,
+        bid_cents: quote.bidCents,
+        ask_cents: quote.askCents,
         volume: openPositions.reduce((s, p) => s + p.qty, 0),
       }, { onConflict: 'agent_id,tick_at' })
 
-      // ── 10. UPDATE agent share price ────────────────────────────────
+      // ── 10. UPDATE agent share price + investor capital ───────────────
       await admin
         .from('agents')
-        .update({ share_price_cents: navCents })
+        .update({
+          share_price_cents: navCents,
+          total_aum_cents: investorCapitalCents,
+        })
         .eq('id', agent.id)
 
-      // ── 11. UPDATE holdings current value ──────────────────────────
-      // FIXED: holdings value = shares * navCents (not involving invested_cents)
-      const { data: activeHoldings } = await admin
-        .from('holdings')
-        .select('id, shares, invested_cents')
-        .eq('agent_id', agent.id)
-        .eq('status', 'active')
-
+      // ── 11. UPDATE holdings current value ─────────────────────────────
       for (const holding of activeHoldings ?? []) {
-        // Correct calculation: shares * price_per_share = total_value
-        // NAV IS the price per share (in cents)
-        const currentValue = Math.round(Number(holding.shares) * navCents)
+        const currentValue = calculateHoldingValueCents(Number(holding.shares) || 0, navCents)
         await admin
           .from('holdings')
           .update({ current_value_cents: currentValue })
           .eq('id', holding.id)
       }
 
-      // ── 12. UPDATE agent AUM ──────────────────────────────────────────
-      const totalInvested = (activeHoldings ?? []).reduce(
-        (sum, h) => sum + Number(h.invested_cents), 0
+      // ── 12. UPDATE outstanding share count ─────────────────────────────
+      const totalOutstandingShares = (activeHoldings ?? []).reduce(
+        (sum, h) => sum + Number(h.shares),
+        0
       )
-      if (totalInvested > 0) {
-        await admin
-          .from('agents')
-          .update({ total_aum_cents: totalInvested })
-          .eq('id', agent.id)
-      }
+      await admin
+        .from('agents')
+        .update({
+          total_aum_cents: investorCapitalCents,
+          total_shares: totalOutstandingShares,
+        })
+        .eq('id', agent.id)
 
       results[agent.slug] = {
         nav_cents: navCents,
         nav_usd: (navCents / 100).toFixed(2),
-        capital_usd: (capitalCents / 100).toFixed(0),  // AUM-based trading capital
+        share_price_usd: (navCents / 100).toFixed(2),
+        demand_premium_pct: '0.000',
+        capital_usd: (capitalCents / 100).toFixed(0),  // seed + investor AUM
+        investor_aum_usd: (investorCapitalCents / 100).toFixed(0),
         total_return_pct: parseFloat(totalReturnPct.toFixed(2)),
         realized_pnl_usd: (realizedPnlCents / 100).toFixed(2),
         unrealized_pnl_usd: (unrealizedPnlCents / 100).toFixed(2),

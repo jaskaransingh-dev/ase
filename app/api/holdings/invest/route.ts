@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { calculateQuoteFromNav } from '@/lib/market'
+import { mergeHoldingPosition, syncAgentMarketState } from '@/lib/exchange'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,17 +44,21 @@ export async function POST(req: NextRequest) {
     // Get latest NAV from agent_stats (most authoritative price source)
     const { data: latestStats } = await admin
       .from('agent_stats')
-      .select('nav_cents')
+      .select('nav_cents, bid_cents, ask_cents')
       .eq('agent_id', agent_id)
       .order('snapshot_at', { ascending: false })
       .limit(1)
       .single()
 
     const navCents = latestStats?.nav_cents ?? agent.share_price_cents ?? 10_000
-
-    // Apply 0.15% buy spread (ask = NAV * 1.0015)
-    const askCents = Math.round(navCents * 1.0015)
-    const shares = amount_cents / askCents
+    const quote = latestStats?.ask_cents && latestStats?.bid_cents
+      ? { askCents: Number(latestStats.ask_cents), bidCents: Number(latestStats.bid_cents) }
+      : calculateQuoteFromNav({
+          navCents,
+          totalPoolCents: Math.round((navCents / 10_000) * 1_000_000),
+        })
+    const askCents = quote.askCents
+    const newShares = amount_cents / askCents
 
     // ── Atomic DB operations ────────────────────────────────────────
 
@@ -65,71 +71,42 @@ export async function POST(req: NextRequest) {
       })
       .eq('user_id', user.id)
 
-    // 2. Create holding
-    const { data: holding, error: holdingError } = await admin
-      .from('holdings')
-      .insert({
-        user_id: user.id,
-        agent_id,
-        shares,
-        entry_nav_cents: askCents,
-        invested_cents: amount_cents,
-        current_value_cents: amount_cents,
-        status: 'active',
-      })
-      .select()
-      .single()
-
-    if (holdingError) throw holdingError
+    // 2. Merge into the user's active position for this agent.
+    const holdingUpdate = await mergeHoldingPosition(admin, {
+      userId: user.id,
+      agentId: agent_id,
+      shares: newShares,
+      executionPriceCents: askCents,
+      investedCents: amount_cents,
+    })
 
     // 3. Record transaction
     await admin.from('transactions').insert({
       user_id: user.id,
       type: 'invest',
       amount_cents: -amount_cents,
-      reference_id: holding.id,
-      note: `Invested in ${agent.name}`,
+      reference_id: holdingUpdate.holdingId,
+      note: `Invested in ${agent.name}${holdingUpdate.merged ? ' (added to position)' : ''}`,
     })
 
-    // 4. Update agent AUM: recalculate from all active holdings (source of truth)
-    const { data: allHoldings } = await admin
-      .from('holdings')
-      .select('invested_cents')
-      .eq('agent_id', agent_id)
-      .eq('status', 'active')
-
-    const newAum = (allHoldings ?? []).reduce((s, h) => s + Number(h.invested_cents), 0)
-
-    // 5. Apply BUY price pressure to share price
-    // More AUM → agent trades larger positions → more P&L → upward pressure
-    // Buy impact: +0.3% per 1% of current AUM invested (capped at +2%)
-    const currentAum = Math.max(1_000_000, Number(agent.total_aum_cents) || 1_000_000)
-    const investmentFraction = amount_cents / currentAum
-    const buyPressurePct = Math.min(2.0, investmentFraction * 30)
-    const newSharePrice = Math.round(navCents * (1 + buyPressurePct / 100))
-
-    await admin.from('agents').update({
-      total_aum_cents: newAum,
-      share_price_cents: newSharePrice,
-    }).eq('id', agent_id)
-
-    // 6. Insert a price tick to record the buy pressure event
-    await admin.from('price_ticks').upsert({
-      agent_id,
-      tick_at: new Date().toISOString(),
-      price_cents: newSharePrice,
-      bid_cents: Math.round(newSharePrice * 0.9985),
-      ask_cents: Math.round(newSharePrice * 1.0015),
-      volume: shares,
-    }, { onConflict: 'agent_id,tick_at' })
+    // 4. Reprice the agent from actual capital in the pool plus carried P&L.
+    const synced = await syncAgentMarketState(admin, {
+      agentId: agent_id,
+      previousInvestorCapitalCents: Number(agent.total_aum_cents) || 0,
+      previousNavCents: navCents,
+      volumeShares: newShares,
+    })
 
     return NextResponse.json({
       ok: true,
-      holding_id: holding.id,
-      shares: parseFloat(shares.toFixed(6)),
+      holding_id: holdingUpdate.holdingId,
+      shares: parseFloat(newShares.toFixed(6)),
       entry_price_cents: askCents,
-      new_aum_cents: newAum,
-      share_price_impact_pct: buyPressurePct.toFixed(3),
+      bid_cents: synced.bidCents,
+      ask_cents: synced.askCents,
+      nav_cents: synced.navCents,
+      new_aum_cents: synced.investorCapitalCents,
+      merged: holdingUpdate.merged,
     })
   } catch (err: unknown) {
     console.error('invest error:', err)

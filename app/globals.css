@@ -148,3 +148,203 @@ h1,h2,h3,h4{font-family:var(--font-head);line-height:1.1;letter-spacing:-.02em}
   .hide-sm{display:none!important}
   .sm-stack{flex-direction:column!important}
 }
+
+/* ── PREMIUM MACBOOK-FEEL DESIGN SYSTEM ────────────────────── */
+
+/* Glass morphism cards */
+.glass-card {
+  background: rgba(13, 16, 24, 0.7);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 20px;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.glass-card:hover {
+  border-color: rgba(232,172,32,0.15);
+  transform: translateY(-2px);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 40px rgba(232,172,32,0.03);
+}
+
+/* Premium number animations */
+@keyframes numberPop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+.number-pop { animation: numberPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+/* Smooth counter transitions */
+.counter-value {
+  transition: color 0.6s ease;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Glow effects */
+.glow-gold { box-shadow: 0 0 30px rgba(232,172,32,0.08), inset 0 1px 0 rgba(255,255,255,0.04); }
+.glow-green { box-shadow: 0 0 30px rgba(14,173,110,0.08), inset 0 1px 0 rgba(255,255,255,0.04); }
+.glow-red { box-shadow: 0 0 30px rgba(232,64,64,0.08), inset 0 1px 0 rgba(255,255,255,0.04); }
+
+/* Micro-interactions */
+@keyframes ripple {
+  to { transform: scale(2.5); opacity: 0; }
+}
+.ripple-effect {
+  position: relative;
+  overflow: hidden;
+}
+.ripple-effect::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(232,172,32,0.1) 0%, transparent 70%);
+  transform: scale(0);
+  opacity: 1;
+}
+.ripple-effect:active::after {
+  animation: ripple 0.6s ease-out;
+}
+
+/* Haptic-feel button press */
+.haptic-press {
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.15s ease;
+}
+.haptic-press:active {
+  transform: scale(0.97) !important;
+}
+
+/* Breathing glow for live indicators */
+@keyframes breathe {
+  0%, 100% { opacity: 0.5; box-shadow: 0 0 4px currentColor; }
+  50% { opacity: 1; box-shadow: 0 0 12px currentColor; }
+}
+.live-breathe {
+  animation: breathe 2.5s ease-in-out infinite;
+}
+
+/* Smooth gradient borders */
+.gradient-border {
+  position: relative;
+}
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(232,172,32,0.2), transparent 40%, transparent 60%, rgba(14,173,110,0.2));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Stagger fade-in for lists */
+@keyframes staggerFadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Smooth scrollbar */
+.custom-scroll::-webkit-scrollbar { width: 6px; }
+.custom-scroll::-webkit-scrollbar-track { background: transparent; }
+.custom-scroll::-webkit-scrollbar-thumb { background: rgba(232,172,32,0.15); border-radius: 6px; }
+.custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(232,172,32,0.3); }
+
+/* Shimmer loading for data */
+@keyframes dataShimmer {
+  0% { opacity: 0.5; }
+  50% { opacity: 1; }
+  100% { opacity: 0.5; }
+}
+.data-loading { animation: dataShimmer 1.5s ease-in-out infinite; }
+
+/* Premium chart area gradient */
+.chart-glow {
+  filter: drop-shadow(0 0 8px rgba(232,172,32,0.15));
+}
+
+/* Tooltip style */
+.premium-tooltip {
+  background: rgba(13, 16, 24, 0.95) !important;
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 12px !important;
+  padding: 12px 16px !important;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 0.75rem !important;
+}
+
+/* Animated gradient background for hero sections */
+.animated-gradient-bg {
+  background: linear-gradient(-45deg, #07090F, #0D1018, #111420, #0D1018);
+  background-size: 400% 400%;
+  animation: gradientShift 15s ease infinite;
+}
+
+/* Page transition */
+@keyframes pageSlideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.page-slide-in { animation: pageSlideIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* Stat card with border light effect */
+.stat-card {
+  background: rgba(13, 16, 24, 0.8);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 16px;
+  padding: 1.25rem 1.5rem;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(232,172,32,0.3), transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.stat-card:hover::before { opacity: 1; }
+.stat-card:hover {
+  border-color: rgba(255,255,255,0.08);
+  background: rgba(13, 16, 24, 0.9);
+}
+
+/* Ticker tape animation */
+@keyframes tickerScroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.ticker-tape {
+  display: flex;
+  animation: tickerScroll 30s linear infinite;
+  will-change: transform;
+}
+
+/* Active trade indicator */
+@keyframes tradeFlash {
+  0% { background: rgba(14, 173, 110, 0.15); }
+  100% { background: transparent; }
+}
+.trade-flash-green { animation: tradeFlash 1.5s ease-out; }
+.trade-flash-red { animation: tradeFlash 1.5s ease-out; }
+.trade-flash-red {
+  --flash-color: rgba(232, 64, 64, 0.15);
+}
+
+/* Premium transitions */
+.transition-premium {
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}

@@ -1,25 +1,17 @@
 /**
  * POST /api/cron/simulate
  *
- * Self-contained 24/7 trading simulation engine.
- * Runs every 15 minutes. Works with OR without Alpaca paper trading.
+ * Production-grade 24/7 crypto trading simulation engine.
+ * Proper quant procedures:
+ *   - Stop losses (-3% from entry)
+ *   - Take profits (+8% from entry)
+ *   - Trailing stops (-2.5% from position peak)
+ *   - Portfolio circuit breaker (-12% drawdown closes all)
+ *   - Fixed fractional position sizing (max 35% per asset)
+ *   - Time stops (120h max hold)
+ *   - Signal filters (strength ≥ 60/100 before entry)
  *
- * What it does each run:
- *  1. Fetches real crypto prices from Alpaca data API (free tier)
- *     Falls back to Brownian motion simulation if unavailable
- *  2. Runs each agent's strategy logic against current prices
- *  3. Executes trades (directly inserts to agent_trades — no paper account needed)
- *  4. Calculates NAV = $100 × (capital + P&L) / capital
- *  5. Updates share_price_cents, agent_stats, holdings.current_value_cents
- *  6. Applies buy/sell price pressure from user investments
- *
- * Capital model:
- *  - Each agent starts with $10,000 base capital
- *  - User investments ADD to total capital (total_aum_cents)
- *  - Agent trades proportional to capital → more AUM = bigger P&L
- *  - NAV (share price) reflects % return on capital
- *
- * Protected by CRON_SECRET header (optional in dev).
+ * Runs every 15 min, 24/7. Uses Alpaca data API (free) or Brownian motion fallback.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -28,735 +20,507 @@ import { getCryptoBars } from '@/lib/alpaca'
 
 export const dynamic = 'force-dynamic'
 
-// ── CONSTANTS ──────────────────────────────────────────────────────────────
-const BASE_CAPITAL_CENTS = 1_000_000 // $10,000 per agent
-const BASE_NAV_CENTS     = 10_000    // $100.00 initial share price
+// ── QUANT CONSTANTS ─────────────────────────────────────────────────────────
+const BASE_CAPITAL_CENTS     = 1_000_000   // $10,000 per agent
+const BASE_NAV_CENTS         = 10_000      // $100.00 initial share price
+const STOP_LOSS_PCT          = 0.030       // Hard stop: -3% below entry
+const TAKE_PROFIT_PCT        = 0.080       // Take profit: +8% above entry
+const TRAILING_STOP_PCT      = 0.025       // Trailing: -2.5% from peak
+const MAX_PORTFOLIO_DRAWDOWN = 0.12        // Circuit breaker: portfolio -12%
+const MAX_HOLD_HOURS         = 120         // 5-day time stop
+const MIN_SIGNAL_STRENGTH    = 60          // 0-100 signal filter
 
-// Realistic crypto starting prices (approximate, updated each run from real data)
-const FALLBACK_PRICES: Record<string, number> = {
-  'BTC/USD':  85000,
-  'ETH/USD':  2000,
-  'SOL/USD':  135,
-  'LINK/USD': 15,
-  'UNI/USD':  8,
-  'AAVE/USD': 140,
-  'AVAX/USD': 22,
-}
-
-// Volatility params for Brownian motion fallback (annualized daily vol)
-const ASSET_VOL: Record<string, number> = {
-  'BTC/USD':  0.60,
-  'ETH/USD':  0.70,
-  'SOL/USD':  0.90,
-  'LINK/USD': 0.80,
-  'UNI/USD':  0.85,
-  'AAVE/USD': 0.80,
-  'AVAX/USD': 0.85,
-}
-
-// Slight positive drift (crypto long-term trend) — annualized
-const ASSET_DRIFT: Record<string, number> = {
-  'BTC/USD':  0.40,
-  'ETH/USD':  0.35,
-  'SOL/USD':  0.45,
-  'LINK/USD': 0.30,
-  'UNI/USD':  0.25,
-  'AAVE/USD': 0.30,
-  'AVAX/USD': 0.35,
+const ASSET_PARAMS: Record<string, { price: number; vol: number; drift: number }> = {
+  'BTC/USD':  { price: 85000, vol: 0.60, drift: 0.40 },
+  'ETH/USD':  { price: 2000,  vol: 0.70, drift: 0.35 },
+  'SOL/USD':  { price: 135,   vol: 0.90, drift: 0.45 },
+  'LINK/USD': { price: 15,    vol: 0.80, drift: 0.30 },
+  'AVAX/USD': { price: 22,    vol: 0.85, drift: 0.35 },
 }
 
 // ── PRICE FETCHING ──────────────────────────────────────────────────────────
 
-/** Get current crypto price. Tries Alpaca data API first, falls back to simulation. */
-async function getCurrentPrice(
-  symbol: string,
-  lastKnownPrice: number | null
-): Promise<{ price: number; source: 'alpaca' | 'simulated' }> {
-  // Try Alpaca free data API (works with any API key, no paper account needed)
+function gaussian(): number {
+  let u = 0, v = 0
+  while (u === 0) u = Math.random()
+  while (v === 0) v = Math.random()
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)
+}
+
+async function getPrice(sym: string, last: number | null): Promise<{ price: number; source: string }> {
   if (process.env.ALPACA_KEY_ID) {
     try {
-      const bars = await getCryptoBars(symbol, '1Hour', 3)
-      if (bars && bars.length > 0) {
-        return { price: bars[bars.length - 1].c, source: 'alpaca' }
-      }
-    } catch {
-      // Fall through to simulation
-    }
+      const bars = await getCryptoBars(sym, '1Hour', 3)
+      if (bars?.length > 0) return { price: bars[bars.length - 1].c, source: 'alpaca' }
+    } catch { /* fall through */ }
   }
-
-  // Brownian motion simulation
-  const base = lastKnownPrice ?? (FALLBACK_PRICES[symbol] ?? 100)
-  const vol = ASSET_VOL[symbol] ?? 0.70
-  const drift = ASSET_DRIFT[symbol] ?? 0.30
-  const dt = 15 / (365 * 24 * 60) // 15-minute intervals in years
-  const gaussian = () => {
-    let u = 0, v = 0
-    while (u === 0) u = Math.random()
-    while (v === 0) v = Math.random()
-    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)
-  }
-  const logReturn = (drift - 0.5 * vol * vol) * dt + vol * Math.sqrt(dt) * gaussian()
-  const newPrice = base * Math.exp(logReturn)
-
-  return { price: newPrice, source: 'simulated' }
+  const p = ASSET_PARAMS[sym] ?? { price: 100, vol: 0.70, drift: 0.30 }
+  const base = last ?? p.price
+  const dt = 15 / (365 * 24 * 60)
+  const logR = (p.drift - 0.5 * p.vol ** 2) * dt + p.vol * Math.sqrt(dt) * gaussian()
+  return { price: base * Math.exp(logR), source: 'sim' }
 }
 
-// ── POSITION TRACKING ──────────────────────────────────────────────────────
+// ── POSITIONS ───────────────────────────────────────────────────────────────
 
-interface Position {
-  symbol: string
-  qty: number
-  avg_entry: number
-}
+interface Pos { symbol: string; qty: number; avgEntry: number; entryDate: Date; peakPrice: number }
 
-async function getPositions(admin: ReturnType<typeof createAdminClient>, agentId: string): Promise<Position[]> {
+async function getPositions(
+  admin: ReturnType<typeof createAdminClient>,
+  agentId: string,
+  hwm: Record<string, number>
+): Promise<Pos[]> {
   const { data } = await admin
     .from('agent_trades')
-    .select('symbol, side, qty, fill_price')
+    .select('symbol, side, qty, fill_price, filled_at')
     .eq('agent_id', agentId)
+    .order('filled_at', { ascending: true })
 
-  const map: Record<string, { buyQty: number; buyCost: number; sellQty: number }> = {}
+  const map: Record<string, { bq: number; bc: number; sq: number; firstDate: Date | null }> = {}
   for (const t of data ?? []) {
-    const sym = String(t.symbol).toUpperCase()
-    if (!map[sym]) map[sym] = { buyQty: 0, buyCost: 0, sellQty: 0 }
-    const qty = parseFloat(String(t.qty)) || 0
-    const price = parseFloat(String(t.fill_price)) || 0
-    if (t.side === 'buy') { map[sym].buyQty += qty; map[sym].buyCost += qty * price }
-    else if (t.side === 'sell') { map[sym].sellQty += qty }
+    const sym = String(t.symbol)
+    if (!map[sym]) map[sym] = { bq: 0, bc: 0, sq: 0, firstDate: null }
+    const q = parseFloat(String(t.qty)) || 0
+    const p = parseFloat(String(t.fill_price)) || 0
+    if (t.side === 'buy') {
+      map[sym].bq += q; map[sym].bc += q * p
+      if (!map[sym].firstDate) map[sym].firstDate = new Date(t.filled_at)
+    } else { map[sym].sq += q }
   }
 
   return Object.entries(map)
     .map(([sym, v]) => ({
       symbol: sym,
-      qty: Math.max(0, v.buyQty - v.sellQty),
-      avg_entry: v.buyQty > 0 ? v.buyCost / v.buyQty : 0,
+      qty: Math.max(0, v.bq - v.sq),
+      avgEntry: v.bq > 0 ? v.bc / v.bq : 0,
+      entryDate: v.firstDate ?? new Date(),
+      peakPrice: hwm[sym] ?? (v.bq > 0 ? v.bc / v.bq : 0),
     }))
-    .filter(p => p.qty > 0.00001)
+    .filter(p => p.qty > 0.000001)
 }
 
-/** FIFO cost basis for sell P&L */
 async function calcPnL(
   admin: ReturnType<typeof createAdminClient>,
-  agentId: string,
-  symbol: string,
-  sellQty: number,
-  sellPrice: number
+  agentId: string, symbol: string, qty: number, price: number
 ): Promise<number> {
-  const { data: buys } = await admin
+  const { data } = await admin
     .from('agent_trades')
-    .select('qty, fill_price, filled_at')
-    .eq('agent_id', agentId)
-    .eq('symbol', symbol)
-    .eq('side', 'buy')
+    .select('qty, fill_price')
+    .eq('agent_id', agentId).eq('symbol', symbol).eq('side', 'buy')
     .order('filled_at', { ascending: true })
-
-  let remaining = sellQty
-  let totalCost = 0
-  for (const buy of buys ?? []) {
-    const qty = parseFloat(String(buy.qty)) || 0
-    const price = parseFloat(String(buy.fill_price)) || 0
-    const take = Math.min(remaining, qty)
-    totalCost += take * price
-    remaining -= take
-    if (remaining <= 0) break
+  let rem = qty, cost = 0
+  for (const b of data ?? []) {
+    const bq = parseFloat(String(b.qty)) || 0
+    const bp = parseFloat(String(b.fill_price)) || 0
+    const take = Math.min(rem, bq)
+    cost += take * bp; rem -= take
+    if (rem <= 0) break
   }
-
-  return Math.round((sellQty * sellPrice - totalCost) * 100)
+  return Math.round((qty * price - cost) * 100)
 }
 
-/** Record a trade to agent_trades */
-async function recordTrade(
+async function record(
   admin: ReturnType<typeof createAdminClient>,
-  agentId: string,
-  symbol: string,
-  side: 'buy' | 'sell',
-  qty: number,
-  fillPrice: number,
-  pnlCents: number | null = null
+  agentId: string, sym: string, side: 'buy' | 'sell', qty: number, price: number,
+  pnl: number | null, exitReason?: string
 ) {
   await admin.from('agent_trades').insert({
-    agent_id: agentId,
-    symbol,
-    side,
-    qty,
-    fill_price: fillPrice,
-    filled_at: new Date().toISOString(),
-    pnl_cents: pnlCents,
+    agent_id: agentId, symbol: sym, side, qty, fill_price: price,
+    filled_at: new Date().toISOString(), pnl_cents: pnl,
+    ...(exitReason ? { exit_reason: exitReason } : {}),
   })
 }
 
-// ── STRATEGY RUNNERS ────────────────────────────────────────────────────────
-// Each strategy gets current prices + positions, returns trade decisions
+// ── RISK CHECKS ─────────────────────────────────────────────────────────────
 
-interface StrategyContext {
-  agentId: string
-  positions: Position[]
-  capitalCents: number
-  prices: Record<string, number>
-  priceHistory: Record<string, number[]> // last 10 simulated prices (crude indicator)
+function checkExit(pos: Pos, currPrice: number, portfolioDrawdown: number): string | null {
+  if (portfolioDrawdown > MAX_PORTFOLIO_DRAWDOWN)
+    return `Circuit breaker: portfolio −${(portfolioDrawdown * 100).toFixed(1)}%`
+  const pctFromEntry = (currPrice - pos.avgEntry) / pos.avgEntry
+  if (pctFromEntry < -STOP_LOSS_PCT)
+    return `Stop loss: ${(pctFromEntry * 100).toFixed(2)}%`
+  if (pctFromEntry > TAKE_PROFIT_PCT)
+    return `Take profit: +${(pctFromEntry * 100).toFixed(2)}%`
+  const pctFromPeak = (currPrice - pos.peakPrice) / pos.peakPrice
+  if (pctFromPeak < -TRAILING_STOP_PCT && pctFromEntry > 0.01)
+    return `Trailing stop: ${(pctFromPeak * 100).toFixed(2)}% from peak`
+  const hoursHeld = (Date.now() - pos.entryDate.getTime()) / 3_600_000
+  if (hoursHeld > MAX_HOLD_HOURS)
+    return `Time stop: ${hoursHeld.toFixed(0)}h held`
+  return null
 }
 
-interface TradeDecision {
-  action: 'BUY' | 'SELL' | 'HOLD'
-  symbol: string
-  qty?: number
-  notionalCents?: number
-  reason: string
+// ── INDICATORS ───────────────────────────────────────────────────────────────
+
+function ema(arr: number[], period: number): number {
+  if (!arr.length) return 0
+  if (arr.length < period) return arr[arr.length - 1]
+  const k = 2 / (period + 1)
+  let e = arr.slice(0, period).reduce((a, b) => a + b, 0) / period
+  for (let i = period; i < arr.length; i++) e = arr[i] * k + e * (1 - k)
+  return e
 }
 
-// Simple momentum: buy if price up > 0.5% vs last, sell if down > 0.4%
-function momentumSignal(prices: number[]): 'BUY' | 'SELL' | 'HOLD' {
-  if (prices.length < 2) return 'HOLD'
-  const latest = prices[prices.length - 1]
-  const prev = prices[prices.length - 2]
-  const chg = (latest - prev) / prev
-  if (chg > 0.005) return 'BUY'
-  if (chg < -0.004) return 'SELL'
-  return 'HOLD'
+function rsi(arr: number[], period = 14): number {
+  if (arr.length < period + 1) return 50
+  const ch = arr.slice(1).map((p, i) => p - arr[i])
+  const r = ch.slice(-period)
+  const avgG = r.filter(c => c > 0).reduce((a, b) => a + b, 0) / period
+  const avgL = r.filter(c => c < 0).map(Math.abs).reduce((a, b) => a + b, 0) / period || 0.001
+  return 100 - 100 / (1 + avgG / avgL)
 }
 
-// Z-score mean reversion
-function zScoreSignal(prices: number[], current: number): 'BUY' | 'SELL' | 'HOLD' {
-  if (prices.length < 5) return 'HOLD'
-  const mean = prices.reduce((a, b) => a + b, 0) / prices.length
-  const variance = prices.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / prices.length
-  const stdDev = Math.sqrt(variance)
-  const z = stdDev > 0 ? (current - mean) / stdDev : 0
-  if (z < -1.2) return 'BUY'
-  if (z > 0.8) return 'SELL'
-  return 'HOLD'
+function bollinger(arr: number[], period = 20) {
+  const s = arr.slice(-period)
+  const mean = s.reduce((a, b) => a + b, 0) / s.length
+  const std = Math.sqrt(s.reduce((a, b) => a + (b - mean) ** 2, 0) / s.length)
+  return { upper: mean + 2 * std, middle: mean, lower: mean - 2 * std, std }
 }
 
-// Bollinger band breakout
-function bollingerSignal(prices: number[], current: number): 'BUY' | 'SELL' | 'HOLD' {
-  if (prices.length < 8) return 'HOLD'
-  const recent = prices.slice(-8)
-  const mean = recent.reduce((a, b) => a + b, 0) / recent.length
-  const stdDev = Math.sqrt(recent.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / recent.length)
-  const upper = mean + 2 * stdDev
-  const lower = mean - 2 * stdDev
-  if (current > upper) return 'BUY'
-  if (current < lower) return 'SELL'
-  return 'HOLD'
+function zScore(arr: number[], curr: number, period = 20): number {
+  const s = arr.slice(-period)
+  const mean = s.reduce((a, b) => a + b, 0) / s.length
+  const std = Math.sqrt(s.reduce((a, b) => a + (b - mean) ** 2, 0) / s.length)
+  return std > 0 ? (curr - mean) / std : 0
 }
 
-// Momentum ratio (momentum / volatility) for ranking
-function momentumRatio(prices: number[]): number {
-  if (prices.length < 6) return 0
-  const momentum = (prices[prices.length - 1] - prices[0]) / prices[0]
-  const returns = prices.slice(1).map((p, i) => (p - prices[i]) / prices[i])
-  const vol = Math.sqrt(returns.reduce((a, b) => a + b * b, 0) / returns.length) || 0.001
-  return momentum / vol
+function mom(arr: number[], period = 10): number {
+  if (arr.length < period + 1) return 0
+  const past = arr[arr.length - 1 - period]
+  return past > 0 ? (arr[arr.length - 1] - past) / past : 0
 }
 
-// Strategy 1: BTC Momentum Alpha
-async function strategyBtcMomentum(
+function vol(arr: number[], period = 14): number {
+  if (arr.length < 2) return 0.02
+  const returns = arr.slice(-period).slice(1).map((p, i) => Math.log(p / arr.slice(-period)[i]))
+  return Math.sqrt(returns.reduce((a, b) => a + b * b, 0) / returns.length)
+}
+
+// ── ENTRY SIGNALS ────────────────────────────────────────────────────────────
+
+function sigBtcMom(hist: number[], curr: number): { enter: boolean; pct: number; reason: string; strength: number } {
+  if (hist.length < 55) return { enter: false, pct: 0, reason: 'Need 55 data points', strength: 0 }
+  const arr = [...hist, curr]
+  const e8 = ema(arr, 8), e21 = ema(arr, 21), e50 = ema(arr, 50)
+  const r = rsi(arr), m = mom(arr, 8)
+  const trendUp = e8 > e21 && e21 > e50
+  const rsiOk = r > 45 && r < 72
+  const momOk = m > 0.012
+  const strength = (trendUp ? 40 : 0) + (rsiOk ? 30 : 0) + (momOk ? 30 : 0)
+  return {
+    enter: trendUp && rsiOk && momOk && strength >= MIN_SIGNAL_STRENGTH,
+    pct: 0.28,
+    reason: `EMA8>${e8.toFixed(0)} EMA21>${e21.toFixed(0)} RSI=${r.toFixed(0)} Mom=${(m*100).toFixed(1)}%`,
+    strength,
+  }
+}
+
+function sigEthRevert(hist: number[], curr: number): { enter: boolean; pct: number; reason: string; strength: number } {
+  if (hist.length < 22) return { enter: false, pct: 0, reason: 'Need 22 data points', strength: 0 }
+  const z = zScore(hist, curr, 20)
+  const bb = bollinger(hist, 20)
+  const bbPct = bb.std > 0 ? (curr - bb.lower) / (bb.upper - bb.lower) : 0.5
+  const r = rsi([...hist, curr])
+  const zOS = z < -1.3
+  const bbOS = bbPct < 0.20
+  const rsiOS = r < 42
+  const strength = (zOS ? 40 : 0) + (bbOS ? 30 : 0) + (rsiOS ? 30 : 0)
+  return {
+    enter: zOS && (bbOS || rsiOS) && strength >= MIN_SIGNAL_STRENGTH,
+    pct: 0.26,
+    reason: `Z=${z.toFixed(2)} BB%=${(bbPct*100).toFixed(0)}% RSI=${r.toFixed(0)}`,
+    strength,
+  }
+}
+
+function sigTrend(pMap: Record<string, number[]>, prices: Record<string, number>): { sym: string; enter: boolean; pct: number; reason: string; strength: number } {
+  const ranked = ['BTC/USD', 'ETH/USD', 'SOL/USD'].map(sym => {
+    const h = pMap[sym] ?? []; const c = prices[sym] ?? 0
+    if (h.length < 12) return { sym, score: 0, reason: 'No history' }
+    const m10 = mom([...h, c], 10), m5 = mom([...h, c], 5), v14 = vol([...h, c], 14)
+    const r = rsi([...h, c])
+    const score = (m10 + m5 * 0.5) / (v14 || 0.02)
+    return { sym, score, reason: `Mom=${(m10*100).toFixed(1)}% Vol=${(v14*100).toFixed(1)}% RSI=${r.toFixed(0)}` }
+  }).sort((a, b) => b.score - a.score)
+  const best = ranked[0]
+  const strength = Math.min(100, Math.max(0, best.score * 22))
+  return { sym: best.sym, enter: best.score > 1.5 && strength >= MIN_SIGNAL_STRENGTH, pct: 0.30, reason: best.reason, strength }
+}
+
+function sigSolBreak(hist: number[], curr: number): { enter: boolean; pct: number; reason: string; strength: number } {
+  if (hist.length < 22) return { enter: false, pct: 0, reason: 'Need 22 data points', strength: 0 }
+  const bb = bollinger(hist, 20)
+  const bw = (bb.upper - bb.lower) / bb.middle
+  const r = rsi([...hist, curr]), m = mom([...hist, curr], 5)
+  const breakout = curr > bb.upper
+  const confirm = r > 55 && m > 0.008
+  const strength = (breakout ? 50 : 0) + (confirm ? 30 : 0) + (bw < 0.04 ? 20 : 0)
+  return {
+    enter: breakout && confirm && strength >= MIN_SIGNAL_STRENGTH,
+    pct: 0.22,
+    reason: `BB_upper=${bb.upper.toFixed(2)} BW=${(bw*100).toFixed(1)}% RSI=${r.toFixed(0)}`,
+    strength,
+  }
+}
+
+function sigDefi(pMap: Record<string, number[]>, prices: Record<string, number>): Array<{ sym: string; pct: number; reason: string }> {
+  return ['LINK/USD', 'AVAX/USD']
+    .map(sym => {
+      const h = pMap[sym] ?? []; const c = prices[sym] ?? 0
+      if (h.length < 14) return null
+      const m14 = mom([...h, c], 14), v14 = vol([...h, c], 14)
+      const score = m14 / (v14 || 0.02)
+      return score > 0.8 ? { sym, score, pct: 0.16, reason: `Mom=${(m14*100).toFixed(1)}% Score=${score.toFixed(2)}` } : null
+    })
+    .filter(Boolean)
+    .sort((a: any, b: any) => b.score - a.score)
+    .slice(0, 2) as Array<{ sym: string; pct: number; reason: string }>
+}
+
+// ── NAV CALCULATION ──────────────────────────────────────────────────────────
+
+async function calcNAV(
   admin: ReturnType<typeof createAdminClient>,
-  ctx: StrategyContext
-): Promise<{ decisions: TradeDecision[]; signal: string }> {
-  const sym = 'BTC/USD'
-  const price = ctx.prices[sym]
-  const hist = ctx.priceHistory[sym] ?? [price]
-  const pos = ctx.positions.find(p => p.symbol === sym || p.symbol === 'BTC/USD')
-  const signal = momentumSignal([...hist, price])
-  const maxExposurePct = 0.35
-
-  const decisions: TradeDecision[] = []
-
-  if (signal === 'BUY' && !pos) {
-    const investCents = Math.round(ctx.capitalCents * maxExposurePct)
-    const qty = (investCents / 100) / price
-    decisions.push({ action: 'BUY', symbol: sym, qty, notionalCents: investCents, reason: 'Momentum breakout confirmed' })
-  } else if (signal === 'SELL' && pos) {
-    decisions.push({ action: 'SELL', symbol: sym, qty: pos.qty, reason: 'Momentum reversal — exit position' })
-  } else {
-    decisions.push({ action: 'HOLD', symbol: sym, reason: signal === 'HOLD' ? 'Neutral momentum — scanning' : `Signal: ${signal}, position: ${pos ? 'open' : 'none'}` })
-  }
-
-  const signalStr = signal === 'BUY' ? 'BULLISH — momentum breakout' :
-    signal === 'SELL' ? 'BEARISH — momentum reversal' : 'SCANNING — neutral momentum'
-  return { decisions, signal: signalStr }
-}
-
-// Strategy 2: ETH Statistical Arbitrage (mean reversion)
-async function strategyEthMeanRevert(
-  admin: ReturnType<typeof createAdminClient>,
-  ctx: StrategyContext
-): Promise<{ decisions: TradeDecision[]; signal: string }> {
-  const sym = 'ETH/USD'
-  const price = ctx.prices[sym]
-  const hist = ctx.priceHistory[sym] ?? [price]
-  const pos = ctx.positions.find(p => p.symbol === sym || p.symbol === 'ETH/USD')
-  const signal = zScoreSignal(hist, price)
-  const maxExposurePct = 0.30
-
-  const decisions: TradeDecision[] = []
-
-  if (signal === 'BUY' && !pos) {
-    const investCents = Math.round(ctx.capitalCents * maxExposurePct)
-    const qty = (investCents / 100) / price
-    decisions.push({ action: 'BUY', symbol: sym, qty, notionalCents: investCents, reason: 'Z-score mean reversion entry' })
-  } else if (signal === 'SELL' && pos) {
-    decisions.push({ action: 'SELL', symbol: sym, qty: pos.qty, reason: 'Z-score reversion to mean — exit' })
-  } else {
-    decisions.push({ action: 'HOLD', symbol: sym, reason: 'Mean reversion — monitoring spread' })
-  }
-
-  const signalStr = signal === 'BUY' ? 'OVERSOLD — mean reversion entry' :
-    signal === 'SELL' ? 'REVERTED — taking profit' : 'MONITORING — z-score neutral'
-  return { decisions, signal: signalStr }
-}
-
-// Strategy 3: Multi-Asset Trend System
-async function strategyCryptoTrend(
-  admin: ReturnType<typeof createAdminClient>,
-  ctx: StrategyContext
-): Promise<{ decisions: TradeDecision[]; signal: string }> {
-  const symbols = ['BTC/USD', 'ETH/USD', 'SOL/USD']
-  const maxExposurePct = 0.40
-
-  // Score each asset by momentum ratio
-  const scores = symbols.map(sym => ({
-    sym,
-    score: momentumRatio([...(ctx.priceHistory[sym] ?? [ctx.prices[sym]]), ctx.prices[sym]]),
-  })).sort((a, b) => b.score - a.score)
-
-  const topAsset = scores[0]
-  const currentPositions = ctx.positions.filter(p => symbols.includes(p.symbol))
-  const currentSym = currentPositions.length > 0 ? currentPositions[0].symbol : null
-  const decisions: TradeDecision[] = []
-
-  // Exit non-top assets
-  for (const pos of currentPositions) {
-    if (pos.symbol !== topAsset.sym || topAsset.score < 0.05) {
-      decisions.push({ action: 'SELL', symbol: pos.symbol, qty: pos.qty, reason: `Rotating out of ${pos.symbol}` })
-    }
-  }
-
-  // Enter top asset if not already holding it and trend is strong
-  if (!currentSym && topAsset.score > 0.1) {
-    const investCents = Math.round(ctx.capitalCents * maxExposurePct)
-    const qty = (investCents / 100) / ctx.prices[topAsset.sym]
-    decisions.push({ action: 'BUY', symbol: topAsset.sym, qty, notionalCents: investCents, reason: `Trend signal: ${topAsset.sym} leads momentum` })
-  }
-
-  if (decisions.length === 0) {
-    decisions.push({ action: 'HOLD', symbol: topAsset.sym, reason: 'Trend following — holding or scanning' })
-  }
-
-  const topScoreStr = topAsset.score.toFixed(3)
-  return { decisions, signal: `TREND — ${topAsset.sym.split('/')[0]} leads (score: ${topScoreStr})` }
-}
-
-// Strategy 4: SOL Volatility Breakout
-async function strategySolBreakout(
-  admin: ReturnType<typeof createAdminClient>,
-  ctx: StrategyContext
-): Promise<{ decisions: TradeDecision[]; signal: string }> {
-  const sym = 'SOL/USD'
-  const price = ctx.prices[sym]
-  const hist = ctx.priceHistory[sym] ?? [price]
-  const pos = ctx.positions.find(p => p.symbol === sym || p.symbol === 'SOL/USD')
-  const signal = bollingerSignal(hist, price)
-  const maxExposurePct = 0.25
-
-  const decisions: TradeDecision[] = []
-
-  if (signal === 'BUY' && !pos) {
-    const investCents = Math.round(ctx.capitalCents * maxExposurePct)
-    const qty = (investCents / 100) / price
-    decisions.push({ action: 'BUY', symbol: sym, qty, notionalCents: investCents, reason: 'Bollinger squeeze breakout confirmed' })
-  } else if (signal === 'SELL' && pos) {
-    decisions.push({ action: 'SELL', symbol: sym, qty: pos.qty, reason: 'Price below Bollinger midpoint — stop' })
-  } else {
-    decisions.push({ action: 'HOLD', symbol: sym, reason: 'SOL volatility breakout — scanning for squeeze' })
-  }
-
-  const signalStr = signal === 'BUY' ? `BREAKOUT — upper band breach @ $${price.toFixed(2)}` :
-    signal === 'SELL' ? 'EXIT — momentum fading' : 'SCANNING — watching for squeeze'
-  return { decisions, signal: signalStr }
-}
-
-// Strategy 5: DeFi Smart Beta Rotation
-async function strategyDefiBasket(
-  admin: ReturnType<typeof createAdminClient>,
-  ctx: StrategyContext
-): Promise<{ decisions: TradeDecision[]; signal: string }> {
-  const symbols = ['LINK/USD', 'AVAX/USD']
-  const maxExposureEachPct = 0.20
-
-  const scores = symbols.map(sym => ({
-    sym,
-    score: momentumRatio([...(ctx.priceHistory[sym] ?? [ctx.prices[sym]]), ctx.prices[sym]]),
-  })).sort((a, b) => b.score - a.score)
-
-  const currentPositions = ctx.positions.filter(p => symbols.includes(p.symbol))
-  const decisions: TradeDecision[] = []
-
-  // Hold top 1-2 by score (simplified: hold the best one)
-  const target = scores[0]
-  const already = currentPositions.find(p => p.symbol === target.sym)
-
-  // Exit losers
-  for (const pos of currentPositions) {
-    if (pos.symbol !== target.sym) {
-      decisions.push({ action: 'SELL', symbol: pos.symbol, qty: pos.qty, reason: 'DeFi rotation — reallocating' })
-    }
-  }
-
-  // Enter winner if no position
-  if (!already && target.score > 0.05) {
-    const investCents = Math.round(ctx.capitalCents * maxExposureEachPct)
-    const qty = (investCents / 100) / ctx.prices[target.sym]
-    decisions.push({ action: 'BUY', symbol: target.sym, qty, notionalCents: investCents, reason: `Smart beta: ${target.sym} scores highest risk-adj momentum` })
-  }
-
-  if (decisions.length === 0) {
-    decisions.push({ action: 'HOLD', symbol: target.sym, reason: 'DeFi basket — positioned in top scorer' })
-  }
-
-  const names = scores.map(s => `${s.sym.split('/')[0]}(${s.score.toFixed(2)})`).join(', ')
-  return { decisions, signal: `ROTATION — ${names}` }
-}
-
-// Map agent slug → strategy function
-type StrategyFn = (admin: ReturnType<typeof createAdminClient>, ctx: StrategyContext) => Promise<{ decisions: TradeDecision[]; signal: string }>
-
-const STRATEGIES: Record<string, StrategyFn> = {
-  'btc-momentum':    strategyBtcMomentum,
-  'eth-mean-revert': strategyEthMeanRevert,
-  'crypto-trend':    strategyCryptoTrend,
-  'sol-breakout':    strategySolBreakout,
-  'defi-basket':     strategyDefiBasket,
-}
-
-// Symbols each agent uses (for price fetching)
-const AGENT_SYMBOLS: Record<string, string[]> = {
-  'btc-momentum':    ['BTC/USD'],
-  'eth-mean-revert': ['ETH/USD'],
-  'crypto-trend':    ['BTC/USD', 'ETH/USD', 'SOL/USD'],
-  'sol-breakout':    ['SOL/USD'],
-  'defi-basket':     ['LINK/USD', 'AVAX/USD'],
-}
-
-// ── NAV CALCULATION ────────────────────────────────────────────────────────
-
-async function calculateNAV(
-  admin: ReturnType<typeof createAdminClient>,
-  agentId: string,
-  capitalCents: number,
-  prices: Record<string, number>
-): Promise<{
-  navCents: number
-  totalReturnPct: number
-  realizedPnlCents: number
-  unrealizedPnlCents: number
-  winRatePct: number
-  totalTrades: number
-}> {
-  // Realized P&L
-  const { data: closedTrades } = await admin
-    .from('agent_trades')
-    .select('side, pnl_cents')
-    .eq('agent_id', agentId)
-    .not('pnl_cents', 'is', null)
-
-  const realizedPnlCents = (closedTrades ?? []).reduce((s, t) => s + (Number(t.pnl_cents) || 0), 0)
-  const sells = (closedTrades ?? []).filter(t => t.side === 'sell' || t.side === 'SELL')
+  agentId: string, capitalCents: number, prices: Record<string, number>
+) {
+  const { data: closed } = await admin
+    .from('agent_trades').select('side, pnl_cents').eq('agent_id', agentId).not('pnl_cents', 'is', null)
+  const realized = (closed ?? []).reduce((s, t) => s + (Number(t.pnl_cents) || 0), 0)
+  const sells = (closed ?? []).filter(t => t.side === 'sell')
   const wins = sells.filter(t => (Number(t.pnl_cents) || 0) > 0).length
-  const winRatePct = sells.length > 0 ? (wins / sells.length) * 100 : 0
-
-  // All trades count
-  const { count: totalTrades } = await admin
-    .from('agent_trades')
-    .select('id', { count: 'exact', head: true })
-    .eq('agent_id', agentId)
-
-  // Unrealized P&L from open positions
-  const positions = await getPositions(admin, agentId)
-  let unrealizedPnlCents = 0
-  for (const pos of positions) {
-    const currentPrice = prices[pos.symbol] ?? pos.avg_entry
-    unrealizedPnlCents += Math.round(pos.qty * (currentPrice - pos.avg_entry) * 100)
+  const winRate = sells.length > 0 ? (wins / sells.length) * 100 : 0
+  const { count } = await admin.from('agent_trades').select('id', { count: 'exact', head: true }).eq('agent_id', agentId)
+  const positions = await getPositions(admin, agentId, {})
+  let unrealized = 0
+  for (const p of positions) unrealized += Math.round(p.qty * ((prices[p.symbol] ?? p.avgEntry) - p.avgEntry) * 100)
+  const totalPnl = realized + unrealized
+  return {
+    navCents: Math.round(BASE_NAV_CENTS * (capitalCents + totalPnl) / capitalCents),
+    returnPct: (totalPnl / capitalCents) * 100,
+    realized, unrealized, winRate, totalTrades: count ?? 0,
   }
-
-  const totalPnlCents = realizedPnlCents + unrealizedPnlCents
-  const navCents = Math.round(BASE_NAV_CENTS * (capitalCents + totalPnlCents) / capitalCents)
-  const totalReturnPct = (totalPnlCents / capitalCents) * 100
-
-  return { navCents, totalReturnPct, realizedPnlCents, unrealizedPnlCents, winRatePct, totalTrades: totalTrades ?? 0 }
 }
 
-// ── FINANCIAL METRICS ──────────────────────────────────────────────────────
-
-function calcSharpe(dailyReturns: number[]): number {
-  if (dailyReturns.length < 2) return 0
-  const mean = dailyReturns.reduce((a, b) => a + b, 0) / dailyReturns.length
-  const variance = dailyReturns.reduce((s, r) => s + Math.pow(r - mean, 2), 0) / dailyReturns.length
-  const std = Math.sqrt(variance)
+function calcSharpe(navs: number[]): number {
+  if (navs.length < 3) return 0
+  const returns = navs.slice(1).map((n, i) => navs[i] > 0 ? ((n - navs[i]) / navs[i]) * 100 : 0)
+  const mean = returns.reduce((a, b) => a + b, 0) / returns.length
+  const std = Math.sqrt(returns.reduce((a, b) => a + (b - mean) ** 2, 0) / returns.length)
   return std > 0 ? parseFloat(((mean / std) * Math.sqrt(365)).toFixed(4)) : 0
 }
 
-function calcMaxDrawdown(navs: number[]): number {
-  let peak = navs[0]
-  let maxDD = 0
-  for (const nav of navs) {
-    if (nav > peak) peak = nav
-    const dd = peak > 0 ? ((peak - nav) / peak) * 100 : 0
-    if (dd > maxDD) maxDD = dd
-  }
-  return maxDD
+function calcMaxDD(navs: number[]): number {
+  let peak = navs[0] ?? 0, dd = 0
+  for (const n of navs) { if (n > peak) peak = n; const d = peak > 0 ? ((peak - n) / peak) * 100 : 0; if (d > dd) dd = d }
+  return dd
 }
 
-// ── MAIN HANDLER ────────────────────────────────────────────────────────────
+// ── MAIN ─────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET
-  if (cronSecret) {
-    const authHeader = req.headers.get('x-cron-secret')
-    if (authHeader !== cronSecret) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-  }
+  const secret = process.env.CRON_SECRET
+  if (secret && req.headers.get('x-cron-secret') !== secret)
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const admin = createAdminClient()
   const now = new Date().toISOString()
 
-  // ── 1. Load all active agents ──────────────────────────────────────────
-  const { data: agents, error: agentsErr } = await admin
-    .from('agents')
-    .select('id, slug, total_aum_cents, share_price_cents')
-    .eq('status', 'active')
+  const { data: agents } = await admin
+    .from('agents').select('id, slug, total_aum_cents, share_price_cents, portfolio_json').eq('status', 'active')
+  if (!agents?.length) return NextResponse.json({ ok: false, error: 'No active agents', ran_at: now })
 
-  if (agentsErr || !agents?.length) {
-    return NextResponse.json({ ok: false, error: agentsErr?.message ?? 'No active agents', ran_at: now })
-  }
-
-  // ── 2. Get last known prices from recent agent_trades ──────────────────
+  // Build price history from trade records
   const { data: recentTrades } = await admin
-    .from('agent_trades')
-    .select('symbol, fill_price, filled_at')
-    .order('filled_at', { ascending: false })
-    .limit(100)
+    .from('agent_trades').select('symbol, fill_price, filled_at').order('filled_at', { ascending: true }).limit(2000)
 
-  // Last known fill price per symbol
-  const lastPrices: Record<string, number> = {}
+  const hist: Record<string, number[]> = {}
+  const lastPrice: Record<string, number> = {}
   for (const t of recentTrades ?? []) {
-    const sym = String(t.symbol).toUpperCase().replace('/', '/')
-    if (!lastPrices[sym] && t.fill_price) {
-      lastPrices[sym] = parseFloat(String(t.fill_price))
-    }
+    const sym = String(t.symbol)
+    const p = parseFloat(String(t.fill_price)) || 0
+    if (p > 0) { if (!hist[sym]) hist[sym] = []; hist[sym].push(p); lastPrice[sym] = p }
   }
 
-  // ── 3. Build price history for each agent's symbols ────────────────────
-  // We use recent fill prices as a proxy for price history
-  const { data: historicalTrades } = await admin
-    .from('agent_trades')
-    .select('symbol, fill_price, filled_at')
-    .order('filled_at', { ascending: true })
-    .limit(500)
+  // Fetch current prices
+  const allSyms = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'LINK/USD', 'AVAX/USD']
+  const pricesMap: Record<string, { price: number; source: string }> = {}
+  for (const sym of allSyms) pricesMap[sym] = await getPrice(sym, lastPrice[sym] ?? null)
+  const prices: Record<string, number> = Object.fromEntries(Object.entries(pricesMap).map(([k, v]) => [k, v.price]))
 
-  const priceHistoryMap: Record<string, number[]> = {}
-  for (const t of historicalTrades ?? []) {
-    const sym = String(t.symbol).toUpperCase()
-    if (!priceHistoryMap[sym]) priceHistoryMap[sym] = []
-    if (t.fill_price) priceHistoryMap[sym].push(parseFloat(String(t.fill_price)))
-  }
+  // Append new prices to history (for signal calculation this run)
+  for (const sym of allSyms) { if (!hist[sym]) hist[sym] = []; hist[sym].push(prices[sym]) }
 
-  // ── 4. Fetch current prices for all needed symbols ─────────────────────
-  const allSymbols = new Set<string>()
-  for (const agent of agents) {
-    const syms = AGENT_SYMBOLS[agent.slug] ?? []
-    syms.forEach(s => allSymbols.add(s))
-  }
-
-  const currentPrices: Record<string, { price: number; source: string }> = {}
-  for (const sym of allSymbols) {
-    const lastKnown = lastPrices[sym] ?? null
-    const result = await getCurrentPrice(sym, lastKnown)
-    currentPrices[sym] = result
-  }
-
-  const prices: Record<string, number> = Object.fromEntries(
-    Object.entries(currentPrices).map(([sym, { price }]) => [sym, price])
-  )
-
-  // ── 5. Run each agent's strategy ────────────────────────────────────────
   const results: Record<string, unknown> = {}
   let totalNewTrades = 0
 
   for (const agent of agents) {
-    const stratFn = STRATEGIES[agent.slug]
-    if (!stratFn) continue
-
     try {
       const capitalCents = Math.max(BASE_CAPITAL_CENTS, Number(agent.total_aum_cents) || 0)
-      const positions = await getPositions(admin, agent.id)
-      const agentPrices = Object.fromEntries(
-        (AGENT_SYMBOLS[agent.slug] ?? []).map(sym => [sym, prices[sym] ?? FALLBACK_PRICES[sym] ?? 100])
-      )
-      const agentPriceHistory = Object.fromEntries(
-        (AGENT_SYMBOLS[agent.slug] ?? []).map(sym => [sym, priceHistoryMap[sym] ?? []])
-      )
 
-      const ctx: StrategyContext = {
-        agentId: agent.id,
-        positions,
-        capitalCents,
-        prices: agentPrices,
-        priceHistory: agentPriceHistory,
+      // Load portfolio state (high-water marks)
+      let pState: { hwm: Record<string, number> } = { hwm: {} }
+      try { if (agent.portfolio_json) pState = JSON.parse(agent.portfolio_json) } catch {}
+
+      const positions = await getPositions(admin, agent.id, pState.hwm)
+
+      // Update HWM with current prices
+      for (const pos of positions) {
+        const curr = prices[pos.symbol] ?? pos.avgEntry
+        pState.hwm[pos.symbol] = Math.max(pState.hwm[pos.symbol] ?? 0, curr)
       }
 
-      const { decisions, signal } = await stratFn(admin, ctx)
+      // Portfolio drawdown
+      const investedCents = positions.reduce((s, p) => s + Math.round(p.qty * p.avgEntry * 100), 0)
+      const currValueCents = positions.reduce((s, p) => s + Math.round(p.qty * (prices[p.symbol] ?? p.avgEntry) * 100), 0)
+      const portfolioDrawdown = investedCents > 0 ? Math.max(0, (investedCents - currValueCents) / capitalCents) : 0
 
-      // Execute decisions
-      let agentTrades = 0
-      for (const d of decisions) {
-        if (d.action === 'BUY' && d.qty && d.qty > 0) {
-          const fillPrice = agentPrices[d.symbol] ?? FALLBACK_PRICES[d.symbol] ?? 100
-          await recordTrade(admin, agent.id, d.symbol, 'buy', d.qty, fillPrice, null)
-          agentTrades++
+      // ── EXIT MANAGEMENT ──────────────────────────────────────────────────
+      const exits: string[] = []
+      for (const pos of positions) {
+        pos.peakPrice = pState.hwm[pos.symbol] ?? pos.avgEntry
+        const exitReason = checkExit(pos, prices[pos.symbol] ?? pos.avgEntry, portfolioDrawdown)
+        if (exitReason) {
+          const sellPrice = prices[pos.symbol] ?? pos.avgEntry
+          const pnl = await calcPnL(admin, agent.id, pos.symbol, pos.qty, sellPrice)
+          await record(admin, agent.id, pos.symbol, 'sell', pos.qty, sellPrice, pnl, exitReason)
+          delete pState.hwm[pos.symbol]
+          exits.push(`${pos.symbol.split('/')[0]}: ${exitReason}`)
           totalNewTrades++
-        } else if (d.action === 'SELL' && d.qty && d.qty > 0) {
-          const fillPrice = agentPrices[d.symbol] ?? FALLBACK_PRICES[d.symbol] ?? 100
-          const pnl = await calcPnL(admin, agent.id, d.symbol, d.qty, fillPrice)
-          await recordTrade(admin, agent.id, d.symbol, 'sell', d.qty, fillPrice, pnl)
+        }
+      }
+
+      // Refresh after exits
+      const openPos = await getPositions(admin, agent.id, pState.hwm)
+      const openSyms = new Set(openPos.map(p => p.symbol))
+      const invested2 = openPos.reduce((s, p) => s + Math.round(p.qty * p.avgEntry * 100), 0)
+      const cashCents = capitalCents - invested2
+      const cashPct = cashCents / capitalCents
+      let agentTrades = exits.length
+
+      // ── ENTRY SIGNALS ────────────────────────────────────────────────────
+      if (cashPct > 0.20) {
+        let remaining = cashCents
+        const entries: Array<{ sym: string; notionalCents: number; reason: string }> = []
+
+        if (agent.slug === 'btc-momentum') {
+          const h = hist['BTC/USD'] ?? []; const s = sigBtcMom(h.slice(0, -1), prices['BTC/USD'])
+          if (s.enter && !openSyms.has('BTC/USD'))
+            entries.push({ sym: 'BTC/USD', notionalCents: Math.round(capitalCents * s.pct), reason: s.reason })
+        }
+        if (agent.slug === 'eth-mean-revert') {
+          const h = hist['ETH/USD'] ?? []; const s = sigEthRevert(h.slice(0, -1), prices['ETH/USD'])
+          if (s.enter && !openSyms.has('ETH/USD'))
+            entries.push({ sym: 'ETH/USD', notionalCents: Math.round(capitalCents * s.pct), reason: s.reason })
+        }
+        if (agent.slug === 'crypto-trend') {
+          const s = sigTrend({ 'BTC/USD': hist['BTC/USD']?.slice(0, -1) ?? [], 'ETH/USD': hist['ETH/USD']?.slice(0, -1) ?? [], 'SOL/USD': hist['SOL/USD']?.slice(0, -1) ?? [] }, prices)
+          if (s.enter && !openSyms.has(s.sym))
+            entries.push({ sym: s.sym, notionalCents: Math.round(capitalCents * s.pct), reason: s.reason })
+        }
+        if (agent.slug === 'sol-breakout') {
+          const h = hist['SOL/USD'] ?? []; const s = sigSolBreak(h.slice(0, -1), prices['SOL/USD'])
+          if (s.enter && !openSyms.has('SOL/USD'))
+            entries.push({ sym: 'SOL/USD', notionalCents: Math.round(capitalCents * s.pct), reason: s.reason })
+        }
+        if (agent.slug === 'defi-basket') {
+          const ee = sigDefi({ 'LINK/USD': hist['LINK/USD']?.slice(0, -1) ?? [], 'AVAX/USD': hist['AVAX/USD']?.slice(0, -1) ?? [] }, prices)
+          for (const e of ee) if (!openSyms.has(e.sym)) entries.push({ sym: e.sym, notionalCents: Math.round(capitalCents * e.pct), reason: e.reason })
+        }
+
+        for (const e of entries) {
+          if (e.notionalCents < 1000) continue
+          if (e.notionalCents > remaining) continue
+          const fp = prices[e.sym] ?? 0
+          if (fp <= 0) continue
+          const qty = (e.notionalCents / 100) / fp
+          await record(admin, agent.id, e.sym, 'buy', qty, fp, null)
+          pState.hwm[e.sym] = fp
+          remaining -= e.notionalCents
           agentTrades++
           totalNewTrades++
         }
       }
 
-      // ── 6. Recalculate NAV ──────────────────────────────────────────
-      const {
-        navCents,
-        totalReturnPct,
-        realizedPnlCents,
-        unrealizedPnlCents,
-        winRatePct,
-        totalTrades,
-      } = await calculateNAV(admin, agent.id, capitalCents, agentPrices)
+      // ── NAV & METRICS ────────────────────────────────────────────────────
+      const { navCents, returnPct, realized, unrealized, winRate, totalTrades } =
+        await calcNAV(admin, agent.id, capitalCents, prices)
 
-      // ── 7. Compute Sharpe, MaxDD from history ──────────────────────
-      const { data: navHistory } = await admin
-        .from('agent_stats')
-        .select('nav_cents')
-        .eq('agent_id', agent.id)
-        .order('snapshot_at', { ascending: true })
-        .limit(60)
+      const { data: navHist } = await admin
+        .from('agent_stats').select('nav_cents').eq('agent_id', agent.id)
+        .order('snapshot_at', { ascending: true }).limit(90)
+      const navSeries = (navHist ?? []).map(s => Number(s.nav_cents)).concat(navCents)
+      const sharpeRatio = calcSharpe(navSeries)
+      const maxDD = calcMaxDD(navSeries)
+      const freshPos = await getPositions(admin, agent.id, pState.hwm)
+      const exposed = freshPos.reduce((s, p) => s + Math.round(p.qty * p.avgEntry * 100), 0)
+      const expFrac = Math.min(1, exposed / capitalCents)
 
-      const allNavs = (navHistory ?? []).map(s => Number(s.nav_cents)).concat(navCents)
-      const dailyReturns: number[] = []
-      for (let i = 1; i < allNavs.length; i++) {
-        const prev = allNavs[i - 1]
-        if (prev > 0) dailyReturns.push(((allNavs[i] - prev) / prev) * 100)
-      }
-      const sharpeRatio = calcSharpe(dailyReturns)
-      const maxDrawdownPct = calcMaxDrawdown(allNavs)
+      // Signal summary
+      const posStr = freshPos.length > 0
+        ? freshPos.map(p => { const pct = ((prices[p.symbol] ?? p.avgEntry) - p.avgEntry) / p.avgEntry * 100; return `${p.symbol.split('/')[0]} ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%` }).join(' | ')
+        : null
+      const signal = exits.length > 0
+        ? `EXECUTED: ${exits.slice(0, 2).join(' | ')}`
+        : posStr ? `HOLDING: ${posStr}` : 'SCANNING — awaiting signal'
 
-      // ── 8. Insert agent_stats snapshot ────────────────────────────
-      const investedInPositions = positions.reduce(
-        (s, p) => s + Math.round(p.qty * p.avg_entry * 100), 0
-      )
-      const exposureFraction = capitalCents > 0 ? Math.min(1, investedInPositions / capitalCents) : 0
+      // ── WRITE DB ────────────────────────────────────────────────────────
+      const dailyRet = navSeries.length > 1
+        ? ((navCents - navSeries[navSeries.length - 2]) / navSeries[navSeries.length - 2]) * 100 : 0
 
       await admin.from('agent_stats').insert({
-        agent_id: agent.id,
-        snapshot_at: now,
-        nav_cents: navCents,
-        total_return_pct: parseFloat(totalReturnPct.toFixed(4)),
-        sharpe_ratio: sharpeRatio,
-        max_drawdown_pct: parseFloat(maxDrawdownPct.toFixed(4)),
-        win_rate_pct: parseFloat(winRatePct.toFixed(4)),
-        total_trades: totalTrades,
-        volume_shares: positions.reduce((s, p) => s + p.qty, 0),
-        daily_return_pct: dailyReturns.length > 0 ? dailyReturns[dailyReturns.length - 1] : 0,
-        portfolio_value_cents: capitalCents + realizedPnlCents + unrealizedPnlCents,
+        agent_id: agent.id, snapshot_at: now, nav_cents: navCents,
+        total_return_pct: parseFloat(returnPct.toFixed(4)),
+        sharpe_ratio: sharpeRatio, max_drawdown_pct: parseFloat(maxDD.toFixed(4)),
+        win_rate_pct: parseFloat(winRate.toFixed(4)), total_trades: totalTrades,
+        volume_shares: freshPos.reduce((s, p) => s + p.qty, 0),
+        daily_return_pct: parseFloat(dailyRet.toFixed(4)),
+        portfolio_value_cents: capitalCents + realized + unrealized,
       })
 
-      // ── 9. Update price ticks ──────────────────────────────────────
-      const spreadBps = Math.round(10 + exposureFraction * 40)
-      const bidCents = Math.round(navCents * (1 - spreadBps / 10_000))
-      const askCents = Math.round(navCents * (1 + spreadBps / 10_000))
-
+      const spreadBps = Math.round(10 + expFrac * 40)
       await admin.from('price_ticks').upsert({
-        agent_id: agent.id,
-        tick_at: now,
-        price_cents: navCents,
-        bid_cents: bidCents,
-        ask_cents: askCents,
-        volume: positions.reduce((s, p) => s + p.qty, 0),
+        agent_id: agent.id, tick_at: now, price_cents: navCents,
+        bid_cents: Math.round(navCents * (1 - spreadBps / 10_000)),
+        ask_cents: Math.round(navCents * (1 + spreadBps / 10_000)),
+        volume: freshPos.reduce((s, p) => s + p.qty, 0),
       }, { onConflict: 'agent_id,tick_at' })
 
-      // ── 10. Update agent share price + signal summary ──────────────
-      // Apply buy/sell pressure from recent trades: buying pushes up, selling pulls down
-      const buyNotional = decisions.filter(d => d.action === 'BUY')
-        .reduce((s, d) => s + (d.notionalCents ?? 0), 0)
-      const sellNotional = decisions.filter(d => d.action === 'SELL')
-        .reduce((s, d) => s + ((d.qty ?? 0) * (agentPrices[d.symbol] ?? 0) * 100), 0)
-      const netFlow = buyNotional - sellNotional
-      const tradePressurePct = capitalCents > 0 ? Math.max(-0.5, Math.min(0.5, (netFlow / capitalCents) * 20)) : 0
-      const pressuredNav = Math.round(navCents * (1 + tradePressurePct / 100))
-
       await admin.from('agents').update({
-        share_price_cents: pressuredNav,
+        share_price_cents: navCents,
         signal_summary: signal,
+        portfolio_json: JSON.stringify(pState),
         last_run_at: now,
       }).eq('id', agent.id)
 
-      // ── 11. Update holdings current value ─────────────────────────
-      const { data: activeHoldings } = await admin
-        .from('holdings')
-        .select('id, shares')
-        .eq('agent_id', agent.id)
-        .eq('status', 'active')
+      // Update holdings
+      const { data: hh } = await admin.from('holdings').select('id, shares').eq('agent_id', agent.id).eq('status', 'active')
+      for (const h of hh ?? [])
+        await admin.from('holdings').update({ current_value_cents: Math.round(Number(h.shares) * navCents) }).eq('id', h.id)
 
-      for (const h of activeHoldings ?? []) {
-        const currentValue = Math.round(Number(h.shares) * navCents)
-        await admin.from('holdings').update({ current_value_cents: currentValue }).eq('id', h.id)
-      }
-
-      // ── 12. Update agent AUM from active holdings ──────────────────
-      const { data: holdingsForAum } = await admin
-        .from('holdings')
-        .select('invested_cents')
-        .eq('agent_id', agent.id)
-        .eq('status', 'active')
-
-      const totalInvested = (holdingsForAum ?? []).reduce((s, h) => s + Number(h.invested_cents), 0)
-      if (totalInvested > 0) {
-        await admin.from('agents').update({ total_aum_cents: totalInvested }).eq('id', agent.id)
-      }
+      // Update AUM
+      const { data: hAum } = await admin.from('holdings').select('invested_cents').eq('agent_id', agent.id).eq('status', 'active')
+      const totalInvested = (hAum ?? []).reduce((s, h) => s + Number(h.invested_cents), 0)
+      if (totalInvested > 0) await admin.from('agents').update({ total_aum_cents: totalInvested }).eq('id', agent.id)
 
       results[agent.slug] = {
-        nav_usd: (navCents / 100).toFixed(2),
-        return_pct: totalReturnPct.toFixed(2),
-        realized_pnl: (realizedPnlCents / 100).toFixed(2),
-        unrealized_pnl: (unrealizedPnlCents / 100).toFixed(2),
-        trades_this_run: agentTrades,
-        total_trades: totalTrades,
-        sharpe: sharpeRatio.toFixed(3),
-        signal,
-        data_source: Object.values(currentPrices)[0]?.source ?? 'unknown',
+        nav: `$${(navCents / 100).toFixed(2)}`, return: `${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(2)}%`,
+        realized: `$${(realized / 100).toFixed(2)}`, unrealized: `$${(unrealized / 100).toFixed(2)}`,
+        positions: freshPos.length, trades_this_run: agentTrades, exits,
+        sharpe: sharpeRatio.toFixed(3), max_dd: `${maxDD.toFixed(2)}%`, signal,
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error'
-      console.error(`Simulate failed for ${agent.slug}:`, msg)
+      const msg = err instanceof Error ? err.message : 'Unknown'
+      console.error(`[simulate] ${agent.slug}:`, msg)
       results[agent.slug] = { error: msg }
     }
   }
 
   return NextResponse.json({
-    ok: true,
-    ran_at: now,
-    agents_run: agents.length,
-    new_trades: totalNewTrades,
-    prices: Object.fromEntries(
-      Object.entries(currentPrices).map(([sym, { price, source }]) => [sym, { price: price.toFixed(2), source }])
-    ),
+    ok: true, ran_at: now,
+    agents: agents.length, new_trades: totalNewTrades,
+    prices: Object.fromEntries(Object.entries(pricesMap).map(([s, { price, source }]) => [s, { price: `$${price.toFixed(2)}`, source }])),
     results,
   })
 }
 
-export async function GET(req: NextRequest) {
-  return POST(req)
-}
+export async function GET(req: NextRequest) { return POST(req) }

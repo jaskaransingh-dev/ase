@@ -15,6 +15,7 @@ export function getStripe(): Stripe {
 
 // For backward compatibility, also export stripe as a getter
 export const stripe = {
+  get webhooks() { return getStripe().webhooks },
   get customers() { return getStripe().customers },
   get paymentIntents() { return getStripe().paymentIntents },
   get charges() { return getStripe().charges },

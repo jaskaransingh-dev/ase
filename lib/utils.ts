@@ -1,8 +1,9 @@
-export const fmtUSD = (cents: number): string => {
+export const fmtUSD = (cents: number, decimals = 2): string => {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
-    maximumFractionDigits: 2,
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
   }).format(cents / 100)
 }
 

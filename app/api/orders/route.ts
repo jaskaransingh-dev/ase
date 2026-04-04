@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { calculateQuoteFromNav } from '@/lib/market'
+import { mergeHoldingPosition, reduceHoldingPosition, syncAgentMarketState } from '@/lib/exchange'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,7 +49,7 @@ export async function POST(req: NextRequest) {
     // Check agent is active
     const { data: agent } = await admin
       .from('agents')
-      .select('id, name, status')
+      .select('id, name, status, total_aum_cents')
       .eq('id', agent_id)
       .single()
 
@@ -66,8 +68,14 @@ export async function POST(req: NextRequest) {
         .single()
 
       const navCents = latestStats?.nav_cents ?? 10000
-      const bidCents = latestStats?.bid_cents ?? (navCents * 9985 / 10000)
-      const askCents = latestStats?.ask_cents ?? (navCents * 10015 / 10000)
+      const quote = latestStats?.ask_cents && latestStats?.bid_cents
+        ? { bidCents: Number(latestStats.bid_cents), askCents: Number(latestStats.ask_cents) }
+        : calculateQuoteFromNav({
+            navCents,
+            totalPoolCents: Math.round((navCents / 10_000) * 1_000_000),
+          })
+      const bidCents = quote.bidCents
+      const askCents = quote.askCents
       
       const executionPrice = side === 'buy' ? askCents : bidCents
       const orderShares = shares ? Number(shares) : (notional_cents! / executionPrice)
@@ -92,56 +100,52 @@ export async function POST(req: NextRequest) {
           .eq('user_id', user.id)
       }
 
-      // Create or update holding
       if (side === 'buy') {
-        await admin
-          .from('holdings')
-          .upsert({
-            user_id: user.id,
-            agent_id,
-            shares: orderShares,
-            entry_nav_cents: executionPrice,
-            invested_cents: totalCents,
-            current_value_cents: totalCents,
-            status: 'active',
-          }, {
-            onConflict: 'user_id,agent_id',
-            ignoreDuplicates: false
-          })
+        await mergeHoldingPosition(admin, {
+          userId: user.id,
+          agentId: agent_id,
+          shares: orderShares,
+          executionPriceCents: executionPrice,
+          investedCents: totalCents,
+        })
       } else {
-        // For sells, close existing holdings
         const { data: existingHolding } = await admin
           .from('holdings')
-          .select('*')
+          .select('id, shares')
           .eq('user_id', user.id)
           .eq('agent_id', agent_id)
           .eq('status', 'active')
           .single()
 
-        if (existingHolding) {
+        if (!existingHolding) {
+          return NextResponse.json({ error: 'No holding available to sell' }, { status: 400 })
+        }
+
+        await reduceHoldingPosition(admin, {
+          holdingId: existingHolding.id,
+          sharesToSell: Math.min(orderShares, Number(existingHolding.shares) || 0),
+        })
+
+        const { data: wallet } = await admin
+          .from('wallets')
+          .select('balance_cents')
+          .eq('user_id', user.id)
+          .single()
+
+        if (wallet) {
           await admin
-            .from('holdings')
-            .update({
-              status: 'sold',
-              sold_at: new Date().toISOString(),
-            })
-            .eq('id', existingHolding.id)
-
-          // Credit wallet for sells
-          const { data: wallet } = await admin
             .from('wallets')
-            .select('balance_cents')
+            .update({ balance_cents: wallet.balance_cents + totalCents })
             .eq('user_id', user.id)
-            .single()
-
-          if (wallet) {
-            await admin
-              .from('wallets')
-              .update({ balance_cents: wallet.balance_cents + totalCents })
-              .eq('user_id', user.id)
-          }
         }
       }
+
+      const synced = await syncAgentMarketState(admin, {
+        agentId: agent_id,
+        previousInvestorCapitalCents: Number(agent.total_aum_cents) || 0,
+        previousNavCents: navCents,
+        volumeShares: orderShares,
+      })
 
       // Record order fill
       const { data: orderFill } = await admin
@@ -172,7 +176,10 @@ export async function POST(req: NextRequest) {
         order_type: 'market',
         shares: orderShares,
         fill_price_cents: executionPrice,
-        total_cents: totalCents 
+        total_cents: totalCents,
+        nav_cents: synced.navCents,
+        bid_cents: synced.bidCents,
+        ask_cents: synced.askCents,
       })
     }
 

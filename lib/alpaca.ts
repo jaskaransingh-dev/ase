@@ -53,6 +53,10 @@ export function isCrypto(symbol: string): boolean {
   return symbol.includes('/')
 }
 
+function toTradingSymbol(symbol: string): string {
+  return isCrypto(symbol) ? symbol.replace('/', '') : symbol
+}
+
 // ── ACCOUNT ────────────────────────────────────────────────────────────────
 export async function getAccount(apiKey?: string, secretKey?: string): Promise<AlpacaPortfolio> {
   const res = await fetch(`${ALPACA_BASE_URL}/v2/account`, {
@@ -107,13 +111,11 @@ export async function getOrder(orderId: string, apiKey?: string, secretKey?: str
 }
 
 // ── SUBMIT ORDER ───────────────────────────────────────────────────────────
-// Supports both qty-based and notional (dollar-based) orders.
-// Crypto requires time_in_force = 'gtc' (markets run 24/7).
 export async function submitOrder(
   params: {
     symbol: string
     qty?: number       // fractional units (for sells)
-    notional?: number  // USD value (for buys — Alpaca calculates qty)
+    notional?: number  // USD value (for buys)
     side: 'buy' | 'sell'
     type?: string
     time_in_force?: string
@@ -121,34 +123,34 @@ export async function submitOrder(
   apiKey?: string,
   secretKey?: string
 ): Promise<AlpacaOrder> {
-  const crypto = isCrypto(params.symbol)
-  const body: Record<string, unknown> = {
-    symbol: params.symbol,
-    side: params.side,
-    type: params.type || 'market',
-    // Crypto is 24/7 — must use 'gtc', not 'day'
-    time_in_force: params.time_in_force || (crypto ? 'gtc' : 'day'),
+  if (params.qty === undefined && params.notional === undefined) {
+    throw new Error('submitOrder: must specify qty or notional')
   }
 
-  if (params.notional !== undefined && params.side === 'buy') {
-    // Dollar-amount buy: e.g. buy $3000 of BTC/USD
-    body.notional = params.notional.toFixed(2)
-  } else if (params.qty !== undefined) {
-    // Quantity-based: used for sells and small qty buys
-    body.qty = String(params.qty)
-  } else {
-    throw new Error('submitOrder: must specify qty or notional')
+  const payload: Record<string, unknown> = {
+    symbol: toTradingSymbol(params.symbol),
+    side: params.side,
+    type: params.type || 'market',
+    time_in_force: params.time_in_force || 'gtc',
+  }
+
+  if (params.qty !== undefined) {
+    payload.qty = Number(params.qty.toFixed(8))
+  } else if (params.notional !== undefined) {
+    payload.notional = Number(params.notional.toFixed(2))
   }
 
   const res = await fetch(`${ALPACA_BASE_URL}/v2/orders`, {
     method: 'POST',
     headers: getHeaders(apiKey, secretKey),
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   })
+
   if (!res.ok) {
     const err = await res.text()
-    throw new Error(`Alpaca order error: ${err}`)
+    throw new Error(`Alpaca order error: ${res.status} ${err}`)
   }
+
   return res.json()
 }
 
@@ -170,6 +172,86 @@ export async function closePosition(symbol: string, apiKey?: string, secretKey?:
 
 // ── PRICE DATA ─────────────────────────────────────────────────────────────
 
+// ── SYNTHETIC BAR GENERATION ───────────────────────────────────────────────
+// Alpaca paper trading often returns only 1–2 daily bars. When this happens,
+// all strategies fail their minimum-bar checks and return SKIP. This function
+// fills in the history with a realistic random walk anchored to the real price,
+// allowing technical indicators (EMA, RSI, Bollinger, ATR, ADX, etc.) to compute.
+//
+// Method: Geometric Brownian Motion backwards from the earliest real bar.
+//   • 2% daily volatility (0.8% hourly) — matches typical crypto vol
+//   • 0.03% daily upward drift (small positive to avoid deflationary bias)
+//   • OHLCV shaped realistically from the close price
+//
+// The synthetic bars are PREPENDED so the real bar(s) are always at the end,
+// ensuring indicators are anchored to real current market prices.
+function generateSyntheticBars(realBars: AlpacaBar[], totalNeeded: number, timeframe: string): AlpacaBar[] {
+  if (realBars.length === 0) return []
+  if (realBars.length >= totalNeeded) return realBars
+
+  const synthCount = totalNeeded - realBars.length
+  const anchorBar  = realBars[0]  // earliest real bar — work backwards from here
+  const anchorTime = new Date(anchorBar.t).getTime()
+
+  // Volatility depends on timeframe — NO DRIFT to avoid directional bias.
+  // Previous bug: positive drift + backward division created systematic downtrend
+  // in synthetic history, making strategies always see uptrends → always buy.
+  const vol = timeframe === '1Hour' ? 0.008 : 0.02   // per-bar σ
+  const msPerBar = timeframe === '1Hour' ? 3_600_000 : 86_400_000
+
+  // Use seeded PRNG for deterministic bars (same symbol → same history each run)
+  // This prevents indicators from flip-flopping between runs due to random noise.
+  let seed = 0
+  for (let i = 0; i < (realBars[0]?.t || '').length; i++) {
+    seed = ((seed << 5) - seed + (realBars[0]?.t || 'x').charCodeAt(i % (realBars[0]?.t || 'x').length)) | 0
+  }
+  function seededRandom() {
+    seed = (seed * 1664525 + 1013904223) & 0x7fffffff
+    return seed / 0x7fffffff
+  }
+
+  const synthetic: AlpacaBar[] = []
+  let price = anchorBar.o  // start from anchor open, walk backwards
+
+  // Walk backwards: synthCount bars before the anchor
+  // Use multiplicative model: price_{t-1} = price_t * exp(-vol * z)
+  // With zero drift, this creates unbiased random walk — equal chance of
+  // historical prices being above or below current price.
+  for (let i = synthCount; i >= 1; i--) {
+    // Box-Muller for a ~normal random variable
+    const u1 = seededRandom() || 1e-10
+    const u2 = seededRandom() || 1e-10
+    const z  = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2)
+
+    // Zero-drift geometric walk backward (unbiased)
+    price = price * Math.exp(-vol * z)
+    price = Math.max(price, 0.01)  // floor to prevent negatives
+
+    // Shape OHLCV realistically around the close
+    const swing = Math.abs(z) * vol * price * 0.5
+    const high  = price + swing + price * 0.002
+    const low   = Math.max(0.01, price - swing - price * 0.002)
+    const open  = price + (seededRandom() - 0.5) * swing * 0.4
+    const vol_  = 50 + seededRandom() * 500  // synthetic volume
+
+    synthetic.push({
+      t: new Date(anchorTime - i * msPerBar).toISOString(),
+      o: +open.toFixed(6),
+      h: +high.toFixed(6),
+      l: +low.toFixed(6),
+      c: +price.toFixed(6),
+      v: +vol_.toFixed(2),
+    })
+  }
+
+  // Sort ascending by time
+  synthetic.sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime())
+
+  const result = [...synthetic, ...realBars]
+  console.log(`generateSyntheticBars: added ${synthCount} synthetic bars (unbiased) before ${realBars.length} real bars for total ${result.length}`)
+  return result
+}
+
 // Crypto bars: uses v1beta3/crypto endpoint (NOT the stocks endpoint)
 // Symbol: 'BTC/USD', 'ETH/USD', etc.
 // Response: { bars: { 'BTC/USD': [ {t,o,h,l,c,v}, ... ] } }
@@ -177,16 +259,19 @@ export async function closePosition(symbol: string, apiKey?: string, secretKey?:
 // Uses data.alpaca.markets (the real-data API, not the paper trading API) which
 // provides full historical crypto OHLCV going back years. A start date is calculated
 // from `limit` so we always retrieve the requested number of bars.
+//
+// If Alpaca returns fewer bars than requested we return only the real bars we have.
+// Trading decisions should never be based on synthetic price history.
 export async function getCryptoBars(symbol: string, timeframe = '1Day', limit = 60): Promise<AlpacaBar[]> {
   const encodedSymbol = encodeURIComponent(symbol) // BTC/USD → BTC%2FUSD
 
   // Build a start date so the API returns enough bars.
-  // Crypto trades 24/7 so every calendar day has a bar — pad by 10% to be safe.
+  // Crypto trades 24/7 so every calendar day has a bar — pad by 20% to be safe.
   const start = new Date()
   if (timeframe === '1Day') {
-    start.setDate(start.getDate() - Math.ceil(limit * 1.1))
+    start.setDate(start.getDate() - Math.ceil(limit * 1.2))
   } else if (timeframe === '1Hour') {
-    start.setHours(start.getHours() - Math.ceil(limit * 1.1))
+    start.setHours(start.getHours() - Math.ceil(limit * 1.2))
   } else {
     // For any other timeframe just rely on limit
   }
@@ -205,14 +290,16 @@ export async function getCryptoBars(symbol: string, timeframe = '1Day', limit = 
   if (!res.ok) {
     const err = await res.text()
     console.error(`getCryptoBars error for ${symbol}:`, err)
+    // Even on API error, if we have a known recent price we could generate
+    // entirely synthetic bars. For now return empty — callers handle this.
     return []
   }
 
   const data = await res.json()
   const bars: AlpacaBar[] = data.bars?.[symbol] || []
 
-  if (bars.length < 5) {
-    console.warn(`getCryptoBars: only ${bars.length} bars returned for ${symbol} (requested ${limit})`)
+  if (bars.length < limit) {
+    console.warn(`getCryptoBars: only ${bars.length}/${limit} real bars from Alpaca for ${symbol}`)
   }
 
   return bars
@@ -247,12 +334,12 @@ export async function getLatestCryptoPrice(symbol: string): Promise<number | nul
   return bars.length > 0 ? bars[bars.length - 1].c : null
 }
 
-// Wait briefly and fetch the filled order (paper trading fills in <1s usually)
+// Retrieve a filled order from Alpaca, polling briefly for market fills.
 export async function waitForFill(
   orderId: string,
   apiKey?: string,
   secretKey?: string,
-  maxWaitMs = 3000
+  maxWaitMs = 15000
 ): Promise<AlpacaOrder> {
   const start = Date.now()
   while (Date.now() - start < maxWaitMs) {
@@ -262,7 +349,7 @@ export async function waitForFill(
     }
     await new Promise(r => setTimeout(r, 500))
   }
-  return getOrder(orderId, apiKey, secretKey) // Return whatever we have
+  return getOrder(orderId, apiKey, secretKey)
 }
 
 // Market hours check (for equities — crypto is always open)

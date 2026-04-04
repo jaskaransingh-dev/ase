@@ -1,7 +1,7 @@
 /**
  * POST /api/cron/run-agents
  *
- * Runs all 5 sophisticated trading strategies against live Alpaca crypto market data.
+ * Runs all 10 sophisticated trading strategies against live Alpaca crypto market data.
  * Each agent:
  *   1. Checks its own open positions from agent_trades (DB-tracked, per-agent)
  *   2. Fetches real crypto bars from Alpaca v1beta3 endpoint
@@ -21,10 +21,30 @@ import {
   runCryptoTrend,
   runSolBreakout,
   runDefiBasket,
+  runBtcEthPairs,
+  runVolHarvester,
+  runMomentumCarry,
+  runCascadeDetect,
+  runDefiYield,
   StrategyResult,
+  getAgentPositions,
 } from '@/lib/agents'
+import { getCryptoBars } from '@/lib/alpaca'
+import { calculateNavFromState, calculateHoldingValueCents, PLATFORM_SEED_CAPITAL_CENTS } from '@/lib/market'
 
 export const dynamic = 'force-dynamic'
+
+// Health check: verify Alpaca connectivity before running agents
+async function healthCheckAlpaca(alpacaKey: string, alpacaSecret: string): Promise<boolean> {
+  try {
+    // Try to fetch a simple bar to verify connection
+    const bars = await getCryptoBars('BTC/USD', '1Day', 1)
+    return bars.length > 0
+  } catch (err) {
+    console.error('Alpaca health check failed:', err instanceof Error ? err.message : 'Unknown error')
+    return false
+  }
+}
 
 // Map agent DB slug → strategy runner
 const STRATEGY_MAP: Record<
@@ -36,6 +56,11 @@ const STRATEGY_MAP: Record<
   'crypto-trend':   runCryptoTrend,
   'sol-breakout':   runSolBreakout,
   'defi-basket':    runDefiBasket,
+  'btc-eth-pairs':  runBtcEthPairs,
+  'vol-harvester':  runVolHarvester,
+  'momentum-carry': runMomentumCarry,
+  'cascade-detect': runCascadeDetect,
+  'defi-yield':     runDefiYield,
 }
 
 export async function POST(req: NextRequest) {
@@ -56,6 +81,16 @@ export async function POST(req: NextRequest) {
       { error: 'Alpaca credentials not configured', env_vars: ['ALPACA_KEY_ID', 'ALPACA_SECRET_KEY'] },
       { status: 500 }
     )
+  }
+
+  // Health check: verify Alpaca connectivity before running agents
+  const isHealthy = await healthCheckAlpaca(alpacaKey, alpacaSecret)
+  if (!isHealthy) {
+    return NextResponse.json({
+      ok: false,
+      error: 'Alpaca health check failed - skipping agent runs',
+      ran_at: new Date().toISOString(),
+    }, { status: 503 })
   }
 
   const admin = createAdminClient()
@@ -85,17 +120,32 @@ export async function POST(req: NextRequest) {
         agent_slug: agent.slug,
         error: 'No strategy runner configured',
       }
+      try {
+        await admin
+          .from('agents')
+          .update({ last_error: 'No strategy runner configured' })
+          .eq('id', agent.id)
+      } catch (_) { /* best-effort */ }
       continue
     }
 
     try {
-      // Capital = actual AUM (sum of all investor funds), min $10k
-      // More investors → higher AUM → agent trades larger positions → more P&L → NAV rises
-      const baseCapitalCents = 1_000_000 // $10,000 floor (no investors yet)
-      const aumCents = Number(agent.total_aum_cents) || 0
-      const capitalCents = Math.max(baseCapitalCents, aumCents)
+      // Re-fetch the latest AUM for this agent (may have changed since cron started
+      // if a user bought/sold shares in between). This ensures agents always trade
+      // with the most up-to-date capital amount.
+      const { data: freshAgent } = await admin
+        .from('agents')
+        .select('total_aum_cents')
+        .eq('id', agent.id)
+        .single()
 
-      console.log(`Running ${agent.slug} with $${(capitalCents / 100).toFixed(0)} capital`)
+      const aumCents = Number(freshAgent?.total_aum_cents ?? agent.total_aum_cents) || 0
+      // Capital = platform seed + ALL investor capital (additive, not max)
+      // Every dollar an investor adds goes directly into the trading pool.
+      // More AUM → agent trades larger positions → more absolute P&L → higher NAV %.
+      const capitalCents = PLATFORM_SEED_CAPITAL_CENTS + aumCents
+
+      console.log(`Running ${agent.slug} with $${(capitalCents / 100).toFixed(0)} capital (seed: $${(PLATFORM_SEED_CAPITAL_CENTS/100).toFixed(0)} + investor AUM: $${(aumCents / 100).toFixed(0)})`)
 
       const result = await runner(admin, agent.id, alpacaKey, alpacaSecret, capitalCents)
       results[agent.slug] = result
@@ -109,6 +159,7 @@ export async function POST(req: NextRequest) {
             signal_summary: result.signal_summary || 'SCANNING',
             portfolio_json: JSON.stringify(result.portfolio),
             last_run_at: ran_at,
+            last_error: null, // Clear any previous errors on successful run
           })
           .eq('id', agent.id)
       } catch (statsErr) {
@@ -119,50 +170,8 @@ export async function POST(req: NextRequest) {
       const tradeCount = result.actions.filter(a => a.action === 'BUY' || a.action === 'SELL').length
       totalTrades += tradeCount
 
-      // ── LIVE PRICE TICK ─────────────────────────────────────────────────
-      // Update bid/ask immediately after trades execute.
-      // Buys push ask up (momentum); sells push bid down.
-      // Spread widens with portfolio exposure (more positions = more risk = wider market).
-      // This gives the agent's share a live order-book feel between NAV updates.
       if (tradeCount > 0) {
-        try {
-          const currentPriceCents = Number(agent.share_price_cents) || 10_000
-
-          // Net notional flow: positive = buying pressure, negative = selling pressure
-          const buyNotionalCents = result.actions
-            .filter(a => a.action === 'BUY')
-            .reduce((s, a) => s + Math.round((a.notional ?? (a.qty ?? 0) * (a.fill_price ?? 0)) * 100), 0)
-          const sellNotionalCents = result.actions
-            .filter(a => a.action === 'SELL')
-            .reduce((s, a) => s + Math.round((a.qty ?? 0) * (a.fill_price ?? 0) * 100), 0)
-
-          // Price impact: 0.4% per 1% of capital traded, capped at ±1.5%
-          const netFlowCents = buyNotionalCents - sellNotionalCents
-          const impactPct = Math.max(-1.5, Math.min(1.5, (netFlowCents / capitalCents) * 40))
-
-          // Spread: 10 bps base + up to 40 bps when fully deployed
-          const exposureFraction = (result.portfolio.exposure_pct ?? 0) / 100
-          const spreadBps = Math.round(10 + exposureFraction * 40)
-
-          const midCents  = Math.round(currentPriceCents * (1 + impactPct / 100))
-          const bidCents  = Math.round(midCents * (1 - spreadBps / 10_000))
-          const askCents  = Math.round(midCents * (1 + spreadBps / 10_000))
-          const volume    = result.actions
-            .filter(a => a.action === 'BUY' || a.action === 'SELL')
-            .reduce((s, a) => s + (a.qty ?? 0), 0)
-
-          await admin.from('price_ticks').upsert(
-            { agent_id: agent.id, tick_at: ran_at, price_cents: midCents, bid_cents: bidCents, ask_cents: askCents, volume },
-            { onConflict: 'agent_id,tick_at' }
-          )
-
-          // Reflect live mid in share price immediately (update-nav will correct to exact NAV at next cycle)
-          await admin.from('agents').update({ share_price_cents: midCents }).eq('id', agent.id)
-
-          console.log(`${agent.slug}: ${tradeCount} trade(s) | impact ${impactPct > 0 ? '+' : ''}${impactPct.toFixed(2)}% | spread ${spreadBps}bps | bid $${(bidCents/100).toFixed(2)} ask $${(askCents/100).toFixed(2)}`)
-        } catch (priceErr) {
-          console.warn(`Live price tick failed for ${agent.slug}:`, priceErr instanceof Error ? priceErr.message : priceErr)
-        }
+        console.log(`${agent.slug}: executed ${tradeCount} live trade(s); NAV will be recalculated`)
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
@@ -171,6 +180,88 @@ export async function POST(req: NextRequest) {
         agent_slug: agent.slug,
         error: msg,
       }
+      // Store the error on the agent row for visibility
+      try {
+        await admin
+          .from('agents')
+          .update({ last_error: msg })
+          .eq('id', agent.id)
+      } catch (_) { /* best-effort */ }
+    }
+  }
+
+  // ── NAV RECALCULATION: Update share prices after all agents finish running ──
+  console.log('Starting NAV recalculation for all agents...')
+  for (const agent of agents) {
+    try {
+      // Get investor capital
+      const { data: activeHoldings } = await admin
+        .from('holdings')
+        .select('id, shares, invested_cents')
+        .eq('agent_id', agent.id)
+        .eq('status', 'active')
+
+      const investorCapitalCents = (activeHoldings ?? []).reduce(
+        (sum, holding) => sum + (Number(holding.invested_cents) || 0),
+        0
+      )
+
+      // Get realized P&L from closed trades
+      const { data: closedTrades } = await admin
+        .from('agent_trades')
+        .select('pnl_cents')
+        .eq('agent_id', agent.id)
+        .not('pnl_cents', 'is', null)
+
+      const realizedPnlCents = (closedTrades ?? []).reduce(
+        (sum, t) => sum + (Number(t.pnl_cents) || 0), 0
+      )
+
+      // Get unrealized P&L from open positions
+      const openPositions = await getAgentPositions(admin, agent.id)
+      let unrealizedPnlCents = 0
+      const priceCache: Record<string, number> = {}
+
+      for (const pos of openPositions) {
+        if (!priceCache[pos.symbol]) {
+          const bars = await getCryptoBars(pos.symbol, '1Day', 1)
+          priceCache[pos.symbol] = bars.length > 0 ? bars[bars.length - 1].c : pos.avg_entry
+        }
+        const currentPrice = priceCache[pos.symbol]
+        const unrealizedDollars = pos.qty * (currentPrice - pos.avg_entry)
+        unrealizedPnlCents += Math.round(unrealizedDollars * 100)
+      }
+
+      // Calculate new NAV
+      const totalPnlCents = realizedPnlCents + unrealizedPnlCents
+      const navState = calculateNavFromState({
+        investorCapitalCents,
+        totalPnlCents,
+      })
+      const navCents = navState.navCents
+
+      // Update agent share price
+      await admin
+        .from('agents')
+        .update({
+          share_price_cents: navCents,
+          total_aum_cents: investorCapitalCents,
+        })
+        .eq('id', agent.id)
+
+      // Update holdings current value
+      for (const holding of activeHoldings ?? []) {
+        const currentValue = calculateHoldingValueCents(Number(holding.shares) || 0, navCents)
+        await admin
+          .from('holdings')
+          .update({ current_value_cents: currentValue })
+          .eq('id', holding.id)
+      }
+
+      console.log(`${agent.slug}: NAV updated to ${(navCents / 100).toFixed(2)} USD`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      console.error(`NAV recalculation failed for ${agent.slug}:`, msg)
     }
   }
 
