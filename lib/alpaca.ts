@@ -299,7 +299,7 @@ export async function getCryptoBars(symbol: string, timeframe = '1Day', limit = 
   const bars: AlpacaBar[] = data.bars?.[symbol] || []
 
   if (bars.length < limit) {
-    console.warn(`getCryptoBars: only ${bars.length}/${limit} real bars from Alpaca for ${symbol}`)
+    console.warn(`[alpaca] ${symbol}: only ${bars.length}/${limit} real bars — ${bars.length < 10 ? 'indicators may be unreliable with synthetic history' : 'partial data returned'}`)
   }
 
   return bars

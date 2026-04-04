@@ -14,12 +14,22 @@ export default async function AgentsPage() {
     .eq('status', 'active')
     .order('created_at')
 
+  // Type helper for agent with extended fields
+  type AgentRow = NonNullable<typeof data>[number] & { alert_level?: string; max_aum_cents?: number; ticker?: string }
+
   const agentsList = data ?? []
 
   const strategyInfo: Record<string, { label: string; color: string }> = {
-    momentum: { label: 'Momentum', color: 'var(--gold)' },
-    mean_reversion: { label: 'Mean Reversion', color: 'var(--green)' },
-    trend_following: { label: 'Trend Following', color: '#7B9FFF' },
+    momentum:              { label: 'Momentum',        color: 'var(--gold)' },
+    mean_reversion:        { label: 'Mean Reversion',  color: 'var(--green)' },
+    trend_following:       { label: 'Trend Following', color: '#7B9FFF' },
+    crypto_momentum:       { label: 'Crypto Momentum', color: '#F7931A' },
+    crypto_mean_reversion: { label: 'Crypto Arb',      color: '#0EAD6E' },
+  }
+
+  const tickerMap: Record<string, string> = {
+    crypto_momentum: 'CRYP', crypto_mean_reversion: 'CARB',
+    momentum: 'MOMO', mean_reversion: 'REVT', trend_following: 'TRND',
   }
 
   return (
@@ -41,8 +51,8 @@ export default async function AgentsPage() {
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(340px,1fr))', gap: '1.25rem' }}>
-          {agentsList.map((agent) => {
-            const latestStats = agent.agent_stats?.[0]
+          {agentsList.map((agent: AgentRow) => {
+            const latestStats = Array.isArray(agent.agent_stats) ? agent.agent_stats[0] : agent.agent_stats ?? null
             const nav = latestStats?.nav_cents ?? 10000
             const ret = latestStats?.total_return_pct ?? 0
             const sharpe = latestStats?.sharpe_ratio ?? 0
@@ -58,10 +68,18 @@ export default async function AgentsPage() {
                   <div>
                     <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.05rem', fontWeight: 800, marginBottom: '.2rem' }}>{agent.name}</div>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.04em' }}>
-                      {['MOMO','REVT','TRND'][['momentum','mean_reversion','trend_following'].indexOf(agent.strategy_type)] || '???'} · VERIFIED
+                      {tickerMap[agent.strategy_type] ?? agent.ticker ?? 'ALGO'} · VERIFIED
                     </div>
                   </div>
-                  <span className="pill pill-green" style={{ fontSize: '.58rem', flexShrink: 0 }}>LIVE</span>
+                  {agent.alert_level === 'hard' ? (
+                    <span className="pill" style={{ fontSize: '.58rem', flexShrink: 0, background: 'rgba(232,64,64,.12)', color: '#E84040', borderColor: 'rgba(232,64,64,.3)' }}>DELISTED</span>
+                  ) : agent.alert_level === 'orange' ? (
+                    <span className="pill" style={{ fontSize: '.58rem', flexShrink: 0, background: 'rgba(232,100,32,.12)', color: '#E86420', borderColor: 'rgba(232,100,32,.3)' }}>ALERT</span>
+                  ) : ((agent.total_aum_cents ?? 0) / (agent.max_aum_cents ?? 100_000_000)) >= 0.95 ? (
+                    <span className="pill" style={{ fontSize: '.58rem', flexShrink: 0, background: 'rgba(232,172,32,.12)', color: '#E8AC20', borderColor: 'rgba(232,172,32,.3)' }}>FULL</span>
+                  ) : (
+                    <span className="pill pill-green" style={{ fontSize: '.58rem', flexShrink: 0 }}>LIVE</span>
+                  )}
                 </div>
 
                 <p style={{ fontSize: '.82rem', color: 'var(--muted)', lineHeight: 1.6, marginBottom: '1rem', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>

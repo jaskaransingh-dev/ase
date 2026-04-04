@@ -16,6 +16,11 @@ const SLUG_TO_TICKER: Record<string, string> = {
   'crypto-trend': '$CRTR',
   'sol-breakout': '$SOLB',
   'defi-basket': '$DEFI',
+  'btc-eth-pairs': '$PAIR',
+  'vol-harvester': '$VOLH',
+  'momentum-carry': '$MCAR',
+  'cascade-detect': '$CASC',
+  'defi-yield': '$DYLD',
 }
 
 const SLUG_TO_TYPE: Record<string, string> = {
@@ -24,6 +29,11 @@ const SLUG_TO_TYPE: Record<string, string> = {
   'crypto-trend': 'Trend Following',
   'sol-breakout': 'Breakout',
   'defi-basket': 'Multi-Asset',
+  'btc-eth-pairs': 'Pairs Trading',
+  'vol-harvester': 'Vol Harvest',
+  'momentum-carry': 'Carry',
+  'cascade-detect': 'Cascade',
+  'defi-yield': 'DeFi Yield',
 }
 
 export async function GET() {

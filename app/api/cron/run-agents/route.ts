@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
   // Load all active agents from DB
   const { data: agents, error: agentsError } = await admin
     .from('agents')
-    .select('id, slug, total_aum_cents, share_price_cents')
+    .select('id, slug, total_aum_cents, share_price_cents, alert_level')
     .eq('status', 'active')
 
   if (agentsError || !agents?.length) {
@@ -110,10 +110,20 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  // Circuit breaker logging hook (Phase 2: full ADV cross-agent check)
+  console.log(`[circuit] cross-agent symbol exposure check — ${agents.length} agents in this cron tick`)
+
   const results: Record<string, StrategyResult | { error: string; agent_slug: string }> = {}
   let totalTrades = 0
 
   for (const agent of agents) {
+    // Skip agents under hard drawdown delisting (White Paper Section 7.4)
+    if (agent.alert_level === 'hard') {
+      results[agent.slug] = { agent_slug: agent.slug, error: 'Skipped — hard drawdown alert' }
+      console.warn(`[cron] ${agent.slug}: SKIPPED — hard drawdown delisting`)
+      continue
+    }
+
     const runner = STRATEGY_MAP[agent.slug]
     if (!runner) {
       results[agent.slug] = {

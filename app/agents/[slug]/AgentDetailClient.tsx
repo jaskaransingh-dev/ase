@@ -7,7 +7,7 @@ import { fmtUSD, fmtPct, fmtDateTime, fmtDate } from '@/lib/utils'
 import RealtimePrice from '@/components/ui/realtime-price'
 import OrderForm from '@/components/ui/order-form'
 
-interface Agent { id: string; name: string; slug: string; ticker?: string; description: string; strategy_type: string; status: string; total_aum_cents: number }
+interface Agent { id: string; name: string; slug: string; ticker?: string; description: string; strategy_type: string; status: string; total_aum_cents: number; alert_level?: string; drawdown_pct?: number; max_aum_cents?: number; accrued_fee_cents?: number; developer_fee_pct?: number }
 interface Stats { id: string; nav_cents: number; bid_cents?: number; ask_cents?: number; total_return_pct: number; sharpe_ratio: number; max_drawdown_pct: number; win_rate_pct: number; total_trades: number; snapshot_at: string }
 interface Trade { id: string; symbol: string; side: string; qty: number; fill_price: number; filled_at: string; pnl_cents: number }
 interface Holding { id: string; shares: number; invested_cents: number; current_value_cents: number; entry_nav_cents: number }
@@ -113,6 +113,8 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
     momentum: 'Weekly rebalance targeting highest-momentum stocks from a curated watchlist. Position-size capped at 20% per holding.',
     mean_reversion: 'Enters when RSI drops below 30 on large-cap equities. Exits at RSI > 55 or +8% gain. Max 3 open positions.',
     trend_following: 'Classic 50/200 EMA crossover on SPY, QQQ, IWM. Long when 50-EMA is above 200-EMA, flat otherwise.',
+    crypto_momentum: 'BTC/ETH momentum with EMA crossovers, MACD confirmation, and RSI filters. Multi-tier profit taking with ATR-based stops. Max 45% exposure per position.',
+    crypto_mean_reversion: 'Statistical arbitrage on ETH using Bollinger Band and Z-score mean reversion. Scales position size 18-35% based on oversold magnitude. Hard stop at -4%.',
   }
 
   return (
@@ -123,6 +125,23 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
         onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--faint)'}>
         ← All Agents
       </Link>
+
+      {/* Drawdown Alerts */}
+      {agent.alert_level === 'yellow' && (
+        <div style={{background:'rgba(232,172,32,.12)',border:'1px solid rgba(232,172,32,.3)',borderRadius:12,padding:'.75rem 1rem',marginBottom:'1rem',color:'#E8AC20',fontSize:'.85rem'}}>
+          Warning: Agent is {agent.drawdown_pct?.toFixed(1)}% below peak NAV. Reserve requirements increased. Monitor closely.
+        </div>
+      )}
+      {agent.alert_level === 'orange' && (
+        <div style={{background:'rgba(232,100,32,.12)',border:'1px solid rgba(232,100,32,.3)',borderRadius:12,padding:'.75rem 1rem',marginBottom:'1rem',color:'#E86420',fontSize:'.85rem'}}>
+          Alert: {agent.drawdown_pct?.toFixed(1)}% drawdown from peak. New token issuance suspended.
+        </div>
+      )}
+      {agent.alert_level === 'hard' && (
+        <div style={{background:'rgba(232,64,64,.12)',border:'1px solid rgba(232,64,64,.4)',borderRadius:12,padding:'.75rem 1rem',marginBottom:'1rem',color:'#E84040',fontSize:'.85rem'}}>
+          Hard Alert: 40%+ drawdown. Agent under review for delisting.
+        </div>
+      )}
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1.5rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>

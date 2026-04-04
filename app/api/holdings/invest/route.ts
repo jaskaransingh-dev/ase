@@ -33,12 +33,28 @@ export async function POST(req: NextRequest) {
     // Get agent with current share price
     const { data: agent } = await admin
       .from('agents')
-      .select('id, name, status, share_price_cents, total_aum_cents, total_shares')
+      .select('id, name, status, share_price_cents, total_aum_cents, total_shares, max_aum_cents, alert_level')
       .eq('id', agent_id)
       .single()
 
     if (!agent || agent.status !== 'active') {
       return NextResponse.json({ error: 'Agent not available' }, { status: 400 })
+    }
+
+    // Check if agent is at hard delisting threshold
+    if (agent.alert_level === 'hard') {
+      return NextResponse.json({ error: 'Agent is under hard drawdown alert — new investments suspended.' }, { status: 409 })
+    }
+
+    // Check AUM capacity cap (White Paper Section 6)
+    const maxAum = agent.max_aum_cents ?? 100_000_000
+    const currentAum = agent.total_aum_cents ?? 0
+    if (currentAum + amount_cents > maxAum) {
+      return NextResponse.json({
+        error: 'Agent is at capacity. No new investments accepted.',
+        current_aum_cents: currentAum,
+        max_aum_cents: maxAum,
+      }, { status: 409 })
     }
 
     // Get latest NAV from agent_stats (most authoritative price source)

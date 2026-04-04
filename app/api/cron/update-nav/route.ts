@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
 
   const { data: agents } = await admin
     .from('agents')
-    .select('id, slug, total_aum_cents')
+    .select('id, slug, total_aum_cents, peak_nav_cents, alert_level, high_water_mark_cents, developer_fee_pct, accrued_fee_cents')
     .eq('status', 'active')
 
   const results: Record<string, unknown> = {}
@@ -312,6 +312,39 @@ export async function POST(req: NextRequest) {
           total_shares: totalOutstandingShares,
         })
         .eq('id', agent.id)
+
+      // ── 13. DRAWDOWN TRACKING (White Paper Section 7.4) ───────────
+      const currentNav = navCents
+      const peakNav = Math.max(agent.peak_nav_cents ?? 10000, currentNav)
+      const drawdownPct = peakNav > 0 ? ((peakNav - currentNav) / peakNav) * 100 : 0
+      const alertLevel = drawdownPct >= 40 ? 'hard'
+        : drawdownPct >= 25 ? 'orange'
+        : drawdownPct >= 15 ? 'yellow' : 'none'
+
+      await admin.from('agents').update({
+        peak_nav_cents: peakNav,
+        drawdown_pct: Math.round(drawdownPct * 100) / 100,
+        alert_level: alertLevel,
+        last_active_at: new Date().toISOString(),
+      }).eq('id', agent.id)
+
+      if (alertLevel !== 'none' && alertLevel !== agent.alert_level) {
+        console.warn(`[drawdown] ${agent.slug}: ${alertLevel.toUpperCase()} ALERT — ${drawdownPct.toFixed(1)}% drawdown`)
+      }
+
+      // ── 14. DEVELOPER PERFORMANCE FEE (White Paper Section 4.1) ────
+      const hwm = agent.high_water_mark_cents ?? 10000
+      const feePct = (agent.developer_fee_pct ?? 20) / 100
+
+      if (currentNav > hwm) {
+        const gainAboveHwm = currentNav - hwm
+        const feeOnGain = Math.round(gainAboveHwm * feePct)
+        await admin.from('agents').update({
+          high_water_mark_cents: currentNav,
+          accrued_fee_cents: (agent.accrued_fee_cents ?? 0) + feeOnGain,
+        }).eq('id', agent.id)
+        console.log(`[fees] ${agent.slug}: +${feeOnGain / 100} fee accrued (HWM now $${currentNav / 100})`)
+      }
 
       results[agent.slug] = {
         nav_cents: navCents,

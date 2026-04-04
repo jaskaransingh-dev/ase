@@ -125,6 +125,14 @@ function WaitlistForm({ type }: { type: 'investor' | 'builder' }) {
           }
       const { error } = await supabase.from(table).insert(payload)
       if (error) throw error
+
+      // Also write to the generic waitlist table as backup
+      await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, name, type: type === 'investor' ? 'investor' : 'developer' }),
+      }).catch(() => {}) // non-critical
+
       setStatus('success')
     } catch {
       setStatus('error')

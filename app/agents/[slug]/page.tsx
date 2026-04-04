@@ -11,7 +11,7 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ sl
   const { data: { user } } = await supabase.auth.getUser()
 
   const [{ data: agent }, { data: statsRows }, { data: trades }] = await Promise.all([
-    supabase.from('agents').select('id, name, slug, description, strategy_type, status, total_aum_cents').eq('slug', slug).single(),
+    supabase.from('agents').select('id, name, slug, ticker, description, strategy_type, status, total_aum_cents, alert_level, drawdown_pct, max_aum_cents, accrued_fee_cents, developer_fee_pct').eq('slug', slug).single(),
     supabase.from('agent_stats')
       .select('id, nav_cents, total_return_pct, sharpe_ratio, max_drawdown_pct, win_rate_pct, total_trades, snapshot_at')
       .eq('agent_id', (await supabase.from('agents').select('id').eq('slug', slug).single()).data?.id ?? '')

@@ -10,10 +10,25 @@ export default function AgentSubmitPage() {
   async function handle(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
-    // For now, just simulate submission
-    await new Promise(r => setTimeout(r, 1000))
-    setDone(true)
-    setLoading(false)
+    try {
+      const res = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: form.email,
+          name: form.name,
+          github: form.github,
+          strategy: form.strategy,
+          type: 'developer'
+        }),
+      })
+      if (!res.ok) throw new Error('Submission failed')
+      setDone(true)
+    } catch {
+      alert('Submission failed. Please try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
