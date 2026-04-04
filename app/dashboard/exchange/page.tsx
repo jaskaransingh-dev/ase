@@ -1,8 +1,9 @@
 'use client'
-import { useEffect, useState, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { fmtUSD, fmtPct } from '@/lib/utils'
+import { calculateTradingCapitalCents } from '@/lib/market'
 
 // Render an SVG sparkline from an array of nav_cents values
 function Spark({ data, pos }: { data: number[]; pos: boolean }) {
@@ -17,7 +18,7 @@ function Spark({ data, pos }: { data: number[]; pos: boolean }) {
     return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
   }).join(' ')
   const fillPts = `${pts} L${(pad + (data.length - 1) * step).toFixed(1)},${h} L${pad},${h} Z`
-  const col = pos ? '#0EAD6E' : '#E84040'
+  const col = pos ? '#32D3A2' : '#FF6B8A'
   return (
     <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h} style={{ display: 'block' }} preserveAspectRatio="none">
       <defs>
@@ -35,19 +36,19 @@ function Spark({ data, pos }: { data: number[]; pos: boolean }) {
 function signalColor(signal: string | null) {
   if (!signal) return '#555'
   const s = signal.toUpperCase()
-  if (s.startsWith('BUY')) return '#0EAD6E'
-  if (s.startsWith('SELL') || s.startsWith('STOP')) return '#E84040'
+  if (s.startsWith('BUY')) return '#32D3A2'
+  if (s.startsWith('SELL') || s.startsWith('STOP')) return '#FF6B8A'
   if (s.startsWith('HOLD') || s.startsWith('PARTIAL')) return '#7B9FFF'
-  if (s.startsWith('SCAN') || s.startsWith('WATCH')) return '#E8AC20'
+  if (s.startsWith('SCAN') || s.startsWith('WATCH')) return '#4BD1FF'
   return '#8892A4'
 }
 
 function signalBadge(signal: string | null) {
   const s = (signal || '').toUpperCase()
-  if (s.startsWith('BUY')) return { label: '● BUYING', color: '#0EAD6E', bg: 'rgba(14,173,110,.12)' }
-  if (s.startsWith('SELL') || s.startsWith('STOP')) return { label: '● SELLING', color: '#E84040', bg: 'rgba(232,64,64,.12)' }
+  if (s.startsWith('BUY')) return { label: '● BUYING', color: '#32D3A2', bg: 'rgba(14,173,110,.12)' }
+  if (s.startsWith('SELL') || s.startsWith('STOP')) return { label: '● SELLING', color: '#FF6B8A', bg: 'rgba(232,64,64,.12)' }
   if (s.startsWith('HOLD')) return { label: '◆ HOLDING', color: '#7B9FFF', bg: 'rgba(123,159,255,.12)' }
-  if (s.startsWith('SCAN') || s.startsWith('WATCH')) return { label: '◌ SCANNING', color: '#E8AC20', bg: 'rgba(232,172,32,.12)' }
+  if (s.startsWith('SCAN') || s.startsWith('WATCH')) return { label: '◌ SCANNING', color: '#4BD1FF', bg: 'rgba(232,172,32,.12)' }
   return { label: '● ACTIVE', color: '#8892A4', bg: 'rgba(136,146,164,.1)' }
 }
 
@@ -76,22 +77,21 @@ interface AgentRow {
 
 const strategyInfo: Record<string, { label: string; color: string }> = {
   momentum: { label: 'Momentum', color: '#F7931A' },
-  mean_reversion: { label: 'Mean Reversion', color: '#0EAD6E' },
+  mean_reversion: { label: 'Mean Reversion', color: '#32D3A2' },
   trend_following: { label: 'Trend Following', color: '#7B9FFF' },
   crypto_momentum: { label: 'Crypto Momentum', color: '#F7931A' },
-  crypto_mean_reversion: { label: 'Mean Reversion', color: '#0EAD6E' },
+  crypto_mean_reversion: { label: 'Mean Reversion', color: '#32D3A2' },
 }
 
 export default function ExchangePage() {
   const [agents, setAgents] = useState<AgentRow[]>([])
   const [holdings, setHoldings] = useState<Map<string, boolean>>(new Map())
-  const [prevPrices, setPrevPrices] = useState<Map<string, number>>(new Map())
   const [flashMap, setFlashMap] = useState<Map<string, 'up' | 'down'>>(new Map())
   const [loading, setLoading] = useState(true)
-  const [now, setNow] = useState(Date.now())
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const prevPricesRef = useRef<Map<string, number>>(new Map())
 
-  async function fetchData(isRefresh = false) {
+  const fetchData = useCallback(async (isRefresh = false) => {
     const sb = createClient()
     const { data: { user } } = await sb.auth.getUser()
     if (!user) { window.location.href = '/login'; return }
@@ -108,7 +108,7 @@ export default function ExchangePage() {
       // Detect price changes for flash animation
       const newFlash = new Map<string, 'up' | 'down'>()
       agentsData.forEach(a => {
-        const prev = prevPrices.get(a.id)
+        const prev = prevPricesRef.current.get(a.id)
         if (prev && prev !== a.share_price_cents) {
           newFlash.set(a.id, a.share_price_cents > prev ? 'up' : 'down')
         }
@@ -117,22 +117,29 @@ export default function ExchangePage() {
         setFlashMap(newFlash)
         setTimeout(() => setFlashMap(new Map()), 1200)
       }
-      setPrevPrices(new Map(agentsData.map(a => [a.id, a.share_price_cents])))
+      prevPricesRef.current = new Map(agentsData.map(a => [a.id, a.share_price_cents]))
     }
 
-    setAgents((agentsData ?? []) as AgentRow[])
+    setAgents(((agentsData ?? []) as AgentRow[]).map(agent => ({
+      ...agent,
+      total_aum_cents: calculateTradingCapitalCents(agent.total_aum_cents ?? 0),
+    })))
     setHoldings(new Map((holdingsData ?? []).map(h => [h.agent_id, true])))
     setLoading(false)
-  }
+  }, [])
 
   useEffect(() => {
-    fetchData()
+    const initial = window.setTimeout(() => {
+      void fetchData()
+    }, 0)
     intervalRef.current = setInterval(() => {
-      setNow(Date.now())
       fetchData(true)
     }, 15_000) // refresh every 15s
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [])
+    return () => {
+      clearTimeout(initial)
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -156,6 +163,31 @@ export default function ExchangePage() {
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', animation: 'pulse 2s ease-in-out infinite', display: 'inline-block' }} />
           LIVE · {agents.length} agents
         </div>
+      </div>
+
+      {/* ── Top movers / tape ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '.8rem', marginBottom: '1.25rem' }} className="exchange-top-strip">
+        {[...agents]
+          .map(agent => {
+            const latest = [...(agent.agent_stats ?? [])].sort((a, b) => new Date(b.snapshot_at).getTime() - new Date(a.snapshot_at).getTime())[0]
+            return { agent, ret: latest?.total_return_pct ?? 0 }
+          })
+          .sort((a, b) => b.ret - a.ret)
+          .slice(0, 3)
+          .map(({ agent, ret }) => (
+            <Link key={agent.id} href={`/dashboard/exchange/${agent.slug}`} style={{
+              borderRadius: 12,
+              border: '1px solid rgba(148,163,184,.22)',
+              background: 'rgba(9,14,28,.75)',
+              padding: '.75rem .85rem',
+              display: 'grid',
+              gap: '.2rem',
+            }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: '#9FB0CD' }}>TOP MOMENTUM</span>
+              <span style={{ fontFamily: 'var(--font-head)', fontSize: '.95rem', fontWeight: 800 }}>{agent.name}</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: ret >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtPct(ret)}</span>
+            </Link>
+          ))}
       </div>
 
       {/* ── Summary strip with glass morphism ── */}
@@ -184,7 +216,7 @@ export default function ExchangePage() {
                   (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.01)'
                 }}>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: '#888', letterSpacing: '.08em', marginBottom: '.25rem', textTransform: 'uppercase', fontWeight: 600 }}>$ {agent.ticker}</div>
-                  <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.15rem', fontWeight: 800, color: flash === 'up' ? '#0EAD6E' : flash === 'down' ? '#E84040' : '#fff', transition: 'color .4s', fontVariantNumeric: 'tabular-nums' }}>
+                  <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.15rem', fontWeight: 800, color: flash === 'up' ? '#32D3A2' : flash === 'down' ? '#FF6B8A' : '#fff', transition: 'color .4s', fontVariantNumeric: 'tabular-nums' }}>
                     {fmtUSD(nav)}
                   </div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: ret >= 0 ? 'var(--green)' : 'var(--red)', marginTop: '.15rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtPct(ret)}</div>
@@ -267,7 +299,7 @@ export default function ExchangePage() {
                 {/* Price + sparkline */}
                 <div style={{ padding: '0 1.75rem .9rem', display: 'flex', alignItems: 'flex-start', gap: '1.5rem' }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontFamily: 'var(--font-head)', fontSize: '2.2rem', fontWeight: 800, letterSpacing: '-.02em', color: flash === 'up' ? '#0EAD6E' : flash === 'down' ? '#E84040' : '#fff', transition: 'color .6s', fontVariantNumeric: 'tabular-nums' }}>
+                    <div style={{ fontFamily: 'var(--font-head)', fontSize: '2.2rem', fontWeight: 800, letterSpacing: '-.02em', color: flash === 'up' ? '#32D3A2' : flash === 'down' ? '#FF6B8A' : '#fff', transition: 'color .6s', fontVariantNumeric: 'tabular-nums' }}>
                       {fmtUSD(nav)}
                     </div>
                     <div style={{ display: 'flex', gap: '1.5rem', margin: '.4rem 0 0' }}>
@@ -363,6 +395,7 @@ export default function ExchangePage() {
         }
         @media(max-width:640px){
           [style*="padding: 2rem 2.5rem"]{padding:1.25rem!important}
+          .exchange-top-strip{grid-template-columns:1fr!important}
           [style*="grid-template-columns: repeat(auto-fill, minmax(420px"]{
             grid-template-columns: 1fr !important;
           }

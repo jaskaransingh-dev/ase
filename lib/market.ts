@@ -5,39 +5,39 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
+export function calculateTradingCapitalCents(investorCapitalCents: number): number {
+  return PLATFORM_SEED_CAPITAL_CENTS + Math.max(0, Math.round(investorCapitalCents || 0))
+}
+
 export function calculateNavFromState(params: {
   investorCapitalCents: number
   totalPnlCents: number
 }) {
   const investorCapitalCents = Math.max(0, Math.round(params.investorCapitalCents || 0))
   const totalPnlCents = Math.round(params.totalPnlCents || 0)
+  const tradingCapitalCents = calculateTradingCapitalCents(investorCapitalCents)
 
-  // Total pool = seed + all investor capital + trading P&L (used for quote sizing & display)
+  // Total pool = seed + investor capital + trading P&L.
   const totalPoolCents = Math.max(
     PLATFORM_SEED_CAPITAL_CENTS,
-    PLATFORM_SEED_CAPITAL_CENTS + investorCapitalCents + totalPnlCents
+    tradingCapitalCents + totalPnlCents
   )
 
-  // NAV is driven ONLY by trading P&L — NOT by investor capital inflows.
-  // Buying shares alone must never inflate the share price.
-  // More AUM expands the trading pool so the agent earns more absolute P&L
-  // per cron run, which is what naturally drives NAV up over time.
-  //
-  // Formula: NAV = BASE × (seed + P&L) / seed
-  //   no trades, any AUM   → $100
-  //   10% P&L, any AUM     → $110
-  //   investor buys shares → NAV unchanged until next trade
-  const tradingPoolCents = PLATFORM_SEED_CAPITAL_CENTS + totalPnlCents
+  // NAV is capital-backed: seed capital and investor capital both support price.
+  // Formula: NAV = BASE × (seed + investor capital + P&L) / seed
+  //   no investors, no P&L → $100
+  //   +$1k capital         → $110
+  //   +$1k capital, +$500 P&L → $115
   const navCents = Math.max(
     1,
-    Math.round((tradingPoolCents / PLATFORM_SEED_CAPITAL_CENTS) * BASE_SHARE_PRICE_CENTS)
+    Math.round((totalPoolCents / PLATFORM_SEED_CAPITAL_CENTS) * BASE_SHARE_PRICE_CENTS)
   )
 
-  // Total return = P&L as % of seed capital (pure trading performance metric)
-  const totalReturnPct = (totalPnlCents / PLATFORM_SEED_CAPITAL_CENTS) * 100
+  const totalReturnPct = ((totalPoolCents - PLATFORM_SEED_CAPITAL_CENTS) / PLATFORM_SEED_CAPITAL_CENTS) * 100
 
   return {
     investorCapitalCents,
+    tradingCapitalCents,
     totalPnlCents,
     totalPoolCents,
     navCents,
@@ -45,12 +45,12 @@ export function calculateNavFromState(params: {
   }
 }
 
-export function estimatePnlFromNav(navCents: number, _investorCapitalCents?: number): number {
-  // Inverse of: navCents = BASE × (seed + pnl) / seed
-  // Solving for pnl: pnl = seed × (nav − BASE) / BASE
+export function estimatePnlFromNav(navCents: number, investorCapitalCents = 0): number {
+  // Inverse of: nav = BASE × (seed + investor capital + pnl) / seed
   const safeNavCents = Math.max(1, Math.round(navCents || BASE_SHARE_PRICE_CENTS))
+  const tradingCapitalCents = calculateTradingCapitalCents(investorCapitalCents)
   return Math.round(
-    PLATFORM_SEED_CAPITAL_CENTS * (safeNavCents - BASE_SHARE_PRICE_CENTS) / BASE_SHARE_PRICE_CENTS
+    PLATFORM_SEED_CAPITAL_CENTS * safeNavCents / BASE_SHARE_PRICE_CENTS - tradingCapitalCents
   )
 }
 

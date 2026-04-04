@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateQuoteFromNav } from '@/lib/market'
 import { reduceHoldingPosition, syncAgentMarketState } from '@/lib/exchange'
+import { triggerImmediateAgentRun } from '@/lib/agent-cycle'
 
 export const dynamic = 'force-dynamic'
 
@@ -95,6 +96,8 @@ export async function POST(req: NextRequest) {
       volumeShares: sellShares,
     })
 
+    await triggerImmediateAgentRun(req, agentId)
+
     // 4. Send email (non-blocking)
     try {
       const { sendSellConfirmation } = await import('@/lib/email')
@@ -119,6 +122,7 @@ export async function POST(req: NextRequest) {
       bid_cents: synced.bidCents,
       ask_cents: synced.askCents,
       new_aum_cents: synced.investorCapitalCents,
+      total_capital_cents: synced.tradingCapitalCents,
       partial: reduction.partial,
     })
   } catch (err: unknown) {

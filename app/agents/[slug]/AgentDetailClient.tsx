@@ -118,7 +118,7 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
   }
 
   return (
-    <div style={{ padding: '2rem 2.5rem', maxWidth: 1100 }}>
+    <div style={{ padding: '2rem 2.5rem', maxWidth: 1280, margin: '0 auto' }}>
       {/* Back */}
       <Link href="/agents" style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: 'var(--faint)', display: 'inline-flex', alignItems: 'center', gap: '.35rem', marginBottom: '1.5rem', transition: 'color .15s' }}
         onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--white)'}
@@ -128,7 +128,7 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
 
       {/* Drawdown Alerts */}
       {agent.alert_level === 'yellow' && (
-        <div style={{background:'rgba(232,172,32,.12)',border:'1px solid rgba(232,172,32,.3)',borderRadius:12,padding:'.75rem 1rem',marginBottom:'1rem',color:'#E8AC20',fontSize:'.85rem'}}>
+        <div style={{background:'rgba(232,172,32,.12)',border:'1px solid rgba(232,172,32,.3)',borderRadius:12,padding:'.75rem 1rem',marginBottom:'1rem',color:'#4BD1FF',fontSize:'.85rem'}}>
           Warning: Agent is {agent.drawdown_pct?.toFixed(1)}% below peak NAV. Reserve requirements increased. Monitor closely.
         </div>
       )}
@@ -138,7 +138,7 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
         </div>
       )}
       {agent.alert_level === 'hard' && (
-        <div style={{background:'rgba(232,64,64,.12)',border:'1px solid rgba(232,64,64,.4)',borderRadius:12,padding:'.75rem 1rem',marginBottom:'1rem',color:'#E84040',fontSize:'.85rem'}}>
+        <div style={{background:'rgba(232,64,64,.12)',border:'1px solid rgba(232,64,64,.4)',borderRadius:12,padding:'.75rem 1rem',marginBottom:'1rem',color:'#FF6B8A',fontSize:'.85rem'}}>
           Hard Alert: 40%+ drawdown. Agent under review for delisting.
         </div>
       )}
@@ -160,6 +160,19 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
         </div>
       </div>
 
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '.7rem', marginBottom: '1rem' }} className="agent-detail-top-strip">
+        {[
+          { label: 'Signal Health', value: agent.status.toUpperCase(), color: 'var(--green)' },
+          { label: 'Available Capital', value: fmtUSD(agent.total_aum_cents, 0), color: '#8BE9FF' },
+          { label: 'Execution Venue', value: 'Alpaca', color: 'var(--white)' },
+        ].map((item) => (
+          <div key={item.label} style={{ borderRadius: 12, border: '1px solid rgba(148,163,184,.24)', background: 'rgba(9,14,28,.72)', padding: '.7rem .8rem' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: '#8CA0C4', letterSpacing: '.08em', marginBottom: '.2rem' }}>{item.label.toUpperCase()}</div>
+            <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, color: item.color }}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+
       {/* KPI Strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: '.6rem', marginBottom: '1.5rem' }} className="kpi-strip">
         {[
@@ -167,7 +180,7 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
           { k: 'MAX DD', v: fmtPct(-maxDD, 1) },
           { k: 'WIN RATE', v: winRate.toFixed(0) + '%' },
           { k: 'TOTAL TRADES', v: totalTrades.toString() },
-          { k: 'AUM', v: fmtUSD(agent.total_aum_cents) },
+          { k: 'CAPITAL', v: fmtUSD(agent.total_aum_cents) },
           { k: 'STATUS', v: agent.status.toUpperCase() },
         ].map(({ k, v }) => (
           <div key={k} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '.8rem 1rem', textAlign: 'center' }}>
@@ -194,7 +207,7 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
               <XAxis dataKey="date" tick={{ fill: 'rgba(238,242,255,.28)', fontSize: 10, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
               <YAxis tick={{ fill: 'rgba(238,242,255,.28)', fontSize: 10, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
               <Tooltip contentStyle={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 10, fontFamily: 'var(--font-mono)', fontSize: 11 }} labelStyle={{ color: 'var(--faint)' }} itemStyle={{ color: pos ? 'var(--green)' : 'var(--red)' }} formatter={(v: unknown) => [`$${Number(v).toFixed(2)}`, 'NAV']} />
-              <Line type="monotone" dataKey="nav" stroke={pos ? '#0EAD6E' : '#E84040'} strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="nav" stroke={pos ? '#32D3A2' : '#FF6B8A'} strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         ) : (
@@ -380,6 +393,12 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
           {msg}
         </div>
       )}
+
+      <style>{`
+        @media(max-width:760px){
+          .agent-detail-top-strip{grid-template-columns:1fr!important}
+        }
+      `}</style>
 
       {/* Invest Modal */}
       {showInvest && (

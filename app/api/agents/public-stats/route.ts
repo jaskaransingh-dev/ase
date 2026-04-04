@@ -7,6 +7,7 @@
 
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { calculateTradingCapitalCents } from '@/lib/market'
 
 export const dynamic = 'force-dynamic'
 
@@ -98,7 +99,7 @@ export async function GET() {
         sharpe: stats?.sharpe_ratio ?? 0,
         total_trades: stats?.total_trades ?? 0,
         win_rate: stats?.win_rate_pct ?? 0,
-        aum_cents: Number(agent.total_aum_cents) || 0,
+        aum_cents: calculateTradingCapitalCents(Number(agent.total_aum_cents) || 0),
       })
     }
 

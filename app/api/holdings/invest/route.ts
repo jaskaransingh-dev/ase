@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateQuoteFromNav } from '@/lib/market'
 import { mergeHoldingPosition, syncAgentMarketState } from '@/lib/exchange'
+import { triggerImmediateAgentRun } from '@/lib/agent-cycle'
 
 export const dynamic = 'force-dynamic'
 
@@ -113,6 +114,8 @@ export async function POST(req: NextRequest) {
       volumeShares: newShares,
     })
 
+    await triggerImmediateAgentRun(req, agent_id)
+
     return NextResponse.json({
       ok: true,
       holding_id: holdingUpdate.holdingId,
@@ -122,6 +125,7 @@ export async function POST(req: NextRequest) {
       ask_cents: synced.askCents,
       nav_cents: synced.navCents,
       new_aum_cents: synced.investorCapitalCents,
+      total_capital_cents: synced.tradingCapitalCents,
       merged: holdingUpdate.merged,
     })
   } catch (err: unknown) {

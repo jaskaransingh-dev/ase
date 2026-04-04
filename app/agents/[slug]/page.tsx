@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import AgentDetailClient from './AgentDetailClient'
+import { calculateTradingCapitalCents } from '@/lib/market'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,6 +27,11 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ sl
 
   if (!agent) notFound()
 
+  const hydratedAgent = {
+    ...agent,
+    total_aum_cents: calculateTradingCapitalCents(agent.total_aum_cents ?? 0),
+  }
+
   // Get user's holding in this agent
   let userHolding = null
   let walletBalance = 0
@@ -42,7 +48,7 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ sl
 
   return (
     <AgentDetailClient
-      agent={agent}
+      agent={hydratedAgent}
       statsHistory={statsRows ?? []}
       latestStats={latestStats}
       trades={trades ?? []}

@@ -30,7 +30,7 @@ import {
   getAgentPositions,
 } from '@/lib/agents'
 import { getCryptoBars } from '@/lib/alpaca'
-import { calculateNavFromState, calculateHoldingValueCents, PLATFORM_SEED_CAPITAL_CENTS } from '@/lib/market'
+import { calculateNavFromState, calculateHoldingValueCents, calculateTradingCapitalCents, PLATFORM_SEED_CAPITAL_CENTS } from '@/lib/market'
 
 export const dynamic = 'force-dynamic'
 
@@ -64,6 +64,16 @@ const STRATEGY_MAP: Record<
 }
 
 export async function POST(req: NextRequest) {
+  let targetAgentId: string | null = null
+  if (req.method === 'POST') {
+    try {
+      const body = await req.json()
+      targetAgentId = typeof body?.agent_id === 'string' ? body.agent_id : null
+    } catch {
+      targetAgentId = null
+    }
+  }
+
   // Auth: require CRON_SECRET header (skip check if secret not configured in dev)
   const cronSecret = process.env.CRON_SECRET
   if (cronSecret) {
@@ -96,11 +106,16 @@ export async function POST(req: NextRequest) {
   const admin = createAdminClient()
   const ran_at = new Date().toISOString()
 
-  // Load all active agents from DB
-  const { data: agents, error: agentsError } = await admin
+  let agentsQuery = admin
     .from('agents')
     .select('id, slug, total_aum_cents, share_price_cents, alert_level')
     .eq('status', 'active')
+
+  if (targetAgentId) {
+    agentsQuery = agentsQuery.eq('id', targetAgentId)
+  }
+
+  const { data: agents, error: agentsError } = await agentsQuery
 
   if (agentsError || !agents?.length) {
     return NextResponse.json({
@@ -153,7 +168,7 @@ export async function POST(req: NextRequest) {
       // Capital = platform seed + ALL investor capital (additive, not max)
       // Every dollar an investor adds goes directly into the trading pool.
       // More AUM → agent trades larger positions → more absolute P&L → higher NAV %.
-      const capitalCents = PLATFORM_SEED_CAPITAL_CENTS + aumCents
+      const capitalCents = calculateTradingCapitalCents(aumCents)
 
       console.log(`Running ${agent.slug} with $${(capitalCents / 100).toFixed(0)} capital (seed: $${(PLATFORM_SEED_CAPITAL_CENTS/100).toFixed(0)} + investor AUM: $${(aumCents / 100).toFixed(0)})`)
 
@@ -279,6 +294,7 @@ export async function POST(req: NextRequest) {
     ok: true,
     ran_at,
     agents_run: agents.length,
+    targeted_agent_id: targetAgentId,
     total_trades: totalTrades,
     results,
   })

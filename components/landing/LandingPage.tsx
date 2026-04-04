@@ -30,6 +30,12 @@ interface Totals {
 
 const ROT_WORDS = ['Own the Algorithm', 'Own the Future', 'Own the Alpha']
 
+function triggerHaptic(ms = 8) {
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    navigator.vibrate(ms)
+  }
+}
+
 // Fallback data while loading
 const FALLBACK_AGENTS: AgentData[] = [
   { ticker: '$BTCM', slug: 'btc-momentum', name: 'BTC Momentum', ret: '--', nav: '$--', nav_cents: 10000, pos: true, spark: [100,100,100,100,100,100,100,100,100,100], type: 'Momentum', daily_return_pct: 0, sharpe: 0, total_trades: 0, win_rate: 0, aum_cents: 0 },
@@ -48,7 +54,7 @@ function Spark({ data, pos }: { data: number[]; pos: boolean }) {
     const y = pad + (1 - (v - min) / span) * (h - pad * 2)
     return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
   }).join(' ')
-  const col = pos ? '#0EAD6E' : '#E84040'
+  const col = pos ? '#32D3A2' : '#FF6B8A'
   return (
     <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} style={{ display: 'block' }}>
       <path d={pts} fill="none" stroke={col} strokeWidth="1.6" strokeLinecap="round" />
@@ -414,7 +420,7 @@ export default function LandingPage() {
                       transition: 'transform .6s cubic-bezier(.4,0,.2,1), opacity .6s',
                       transform: i === rotIdx ? 'translateY(0)' : i < rotIdx ? 'translateY(-100%)' : 'translateY(100%)',
                       opacity: i === rotIdx ? 1 : 0,
-                      background: 'linear-gradient(135deg,#E8AC20,#F5C842)',
+                      background: 'linear-gradient(135deg,#4BD1FF,#7EF3E9)',
                       WebkitBackgroundClip: 'text',
                       WebkitTextFillColor: 'transparent',
                       backgroundClip: 'text'
@@ -430,8 +436,8 @@ export default function LandingPage() {
               </p>
 
               <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '2rem' }}>
-                <Link href="#waitlist" className="btn-primary">Join Investor Cohort</Link>
-                <Link href="#waitlist" className="btn-secondary">Apply as Builder</Link>
+                <Link href="#waitlist" className="btn-primary haptic-press" onClick={() => triggerHaptic(10)}>Join Investor Cohort</Link>
+                <Link href="#waitlist" className="btn-secondary haptic-press" onClick={() => triggerHaptic(10)}>Apply as Builder</Link>
               </div>
 
               {/* Live stats strip */}
@@ -485,6 +491,31 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* EXCHANGE MODULE PREVIEW */}
+      <section style={{ padding: '70px 1.5rem', background: 'linear-gradient(180deg, rgba(12,20,36,0.9), rgba(7,9,15,0.9))' }}>
+        <div style={{ maxWidth: 1160, margin: '0 auto' }}>
+          <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
+            <div className="eyebrow">EXCHANGE-GRADE UX</div>
+            <h2 style={{ fontFamily: 'var(--font-head)', fontSize: 'clamp(1.8rem,3.5vw,2.5rem)', fontWeight: 800, marginTop: '.5rem' }}>
+              Designed like real trading terminals
+            </h2>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1rem' }} className="why-grid">
+            {[
+              { title: 'Watchlist + Movers', desc: 'Prioritize what is breaking out now, not static tables.' },
+              { title: 'Portfolio Curve', desc: 'Timeframe toggles and realized execution overlays.' },
+              { title: 'Risk Monitor', desc: 'Concentration, buy/sell pressure, and cash-readiness in one panel.' },
+              { title: 'Execution Tape', desc: 'Recent fills and cash ledger with live status indicators.' },
+            ].map((module) => (
+              <HoverCard key={module.title} className="card card-interactive" style={{ padding: '1.4rem' }}>
+                <div style={{ fontFamily: 'var(--font-head)', fontSize: '1rem', fontWeight: 800, marginBottom: '.55rem' }}>{module.title}</div>
+                <div style={{ fontSize: '.86rem', color: 'var(--muted)', lineHeight: 1.65 }}>{module.desc}</div>
+              </HoverCard>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* THE SHIFT - Before/After comparison */}
       <section style={{ padding: '80px 1.5rem', background: 'rgba(0,0,0,.3)' }}>
         <div style={{ maxWidth: 1160, margin: '0 auto' }}>
@@ -494,9 +525,9 @@ export default function LandingPage() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.5rem' }} className="shift-grid">
             {[
-              { label: 'Before: Hedge Funds', desc: 'Inaccessible to most investors', badge: 'Closed', badgeColor: 'rgba(232,64,64,.1)', badgeText: '#E84040' },
-              { label: 'Before: Copy Trading', desc: 'No ownership, no alignment', badge: 'No Stake', badgeColor: 'rgba(232,64,64,.1)', badgeText: '#E84040' },
-              { label: 'Before: Algo Bots', desc: 'Misaligned incentives', badge: 'Opaque', badgeColor: 'rgba(232,64,64,.1)', badgeText: '#E84040' },
+              { label: 'Before: Hedge Funds', desc: 'Inaccessible to most investors', badge: 'Closed', badgeColor: 'rgba(232,64,64,.1)', badgeText: '#FF6B8A' },
+              { label: 'Before: Copy Trading', desc: 'No ownership, no alignment', badge: 'No Stake', badgeColor: 'rgba(232,64,64,.1)', badgeText: '#FF6B8A' },
+              { label: 'Before: Algo Bots', desc: 'Misaligned incentives', badge: 'Opaque', badgeColor: 'rgba(232,64,64,.1)', badgeText: '#FF6B8A' },
             ].map((item, i) => (
               <ScrollFadeUp key={i}>
                 <HoverCard className="card" style={{ padding: '2rem 1.5rem', opacity: 0.6 }}>
@@ -510,9 +541,9 @@ export default function LandingPage() {
               ↓ The ASE Difference ↓
             </div>
             {[
-              { label: 'Now: ASE Agents', desc: 'Own real trading strategies', badge: 'Accessible', badgeColor: 'rgba(14,173,110,.1)', badgeText: '#0EAD6E' },
-              { label: 'Now: True Ownership', desc: 'Your tokens appreciate with NAV', badge: 'Owned', badgeColor: 'rgba(14,173,110,.1)', badgeText: '#0EAD6E' },
-              { label: 'Now: Verified Performance', desc: 'Aligned incentives at every level', badge: 'Transparent', badgeColor: 'rgba(14,173,110,.1)', badgeText: '#0EAD6E' },
+              { label: 'Now: ASE Agents', desc: 'Own real trading strategies', badge: 'Accessible', badgeColor: 'rgba(14,173,110,.1)', badgeText: '#32D3A2' },
+              { label: 'Now: True Ownership', desc: 'Your tokens appreciate with NAV', badge: 'Owned', badgeColor: 'rgba(14,173,110,.1)', badgeText: '#32D3A2' },
+              { label: 'Now: Verified Performance', desc: 'Aligned incentives at every level', badge: 'Transparent', badgeColor: 'rgba(14,173,110,.1)', badgeText: '#32D3A2' },
             ].map((item, i) => (
               <ScrollFadeUp key={i + 3}>
                 <HoverCard className="card" style={{ padding: '2rem 1.5rem', borderColor: 'rgba(14,173,110,.2)' }}>

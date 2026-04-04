@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { HoverCard } from '@/components/ui/hover-card'
 import { fmtUSD, fmtPct } from '@/lib/utils'
+import { calculateTradingCapitalCents } from '@/lib/market'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,7 +25,7 @@ export default async function AgentsPage() {
     mean_reversion:        { label: 'Mean Reversion',  color: 'var(--green)' },
     trend_following:       { label: 'Trend Following', color: '#7B9FFF' },
     crypto_momentum:       { label: 'Crypto Momentum', color: '#F7931A' },
-    crypto_mean_reversion: { label: 'Crypto Arb',      color: '#0EAD6E' },
+    crypto_mean_reversion: { label: 'Crypto Arb',      color: '#32D3A2' },
   }
 
   const tickerMap: Record<string, string> = {
@@ -33,7 +34,7 @@ export default async function AgentsPage() {
   }
 
   return (
-    <div style={{ padding: '2rem 2.5rem' }}>
+    <div style={{ padding: '2rem 2.5rem', maxWidth: 1440, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <div className="eyebrow" style={{ marginBottom: '.35rem' }}>MARKETPLACE</div>
@@ -41,6 +42,19 @@ export default async function AgentsPage() {
           <p style={{ color: 'var(--muted)', fontSize: '.9rem', marginTop: '.35rem' }}>Verified strategies — transparent performance, audit-grade ledgers</p>
         </div>
         <Link href="/agents/submit" className="btn-secondary" style={{ fontSize: '.85rem' }}>Submit Your Agent →</Link>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '.7rem', marginBottom: '1.5rem' }} className="agents-top-strip">
+        {[
+          { label: 'Live Strategies', value: String(agentsList.length), color: 'var(--white)' },
+          { label: 'Total Sim Capital', value: fmtUSD(agentsList.reduce((s, a: AgentRow) => s + calculateTradingCapitalCents(a.total_aum_cents ?? 0), 0), 0), color: '#8BE9FF' },
+          { label: 'Market Status', value: 'Active', color: 'var(--green)' },
+        ].map((item) => (
+          <div key={item.label} style={{ borderRadius: 12, border: '1px solid rgba(148,163,184,.24)', background: 'rgba(9,14,28,.72)', padding: '.7rem .8rem' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: '#8CA0C4', letterSpacing: '.08em', marginBottom: '.2rem' }}>{item.label.toUpperCase()}</div>
+            <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, color: item.color }}>{item.value}</div>
+          </div>
+        ))}
       </div>
 
       {agentsList.length === 0 ? (
@@ -62,7 +76,7 @@ export default async function AgentsPage() {
             const pos = ret >= 0
 
             return (
-              <HoverCard key={agent.id} href={`/agents/${agent.slug}`} asLink style={{ display: 'block', background: 'var(--bg2)', borderRadius: 20, padding: '1.5rem', textDecoration: 'none' }}>
+              <HoverCard key={agent.id} href={`/agents/${agent.slug}`} asLink className="card-interactive" style={{ display: 'block', background: 'var(--bg2)', borderRadius: 20, padding: '1.5rem', textDecoration: 'none' }}>
                 {/* Header */}
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem' }}>
                   <div>
@@ -72,11 +86,11 @@ export default async function AgentsPage() {
                     </div>
                   </div>
                   {agent.alert_level === 'hard' ? (
-                    <span className="pill" style={{ fontSize: '.58rem', flexShrink: 0, background: 'rgba(232,64,64,.12)', color: '#E84040', borderColor: 'rgba(232,64,64,.3)' }}>DELISTED</span>
+                    <span className="pill" style={{ fontSize: '.58rem', flexShrink: 0, background: 'rgba(232,64,64,.12)', color: '#FF6B8A', borderColor: 'rgba(232,64,64,.3)' }}>DELISTED</span>
                   ) : agent.alert_level === 'orange' ? (
                     <span className="pill" style={{ fontSize: '.58rem', flexShrink: 0, background: 'rgba(232,100,32,.12)', color: '#E86420', borderColor: 'rgba(232,100,32,.3)' }}>ALERT</span>
                   ) : ((agent.total_aum_cents ?? 0) / (agent.max_aum_cents ?? 100_000_000)) >= 0.95 ? (
-                    <span className="pill" style={{ fontSize: '.58rem', flexShrink: 0, background: 'rgba(232,172,32,.12)', color: '#E8AC20', borderColor: 'rgba(232,172,32,.3)' }}>FULL</span>
+                    <span className="pill" style={{ fontSize: '.58rem', flexShrink: 0, background: 'rgba(232,172,32,.12)', color: '#4BD1FF', borderColor: 'rgba(232,172,32,.3)' }}>FULL</span>
                   ) : (
                     <span className="pill pill-green" style={{ fontSize: '.58rem', flexShrink: 0 }}>LIVE</span>
                   )}
@@ -108,6 +122,9 @@ export default async function AgentsPage() {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '.75rem', borderTop: '1px solid var(--border)' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.68rem', color: 'var(--faint)' }}>
+                    Capital {fmtUSD(calculateTradingCapitalCents(agent.total_aum_cents ?? 0), 0)}
+                  </span>
                   <span className="tag" style={{ color: info.color, borderColor: `${info.color}30` }}>{info.label.toUpperCase()}</span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.68rem', color: 'var(--gold)' }}>View Details →</span>
                 </div>
@@ -116,6 +133,12 @@ export default async function AgentsPage() {
           })}
         </div>
       )}
+
+      <style>{`
+        @media(max-width:760px){
+          .agents-top-strip{grid-template-columns:1fr!important}
+        }
+      `}</style>
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { calculateTradingCapitalCents } from '@/lib/market'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,7 +41,8 @@ export async function GET() {
   // Ensure ticker is always populated (fallback to slug-derived ticker)
   const agentsWithTicker = (data as unknown as AgentData[] ?? []).map(agent => ({
     ...agent,
-    ticker: agent.ticker || agent.slug.toUpperCase().replace(/-/g, '').slice(0, 4)
+    ticker: agent.ticker || agent.slug.toUpperCase().replace(/-/g, '').slice(0, 4),
+    total_aum_cents: calculateTradingCapitalCents(agent.total_aum_cents),
   }))
 
   return NextResponse.json({ data: agentsWithTicker })

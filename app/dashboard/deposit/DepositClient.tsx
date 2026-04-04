@@ -13,7 +13,7 @@ const CARD_STYLE = {
       fontSize: '15px',
       '::placeholder': { color: 'rgba(238,242,255,0.28)' },
     },
-    invalid: { color: '#E84040' },
+    invalid: { color: '#FF6B8A' },
   },
 }
 
@@ -205,22 +205,40 @@ function DepositForm({ userEmail }: { userEmail: string }) {
 
 export default function DepositClient({ userEmail }: { userEmail: string }) {
   return (
-    <div style={{ padding: '2rem 2.5rem', maxWidth: 520 }}>
-      <div style={{ marginBottom: '2rem' }}>
-        <div className="eyebrow" style={{ marginBottom: '.35rem' }}>ADD CREDITS</div>
-        <h1 style={{ fontFamily: 'var(--font-head)', fontSize: '1.8rem', fontWeight: 800, marginBottom: '.5rem' }}>
-          Deposit Paper Credits
-        </h1>
-        <p style={{ color: 'var(--muted)', fontSize: '.9rem', lineHeight: 1.7 }}>
-          Add funds to your ASE wallet and deploy capital into AI trading agents running on Alpaca.
-        </p>
+    <div style={{ padding: '2rem 2.5rem', maxWidth: 760 }}>
+      <div style={{ marginBottom: '1.25rem', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+        <div>
+          <div className="eyebrow" style={{ marginBottom: '.35rem' }}>ADD CREDITS</div>
+          <h1 style={{ fontFamily: 'var(--font-head)', fontSize: '1.8rem', fontWeight: 800, marginBottom: '.5rem' }}>
+            Deposit Paper Credits
+          </h1>
+          <p style={{ color: 'var(--muted)', fontSize: '.9rem', lineHeight: 1.7 }}>
+            Add funds to your ASE wallet and deploy capital into AI trading agents running on Alpaca.
+          </p>
+        </div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--green)', background: 'rgba(50,211,162,.14)', border: '1px solid rgba(50,211,162,.3)', borderRadius: 999, padding: '.4rem .7rem', fontWeight: 700 }}>
+          LIVE CREDITS ENGINE
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '.65rem', marginBottom: '1.25rem' }} className="deposit-top-grid">
+        {[
+          { label: 'Min Deposit', value: '$10', color: 'var(--white)' },
+          { label: 'Processing', value: 'Instant', color: 'var(--green)' },
+          { label: 'Mode', value: 'Paper', color: '#7DD3FC' },
+        ].map((tile) => (
+          <div key={tile.label} style={{ borderRadius: 12, border: '1px solid rgba(148,163,184,.24)', background: 'rgba(9,14,28,.7)', padding: '.7rem .8rem' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: '#8CA0C4', letterSpacing: '.08em', marginBottom: '.2rem' }}>{tile.label.toUpperCase()}</div>
+            <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, color: tile.color }}>{tile.value}</div>
+          </div>
+        ))}
       </div>
 
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 20, overflow: 'hidden', boxShadow: '0 32px 80px rgba(0,0,0,.5)' }}>
         <div className="win-bar">
           <span className="dot dot-r" /><span className="dot dot-y" /><span className="dot dot-g" />
           <span className="win-title">Secure Deposit · Stripe Test Mode</span>
-          <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--green)' }}>SECURED</span>
+          <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--green)' }}>ENCRYPTED</span>
         </div>
         <div style={{ padding: '1.75rem' }}>
           <Elements stripe={stripePromise}>
@@ -229,17 +247,23 @@ export default function DepositClient({ userEmail }: { userEmail: string }) {
         </div>
       </div>
 
-      <div style={{ marginTop: '1.5rem', padding: '1rem 1.25rem', background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 14 }}>
+      <div style={{ marginTop: '1.2rem', padding: '.9rem 1.1rem', background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 14 }}>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.08em', color: 'var(--faint)', marginBottom: '.5rem' }}>
           TEST CARD
         </div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.8rem', color: 'var(--gold)' }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.8rem', color: '#8BE9FF' }}>
           4242 4242 4242 4242
         </div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.75rem', color: 'var(--muted)', marginTop: '.25rem' }}>
           Exp: any future date · CVC: any 3 digits
         </div>
       </div>
+
+      <style>{`
+        @media(max-width:700px){
+          .deposit-top-grid{grid-template-columns:1fr!important}
+        }
+      `}</style>
     </div>
   )
 }

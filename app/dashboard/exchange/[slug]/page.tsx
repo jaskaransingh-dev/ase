@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import ExchangeClient from './ExchangeClient'
+import { calculateTradingCapitalCents } from '@/lib/market'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +20,11 @@ export default async function ExchangeDetailPage({ params }: { params: Promise<{
     .single()
 
   if (!agent) notFound()
+
+  const hydratedAgent = {
+    ...agent,
+    total_aum_cents: calculateTradingCapitalCents(agent.total_aum_cents ?? 0),
+  }
 
   const [{ data: statsRows }, { data: trades }, { data: holding }, { data: wallet }, { data: profile }] = await Promise.all([
     supabase.from('agent_stats')
@@ -43,7 +49,7 @@ export default async function ExchangeDetailPage({ params }: { params: Promise<{
 
   return (
     <ExchangeClient
-      agent={agent}
+      agent={hydratedAgent}
       statsHistory={statsRows ?? []}
       trades={trades ?? []}
       userHolding={holding}

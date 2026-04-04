@@ -219,6 +219,7 @@ export async function syncAgentMarketState(
   return {
     investorCapitalCents,
     totalShares,
+    tradingCapitalCents: navState.tradingCapitalCents,
     navCents: navState.navCents,
     bidCents: quote.bidCents,
     askCents: quote.askCents,
