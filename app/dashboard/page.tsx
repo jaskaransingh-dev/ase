@@ -62,7 +62,7 @@ function triggerHaptic(ms = 8) {
 export default function DashboardPage() {
   const supabase = createClient()
   const router = useRouter()
-  const { wallet, connect: connectWallet, shortAddress } = useWallet()
+  const { wallet, shortAddress, openModal } = useWallet()
 
   const [loading, setLoading] = useState(true)
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
@@ -175,7 +175,7 @@ export default function DashboardPage() {
             <div style={{ fontWeight: 700, fontSize: '.9rem', marginBottom: '.2rem' }}>Connect your wallet</div>
             <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>Required to subscribe to agents and for future on-chain settlement.</div>
           </div>
-          <button onClick={() => connectWallet()} className="btn-primary" style={{ fontSize: '.8rem', padding: '.5rem 1rem' }}>
+          <button onClick={openModal} className="btn-primary" style={{ fontSize: '.8rem', padding: '.5rem 1rem' }}>
             Connect Wallet →
           </button>
         </div>

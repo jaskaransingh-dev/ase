@@ -153,13 +153,8 @@ export default function LoginForm() {
           <div style={{ marginBottom: '1.5rem' }}>
             <button
               type="button"
-              onClick={async () => {
-                const supabase = supabaseRef.current
-                if (!supabase) return
-                await supabase.auth.signInWithOAuth({
-                  provider: 'coinbase' as Parameters<typeof supabase.auth.signInWithOAuth>[0]['provider'],
-                  options: { redirectTo: `${window.location.origin}/api/auth/callback?next=/dashboard` },
-                })
+              onClick={() => {
+                window.location.href = '/api/auth/coinbase'
               }}
               style={{
                 width: '100%', padding: '.75rem 1rem', borderRadius: 12,

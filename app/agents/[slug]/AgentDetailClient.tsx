@@ -71,7 +71,7 @@ const strategyInfo: Record<string, { label: string; color: string }> = {
 
 export default function AgentDetailClient({ agent, statsHistory, latestStats, trades, isLoggedIn, isSubscribed: initialIsSubscribed }: Props) {
   const router = useRouter()
-  const { wallet, connect: connectWallet } = useWallet()
+  const { wallet, openModal } = useWallet()
   const [tab, setTab] = useState<Tab>('Overview')
   const [isSubscribed, setIsSubscribed] = useState(initialIsSubscribed)
   const [loading, setLoading] = useState(false)
@@ -215,10 +215,10 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
               )}
               {isLoggedIn && !wallet.connected && (
                 <button
-                  onClick={() => connectWallet()}
+                  onClick={openModal}
                   style={{ width: '100%', padding: '.6rem', borderRadius: 10, border: '1px solid rgba(125,211,252,.3)', background: 'rgba(125,211,252,.08)', color: '#7DD3FC', fontFamily: 'var(--font-mono)', fontSize: '.7rem', fontWeight: 700, cursor: 'pointer', marginBottom: '.5rem' }}
                 >
-                  Connect Wallet First
+                  Connect Wallet First →
                 </button>
               )}
               <button

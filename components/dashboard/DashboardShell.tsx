@@ -35,7 +35,7 @@ export default function DashboardShell({ user, initialBalance, children }: Props
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
-  const { wallet, connecting: walletConnecting, connect: connectWallet, shortAddress } = useWallet()
+  const { wallet, connecting: walletConnecting, shortAddress, openModal, disconnect } = useWallet()
 
   const [balance, setBalance] = useState(initialBalance)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -110,22 +110,30 @@ export default function DashboardShell({ user, initialBalance, children }: Props
           </div>
 
           {/* Wallet Connect */}
-          <button
-            className="dashboard-wallet-btn desktop-only"
-            onClick={() => connectWallet()}
-            disabled={walletConnecting}
-            title={wallet.connected ? `Connected: ${wallet.address}` : 'Connect Wallet'}
-            style={wallet.connected ? { background: 'rgba(110,231,183,.12)', borderColor: 'rgba(110,231,183,.3)', color: '#6EE7B7' } : {}}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-              <rect x="2" y="7" width="20" height="14" rx="3" stroke="currentColor" strokeWidth="2"/>
-              <path d="M16 14a1 1 0 1 1-2 0 1 1 0 0 1 2 0z" fill="currentColor"/>
-              <path d="M6 7V5a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" stroke="currentColor" strokeWidth="2"/>
-            </svg>
-            {wallet.connected
-              ? shortAddress
-              : walletConnecting ? 'Connecting…' : 'Connect Wallet'}
-          </button>
+          {wallet.connected ? (
+            <button
+              className="dashboard-wallet-btn desktop-only"
+              onClick={disconnect}
+              title={`Connected: ${wallet.address}\nClick to disconnect`}
+              style={{ background: 'rgba(110,231,183,.1)', borderColor: 'rgba(110,231,183,.28)', color: '#6EE7B7' }}
+            >
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#6EE7B7', display: 'inline-block', flexShrink: 0, boxShadow: '0 0 6px #6EE7B780' }} />
+              {shortAddress}
+            </button>
+          ) : (
+            <button
+              className="dashboard-wallet-btn desktop-only"
+              onClick={openModal}
+              disabled={walletConnecting}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                <rect x="2" y="7" width="20" height="14" rx="3" stroke="currentColor" strokeWidth="2"/>
+                <path d="M16 14a1 1 0 1 1-2 0 1 1 0 0 1 2 0z" fill="currentColor"/>
+                <path d="M6 7V5a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" stroke="currentColor" strokeWidth="2"/>
+              </svg>
+              {walletConnecting ? 'Connecting…' : 'Connect Wallet'}
+            </button>
+          )}
 
           <div className="dashboard-balance-pill">
             <span className="dashboard-live-dot" />
