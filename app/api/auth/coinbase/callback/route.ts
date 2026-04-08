@@ -28,11 +28,11 @@ export async function GET(request: NextRequest) {
   const clientSecret = process.env.COINBASE_CLIENT_SECRET
   if (!clientId || !clientSecret) return loginError('oauth_not_configured')
 
-  const origin = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin
-  const redirectUri = `${origin}/api/auth/coinbase/callback`
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin).replace(/\/+$/, '')
+  const redirectUri = `${baseUrl}/api/auth/coinbase/callback`
 
   // Exchange code for access token
-  const tokenRes = await fetch('https://api.coinbase.com/oauth/token', {
+  const tokenRes = await fetch('https://api.coinbase.com/oauth2/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

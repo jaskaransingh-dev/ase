@@ -8,12 +8,12 @@ export async function GET(request: Request) {
     return NextResponse.redirect(new URL('/login?error=oauth_not_configured', request.url))
   }
 
-  const origin = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin
-  const redirectUri = `${origin}/api/auth/coinbase/callback`
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin).replace(/\/+$/, '')
+  const redirectUri = `${baseUrl}/api/auth/coinbase/callback`
 
   const state = crypto.randomUUID()
 
-  const authUrl = new URL('https://login.coinbase.com/oauth/authorize')
+  const authUrl = new URL('https://login.coinbase.com/oauth2/auth')
   authUrl.searchParams.set('client_id', clientId)
   authUrl.searchParams.set('redirect_uri', redirectUri)
   authUrl.searchParams.set('response_type', 'code')
