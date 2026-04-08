@@ -162,11 +162,11 @@ function parseSignal(signal: string | null): {
   const s = signal.toUpperCase()
   let badge = { label: '● SCANNING', color: '#aaa', bg: 'rgba(170,170,170,.1)' }
 
-  if (s.startsWith('BUY')) badge = { label: '▲ BUYING', color: '#32D3A2', bg: 'rgba(14,173,110,.14)' }
-  else if (s.startsWith('SELL')) badge = { label: '▼ SELLING', color: '#FF6B8A', bg: 'rgba(232,64,64,.14)' }
-  else if (s.startsWith('HOLD')) badge = { label: '◆ HOLDING', color: '#4A90E2', bg: 'rgba(74,144,226,.14)' }
-  else if (s.startsWith('SCAN')) badge = { label: '● SCANNING', color: '#4BD1FF', bg: 'rgba(232,172,32,.14)' }
-  else if (s.startsWith('TREND') || s.startsWith('BREAKOUT')) badge = { label: '▲ TRADING', color: '#32D3A2', bg: 'rgba(14,173,110,.14)' }
+  if (s.startsWith('BUY')) badge = { label: '▲ BUYING', color: '#0EAD6E', bg: 'rgba(14,173,110,.14)' }
+  else if (s.startsWith('SELL')) badge = { label: '▼ SELLING', color: '#E84040', bg: 'rgba(232,64,64,.14)' }
+  else if (s.startsWith('HOLD')) badge = { label: '◆ HOLDING', color: '#E8AC20', bg: 'rgba(74,144,226,.14)' }
+  else if (s.startsWith('SCAN')) badge = { label: '● SCANNING', color: '#E8AC20', bg: 'rgba(232,172,32,.14)' }
+  else if (s.startsWith('TREND') || s.startsWith('BREAKOUT')) badge = { label: '▲ TRADING', color: '#0EAD6E', bg: 'rgba(14,173,110,.14)' }
 
   const waitMatch = signal.match(/Waiting[:\s]+(.+?)(?:\s*·|$)/i)
   const waitFor = waitMatch ? waitMatch[1].trim() : null
@@ -441,8 +441,8 @@ export default function ExchangeClient({
                   <AreaChart data={chartData}>
                     <defs>
                       <linearGradient id="navGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#4BD1FF" stopOpacity={0.25} />
-                        <stop offset="95%" stopColor="#4BD1FF" stopOpacity={0} />
+                        <stop offset="5%" stopColor="#E8AC20" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#E8AC20" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.06)" />
@@ -455,7 +455,7 @@ export default function ExchangeClient({
                       contentStyle={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, ...mono, fontSize: '.8rem' }}
                       formatter={(v: unknown) => `$${formatTooltipValue(v)}`}
                     />
-                    <Area type="monotone" dataKey="nav" stroke="#4BD1FF" strokeWidth={2}
+                    <Area type="monotone" dataKey="nav" stroke="#E8AC20" strokeWidth={2}
                       fill="url(#navGrad)" dot={false} isAnimationActive={false} />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -469,7 +469,7 @@ export default function ExchangeClient({
 
           {/* ── KPI strip ── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '.75rem', marginBottom: '1.25rem' }}>
-            <Metric label="SHARPE RATIO" value={sharpe.toFixed(2)} color="#4A90E2" />
+            <Metric label="SHARPE RATIO" value={sharpe.toFixed(2)} color="#E8AC20" />
             <Metric label="MAX DRAWDOWN" value={`-${maxDD.toFixed(1)}%`} color="var(--red)" />
             <Metric label="WIN RATE" value={`${winRate.toFixed(0)}%`} color="var(--green)" />
             <Metric label="TOTAL TRADES" value={totalTrades.toString()} />
@@ -594,8 +594,8 @@ export default function ExchangeClient({
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '.75rem' }}>
                   <Metric label="TOTAL RETURN" value={`${totalReturn >= 0 ? '+' : ''}${fmtPct(totalReturn)}`}
                     color={totalReturn >= 0 ? 'var(--green)' : 'var(--red)'} />
-                  <Metric label="VOLATILITY (ANN)" value={`${volatility.toFixed(1)}%`} color="#4BD1FF" />
-                  <Metric label="SORTINO RATIO" value={sortino.toFixed(2)} color="#4A90E2" />
+                  <Metric label="VOLATILITY (ANN)" value={`${volatility.toFixed(1)}%`} color="#E8AC20" />
+                  <Metric label="SORTINO RATIO" value={sortino.toFixed(2)} color="#E8AC20" />
                   <Metric label="CALMAR RATIO" value={calmar.toFixed(2)} color="#9B59B6" />
                   <Metric label="PROFIT FACTOR" value={profitFactor >= 99 ? '∞' : profitFactor.toFixed(2)}
                     color={profitFactor >= 1 ? 'var(--green)' : 'var(--red)'}
@@ -620,7 +620,7 @@ export default function ExchangeClient({
                           tickFormatter={(v) => `${v}%`} />
                         <Tooltip contentStyle={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8 }}
                           formatter={(v: unknown) => formatTooltipValue(v, '%')} />
-                        <Line type="monotone" dataKey="ret" stroke="#4A90E2" strokeWidth={2}
+                        <Line type="monotone" dataKey="ret" stroke="#E8AC20" strokeWidth={2}
                           dot={false} isAnimationActive={false} />
                       </LineChart>
                     </ResponsiveContainer>
@@ -657,13 +657,13 @@ export default function ExchangeClient({
             {tab === 'Risk' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.75rem' }}>
-                  <Metric label="SHARPE RATIO" value={sharpe.toFixed(2)} color="#4A90E2"
+                  <Metric label="SHARPE RATIO" value={sharpe.toFixed(2)} color="#E8AC20"
                     sub={sharpe > 1 ? 'Good' : sharpe > 0 ? 'Acceptable' : 'Poor'} />
                   <Metric label="SORTINO RATIO" value={sortino.toFixed(2)} color="#9B59B6"
                     sub="Downside-adjusted" />
                   <Metric label="CALMAR RATIO" value={calmar.toFixed(2)} color="#1ABC9C"
                     sub="Return / MaxDD" />
-                  <Metric label="VOLATILITY" value={`${volatility.toFixed(1)}%`} color="#4BD1FF"
+                  <Metric label="VOLATILITY" value={`${volatility.toFixed(1)}%`} color="#E8AC20"
                     sub="Annualized" />
                   <Metric label="MAX DRAWDOWN" value={`-${maxDD.toFixed(1)}%`} color="var(--red)"
                     sub="Peak-to-trough" />
@@ -679,8 +679,8 @@ export default function ExchangeClient({
                       <AreaChart data={chartData}>
                         <defs>
                           <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#FF6B8A" stopOpacity={0.25} />
-                            <stop offset="95%" stopColor="#FF6B8A" stopOpacity={0} />
+                            <stop offset="5%" stopColor="#E84040" stopOpacity={0.25} />
+                            <stop offset="95%" stopColor="#E84040" stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.06)" />
@@ -691,7 +691,7 @@ export default function ExchangeClient({
                           tickFormatter={(v) => `${v}%`} />
                         <Tooltip contentStyle={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8 }}
                           formatter={(v: unknown) => formatTooltipValue(v, '%')} />
-                        <Area type="monotone" dataKey="dd" stroke="#FF6B8A" strokeWidth={2}
+                        <Area type="monotone" dataKey="dd" stroke="#E84040" strokeWidth={2}
                           fill="url(#ddGrad)" dot={false} isAnimationActive={false} />
                       </AreaChart>
                     </ResponsiveContainer>
@@ -828,7 +828,7 @@ export default function ExchangeClient({
             const xs = pts.map((_, i) => (i / (pts.length - 1)) * w)
             const ys = pts.map(v => h - ((v - mn) / range) * (h - 4) - 2)
             const d = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ')
-            const lastDir = pts[pts.length - 1] >= pts[0] ? '#32D3A2' : '#FF6B8A'
+            const lastDir = pts[pts.length - 1] >= pts[0] ? '#0EAD6E' : '#E84040'
             const fill = `${d} L${w},${h} L0,${h} Z`
             return (
               <div style={{ marginBottom: '1.25rem' }}>
@@ -975,7 +975,7 @@ export default function ExchangeClient({
       </div>
 
       <style>{`
-        .max-button:hover { color: #4BD1FF !important; border-color: rgba(232,172,32,.25) !important; }
+        .max-button:hover { color: #E8AC20 !important; border-color: rgba(232,172,32,.25) !important; }
 
         @keyframes priceBgUp {
           0% { background: transparent; }
@@ -996,7 +996,7 @@ export default function ExchangeClient({
         }
         .pulse-dot {
           display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-          background: #32D3A2; animation: pulseOpacity 1.8s ease-in-out infinite;
+          background: #0EAD6E; animation: pulseOpacity 1.8s ease-in-out infinite;
         }
         .pulse-text { animation: pulseOpacity 2s ease-in-out infinite; }
 

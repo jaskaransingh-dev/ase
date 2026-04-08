@@ -1,26 +1,25 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
+import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { createClient } from '@/lib/supabase/client'
-import { fmtDateTime, fmtPct, fmtUSD } from '@/lib/utils'
+import { useWallet } from '@/components/WalletProvider'
+import { fmtUSD, fmtPct, fmtDateTime } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
 
-type Wallet = { balance_cents: number }
-type Agent = { id: string; name: string; slug: string; ticker: string }
-type Holding = {
+type Agent = { id: string; name: string; slug: string; signal_summary?: string; last_run_at?: string; primary_symbol?: string; strategy_type?: string }
+type Subscription = {
   id: string
   agent_id: string
-  shares: number
-  invested_cents: number
-  current_value_cents: number
-  status: string
-  agents: Agent
+  created_at: string
+  agents: Agent & {
+    agent_stats?: { total_return_pct: number; sharpe_ratio: number; max_drawdown_pct: number; win_rate_pct: number; nav_cents: number; snapshot_at: string }[]
+  }
 }
-type AgentTrade = {
+type Trade = {
   id: string
   agent_id: string
   symbol: string
@@ -29,599 +28,353 @@ type AgentTrade = {
   fill_price: number
   filled_at: string
   pnl_cents: number | null
-  agents: Agent
+  agents?: { name: string; slug: string }
 }
-type Transaction = { id: string; type: string; amount_cents: number; created_at: string }
 type AgentActivity = {
   agent_id: string
   agent_name: string
-  agent_ticker: string
+  slug: string
   status: 'BUYING' | 'SELLING' | 'SCANNING' | 'OFFLINE'
   symbol: string
   last_trade_at: string
-  side?: string
   signal_summary?: string
 }
 
-type ChartPoint = { label: string; value: number }
-type Timeframe = '1D' | '1W' | '1M' | 'ALL'
-
-const COLORS = ['#35C2A0', '#4E7FFF', '#FDAA5F', '#FF7A7A', '#B08CFF', '#6FD7F8']
-const TIMEFRAMES: Timeframe[] = ['1D', '1W', '1M', 'ALL']
-
 function getRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr)
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
+  const diff = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60000)
   const hours = Math.floor(diff / 3600000)
   const days = Math.floor(diff / 86400000)
-
   if (mins < 1) return 'now'
   if (mins < 60) return `${mins}m ago`
   if (hours < 24) return `${hours}h ago`
   return `${days}d ago`
 }
 
-function triggerHaptic(ms = 8) {
-  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-    navigator.vibrate(ms)
-  }
+function statusColor(s: AgentActivity['status']) {
+  return s === 'BUYING' ? '#6EE7B7' : s === 'SELLING' ? '#FB7185' : s === 'SCANNING' ? '#FDBA74' : '#6B7280'
 }
 
-function getStatusColor(status: AgentActivity['status']) {
-  switch (status) {
-    case 'BUYING':
-      return '#35C2A0'
-    case 'SELLING':
-      return '#FF7A7A'
-    case 'SCANNING':
-      return '#FDBA4A'
-    default:
-      return '#707C97'
-  }
+function triggerHaptic(ms = 8) {
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(ms)
 }
 
 export default function DashboardPage() {
   const supabase = createClient()
   const router = useRouter()
+  const { wallet, connect: connectWallet, shortAddress } = useWallet()
 
   const [loading, setLoading] = useState(true)
-  const [wallet, setWallet] = useState<Wallet | null>(null)
-  const [holdings, setHoldings] = useState<Holding[]>([])
-  const [trades, setTrades] = useState<AgentTrade[]>([])
-  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
+  const [trades, setTrades] = useState<Trade[]>([])
   const [agentActivity, setAgentActivity] = useState<AgentActivity[]>([])
-  const [timeframe, setTimeframe] = useState<Timeframe>('1W')
 
   useEffect(() => {
     async function load() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.push('/login'); return }
 
-      if (!user) {
-        router.push('/login')
-        return
-      }
-
-      const [walletRes, holdingsRes, tradesRes, txnsRes, agentsRes] = await Promise.all([
-        supabase.from('wallets').select('balance_cents').eq('user_id', user.id).single(),
-        supabase.from('holdings').select('*, agents(id, name, slug, ticker)').eq('user_id', user.id).eq('status', 'active'),
-        supabase.from('agent_trades').select('*, agents(id, name, slug, ticker)').order('filled_at', { ascending: false }).limit(35),
-        supabase.from('transactions').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(12),
-        supabase.from('agents').select('id, name, ticker, signal_summary, last_run_at').eq('status', 'active'),
+      const [subsRes, tradesRes, agentsRes] = await Promise.all([
+        supabase
+          .from('subscriptions')
+          .select('id, agent_id, created_at, agents(id, name, slug, signal_summary, last_run_at, primary_symbol, strategy_type, agent_stats(total_return_pct, sharpe_ratio, max_drawdown_pct, win_rate_pct, nav_cents, snapshot_at))')
+          .eq('user_id', user.id)
+          .eq('status', 'active')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('agent_trades')
+          .select('*, agents(name, slug)')
+          .order('filled_at', { ascending: false })
+          .limit(30),
+        supabase
+          .from('agents')
+          .select('id, name, slug, signal_summary, last_run_at')
+          .eq('status', 'active'),
       ])
 
-      setWallet(walletRes.data)
-      setHoldings(holdingsRes.data ?? [])
-      setTrades(tradesRes.data ?? [])
-      setTransactions(txnsRes.data ?? [])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setSubscriptions((subsRes.data ?? []) as any as Subscription[])
+      setTrades((tradesRes.data ?? []) as Trade[])
 
       if (agentsRes.data && tradesRes.data) {
-        const now = new Date()
-        const tenMinutesAgo = new Date(now.getTime() - 10 * 60000)
-        const staleCutoff = new Date(now.getTime() - 25 * 60000)
+        const now = Date.now()
+        const staleCutoff = now - 25 * 60000
+        const tenMinAgo = now - 10 * 60000
 
         const activityMap: Record<string, AgentActivity> = {}
-
         for (const agent of agentsRes.data) {
-          const lastRun = agent.last_run_at ? new Date(agent.last_run_at) : null
-          const isStale = !lastRun || lastRun < staleCutoff
-
+          const lastRun = agent.last_run_at ? new Date(agent.last_run_at).getTime() : 0
           activityMap[agent.id] = {
             agent_id: agent.id,
             agent_name: agent.name,
-            agent_ticker: agent.ticker,
-            status: isStale ? 'OFFLINE' : 'SCANNING',
+            slug: agent.slug,
+            status: lastRun < staleCutoff ? 'OFFLINE' : 'SCANNING',
             symbol: '--',
             last_trade_at: '',
             signal_summary: agent.signal_summary ?? '',
           }
         }
-
-        const tradesByAgent: Record<string, AgentTrade> = {}
-        for (const trade of tradesRes.data) {
-          if (!tradesByAgent[trade.agent_id]) {
-            tradesByAgent[trade.agent_id] = trade
-          }
+        const tradesByAgent: Record<string, Trade> = {}
+        for (const t of tradesRes.data as Trade[]) {
+          if (!tradesByAgent[t.agent_id]) tradesByAgent[t.agent_id] = t
         }
-
         for (const [agentId, trade] of Object.entries(tradesByAgent)) {
           if (!activityMap[agentId]) continue
-
-          const tradeTime = new Date(trade.filled_at)
-          if (tradeTime >= tenMinutesAgo) {
+          const tradeTime = new Date(trade.filled_at).getTime()
+          if (tradeTime >= tenMinAgo) {
             activityMap[agentId].status = trade.side === 'buy' ? 'BUYING' : 'SELLING'
           }
           activityMap[agentId].symbol = trade.symbol
           activityMap[agentId].last_trade_at = trade.filled_at
-          activityMap[agentId].side = trade.side
         }
-
         setAgentActivity(Object.values(activityMap))
       }
 
       setLoading(false)
     }
-
     void load()
   }, [router, supabase])
 
-  const balance = wallet?.balance_cents ?? 0
-  const activeHoldings = holdings
-  const totalInvested = activeHoldings.reduce((sum, h) => sum + h.invested_cents, 0)
-  const totalCurrentValue = activeHoldings.reduce((sum, h) => sum + (h.current_value_cents ?? h.invested_cents), 0)
-  const totalReturn = totalCurrentValue - totalInvested
-  const totalReturnPct = totalInvested > 0 ? (totalReturn / totalInvested) * 100 : 0
-  const totalNav = balance + totalCurrentValue
+  const subscribedAgentIds = new Set(subscriptions.map(s => s.agent_id))
+  const subscribedActivity = agentActivity.filter(a => subscribedAgentIds.has(a.agent_id))
+  const recentTrades = trades.filter(t => subscribedAgentIds.has(t.agent_id)).slice(0, 10)
 
-  const pnlTrades = useMemo(() => {
-    return [...trades]
-      .filter((trade) => trade.pnl_cents !== null)
-      .sort((a, b) => new Date(a.filled_at).getTime() - new Date(b.filled_at).getTime())
-  }, [trades])
-
-  const fullSeries = useMemo<ChartPoint[]>(() => {
-    if (pnlTrades.length > 1) {
-      const totalPnl = pnlTrades.reduce((sum, trade) => sum + (trade.pnl_cents ?? 0), 0)
-      const baseValue = totalNav - totalPnl
-      let running = baseValue
-
-      return pnlTrades.map((trade) => {
-        running += trade.pnl_cents ?? 0
-        return {
-          label: new Date(trade.filled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-          value: Math.max(running / 100, 0),
-        }
-      })
-    }
-
-    const points = 10
-    return Array.from({ length: points }, (_, i) => {
-      const drift = totalNav / 100 > 0 ? totalNav / 100 : 100
-      const wiggle = Math.sin(i / 1.6) * drift * 0.015
-      return {
-        label: `T${i + 1}`,
-        value: drift + wiggle,
-      }
-    })
-  }, [pnlTrades, totalNav])
-
-  const navSeries = useMemo(() => {
-    const size =
-      timeframe === '1D'
-        ? 6
-        : timeframe === '1W'
-          ? 10
-          : timeframe === '1M'
-            ? 16
-            : fullSeries.length
-
-    return fullSeries.slice(-size)
-  }, [fullSeries, timeframe])
-
-  const chartData = activeHoldings.map((holding) => ({
-    name: holding.agents?.name || 'Unknown',
-    value: holding.current_value_cents ?? holding.invested_cents,
-  }))
-
-  const topHolding = useMemo(() => {
-    if (!activeHoldings.length) return null
-    return [...activeHoldings].sort(
-      (a, b) => (b.current_value_cents ?? b.invested_cents) - (a.current_value_cents ?? a.invested_cents)
-    )[0]
-  }, [activeHoldings])
-
-  const worstHolding = useMemo(() => {
-    if (!activeHoldings.length) return null
-    return [...activeHoldings]
-      .map((holding) => {
-        const current = holding.current_value_cents ?? holding.invested_cents
-        const retPct = holding.invested_cents > 0 ? ((current - holding.invested_cents) / holding.invested_cents) * 100 : 0
-        return { holding, retPct }
-      })
-      .sort((a, b) => a.retPct - b.retPct)[0]
-  }, [activeHoldings])
-
-  const liveStatuses = {
-    buying: agentActivity.filter((agent) => agent.status === 'BUYING').length,
-    selling: agentActivity.filter((agent) => agent.status === 'SELLING').length,
-    scanning: agentActivity.filter((agent) => agent.status === 'SCANNING').length,
-    offline: agentActivity.filter((agent) => agent.status === 'OFFLINE').length,
-  }
-
-  const buyTrades = trades.filter((trade) => trade.side === 'buy').length
-  const sellTrades = trades.filter((trade) => trade.side === 'sell').length
-  const buyPressure = buyTrades + sellTrades > 0 ? (buyTrades / (buyTrades + sellTrades)) * 100 : 50
-
-  const avgPnlPct = pnlTrades.length
-    ? pnlTrades.reduce((sum, trade) => sum + ((trade.pnl_cents ?? 0) >= 0 ? 1 : 0), 0) / pnlTrades.length
+  const totalReturnAvg = subscriptions.length > 0
+    ? subscriptions.reduce((sum, s) => {
+        const stats = Array.isArray(s.agents?.agent_stats) ? s.agents.agent_stats[0] : null
+        return sum + (stats?.total_return_pct ?? 0)
+      }, 0) / subscriptions.length
     : 0
-
-  const concentrationPct = topHolding
-    ? (((topHolding.current_value_cents ?? topHolding.invested_cents) / Math.max(totalCurrentValue, 1)) * 100)
-    : 0
-
-  const marketPulse = [
-    { label: 'ASE Composite', value: fmtPct(totalReturnPct, 2), pos: totalReturn >= 0, detail: 'Portfolio-weighted performance' },
-    { label: 'Buy Pressure', value: `${buyPressure.toFixed(0)}%`, pos: buyPressure >= 50, detail: `${buyTrades} buys vs ${sellTrades} sells` },
-    {
-      label: 'Live Agents',
-      value: `${agentActivity.length - liveStatuses.offline}/${agentActivity.length || 1}`,
-      pos: liveStatuses.offline === 0,
-      detail: `${liveStatuses.scanning} scanning right now`,
-    },
-    {
-      label: 'Execution Hit Rate',
-      value: `${(avgPnlPct * 100).toFixed(0)}%`,
-      pos: avgPnlPct >= 0.5,
-      detail: 'Recent profitable trade ratio',
-    },
-  ]
 
   if (loading) {
     return (
-      <div className="dashboard-v2 page-slide-in">
-        <div className="dashboard-skeleton-grid">
-          <div className="skeleton dashboard-skeleton-title" />
-          <div className="dashboard-skeleton-stats">
-            {Array.from({ length: 4 }, (_, i) => (
-              <div key={i} className="skeleton dashboard-skeleton-card" />
-            ))}
-          </div>
-          <div className="skeleton dashboard-skeleton-main" />
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.75rem', letterSpacing: '.08em' }}>
+        Loading…
       </div>
     )
   }
 
   return (
-    <div className="dashboard-v2 page-slide-in">
-      <section className="market-strip-card">
-        <div className="market-strip-head">
-          <div>
-            <div className="dashboard-chip">Market Pulse</div>
-            <h1 className="dashboard-title">Trading Dashboard</h1>
-          </div>
-          <div className="dashboard-live-indicator">
-            <span className="dashboard-live-dot" />
-            LIVE FEED
-          </div>
-        </div>
+    <div style={{ padding: '2rem 2.5rem', maxWidth: 1440, margin: '0 auto' }}>
 
-        <div className="market-pulse-grid">
-          {marketPulse.map((item) => (
-            <div key={item.label} className="market-pulse-tile">
-              <div className="market-pulse-label">{item.label}</div>
-              <div className={`market-pulse-value ${item.pos ? 'is-pos' : 'is-neg'}`}>{item.value}</div>
-              <div className="market-pulse-detail">{item.detail}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="hero-nav-panel">
+      {/* Top strip */}
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '1.75rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <div className="dashboard-chip">Portfolio NAV</div>
-          <div className="hero-nav-value">{fmtUSD(totalNav)}</div>
-          <div className={`hero-nav-change ${totalReturn >= 0 ? 'is-pos' : 'is-neg'}`}>
-            {fmtPct(totalReturnPct, 2)} ({totalReturn >= 0 ? '+' : '-'}{fmtUSD(Math.abs(totalReturn))})
-          </div>
+          <div className="eyebrow" style={{ marginBottom: '.3rem' }}>OVERVIEW</div>
+          <h1 style={{ fontFamily: 'var(--font-head)', fontSize: '1.7rem', fontWeight: 800 }}>Your Dashboard</h1>
         </div>
+        <Link href="/agents" className="btn-primary" style={{ fontSize: '.82rem', padding: '.55rem 1.1rem' }} onClick={() => triggerHaptic()}>
+          Browse Agents →
+        </Link>
+      </div>
 
-        <div className="hero-nav-right">
-          <div className="timeframe-pills" role="tablist" aria-label="Chart timeframe">
-            {TIMEFRAMES.map((option) => (
-              <button
-                key={option}
-                className={`timeframe-pill ${timeframe === option ? 'is-active' : ''}`}
-                onClick={() => {
-                  triggerHaptic(10)
-                  setTimeframe(option)
-                }}
-              >
-                {option}
-              </button>
-            ))}
+      {/* Wallet banner */}
+      {!wallet.connected && (
+        <div style={{ background: 'rgba(155,140,255,.06)', border: '1px solid rgba(155,140,255,.2)', borderRadius: 14, padding: '1rem 1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '.9rem', marginBottom: '.2rem' }}>Connect your wallet</div>
+            <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>Required to subscribe to agents and for future on-chain settlement.</div>
           </div>
-
-          <div className="hero-action-row">
-            <Link href="/dashboard/exchange" className="action-button-primary" onClick={() => triggerHaptic(12)}>
-              Trade Agents
-            </Link>
-            <Link href="/dashboard/deposit" className="action-button-secondary" onClick={() => triggerHaptic(12)}>
-              Add Funds
-            </Link>
-          </div>
+          <button onClick={() => connectWallet()} className="btn-primary" style={{ fontSize: '.8rem', padding: '.5rem 1rem' }}>
+            Connect Wallet →
+          </button>
         </div>
-      </section>
+      )}
 
-      <section className="dashboard-main-grid">
-        <div className="dashboard-left-column">
-          <div className="exchange-card nav-chart-card">
-            <div className="section-head">
-              <h2>Portfolio Curve</h2>
-              <span className="section-subtle">Derived from realized trade activity</span>
-            </div>
-            <div className="nav-chart-wrap">
-              <ResponsiveContainer width="100%" height={240}>
-                <AreaChart data={navSeries}>
-                  <defs>
-                    <linearGradient id="navArea" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#35C2A0" stopOpacity={0.38} />
-                      <stop offset="95%" stopColor="#35C2A0" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <Tooltip
-                    formatter={(value) => {
-                      const numericValue = typeof value === 'number' ? value : Number(value ?? 0)
-                      return [`$${numericValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'NAV']
-                    }}
-                    labelFormatter={(label) => `Time: ${label}`}
-                    contentStyle={{
-                      background: 'rgba(9, 14, 28, 0.95)',
-                      border: '1px solid rgba(148, 163, 184, 0.35)',
-                      borderRadius: '12px',
-                      color: '#E6EEFF',
-                      fontSize: '12px',
-                    }}
-                  />
-                  <Area type="monotone" dataKey="value" stroke="#35C2A0" strokeWidth={2.2} fill="url(#navArea)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+      {wallet.connected && (
+        <div style={{ background: 'rgba(110,231,183,.05)', border: '1px solid rgba(110,231,183,.15)', borderRadius: 14, padding: '.75rem 1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '.75rem' }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#6EE7B7', display: 'inline-block', flexShrink: 0 }} />
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: '#6EE7B7' }}>Wallet connected: {shortAddress}</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginLeft: 'auto' }}>
+            {wallet.chainId ?? 'Unknown chain'}
+          </span>
+        </div>
+      )}
+
+      {/* Stats row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '.7rem', marginBottom: '1.75rem' }} className="dash-stats-strip">
+        {[
+          { label: 'Subscriptions', value: subscriptions.length.toString(), color: 'var(--white)' },
+          { label: 'Avg Return', value: fmtPct(totalReturnAvg, 1), color: totalReturnAvg >= 0 ? 'var(--green)' : 'var(--red)' },
+          { label: 'Active Agents', value: `${subscribedActivity.filter(a => a.status !== 'OFFLINE').length}/${subscribedActivity.length}`, color: '#8BE9FF' },
+          { label: 'Recent Trades', value: recentTrades.length.toString(), color: 'var(--gold)' },
+        ].map(item => (
+          <div key={item.label} style={{ borderRadius: 12, border: '1px solid rgba(148,163,184,.2)', background: 'rgba(9,14,28,.72)', padding: '.8rem 1rem' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: '#8CA0C4', letterSpacing: '.08em', marginBottom: '.25rem' }}>{item.label.toUpperCase()}</div>
+            <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1.3rem', color: item.color }}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1.25rem', alignItems: 'start' }} className="dash-main-grid">
+
+        {/* Left: subscriptions */}
+        <div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.75rem' }}>
+            ACTIVE SUBSCRIPTIONS
           </div>
 
-          <div className="exchange-card">
-            <div className="section-head">
-              <h2>Positions</h2>
-              <span className="section-subtle">Modeled after pro watchlist tables</span>
+          {subscriptions.length === 0 ? (
+            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '3rem 2rem', textAlign: 'center' }}>
+              <div style={{ fontSize: '1.5rem', marginBottom: '.75rem' }}>⬡</div>
+              <div style={{ fontFamily: 'var(--font-head)', fontSize: '1rem', fontWeight: 800, marginBottom: '.4rem' }}>No subscriptions yet</div>
+              <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>Browse verified agents and subscribe to start tracking their trades.</div>
+              <Link href="/agents" className="btn-primary" style={{ fontSize: '.82rem' }}>Browse Agents →</Link>
             </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.75rem' }}>
+              {subscriptions.map(sub => {
+                const stats = Array.isArray(sub.agents?.agent_stats) ? sub.agents.agent_stats[0] : null
+                const ret = stats?.total_return_pct ?? 0
+                const sharpe = stats?.sharpe_ratio ?? 0
+                const winRate = stats?.win_rate_pct ?? 0
+                const pos = ret >= 0
+                const activity = agentActivity.find(a => a.agent_id === sub.agent_id)
 
-            {activeHoldings.length === 0 ? (
-              <div className="empty-state-panel">
-                <div className="empty-state-title">No open positions yet</div>
-                <p>Start with a funded wallet, then allocate into verified agent pools.</p>
-                <Link href="/dashboard/exchange" className="action-button-primary" onClick={() => triggerHaptic(12)}>
-                  Explore Exchange
-                </Link>
-              </div>
-            ) : (
-              <div className="positions-table-wrap">
-                <table className="positions-table">
-                  <thead>
-                    <tr>
-                      <th>Agent</th>
-                      <th>Shares</th>
-                      <th>Entry</th>
-                      <th>Current</th>
-                      <th>P/L</th>
-                      <th>P/L %</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activeHoldings.map((holding) => {
-                      const currentValue = holding.current_value_cents ?? holding.invested_cents
-                      const entryPrice = holding.invested_cents / Math.max(holding.shares, 1)
-                      const currentPrice = currentValue / Math.max(holding.shares, 1)
-                      const pnl = currentValue - holding.invested_cents
-                      const pnlPct = holding.invested_cents > 0 ? (pnl / holding.invested_cents) * 100 : 0
-
-                      return (
-                        <tr key={holding.id}>
-                          <td>
-                            <div className="table-agent-name">{holding.agents?.name}</div>
-                            <div className="table-agent-ticker">{holding.agents?.ticker}</div>
-                          </td>
-                          <td>{holding.shares.toFixed(3)}</td>
-                          <td>{fmtUSD(entryPrice)}</td>
-                          <td>{fmtUSD(currentPrice)}</td>
-                          <td className={pnl >= 0 ? 'is-pos' : 'is-neg'}>{pnl >= 0 ? '+' : '-'}{fmtUSD(Math.abs(pnl))}</td>
-                          <td className={pnlPct >= 0 ? 'is-pos' : 'is-neg'}>{fmtPct(pnlPct, 2)}</td>
-                          <td>
-                            <Link href={`/dashboard/exchange/${holding.agents?.slug}`} className="table-view-link" onClick={() => triggerHaptic(8)}>
-                              Open
-                            </Link>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          <div className="exchange-card">
-            <div className="section-head">
-              <h2>Agent Activity Tape</h2>
-              <span className="section-subtle">Execution and signal state feed</span>
-            </div>
-
-            <div className="activity-grid">
-              {agentActivity.map((activity) => (
-                <div key={activity.agent_id} className="activity-tile">
-                  <div className="activity-top">
-                    <div>
-                      <div className="table-agent-name">{activity.agent_name}</div>
-                      <div className="table-agent-ticker">{activity.symbol || activity.agent_ticker}</div>
+                return (
+                  <div key={sub.id} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.2rem 1.4rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', marginBottom: '.75rem' }}>
+                      <div>
+                        <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1rem', marginBottom: '.15rem' }}>
+                          {sub.agents?.name}
+                        </div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)' }}>
+                          {sub.agents?.primary_symbol ?? 'MULTI'} · subscribed {getRelativeTime(sub.created_at)}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+                        {activity && (
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', fontWeight: 700, padding: '.2rem .55rem', borderRadius: 6, background: `${statusColor(activity.status)}18`, border: `1px solid ${statusColor(activity.status)}30`, color: statusColor(activity.status) }}>
+                            {activity.status}
+                          </span>
+                        )}
+                        <Link href={`/agents/${sub.agents?.slug}`} style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--gold)', textDecoration: 'none' }}>
+                          View →
+                        </Link>
+                      </div>
                     </div>
-                    <div className="activity-status" style={{ color: getStatusColor(activity.status) }}>
-                      <span className="activity-status-dot" style={{ backgroundColor: getStatusColor(activity.status) }} />
-                      {activity.status}
-                    </div>
-                  </div>
 
-                  <div className="activity-bottom">
-                    <span>{activity.last_trade_at ? getRelativeTime(activity.last_trade_at) : 'No recent fill'}</span>
-                    <span>{activity.signal_summary || 'Monitoring setup and waiting for edge.'}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <aside className="dashboard-right-column">
-          <div className="exchange-card metrics-stack">
-            <div className="section-head">
-              <h3>Capital Snapshot</h3>
-            </div>
-
-            <div className="mini-metrics-grid">
-              <div className="mini-metric">
-                <span>Available Cash</span>
-                <strong>{fmtUSD(balance)}</strong>
-              </div>
-              <div className="mini-metric">
-                <span>Invested Capital</span>
-                <strong>{fmtUSD(totalCurrentValue)}</strong>
-              </div>
-              <div className="mini-metric">
-                <span>Top Position</span>
-                <strong>{topHolding ? topHolding.agents?.ticker : '--'}</strong>
-              </div>
-              <div className="mini-metric">
-                <span>Largest Drawdown Name</span>
-                <strong>{worstHolding ? worstHolding.holding.agents?.ticker : '--'}</strong>
-              </div>
-            </div>
-          </div>
-
-          {chartData.length > 0 && (
-            <div className="exchange-card">
-              <div className="section-head">
-                <h3>Allocation Mix</h3>
-              </div>
-              <div className="allocation-chart-wrap">
-                <ResponsiveContainer width="100%" height={220}>
-                  <PieChart>
-                    <Pie data={chartData} cx="50%" cy="50%" innerRadius={52} outerRadius={80} dataKey="value" paddingAngle={2}>
-                      {chartData.map((entry, index) => (
-                        <Cell key={entry.name} fill={COLORS[index % COLORS.length]} />
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '.4rem' }}>
+                      {[
+                        { k: 'RETURN', v: fmtPct(ret), c: pos ? 'var(--green)' : 'var(--red)' },
+                        { k: 'SHARPE', v: sharpe.toFixed(2), c: 'var(--white)' },
+                        { k: 'WIN %', v: winRate.toFixed(0) + '%', c: 'var(--white)' },
+                        { k: 'SIGNAL', v: activity?.symbol !== '--' ? activity?.symbol ?? '—' : 'IDLE', c: 'var(--faint)' },
+                      ].map(({ k, v, c }) => (
+                        <div key={k} style={{ background: 'rgba(255,255,255,.03)', border: '1px solid var(--border)', borderRadius: 9, padding: '.4rem .55rem' }}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.08em' }}>{k}</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.75rem', fontWeight: 800, color: c, marginTop: '.1rem' }}>{v}</div>
+                        </div>
                       ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="legend-list">
-                {chartData.map((item, index) => {
-                  const pct = totalCurrentValue > 0 ? (item.value / totalCurrentValue) * 100 : 0
-                  return (
-                    <div key={item.name} className="legend-item">
-                      <span className="legend-dot" style={{ background: COLORS[index % COLORS.length] }} />
-                      <span>{item.name}</span>
-                      <strong>{pct.toFixed(1)}%</strong>
                     </div>
-                  )
-                })}
-              </div>
+
+                    {activity?.signal_summary && (
+                      <div style={{ marginTop: '.7rem', fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--muted)', borderTop: '1px solid var(--border)', paddingTop: '.6rem' }}>
+                        {activity.signal_summary}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
 
-          <div className="exchange-card">
-            <div className="section-head">
-              <h3>Risk & Execution</h3>
+          {/* Recent trades from subscribed agents */}
+          {recentTrades.length > 0 && (
+            <div style={{ marginTop: '1.5rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.75rem' }}>
+                RECENT TRADES (YOUR AGENTS)
+              </div>
+              <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden' }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '.7rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        {['Agent', 'Symbol', 'Side', 'Qty', 'Fill', 'P&L', 'Time'].map(h => (
+                          <th key={h} style={{ padding: '.55rem .75rem', textAlign: 'left', color: 'var(--faint)', fontWeight: 600, fontSize: '.58rem', letterSpacing: '.06em', whiteSpace: 'nowrap' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentTrades.map(t => {
+                        const pnl = t.pnl_cents ?? 0
+                        return (
+                          <tr key={t.id} style={{ borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+                            <td style={{ padding: '.4rem .75rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>{t.agents?.name ?? '—'}</td>
+                            <td style={{ padding: '.4rem .75rem', fontWeight: 700 }}>{t.symbol}</td>
+                            <td style={{ padding: '.4rem .75rem', color: t.side === 'buy' ? '#6EE7B7' : '#FB7185', textTransform: 'uppercase', fontWeight: 700 }}>{t.side}</td>
+                            <td style={{ padding: '.4rem .75rem', color: 'var(--muted)' }}>{t.qty}</td>
+                            <td style={{ padding: '.4rem .75rem', color: 'var(--muted)' }}>${t.fill_price.toFixed(2)}</td>
+                            <td style={{ padding: '.4rem .75rem', color: pnl > 0 ? '#6EE7B7' : pnl < 0 ? '#FB7185' : 'var(--faint)' }}>
+                              {pnl !== 0 ? `${pnl > 0 ? '+' : ''}$${(pnl / 100).toFixed(2)}` : '—'}
+                            </td>
+                            <td style={{ padding: '.4rem .75rem', color: 'var(--faint)', whiteSpace: 'nowrap' }}>{getRelativeTime(t.filled_at)}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-            <div className="risk-lines">
-              <div>
-                <span>Concentration Risk</span>
-                <strong>{concentrationPct.toFixed(1)}%</strong>
-              </div>
-              <div>
-                <span>Cash Readiness</span>
-                <strong>{totalNav > 0 ? ((balance / totalNav) * 100).toFixed(1) : '0.0'}%</strong>
-              </div>
-              <div>
-                <span>Win/Loss Rhythm</span>
-                <strong>{(avgPnlPct * 100).toFixed(0)}% wins</strong>
-              </div>
-              <div>
-                <span>Buying / Selling</span>
-                <strong>{buyTrades}/{sellTrades}</strong>
-              </div>
-            </div>
+          )}
+        </div>
+
+        {/* Right: agent activity sidebar */}
+        <div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.75rem' }}>
+            ALL AGENT ACTIVITY
           </div>
-
-          <div className="exchange-card scroll-card">
-            <div className="section-head">
-              <h3>Recent Fills</h3>
-              <span className="section-subtle">{trades.length} records</span>
-            </div>
-
-            {trades.length === 0 ? (
-              <div className="panel-empty">No fills yet.</div>
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden' }}>
+            {agentActivity.length === 0 ? (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.7rem' }}>No agents running</div>
             ) : (
-              <div className="list-panel">
-                {trades.slice(0, 10).map((trade) => (
-                  <div key={trade.id} className="list-row">
-                    <div>
-                      <div className={`trade-side ${trade.side === 'buy' ? 'is-pos' : 'is-neg'}`}>
-                        {trade.side === 'buy' ? 'BUY' : 'SELL'} {trade.symbol}
+              agentActivity.map((a, i) => {
+                const subscribed = subscribedAgentIds.has(a.agent_id)
+                return (
+                  <div key={a.agent_id} style={{ padding: '.85rem 1rem', borderBottom: i < agentActivity.length - 1 ? '1px solid var(--border)' : 'none', display: 'flex', alignItems: 'flex-start', gap: '.75rem' }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor(a.status), flexShrink: 0, marginTop: '.2rem', boxShadow: a.status !== 'OFFLINE' ? `0 0 6px ${statusColor(a.status)}80` : 'none' }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', marginBottom: '.1rem' }}>
+                        <span style={{ fontFamily: 'var(--font-head)', fontWeight: 700, fontSize: '.78rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.agent_name}</span>
+                        {subscribed && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: '#6EE7B7', background: 'rgba(110,231,183,.1)', border: '1px solid rgba(110,231,183,.2)', borderRadius: 4, padding: '.1rem .3rem', flexShrink: 0 }}>MINE</span>}
                       </div>
-                      <div className="list-sub">{trade.agents?.name}</div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)' }}>
+                        {a.symbol !== '--' ? a.symbol : 'idle'} · {a.last_trade_at ? getRelativeTime(a.last_trade_at) : 'no trades'}
+                      </div>
                     </div>
-                    <div className="list-right">
-                      <div>{trade.qty.toFixed(3)}</div>
-                      <div className="list-sub">{getRelativeTime(trade.filled_at)}</div>
-                    </div>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', fontWeight: 700, color: statusColor(a.status), flexShrink: 0 }}>{a.status}</span>
                   </div>
-                ))}
-              </div>
+                )
+              })
             )}
           </div>
 
-          <div className="exchange-card scroll-card">
-            <div className="section-head">
-              <h3>Cash Ledger</h3>
-              <span className="section-subtle">Latest flows</span>
-            </div>
-
-            {transactions.length === 0 ? (
-              <div className="panel-empty">No wallet transactions.</div>
-            ) : (
-              <div className="list-panel">
-                {transactions.map((tx) => {
-                  const incoming = ['deposit', 'divest', 'return'].includes(tx.type)
-                  return (
-                    <div key={tx.id} className="list-row">
-                      <div>
-                        <div className={incoming ? 'is-pos' : 'is-neg'}>{tx.type.toUpperCase()}</div>
-                        <div className="list-sub">{fmtDateTime(tx.created_at)}</div>
-                      </div>
-                      <div className={`list-right ${incoming ? 'is-pos' : 'is-neg'}`}>
-                        {incoming ? '+' : '-'}{fmtUSD(tx.amount_cents)}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+          {/* Quick actions */}
+          <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+            <Link href="/agents" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '.75rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--white)', textDecoration: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'border-color .14s' }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'rgba(155,140,255,.4)'}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}>
+              Browse All Agents <span style={{ color: 'var(--gold)' }}>→</span>
+            </Link>
+            <Link href="/dashboard/backtest" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '.75rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--white)', textDecoration: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'border-color .14s' }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'rgba(155,140,255,.4)'}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}>
+              Algo Lab / Backtest <span style={{ color: 'var(--gold)' }}>→</span>
+            </Link>
+            <Link href="/builders/submit" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '.75rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--white)', textDecoration: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'border-color .14s' }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'rgba(155,140,255,.4)'}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}>
+              Submit Your Agent <span style={{ color: 'var(--gold)' }}>→</span>
+            </Link>
           </div>
-        </aside>
-      </section>
+        </div>
+      </div>
+
+      <style>{`
+        @media(max-width:1024px){.dash-main-grid{grid-template-columns:1fr!important}}
+        @media(max-width:700px){.dash-stats-strip{grid-template-columns:repeat(2,1fr)!important}}
+      `}</style>
     </div>
   )
 }

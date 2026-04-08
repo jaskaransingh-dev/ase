@@ -1,13 +1,21 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { HoverCard } from '@/components/ui/hover-card'
-import { fmtUSD, fmtPct } from '@/lib/utils'
-import { calculateTradingCapitalCents } from '@/lib/market'
+import { fmtPct } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
 
+const strategyInfo: Record<string, { label: string; color: string }> = {
+  momentum:              { label: 'Momentum',        color: 'var(--gold)' },
+  mean_reversion:        { label: 'Mean Reversion',  color: 'var(--green)' },
+  trend_following:       { label: 'Trend Following', color: '#7B9FFF' },
+  crypto_momentum:       { label: 'Crypto Momentum', color: '#F7931A' },
+  crypto_mean_reversion: { label: 'Crypto Arb',      color: '#0EAD6E' },
+}
+
 export default async function AgentsPage() {
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
 
   const { data } = await supabase
     .from('agents')
@@ -15,23 +23,27 @@ export default async function AgentsPage() {
     .eq('status', 'active')
     .order('created_at')
 
-  // Type helper for agent with extended fields
-  type AgentRow = NonNullable<typeof data>[number] & { alert_level?: string; max_aum_cents?: number; ticker?: string }
-
-  const agentsList = data ?? []
-
-  const strategyInfo: Record<string, { label: string; color: string }> = {
-    momentum:              { label: 'Momentum',        color: 'var(--gold)' },
-    mean_reversion:        { label: 'Mean Reversion',  color: 'var(--green)' },
-    trend_following:       { label: 'Trend Following', color: '#7B9FFF' },
-    crypto_momentum:       { label: 'Crypto Momentum', color: '#F7931A' },
-    crypto_mean_reversion: { label: 'Crypto Arb',      color: '#32D3A2' },
+  type AgentRow = NonNullable<typeof data>[number] & {
+    alert_level?: string
+    monthly_fee_cents?: number
+    subscriber_count?: number
+    primary_symbol?: string
   }
 
-  const tickerMap: Record<string, string> = {
-    crypto_momentum: 'CRYP', crypto_mean_reversion: 'CARB',
-    momentum: 'MOMO', mean_reversion: 'REVT', trend_following: 'TRND',
+  const agentsList = (data ?? []) as AgentRow[]
+
+  // Get user's subscriptions if logged in
+  let userSubAgentIds = new Set<string>()
+  if (user) {
+    const { data: subs } = await supabase
+      .from('subscriptions')
+      .select('agent_id')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+    userSubAgentIds = new Set((subs ?? []).map(s => s.agent_id))
   }
+
+  const totalSubscribers = agentsList.reduce((s, a: AgentRow) => s + (a.subscriber_count ?? 0), 0)
 
   return (
     <div style={{ padding: '2rem 2.5rem', maxWidth: 1440, margin: '0 auto' }}>
@@ -39,16 +51,20 @@ export default async function AgentsPage() {
         <div>
           <div className="eyebrow" style={{ marginBottom: '.35rem' }}>MARKETPLACE</div>
           <h1 style={{ fontFamily: 'var(--font-head)', fontSize: '1.8rem', fontWeight: 800 }}>AI Trading Agents</h1>
-          <p style={{ color: 'var(--muted)', fontSize: '.9rem', marginTop: '.35rem' }}>Verified strategies — transparent performance, audit-grade ledgers</p>
+          <p style={{ color: 'var(--muted)', fontSize: '.9rem', marginTop: '.35rem' }}>
+            Subscribe to verified strategies — live execution, transparent performance
+          </p>
         </div>
-        <Link href="/agents/submit" className="btn-secondary" style={{ fontSize: '.85rem' }}>Submit Your Agent →</Link>
+        <Link href="/builders/submit" className="btn-secondary" style={{ fontSize: '.85rem' }}>
+          Submit Your Agent →
+        </Link>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '.7rem', marginBottom: '1.5rem' }} className="agents-top-strip">
         {[
           { label: 'Live Strategies', value: String(agentsList.length), color: 'var(--white)' },
-          { label: 'Total Sim Capital', value: fmtUSD(agentsList.reduce((s, a: AgentRow) => s + calculateTradingCapitalCents(a.total_aum_cents ?? 0), 0), 0), color: '#8BE9FF' },
-          { label: 'Market Status', value: 'Active', color: 'var(--green)' },
+          { label: 'Total Subscribers', value: String(totalSubscribers), color: '#8BE9FF' },
+          { label: 'Subscription Model', value: 'Free Beta', color: 'var(--green)' },
         ].map((item) => (
           <div key={item.label} style={{ borderRadius: 12, border: '1px solid rgba(148,163,184,.24)', background: 'rgba(9,14,28,.72)', padding: '.7rem .8rem' }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: '#8CA0C4', letterSpacing: '.08em', marginBottom: '.2rem' }}>{item.label.toUpperCase()}</div>
@@ -61,38 +77,45 @@ export default async function AgentsPage() {
         <div style={{ textAlign: 'center', padding: '5rem 2rem', color: 'var(--muted)' }}>
           <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⬡</div>
           <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.2rem', fontWeight: 800, marginBottom: '.5rem' }}>Agents launching soon</div>
-          <div style={{ fontSize: '.9rem' }}>The first three verified agents are being onboarded. Join the waitlist for early access.</div>
+          <div style={{ fontSize: '.9rem' }}>The first verified agents are being onboarded.</div>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(340px,1fr))', gap: '1.25rem' }}>
           {agentsList.map((agent: AgentRow) => {
             const latestStats = Array.isArray(agent.agent_stats) ? agent.agent_stats[0] : agent.agent_stats ?? null
-            const nav = latestStats?.nav_cents ?? 10000
             const ret = latestStats?.total_return_pct ?? 0
             const sharpe = latestStats?.sharpe_ratio ?? 0
             const maxDD = latestStats?.max_drawdown_pct ?? 0
             const winRate = latestStats?.win_rate_pct ?? 0
             const info = strategyInfo[agent.strategy_type] || { label: agent.strategy_type, color: 'var(--white)' }
             const pos = ret >= 0
+            const isSubscribed = userSubAgentIds.has(agent.id)
+            const monthlyFee = agent.monthly_fee_cents ?? 0
+            const subscribers = agent.subscriber_count ?? 0
 
             return (
-              <HoverCard key={agent.id} href={`/agents/${agent.slug}`} asLink className="card-interactive" style={{ display: 'block', background: 'var(--bg2)', borderRadius: 20, padding: '1.5rem', textDecoration: 'none' }}>
+              <div key={agent.id} style={{ background: 'var(--bg2)', borderRadius: 20, padding: '1.5rem', border: '1px solid var(--border)', position: 'relative', display: 'flex', flexDirection: 'column' }}>
+                {/* Subscribed badge */}
+                {isSubscribed && (
+                  <div style={{ position: 'absolute', top: 14, right: 14, background: 'rgba(110,231,183,.12)', border: '1px solid rgba(110,231,183,.3)', borderRadius: 8, padding: '.2rem .55rem', fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: '#6EE7B7', letterSpacing: '.06em' }}>
+                    SUBSCRIBED
+                  </div>
+                )}
+
                 {/* Header */}
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem' }}>
                   <div>
                     <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.05rem', fontWeight: 800, marginBottom: '.2rem' }}>{agent.name}</div>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.04em' }}>
-                      {tickerMap[agent.strategy_type] ?? agent.ticker ?? 'ALGO'} · VERIFIED
+                      {agent.primary_symbol ?? 'MULTI'} · {subscribers} subscribers
                     </div>
                   </div>
-                  {agent.alert_level === 'hard' ? (
-                    <span className="pill" style={{ fontSize: '.58rem', flexShrink: 0, background: 'rgba(232,64,64,.12)', color: '#FF6B8A', borderColor: 'rgba(232,64,64,.3)' }}>DELISTED</span>
-                  ) : agent.alert_level === 'orange' ? (
-                    <span className="pill" style={{ fontSize: '.58rem', flexShrink: 0, background: 'rgba(232,100,32,.12)', color: '#E86420', borderColor: 'rgba(232,100,32,.3)' }}>ALERT</span>
-                  ) : ((agent.total_aum_cents ?? 0) / (agent.max_aum_cents ?? 100_000_000)) >= 0.95 ? (
-                    <span className="pill" style={{ fontSize: '.58rem', flexShrink: 0, background: 'rgba(232,172,32,.12)', color: '#4BD1FF', borderColor: 'rgba(232,172,32,.3)' }}>FULL</span>
-                  ) : (
-                    <span className="pill pill-green" style={{ fontSize: '.58rem', flexShrink: 0 }}>LIVE</span>
+                  {!isSubscribed && (
+                    agent.alert_level === 'hard' ? (
+                      <span className="pill" style={{ fontSize: '.58rem', flexShrink: 0, background: 'rgba(232,64,64,.12)', color: '#E84040', borderColor: 'rgba(232,64,64,.3)' }}>DELISTED</span>
+                    ) : (
+                      <span className="pill pill-green" style={{ fontSize: '.58rem', flexShrink: 0 }}>LIVE</span>
+                    )
                   )}
                 </div>
 
@@ -110,9 +133,9 @@ export default async function AgentsPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '.4rem', marginBottom: '1rem' }}>
                   {[
                     { k: 'SHARPE', v: sharpe.toFixed(2) },
-                    { k: 'NAV', v: fmtUSD(nav) },
                     { k: 'MAX DD', v: fmtPct(-maxDD, 1) },
                     { k: 'WIN %', v: winRate.toFixed(0) + '%' },
+                    { k: 'FEE', v: monthlyFee === 0 ? 'Free' : `$${(monthlyFee / 100).toFixed(0)}/mo` },
                   ].map(({ k, v }) => (
                     <div key={k} style={{ background: 'rgba(255,255,255,.03)', border: '1px solid var(--border)', borderRadius: 10, padding: '.45rem .55rem' }}>
                       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.08em' }}>{k}</div>
@@ -121,14 +144,33 @@ export default async function AgentsPage() {
                   ))}
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '.75rem', borderTop: '1px solid var(--border)' }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.68rem', color: 'var(--faint)' }}>
-                    Capital {fmtUSD(calculateTradingCapitalCents(agent.total_aum_cents ?? 0), 0)}
-                  </span>
+                {/* Footer actions */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '.75rem', borderTop: '1px solid var(--border)', marginTop: 'auto' }}>
                   <span className="tag" style={{ color: info.color, borderColor: `${info.color}30` }}>{info.label.toUpperCase()}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.68rem', color: 'var(--gold)' }}>View Details →</span>
+                  <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+                    <Link href={`/agents/${agent.slug}`} style={{ fontFamily: 'var(--font-mono)', fontSize: '.68rem', color: 'var(--faint)', textDecoration: 'none' }}>
+                      Details
+                    </Link>
+                    <Link
+                      href={user ? `/agents/${agent.slug}` : '/login'}
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: '.72rem',
+                        fontWeight: 700,
+                        padding: '.4rem .9rem',
+                        borderRadius: 9,
+                        border: isSubscribed ? '1px solid rgba(110,231,183,.3)' : '1px solid rgba(155,140,255,.3)',
+                        background: isSubscribed ? 'rgba(110,231,183,.1)' : 'rgba(155,140,255,.1)',
+                        color: isSubscribed ? '#6EE7B7' : 'var(--gold)',
+                        textDecoration: 'none',
+                        transition: 'all .14s',
+                      }}
+                    >
+                      {isSubscribed ? 'Manage →' : 'Subscribe →'}
+                    </Link>
+                  </div>
                 </div>
-              </HoverCard>
+              </div>
             )
           })}
         </div>

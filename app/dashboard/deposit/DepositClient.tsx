@@ -13,7 +13,7 @@ const CARD_STYLE = {
       fontSize: '15px',
       '::placeholder': { color: 'rgba(238,242,255,0.28)' },
     },
-    invalid: { color: '#FF6B8A' },
+    invalid: { color: '#E84040' },
   },
 }
 
@@ -225,7 +225,7 @@ export default function DepositClient({ userEmail }: { userEmail: string }) {
         {[
           { label: 'Min Deposit', value: '$10', color: 'var(--white)' },
           { label: 'Processing', value: 'Instant', color: 'var(--green)' },
-          { label: 'Mode', value: 'Paper', color: '#7DD3FC' },
+          { label: 'Mode', value: 'Paper', color: '#E8AC20' },
         ].map((tile) => (
           <div key={tile.label} style={{ borderRadius: 12, border: '1px solid rgba(148,163,184,.24)', background: 'rgba(9,14,28,.7)', padding: '.7rem .8rem' }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: '#8CA0C4', letterSpacing: '.08em', marginBottom: '.2rem' }}>{tile.label.toUpperCase()}</div>

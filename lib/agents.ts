@@ -235,7 +235,7 @@ function calcMACD(bars: AlpacaBar[]): { macd: number; signal: number; histogram:
     macdLine.push(e12 - e26)
   }
 
-  const signal = calcEMA(macdLine.slice(-9).map((c, i) => ({ c, h: c, l: c, o: c, v: 0, t: '' })), 9)
+  const signal = calcEMA(macdLine.slice(-9).map((c) => ({ c, h: c, l: c, o: c, v: 0, t: '' })), 9)
   return { macd, signal, histogram: macd - signal }
 }
 
@@ -400,10 +400,18 @@ export async function getCurrentHoldings(admin: SupabaseClient, agentId: string)
   market_value_cents: number
 }[]> {
   const positions = await getAgentPositions(admin, agentId)
+  
+  if (positions.length === 0) return []
+
+  // Batch fetch all current prices
+  const barsPromises = positions.map(pos => getCryptoBars(pos.symbol, '1Day', 1))
+  const allBars = await Promise.all(barsPromises)
+
   const holdings = []
 
-  for (const pos of positions) {
-    const bars = await getCryptoBars(pos.symbol, '1Day', 1)
+  for (let i = 0; i < positions.length; i++) {
+    const pos = positions[i]
+    const bars = allBars[i]
     const currentPrice = bars.length > 0 ? bars[bars.length - 1].c : pos.avg_entry
     const unrealizedPnl = Math.round(pos.qty * (currentPrice - pos.avg_entry) * 100)
     const marketValue = Math.round(pos.qty * currentPrice * 100)
@@ -554,7 +562,7 @@ async function executeBuy(
       try {
         const { cancelOrder } = await import('./alpaca')
         await cancelOrder(order.id, alpacaKey, alpacaSecret)
-      } catch (_) { /* best-effort cancel */ }
+      } catch { /* best-effort cancel */ }
       console.warn(`⚠️ BUY ${symbol} order ${order.id} not filled (status: ${filled.status}, qty: ${filledQtyRaw}) — skipping DB log`)
       return { action: 'SKIP', symbol, reason: `Order not filled (status: ${filled.status})`, indicators }
     }
@@ -599,7 +607,7 @@ async function executeSell(
   reason?: string,
   indicators?: Record<string, number | string>
 ): Promise<TradeAction> {
-  const { symbol, qty, avg_entry } = pos
+  const { symbol, qty } = pos
   const sellQty = Number(qty.toFixed(8))
 
   if (sellQty <= 0) {
@@ -621,7 +629,7 @@ async function executeSell(
       try {
         const { cancelOrder } = await import('./alpaca')
         await cancelOrder(order.id, alpacaKey, alpacaSecret)
-      } catch (_) { /* best-effort cancel */ }
+      } catch { /* best-effort cancel */ }
       console.warn(`⚠️ SELL ${symbol} order ${order.id} not filled (status: ${filled.status}, qty: ${filledQtyRaw}) — skipping DB log`)
       return { action: 'SKIP', symbol, reason: `Sell order not filled (status: ${filled.status})`, indicators }
     }
@@ -694,8 +702,8 @@ export async function runBtcMomentum(
     }
   }
 
-  const ema8 = calcEMA(bars.slice(-10), 8)
-  const ema21 = calcEMA(bars.slice(-25), 21)
+  const ema8 = calcEMA(bars, 8)
+  const ema21 = calcEMA(bars, 21)
   const ema50 = calcEMA(bars, 50)
   const macd = calcMACD(bars)
   const atr = calcATR(bars, 14)
@@ -949,8 +957,10 @@ export async function runEthMeanRevert(
   }
 
   if (actions.length === 0) {
-    const distToEntry = ((zScore + 1.2) / 1.2 * 100).toFixed(0)
-    actions.push({ action: 'HOLD', symbol, reason: `Z-score ${zScore.toFixed(2)}, need < -1.2 to enter`, indicators })
+    const waitCond = shouldBuy
+      ? `Z-score ${zScore.toFixed(2)} oversold (need <-1.2)`
+      : `Z-score ${zScore.toFixed(2)} neutral (need <-1.2 to buy, >0.3 to sell)`
+    actions.push({ action: 'HOLD', symbol, reason: waitCond, indicators })
     signalSummary = `SCAN · Z-score ${zScore.toFixed(2)} (need <-1.2) · RSI ${rsi.toFixed(0)} · %B ${(percentB*100).toFixed(0)}%`
   }
 
@@ -972,11 +982,7 @@ export async function runEthMeanRevert(
   return { agent_slug: 'eth-mean-revert', actions, portfolio, signal_summary: signalSummary }
 }
 
-// ── STRATEGY 3: MULTI-ASSET TREND SYSTEM ────────────────────────────────
-// Improved trend following with active position management
-// Entry: EMA10 > EMA30 AND (ADX > 20 OR price > EMA50)
-// Exit: EMA10 < EMA30 OR ADX < 15 OR position down 6%
-// Trailing stops: 3x ATR from peak, tighten to 1.5x ATR if portfolio > 10% up
+// ── STRATEGY 3: CRYPTO TREND SYSTEM ────────────────────────────────────────
 export async function runCryptoTrend(
   admin: SupabaseClient,
   agentId: string,
@@ -985,7 +991,6 @@ export async function runCryptoTrend(
   capitalCents = 1_000_000
 ): Promise<StrategyResult> {
   const symbols = [SYM.BTC, SYM.ETH, SYM.SOL]
-  const positions = await getAgentPositions(admin, agentId)
 
   const emptyPortfolio: StrategyResult['portfolio'] = {
     cash_cents: capitalCents,
@@ -995,18 +1000,26 @@ export async function runCryptoTrend(
     exposure_pct: 0,
   }
 
+  const positions = await getAgentPositions(admin, agentId)
+  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+
   const actions: TradeAction[] = []
   const trendScores: { symbol: string; adx: number; trending: boolean; vol: number; price: number; ema10: number; ema30: number; ema50: number }[] = []
 
+  // Batch fetch all bars to reduce subrequests
+  const barsPromises = symbols.map(symbol => getCryptoBars(symbol, '1Day', 50))
+  const allBars = await Promise.all(barsPromises)
+
   // Collect indicators for all symbols
-  for (const symbol of symbols) {
-    const bars = await getCryptoBars(symbol, '1Day', 50)
+  for (let i = 0; i < symbols.length; i++) {
+    const symbol = symbols[i]
+    const bars = allBars[i]
     if (bars.length < 31) {
       actions.push({ action: 'SKIP', symbol, reason: 'Insufficient data' })
       continue
     }
 
-    const ema10 = calcEMA(bars.slice(-15), 10)
+    const ema10 = calcEMA(bars, 10)
     const ema30 = calcEMA(bars, 30)
     const ema50 = calcEMA(bars, 50)
     const adx = calcADX(bars, 14)
@@ -1027,7 +1040,6 @@ export async function runCryptoTrend(
 
   const maxTotalExposure = capitalCents / 100 * 0.50 // 50% total max
   const maxPerAsset = capitalCents / 100 * 0.20 // 20% per asset max
-  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
 
   let portfolioPnLPct = 0
   for (const pos of positions) {
@@ -1037,28 +1049,28 @@ export async function runCryptoTrend(
     }
   }
 
-  // Build a summary of current ADX/EMA state for all symbols
-  const symbolStatus = trendScores.map(s => {
-    const emaGap = ((s.ema10 / s.ema30 - 1) * 100).toFixed(1)
-    return `${s.symbol.split('/')[0]} ADX${s.adx.toFixed(0)} ${s.trending ? '▲' : '▼'}${emaGap}%`
-  }).join(' · ')
+  // Exit non-trending positions
+  for (const pos of positions) {
+    if (symbols.includes(pos.symbol as typeof symbols[number]) && !trendingAssets.some(s => s.symbol === pos.symbol)) {
+      const ts = trendScores.find(s => s.symbol === pos.symbol)
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos,
+        ts ? `ADX ${ts.adx.toFixed(1)} or EMA bearish` : 'Trend ended', {})
+      actions.push(action)
+    }
+  }
 
-  let signalSummary = trendingAssets.length > 0
-    ? `TREND · ${trendingAssets.length} trending · ${symbolStatus}`
-    : `SCAN · Waiting: EMA10>EMA30 + ADX>20 · ${symbolStatus}`
-
-  // Process trending assets
+  // Enter trending positions
   for (const asset of trendingAssets) {
-    const alloc = allocations[asset.symbol] || 0
-    const notional = Math.min(alloc * maxTotalExposure, maxPerAsset)
     const pos = positions.find(p => p.symbol === asset.symbol)
+    const alloc = allocations[asset.symbol] || 0
+    const notional = Math.min(maxTotalExposure * alloc, maxPerAsset, (cash / 100) * 0.20)
 
     if (pos) {
       const pnlPct = calcPositionPnL(pos, asset.price)
       const hardStop = pos.avg_entry * 0.94 // -6% hard stop
-      const atr = calcATR(await getCryptoBars(asset.symbol, '1Day', 50), 14)
+      const symbolIndex = symbols.indexOf(asset.symbol as typeof symbols[number])
+      const atr = calcATR(symbolIndex >= 0 ? allBars[symbolIndex] : [], 14)
       const trailingStopMultiplier = portfolioPnLPct > 10 ? 1.5 : 3 // Tighten stops when winning
-      const trailingStop = pos.avg_entry + (trailingStopMultiplier * atr)
 
       if (asset.ema10 < asset.ema30 || asset.adx < 15) {
         // Trend ended
@@ -1080,7 +1092,6 @@ export async function runCryptoTrend(
           reason: `Trend confirmed, P&L ${pnlPct.toFixed(2)}%, +${distToProfit}% to +8% target`,
           indicators: { adx: +asset.adx.toFixed(1), ema_ratio: +(asset.ema10 / asset.ema30).toFixed(3) },
         })
-        signalSummary = `HOLD · ${asset.symbol.split('/')[0]} P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(2)}% · ADX ${asset.adx.toFixed(0)} · EMA10/30 ${((asset.ema10/asset.ema30-1)*100).toFixed(1)}%`
       }
     } else if (notional > 1 && cash > notional * 100) {
       // Enter new position
@@ -1095,27 +1106,12 @@ export async function runCryptoTrend(
     }
   }
 
-  // Exit non-trending positions
-  for (const pos of positions) {
-    if (symbols.includes(pos.symbol as typeof symbols[number]) && !trendingAssets.some(s => s.symbol === pos.symbol)) {
-      const ts = trendScores.find(s => s.symbol === pos.symbol)
-      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos,
-        ts ? `ADX ${ts.adx.toFixed(1)} or EMA bearish` : 'Trend ended', {})
-      actions.push(action)
-    }
-  }
-
   if (actions.length === 0) {
     const bestCandidate = trendScores.sort((a, b) => (b.ema10/b.ema30) - (a.ema10/a.ema30))[0]
     const gapToTrend = bestCandidate
       ? `Waiting: ${bestCandidate.symbol.split('/')[0]} EMA10/30 gap ${((bestCandidate.ema10/bestCandidate.ema30-1)*100).toFixed(2)}% (need >0)`
       : 'No trending setups'
-    actions.push({
-      action: 'SKIP',
-      symbol: 'MULTI',
-      reason: gapToTrend,
-    })
-    signalSummary = `SCAN · ${gapToTrend} · ${symbolStatus}`
+    actions.push({ action: 'HOLD', symbol: 'CRYPTO', reason: gapToTrend })
   }
 
   const investedCents = positions.reduce((sum, p) => sum + Math.round(p.qty * p.avg_entry * 100), 0)
@@ -1125,27 +1121,27 @@ export async function runCryptoTrend(
     total_value_cents: capitalCents,
     positions: positions.map(p => {
       const score = trendScores.find(s => s.symbol === p.symbol)
+      const price = score?.price || p.avg_entry
       return {
         symbol: p.symbol,
         qty: p.qty,
         entry: p.avg_entry,
-        current: score?.price || p.avg_entry,
-        pnl_pct: score ? calcPositionPnL(p, score.price) : 0,
+        current: price,
+        pnl_pct: calcPositionPnL(p, price),
       }
     }),
     exposure_pct: (investedCents / capitalCents) * 100,
   }
 
+  const trendingCount = trendScores.filter(s => s.trending).length
+  const signalSummary = actions.length > 0 
+    ? `TREND · ${trendingCount} trending · ${trendScores.filter(s => s.trending).map(s => `${s.symbol.split('/')[0]} ADX${s.adx.toFixed(0)} ${s.ema10 > s.ema30 ? '▲' : '▼'}${((s.ema10/s.ema30-1)*100).toFixed(1)}%`).join(' · ')}`
+    : `SCAN · No trending setups · Best: ${trendScores.sort((a, b) => (b.ema10/b.ema30) - (a.ema10/a.ema30))[0]?.symbol.split('/')[0]} ADX${trendScores[0]?.adx.toFixed(0)}`
+
   return { agent_slug: 'crypto-trend', actions, portfolio, signal_summary: signalSummary }
 }
 
-// ── STRATEGY 4: SOL VOLATILITY BREAKOUT ──────────────────────────────────
-// Improved volatility breakout with 3-tier exits and hard stops
-// Squeeze tracking: last 5 bars, not just current bar
-// Entry: Price > upper BB AND (squeeze in last 5 bars OR volume > 2x avg) AND RSI > 50
-// Exit 1: Sell 50% at 2x ATR profit
-// Exit 2: Sell rest at 3x ATR profit
-// Stop: 1.5x ATR below entry, or -6% hard stop, or 5+ days without profit
+// ── STRATEGY 4: SOL BREAKOUT ─────────────────────────────────────────────────
 export async function runSolBreakout(
   admin: SupabaseClient,
   agentId: string,
@@ -1164,7 +1160,7 @@ export async function runSolBreakout(
     exposure_pct: 0,
   }
 
-  if (bars.length < 21) {
+  if (bars.length < 20) {
     return {
       agent_slug: 'sol-breakout',
       actions: [],
@@ -1174,40 +1170,25 @@ export async function runSolBreakout(
     }
   }
 
-  const currentBB = calcBollingerBands(bars.slice(-20), 20)
-  const currentBandwidth = currentBB.upper - currentBB.lower
-
-  // Track squeeze in last 5 bars
-  let squeezeInRecent = false
-  for (let i = 1; i <= 5 && i < bars.length; i++) {
-    const bb = calcBollingerBands(bars.slice(-20 - i, -i || undefined), 20)
-    const bandwidth = bb.upper - bb.lower
-    const histBandwidth = currentBandwidth
-    if (bandwidth < histBandwidth * 0.8) {
-      squeezeInRecent = true
-      break
-    }
-  }
-
+  const bb = calcBollingerBands(bars, 20)
   const currentPrice = bars[bars.length - 1].c
-  const breakingOut = currentPrice > currentBB.upper
-
-  // Volume and momentum confirmation
+  const rsi = calcRSI(bars, 14)
+  const atr = calcATR(bars, 14)
   const vol20Avg = bars.slice(-20).reduce((sum, b) => sum + b.v, 0) / 20
   const currentVol = bars[bars.length - 1].v
   const volRatio = currentVol / (vol20Avg || 1)
-  const rsi = calcRSI(bars, 14)
-  const atr = calcATR(bars, 14)
 
-  const positions = await getAgentPositions(admin, agentId)
-  const pos = positions.find(p => p.symbol === symbol)
-  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+  // Detect squeeze: Bollinger Band width < 20% of price
+  const bbWidth = (bb.upper - bb.lower) / currentPrice
+  const squeezeRecent = bbWidth < 0.2
 
+  // Breakout condition: price above upper band with volume confirmation
+  const breakingOut = currentPrice > bb.upper
   const indicators = {
-    squeeze_recent_5d: squeezeInRecent ? 'YES' : 'NO',
+    squeeze_recent_5d: squeezeRecent ? 'YES' : 'NO',
     breakout: breakingOut ? 'YES' : 'NO',
-    upper_band: +currentBB.upper.toFixed(2),
-    lower_band: +currentBB.lower.toFixed(2),
+    upper_band: +bb.upper.toFixed(2),
+    lower_band: +bb.lower.toFixed(2),
     vol_ratio: +volRatio.toFixed(2),
     rsi: +rsi.toFixed(1),
     atr: +atr.toFixed(2),
@@ -1217,12 +1198,16 @@ export async function runSolBreakout(
   const actions: TradeAction[] = []
   let signalSummary = 'WATCHING'
 
-  if (!pos && breakingOut && (squeezeInRecent || volRatio > 2) && rsi > 50 && cash > 500) {
+  const positions = await getAgentPositions(admin, agentId)
+  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+  const pos = positions.find(p => p.symbol === symbol)
+
+  if (!pos && breakingOut && (squeezeRecent || volRatio > 2) && rsi > 50 && cash > 500) {
     // Entry: all conditions met
     const notional = capitalCents / 100 * 0.30 // 30% of capital
     const action = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, symbol, notional, currentPrice, indicators)
     actions.push(action)
-    signalSummary = `BUY ▲ Breakout: ${squeezeInRecent ? 'squeeze release' : 'vol surge'} · RSI ${rsi.toFixed(0)} · vol ${volRatio.toFixed(1)}x`
+    signalSummary = `BUY ▲ Breakout: ${squeezeRecent ? 'squeeze release' : 'vol surge'} · RSI ${rsi.toFixed(0)} · vol ${volRatio.toFixed(1)}x`
   } else if (pos) {
     const pnlPct = calcPositionPnL(pos, currentPrice)
     const profit2xTarget = pos.avg_entry + (2 * atr)
@@ -1249,7 +1234,7 @@ export async function runSolBreakout(
           const filled = await waitForFill(order.id, alpacaKey, alpacaSecret)
           const fillPrice = filled.filled_avg_price ? parseFloat(filled.filled_avg_price) : currentPrice
           const pnlCents = await calcSellPnL(admin, agentId, symbol, halfQty, fillPrice)
-
+          
           await logTrade(admin, {
             agentId,
             alpacaOrderId: order.id,
@@ -1260,65 +1245,43 @@ export async function runSolBreakout(
             filledAt: filled.filled_at || new Date().toISOString(),
             pnlCents,
           })
-
+          
+          const pnlUsd = pnlCents / 100
+          console.log(`✅ PARTIAL SELL ${symbol} ${halfQty} @ ${fillPrice} | P&L: $${pnlUsd.toFixed(2)}`)
           actions.push({
             action: 'SELL',
             symbol,
             qty: halfQty,
             fill_price: fillPrice,
-            reason: '2x ATR partial profit',
+            alpaca_order_id: order.id,
+            pnl_cents: pnlCents,
+            reason: '2x ATR partial exit (50%)',
             indicators,
           })
-          signalSummary = `SELL ▲ 50% taken at 2x ATR · P&L +${pnlPct.toFixed(2)}% · holding for 3x`
-        } catch (e) {
-          actions.push({
-            action: 'HOLD',
-            symbol,
-            reason: `2x ATR profit target reached, full exit at ${profit3xTarget.toFixed(2)}`,
-            indicators,
-          })
-          signalSummary = `HOLD · 2x ATR hit, targeting 3x @ $${profit3xTarget.toFixed(2)} · P&L +${pnlPct.toFixed(2)}%`
-        }
-      } else {
-        actions.push({
-          action: 'HOLD',
-          symbol,
-          reason: `2x ATR profit target (${profit2xTarget.toFixed(2)}), full exit at 3x ATR`,
-          indicators,
-        })
-        signalSummary = `HOLD · targeting 2x ATR @ $${profit2xTarget.toFixed(2)} · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(2)}%`
+          signalSummary = `SELL ○ 2x ATR partial (50%) · P&L +${pnlPct.toFixed(2)}%`
+        } catch { /* ignore sell errors */ }
       }
     } else if (currentPrice < stopLoss) {
       // Stop loss
-      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, '1.5x ATR stop loss', indicators)
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, '1.5x ATR stop', indicators)
       actions.push(action)
-      signalSummary = `SELL ▼ 1.5x ATR stop triggered @ ${currentPrice.toFixed(2)}`
+      signalSummary = `SELL ▼ ATR stop triggered @ ${currentPrice.toFixed(2)}`
     } else {
+      // Hold position
       const distTo2x = ((profit2xTarget / currentPrice - 1) * 100).toFixed(1)
+      const distTo3x = ((profit3xTarget / currentPrice - 1) * 100).toFixed(1)
       actions.push({
         action: 'HOLD',
         symbol,
-        reason: `Breakout trade, targets: ${profit2xTarget.toFixed(2)} / ${profit3xTarget.toFixed(2)}`,
+        reason: `2x ATR profit target (${profit2xTarget.toFixed(2)}), full exit at 3x ATR`,
         indicators,
       })
-      signalSummary = `HOLD · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(2)}% · 2x ATR target +${distTo2x}% away · stop $${stopLoss.toFixed(2)}`
+      signalSummary = `HOLD · targeting 2x ATR @ $${profit2xTarget.toFixed(2)} · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(2)}%`
     }
-  }
-
-  if (actions.length === 0) {
-    const distToBreakout = ((currentBB.upper / currentPrice - 1) * 100).toFixed(2)
-    const waitCond = breakingOut
-      ? `volume (${volRatio.toFixed(1)}x avg, need >2x) or squeeze release`
-      : `price above BB $${currentBB.upper.toFixed(2)} (+${distToBreakout}%)`
-    actions.push({
-      action: 'HOLD',
-      symbol,
-      reason: squeezeInRecent ? `Squeeze detected, waiting for breakout above $${currentBB.upper.toFixed(2)}` : 'No setup',
-      indicators,
-    })
-    signalSummary = squeezeInRecent
-      ? `SCAN · Squeeze active · Waiting: ${waitCond} · RSI ${rsi.toFixed(0)} · vol ${volRatio.toFixed(1)}x`
-      : `SCAN · Waiting: ${waitCond} · RSI ${rsi.toFixed(0)} · BB bandwidth ${((currentBandwidth/currentPrice)*100).toFixed(1)}%`
+  } else {
+    // No position, no setup
+    actions.push({ action: 'HOLD', symbol, reason: 'No setup', indicators })
+    signalSummary = `SCAN · Waiting: price above BB $${bb.upper.toFixed(2)} (+${((bb.upper/currentPrice-1)*100).toFixed(2)}%) · RSI ${rsi.toFixed(0)} · BB bandwidth ${(bbWidth*100).toFixed(1)}%`
   }
 
   const investedCents = positions.reduce((sum, p) => sum + Math.round(p.qty * p.avg_entry * 100), 0)
@@ -1339,13 +1302,7 @@ export async function runSolBreakout(
   return { agent_slug: 'sol-breakout', actions, portfolio, signal_summary: signalSummary }
 }
 
-// ── STRATEGY 5: DEFI SMART BETA ROTATION ─────────────────────────────────
-// Improved momentum rotation with active position management
-// Score = 14-day momentum / 14-day volatility
-// Hold top 2 by score, rebalance on ANY rank change
-// Position sizing: 22% per position, scale with capital
-// Stop losses: -5% from entry, or take profits at +15% gain
-// Bear market protection: Go to 100% cash if all scores negative
+// ── STRATEGY 5: DEFI SMART BETA ROTATION ─────────────────────────────────────
 export async function runDefiBasket(
   admin: SupabaseClient,
   agentId: string,
@@ -1354,7 +1311,6 @@ export async function runDefiBasket(
   capitalCents = 1_000_000
 ): Promise<StrategyResult> {
   const defiSymbols = [SYM.LINK, SYM.UNI, SYM.AAVE, SYM.AVAX]
-  const perNotional = capitalCents / 100 * 0.22 // 22% per position
 
   const emptyPortfolio: StrategyResult['portfolio'] = {
     cash_cents: capitalCents,
@@ -1364,10 +1320,18 @@ export async function runDefiBasket(
     exposure_pct: 0,
   }
 
+  const positions = await getAgentPositions(admin, agentId)
+  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+
   const scores: { symbol: string; momentum: number; vol: number; score: number; price: number; rank: number }[] = []
 
-  for (const sym of defiSymbols) {
-    const bars = await getCryptoBars(sym, '1Day', 25)
+  // Batch fetch all DeFi symbol bars
+  const barsPromises = defiSymbols.map(sym => getCryptoBars(sym, '1Day', 25))
+  const allBars = await Promise.all(barsPromises)
+
+  for (let i = 0; i < defiSymbols.length; i++) {
+    const sym = defiSymbols[i]
+    const bars = allBars[i]
     if (bars.length < 14) continue
 
     const momentum = calcMomentumScore(bars, 14)
@@ -1386,108 +1350,44 @@ export async function runDefiBasket(
   const priceMap = Object.fromEntries(scores.map(s => [s.symbol, s.price]))
   const allNegative = scores.every(s => s.score < 0)
 
-  const positions = await getAgentPositions(admin, agentId)
-  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
   const actions: TradeAction[] = []
 
-  const scoreStr = scores.slice(0, 4).map(s =>
-    `${s.symbol.split('/')[0]} ${s.score > 0 ? '+' : ''}${s.score.toFixed(2)}`
-  ).join(' · ')
-
-  let signalSummary = allNegative
-    ? `SCAN · Bear mode — all scores negative · ${scoreStr}`
-    : `SCAN · Watching: ${scoreStr} · Top2: ${top2.map(s => s.split('/')[0]).join(', ')}`
-
-  // Bear market: liquidate all positions
-  if (allNegative) {
-    for (const pos of positions) {
-      if (defiSymbols.includes(pos.symbol as typeof defiSymbols[number])) {
-        const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, 'Bear mode - all scores negative', {})
-        actions.push(action)
-      }
+  // Exit positions not in top 2
+  for (const pos of positions) {
+    if (!top2.includes(pos.symbol)) {
+      const currentPrice = priceMap[pos.symbol] || pos.avg_entry
+      const pnlPct = calcPositionPnL(pos, currentPrice)
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, `Not in top 2 (rank ${scores.find(s => s.symbol === pos.symbol)?.rank || 'N/A'})`, {})
+      actions.push(action)
     }
-  } else {
-    // Exit positions no longer in top 2
-    for (const pos of positions) {
-      if (defiSymbols.includes(pos.symbol as typeof defiSymbols[number])) {
-        const pnlPct = calcPositionPnL(pos, priceMap[pos.symbol] || pos.avg_entry)
-        const score = scores.find(s => s.symbol === pos.symbol)
+  }
 
-        // Take profits at +15% regardless of rank
-        if (pnlPct > 15) {
-          const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, 'Profit target +15%', {
-            pnl_pct: +pnlPct.toFixed(2),
-            rank: score?.rank || 0,
-          })
-          actions.push(action)
-          signalSummary = `SELL ▲ ${pos.symbol.split('/')[0]} profit +${pnlPct.toFixed(1)}% target hit · ${scoreStr}`
-        }
-        // Hard stop at -5%
-        else if (pnlPct < -5) {
-          const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, 'Stop loss -5%', {
-            pnl_pct: +pnlPct.toFixed(2),
-            rank: score?.rank || 0,
-          })
-          actions.push(action)
-          signalSummary = `SELL ▼ ${pos.symbol.split('/')[0]} stop −5% triggered · ${scoreStr}`
-        }
-        // Exit if rank changes (no longer top 2)
-        else if (!top2.includes(pos.symbol)) {
-          const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos,
-            `Rank ${score?.rank || 'N/A'} - dropped from top 2`, {
-              score: +(score?.score || 0).toFixed(2),
-              momentum: +(score?.momentum || 0).toFixed(2),
-              volatility: +((score?.vol ?? 0) * 100).toFixed(2),
-            })
-          actions.push(action)
-          signalSummary = `SELL ◆ ${pos.symbol.split('/')[0]} rank #${score?.rank} dropped · rotating to ${top2.map(s => s.split('/')[0]).join('/')}`
-        } else {
-          // Hold top 2
-          actions.push({
-            action: 'HOLD',
-            symbol: pos.symbol,
-            reason: `Rank #${score?.rank} (score ${score?.score.toFixed(2)}), position ${pnlPct.toFixed(2)}%`,
-            indicators: {
-              rank: score?.rank || 0,
-              score: +(score?.score || 0).toFixed(2),
-              pnl_pct: +pnlPct.toFixed(2),
-            },
-          })
-          signalSummary = `HOLD · ${pos.symbol.split('/')[0]} rank #${score?.rank} · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(2)}% · score ${score?.score.toFixed(2)} · ${scoreStr}`
-        }
-      }
-    }
-
-    // Enter new top 2 positions
-    for (const sym of top2) {
-      const pos = positions.find(p => p.symbol === sym)
-      const score = scores.find(s => s.symbol === sym)
-      if (!score) continue
-
-      if (!pos && cash > perNotional * 100) {
-        const action = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, sym, perNotional, score.price, {
-          rank: score.rank,
-          score: +score.score.toFixed(2),
-          momentum_14d: +score.momentum.toFixed(2),
-          volatility_14d: +(score.vol * 100).toFixed(2),
+  // Enter top 2 positions (if not all negative momentum)
+  if (!allNegative && top2.length > 0) {
+    const maxPerPosition = capitalCents / 100 * 0.20 // 20% max per position
+    
+    for (const symbol of top2) {
+      const pos = positions.find(p => p.symbol === symbol)
+      if (!pos && cash > maxPerPosition) {
+        const price = priceMap[symbol]
+        const score = scores.find(s => s.symbol === symbol)
+        const action = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, symbol, maxPerPosition, price, {
+          score: +(score?.score || 0).toFixed(4),
+          momentum: +(score?.momentum || 0).toFixed(2),
+          volatility: +(score?.vol || 0).toFixed(2),
         })
         actions.push(action)
-        signalSummary = `BUY ▲ ${sym.split('/')[0]} rank #${score.rank} · score ${score.score.toFixed(2)} · mom ${score.momentum.toFixed(1)}% · ${scoreStr}`
       }
     }
   }
 
   if (actions.length === 0) {
     const topScore = scores[0]
-    const waitMsg = allNegative
-      ? `need positive momentum scores (best: ${topScore?.symbol.split('/')[0]} ${topScore?.score.toFixed(2)})`
-      : `already in optimal positions (${top2.map(s => s.split('/')[0]).join(', ')})`
-    actions.push({
-      action: 'SKIP',
-      symbol: 'DEFI',
-      reason: allNegative ? 'Bear mode, no positions' : 'Already optimally positioned',
+    actions.push({ 
+      action: 'HOLD', 
+      symbol: 'DEFI', 
+      reason: allNegative ? 'All negative momentum' : `Holding top 2: ${top2.join(', ')}`
     })
-    signalSummary = `SCAN · Waiting: ${waitMsg} · ${scoreStr}`
   }
 
   const investedCents = positions.reduce((sum, p) => sum + Math.round(p.qty * p.avg_entry * 100), 0)
@@ -1496,21 +1396,26 @@ export async function runDefiBasket(
     invested_cents: investedCents,
     total_value_cents: capitalCents,
     positions: positions.map(p => {
-      const score = scores.find(s => s.symbol === p.symbol)
-      const price = priceMap[p.symbol] || p.avg_entry
+      const currentPrice = priceMap[p.symbol] || p.avg_entry
       return {
         symbol: p.symbol,
         qty: p.qty,
         entry: p.avg_entry,
-        current: price,
-        pnl_pct: calcPositionPnL(p, price),
+        current: currentPrice,
+        pnl_pct: calcPositionPnL(p, currentPrice),
       }
     }),
     exposure_pct: (investedCents / capitalCents) * 100,
   }
 
+  const signalSummary = actions.length > 0
+    ? `REBALANCE · Top 2: ${top2.join(', ')} · Scores: ${top2.map(s => `${scores.find(sc => sc.symbol === s)?.score.toFixed(3) || '0'}`).join(', ')}`
+    : `HOLD · Current: ${positions.map(p => p.symbol).join(', ')} · Best: ${scores[0]?.symbol} (score ${scores[0]?.score.toFixed(3)})`
+
   return { agent_slug: 'defi-basket', actions, portfolio, signal_summary: signalSummary }
 }
+
+// ... (rest of the code remains the same)
 
 // ── STRATEGY 6: BTC/ETH PAIRS TRADING (CORRELATION ARBITRAGE) ─────────────
 // Statistical pairs trading between BTC and ETH using spread z-score
@@ -1686,6 +1591,8 @@ export async function runBtcEthPairs(
   return { agent_slug: 'btc-eth-pairs', actions, portfolio, signal_summary: signalSummary }
 }
 
+// ... (rest of the code remains the same)
+
 // ── STRATEGY 7: CRYPTO VOLATILITY HARVESTER ────────────────────────────────
 // Sell volatility premium: buy after high-vol selloffs, sell into vol crushes
 // Assets: BTC, ETH, SOL
@@ -1701,22 +1608,19 @@ export async function runVolHarvester(
 ): Promise<StrategyResult> {
   const symbols = [SYM.BTC, SYM.ETH, SYM.SOL]
 
-  const emptyPortfolio: StrategyResult['portfolio'] = {
-    cash_cents: capitalCents,
-    invested_cents: 0,
-    total_value_cents: capitalCents,
-    positions: [],
-    exposure_pct: 0,
-  }
-
   const positions = await getAgentPositions(admin, agentId)
   const cash = await getAgentCash(admin, agentId, capitalCents, positions)
 
   const actions: TradeAction[] = []
   const volScores: { symbol: string; volRatio: number; rsi: number; atr: number; price: number }[] = []
 
-  for (const symbol of symbols) {
-    const bars = await getCryptoBars(symbol, '1Day', 60)
+  // Batch fetch all symbol bars
+  const barsPromises = symbols.map(symbol => getCryptoBars(symbol, '1Day', 60))
+  const allBars = await Promise.all(barsPromises)
+
+  for (let i = 0; i < symbols.length; i++) {
+    const symbol = symbols[i]
+    const bars = allBars[i]
 
     if (bars.length < 30) continue
 
@@ -1808,8 +1712,8 @@ export async function runVolHarvester(
     invested_cents: investedCents,
     total_value_cents: capitalCents,
     positions: positions.map(p => {
-      const score = volScores.find(s => s.symbol === p.symbol)
-      const price = score?.price || p.avg_entry
+      const volScore = volScores.find(s => s.symbol === p.symbol)
+      const price = volScore?.price || p.avg_entry
       return {
         symbol: p.symbol,
         qty: p.qty,
@@ -1823,6 +1727,8 @@ export async function runVolHarvester(
 
   return { agent_slug: 'vol-harvester', actions, portfolio, signal_summary: signalSummary }
 }
+
+// ... (rest of the code remains the same)
 
 // ── STRATEGY 8: CRYPTO MOMENTUM CARRY ──────────────────────────────────────
 // Multi-asset momentum with carry overlay
@@ -1840,27 +1746,23 @@ export async function runMomentumCarry(
 ): Promise<StrategyResult> {
   const symbols = [SYM.BTC, SYM.ETH, SYM.SOL, SYM.AVAX, SYM.LINK]
 
-  const emptyPortfolio: StrategyResult['portfolio'] = {
-    cash_cents: capitalCents,
-    invested_cents: 0,
-    total_value_cents: capitalCents,
-    positions: [],
-    exposure_pct: 0,
-  }
-
   const positions = await getAgentPositions(admin, agentId)
   const cash = await getAgentCash(admin, agentId, capitalCents, positions)
 
   const scores: { symbol: string; momentum: number; volatility: number; score: number; price: number; vwap24h: number; rank: number }[] = []
 
-  for (const symbol of symbols) {
-    const bars = await getCryptoBars(symbol, '1Day', 30)
+  // Batch fetch all symbol bars
+  const barsPromises = symbols.map(symbol => getCryptoBars(symbol, '1Day', 30))
+  const allBars = await Promise.all(barsPromises)
+
+  for (let i = 0; i < symbols.length; i++) {
+    const symbol = symbols[i]
+    const bars = allBars[i]
     if (bars.length < 8) continue
 
     const currentPrice = bars[bars.length - 1].c
     const momentum7d = calcMomentumScore(bars, 7) // 7-day momentum %
     const vol = calcVolatility(bars, 14)
-    const vol24hProxy = Math.sqrt((bars.slice(-1)[0].h - bars.slice(-1)[0].l) / bars.slice(-1)[0].c)
     const vwap = calcVWAP(bars.slice(-24)) // Approx 24-hour VWAP
 
     // Carry bonus: +5% boost if price above 24h VWAP (positive funding rate proxy)
@@ -1968,6 +1870,8 @@ export async function runMomentumCarry(
   return { agent_slug: 'momentum-carry', actions, portfolio, signal_summary: signalSummary }
 }
 
+// ... (rest of the code remains the same)
+
 // ── STRATEGY 9: LIQUIDATION CASCADE DETECTOR ───────────────────────────────
 // Detect potential liquidation cascades by monitoring rapid price drops + volume spikes
 // Assets: BTC, ETH (with tight stops)
@@ -2003,7 +1907,7 @@ export async function runCascadeDetect(
 
     const currentPrice = bars[bars.length - 1].c
     const recentBars = bars.slice(-4) // Last 4 hours
-    const drop = ((recentBars[0].o - currentPrice) / recentBars[0].o) * 100
+    const dropPct = ((recentBars[0].c - currentPrice) / recentBars[0].c) * 100
     const lowestRecent = Math.min(...recentBars.map(b => b.l))
 
     const vol20Avg = bars.slice(-20).reduce((sum, b) => sum + b.v, 0) / 20
@@ -2014,7 +1918,7 @@ export async function runCascadeDetect(
 
     cascadeScores.push({
       symbol,
-      dropPct: drop,
+      dropPct: dropPct,
       volRatio,
       rsi,
       price: currentPrice,
@@ -2125,26 +2029,22 @@ export async function runDefiYield(
 ): Promise<StrategyResult> {
   const defiSymbols = [SYM.AAVE, SYM.UNI, SYM.LINK, SYM.AVAX]
 
-  const emptyPortfolio: StrategyResult['portfolio'] = {
-    cash_cents: capitalCents,
-    invested_cents: 0,
-    total_value_cents: capitalCents,
-    positions: [],
-    exposure_pct: 0,
-  }
-
   const positions = await getAgentPositions(admin, agentId)
   const cash = await getAgentCash(admin, agentId, capitalCents, positions)
 
   // Get BTC momentum as baseline
   const btcBars = await getCryptoBars(SYM.BTC, '1Day', 30)
   const btcMomentum = calcMomentumScore(btcBars, 7)
-  const btcPrice = btcBars[btcBars.length - 1].c
 
   const scores: { symbol: string; momentum: number; btcOutperformance: number; rsi: number; price: number; days: number }[] = []
 
-  for (const symbol of defiSymbols) {
-    const bars = await getCryptoBars(symbol, '1Day', 30)
+  // Batch fetch all DeFi symbol bars
+  const barsPromises = defiSymbols.map(symbol => getCryptoBars(symbol, '1Day', 30))
+  const allBars = await Promise.all(barsPromises)
+
+  for (let i = 0; i < defiSymbols.length; i++) {
+    const symbol = defiSymbols[i]
+    const bars = allBars[i]
     if (bars.length < 8) continue
 
     const tokenMomentum = calcMomentumScore(bars, 7)

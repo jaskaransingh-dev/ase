@@ -4,5 +4,5 @@ export const dynamic = 'force-dynamic'
 
 export default async function AgentDeepDivePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
-  redirect(`/dashboard/exchange/${slug}`)
+  redirect(`/agents/${slug}`)
 }

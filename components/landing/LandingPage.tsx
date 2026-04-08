@@ -1,52 +1,29 @@
 'use client'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { HoverCard } from '@/components/ui/hover-card'
+import { useWallet } from '@/components/WalletProvider'
 import { createClient } from '@/lib/supabase/client'
 
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface AgentData {
-  ticker: string
-  slug: string
-  name: string
-  nav: string
-  nav_cents: number
-  ret: string
-  pos: boolean
-  spark: number[]
-  type: string
-  daily_return_pct: number
-  sharpe: number
-  total_trades: number
-  win_rate: number
-  aum_cents: number
+  ticker: string; slug: string; name: string
+  nav: string; nav_cents: number; ret: string; pos: boolean
+  spark: number[]; type: string; sharpe: number
+  total_trades: number; win_rate: number; subscriber_count: number
 }
 
-interface Totals {
-  total_aum_usd: string
-  total_trades: number
-  avg_return_pct: string
-  agents_live: number
-}
-
-const ROT_WORDS = ['Own the Algorithm', 'Own the Future', 'Own the Alpha']
-
-function triggerHaptic(ms = 8) {
-  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-    navigator.vibrate(ms)
-  }
-}
-
-// Fallback data while loading
-const FALLBACK_AGENTS: AgentData[] = [
-  { ticker: '$BTCM', slug: 'btc-momentum', name: 'BTC Momentum', ret: '--', nav: '$--', nav_cents: 10000, pos: true, spark: [100,100,100,100,100,100,100,100,100,100], type: 'Momentum', daily_return_pct: 0, sharpe: 0, total_trades: 0, win_rate: 0, aum_cents: 0 },
-  { ticker: '$ETHR', slug: 'eth-mean-revert', name: 'ETH Mean Revert', ret: '--', nav: '$--', nav_cents: 10000, pos: true, spark: [100,100,100,100,100,100,100,100,100,100], type: 'Mean Revert', daily_return_pct: 0, sharpe: 0, total_trades: 0, win_rate: 0, aum_cents: 0 },
-  { ticker: '$CRTR', slug: 'crypto-trend', name: 'Crypto Trend', ret: '--', nav: '$--', nav_cents: 10000, pos: true, spark: [100,100,100,100,100,100,100,100,100,100], type: 'Trend Following', daily_return_pct: 0, sharpe: 0, total_trades: 0, win_rate: 0, aum_cents: 0 },
-  { ticker: '$SOLB', slug: 'sol-breakout', name: 'SOL Breakout', ret: '--', nav: '$--', nav_cents: 10000, pos: true, spark: [100,100,100,100,100,100,100,100,100,100], type: 'Breakout', daily_return_pct: 0, sharpe: 0, total_trades: 0, win_rate: 0, aum_cents: 0 },
-  { ticker: '$DEFI', slug: 'defi-basket', name: 'DeFi Basket', ret: '--', nav: '$--', nav_cents: 10000, pos: true, spark: [100,100,100,100,100,100,100,100,100,100], type: 'Multi-Asset', daily_return_pct: 0, sharpe: 0, total_trades: 0, win_rate: 0, aum_cents: 0 },
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const FALLBACK: AgentData[] = [
+  { ticker: '$BTCM', slug: 'btc-momentum',   name: 'BTC Momentum',   nav: '$--', nav_cents: 10000, ret: '--', pos: true,  spark: [100,100,100,100,100,100,100,100], type: 'Momentum',        sharpe: 0, total_trades: 0, win_rate: 0, subscriber_count: 0 },
+  { ticker: '$ETHR', slug: 'eth-mean-revert',name: 'ETH Stat Arb',   nav: '$--', nav_cents: 10000, ret: '--', pos: true,  spark: [100,100,100,100,100,100,100,100], type: 'Mean Reversion',   sharpe: 0, total_trades: 0, win_rate: 0, subscriber_count: 0 },
+  { ticker: '$SOLB', slug: 'sol-breakout',   name: 'SOL Breakout',   nav: '$--', nav_cents: 10000, ret: '--', pos: false, spark: [100,100,100,100,100,100,100,100], type: 'Vol Breakout',     sharpe: 0, total_trades: 0, win_rate: 0, subscriber_count: 0 },
+  { ticker: '$CRTR', slug: 'crypto-trend',   name: 'Crypto Trend',   nav: '$--', nav_cents: 10000, ret: '--', pos: true,  spark: [100,100,100,100,100,100,100,100], type: 'Trend Following',  sharpe: 0, total_trades: 0, win_rate: 0, subscriber_count: 0 },
+  { ticker: '$DEFI', slug: 'defi-basket',    name: 'DeFi Basket',    nav: '$--', nav_cents: 10000, ret: '--', pos: true,  spark: [100,100,100,100,100,100,100,100], type: 'Multi-Asset',      sharpe: 0, total_trades: 0, win_rate: 0, subscriber_count: 0 },
+  { ticker: '$VOLH', slug: 'vol-harvester',  name: 'Vol Harvester',  nav: '$--', nav_cents: 10000, ret: '--', pos: true,  spark: [100,100,100,100,100,100,100,100], type: 'Vol Harvest',      sharpe: 0, total_trades: 0, win_rate: 0, subscriber_count: 0 },
 ]
 
 function Spark({ data, pos }: { data: number[]; pos: boolean }) {
-  const w = 80, h = 28, pad = 2
+  const w = 90, h = 32, pad = 2
   const min = Math.min(...data), max = Math.max(...data), span = max - min || 1
   const step = (w - pad * 2) / (data.length - 1)
   const pts = data.map((v, i) => {
@@ -54,740 +31,380 @@ function Spark({ data, pos }: { data: number[]; pos: boolean }) {
     const y = pad + (1 - (v - min) / span) * (h - pad * 2)
     return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
   }).join(' ')
-  const col = pos ? '#32D3A2' : '#FF6B8A'
+  const col = pos ? '#6EE7B7' : '#FB7185'
+  const fillPath = `${pts} L${(pad + (data.length - 1) * step).toFixed(1)},${h} L${pad},${h} Z`
   return (
     <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} style={{ display: 'block' }}>
-      <path d={pts} fill="none" stroke={col} strokeWidth="1.6" strokeLinecap="round" />
+      <defs>
+        <linearGradient id={`sg_${pos ? 'g' : 'r'}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={col} stopOpacity="0.22" />
+          <stop offset="100%" stopColor={col} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={fillPath} fill={`url(#sg_${pos ? 'g' : 'r'})`} />
+      <path d={pts} fill="none" stroke={col} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
 
-function ScrollFadeUp({ children }: { children: React.ReactNode }) {
+function ScrollFadeUp({ children, delay = 0 }: { children: React.ReactNode; delay?: number }) {
   const [visible, setVisible] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
-
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setVisible(true)
-          observer.unobserve(entry.target)
-        }
-      },
-      { threshold: 0.1 }
-    )
-    if (ref.current) observer.observe(ref.current)
-    return () => observer.disconnect()
+    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect() } }, { threshold: 0.08 })
+    if (ref.current) obs.observe(ref.current)
+    return () => obs.disconnect()
   }, [])
-
   return (
-    <div
-      ref={ref}
-      style={{
-        animation: visible ? 'fadeUp .6s ease forwards' : 'none',
-        opacity: visible ? 1 : 0,
-        transform: visible ? 'none' : 'translateY(20px)'
-      }}
-    >
+    <div ref={ref} style={{ transition: `opacity .6s ${delay}ms, transform .6s ${delay}ms cubic-bezier(.16,1,.3,1)`, opacity: visible ? 1 : 0, transform: visible ? 'none' : 'translateY(24px)' }}>
       {children}
     </div>
   )
 }
 
-function WaitlistForm({ type }: { type: 'investor' | 'builder' }) {
-  const [email, setEmail] = useState('')
-  const [name, setName] = useState('')
-  const [extra, setExtra] = useState('')
-  const [githubUrl, setGithubUrl] = useState('')
-  const [investmentRange, setInvestmentRange] = useState('')
-  const [source, setSource] = useState('')
-  const [strategyType, setStrategyType] = useState('')
-  const [backtestingPlatform, setBacktestingPlatform] = useState('')
-  const [liveTrackRecord, setLiveTrackRecord] = useState(false)
-  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!email || !name) return
-    setStatus('loading')
-    try {
-      const supabase = createClient()
-      const table = type === 'investor' ? 'waitlist_investors' : 'waitlist_builders'
-      const payload = type === 'investor'
-        ? {
-            email,
-            name,
-            investment_range: investmentRange || null,
-            source: source || extra || null,
-          }
-        : {
-            email,
-            name,
-            github_url: githubUrl || null,
-            strategy_type: strategyType || null,
-            strategy_description: extra || null,
-            backtesting_platform: backtestingPlatform || null,
-            live_track_record: liveTrackRecord,
-          }
-      const { error } = await supabase.from(table).insert(payload)
-      if (error) throw error
-
-      // Also write to the generic waitlist table as backup
-      await fetch('/api/waitlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, name, type: type === 'investor' ? 'investor' : 'developer' }),
-      }).catch(() => {}) // non-critical
-
-      setStatus('success')
-    } catch {
-      setStatus('error')
-    }
-  }
-
-  if (status === 'success') {
-    return (
-      <div style={{ padding: '2rem', textAlign: 'center' }}>
-        <div style={{ fontSize: '2rem', marginBottom: '.5rem' }}>
-          {type === 'investor' ? '🎉' : '🚀'}
-        </div>
-        <div style={{ fontFamily: 'var(--font-head)', fontWeight: 700, marginBottom: '.5rem' }}>
-          {type === 'investor' ? "Investor profile saved" : "Builder application received"}
-        </div>
-        <div style={{ fontSize: '.85rem', color: 'var(--muted)' }}>
-          {type === 'investor'
-            ? "We’ll reach out with cohort access and product updates."
-            : "We’ll review your strategy, repo, and track record for the next cohort."
-          }
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '.75rem' }}>
-      <input
-        type="text"
-        placeholder={type === 'investor' ? 'Full name *' : 'Founder / quant name *'}
-        value={name}
-        onChange={e => setName(e.target.value)}
-        required
-        style={{
-          background: 'rgba(255,255,255,.04)', border: '1px solid var(--border2)',
-          borderRadius: 8, padding: '.65rem .85rem', color: 'var(--white)',
-          fontSize: '.88rem', outline: 'none',
-        }}
-      />
-      <input
-        type="email"
-        placeholder="Email *"
-        required
-        value={email}
-        onChange={e => setEmail(e.target.value)}
-        style={{
-          background: 'rgba(255,255,255,.04)', border: '1px solid var(--border2)',
-          borderRadius: 8, padding: '.65rem .85rem', color: 'var(--white)',
-          fontSize: '.88rem', outline: 'none',
-        }}
-      />
-      {type === 'investor' ? (
-        <>
-          <select
-            value={investmentRange}
-            onChange={e => setInvestmentRange(e.target.value)}
-            style={{
-              background: 'rgba(255,255,255,.04)', border: '1px solid var(--border2)',
-              borderRadius: 8, padding: '.65rem .85rem', color: 'var(--white)',
-              fontSize: '.88rem', outline: 'none',
-            }}
-          >
-            <option value="">Target allocation</option>
-            <option value="$1k-$5k">$1k-$5k</option>
-            <option value="$5k-$25k">$5k-$25k</option>
-            <option value="$25k-$100k">$25k-$100k</option>
-            <option value="$100k+">$100k+</option>
-          </select>
-          <select
-            value={source}
-            onChange={e => setSource(e.target.value)}
-            style={{
-              background: 'rgba(255,255,255,.04)', border: '1px solid var(--border2)',
-              borderRadius: 8, padding: '.65rem .85rem', color: 'var(--white)',
-              fontSize: '.88rem', outline: 'none',
-            }}
-          >
-            <option value="">How did you hear about ASE?</option>
-            <option value="X / Twitter">X / Twitter</option>
-            <option value="Friend or founder">Friend or founder</option>
-            <option value="Crypto community">Crypto community</option>
-            <option value="Press / podcast">Press / podcast</option>
-          </select>
-        </>
-      ) : (
-        <>
-          <input
-            type="url"
-            placeholder="GitHub repo or profile *"
-            required
-            value={githubUrl}
-            onChange={e => setGithubUrl(e.target.value)}
-            style={{
-              background: 'rgba(255,255,255,.04)', border: '1px solid var(--border2)',
-              borderRadius: 8, padding: '.65rem .85rem', color: 'var(--white)',
-              fontSize: '.88rem', outline: 'none',
-            }}
-          />
-          <input
-            type="text"
-            placeholder="Strategy type (momentum, mean reversion, ML, arb)"
-            value={strategyType}
-            onChange={e => setStrategyType(e.target.value)}
-            style={{
-              background: 'rgba(255,255,255,.04)', border: '1px solid var(--border2)',
-              borderRadius: 8, padding: '.65rem .85rem', color: 'var(--white)',
-              fontSize: '.88rem', outline: 'none',
-            }}
-          />
-          <input
-            type="text"
-            placeholder="Backtesting stack (Backtrader, QuantConnect, custom)"
-            value={backtestingPlatform}
-            onChange={e => setBacktestingPlatform(e.target.value)}
-            style={{
-              background: 'rgba(255,255,255,.04)', border: '1px solid var(--border2)',
-              borderRadius: 8, padding: '.65rem .85rem', color: 'var(--white)',
-              fontSize: '.88rem', outline: 'none',
-            }}
-          />
-        </>
-      )}
-      <textarea
-        placeholder={type === 'investor'
-          ? 'What do you want exposure to first? (BTC trend, market-neutral, high-frequency, etc.)'
-          : 'Describe the strategy, edge, risk controls, and any live or paper track record'
-        }
-        value={extra}
-        onChange={e => setExtra(e.target.value)}
-        rows={type === 'investor' ? 2 : 4}
-        style={{
-          background: 'rgba(255,255,255,.04)', border: '1px solid var(--border2)',
-          borderRadius: 8, padding: '.65rem .85rem', color: 'var(--white)',
-          fontSize: '.88rem', outline: 'none', resize: 'none',
-        }}
-      />
-      {type === 'builder' && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: '.6rem', fontSize: '.82rem', color: 'var(--muted)' }}>
-          <input
-            type="checkbox"
-            checked={liveTrackRecord}
-            onChange={e => setLiveTrackRecord(e.target.checked)}
-          />
-          I have a live or paper track record I can share during diligence.
-        </label>
-      )}
-      <button
-        type="submit"
-        disabled={status === 'loading'}
-        className="btn-primary"
-        style={{ width: '100%', textAlign: 'center', opacity: status === 'loading' ? 0.6 : 1 }}
-      >
-        {status === 'loading' ? 'Submitting...' : type === 'investor' ? 'Join Investor Cohort' : 'Apply to Launch on ASE'}
-      </button>
-      {status === 'error' && (
-        <div style={{ color: 'var(--red)', fontSize: '.8rem', textAlign: 'center' }}>
-          Something went wrong. Try again.
-        </div>
-      )}
-    </form>
-  )
-}
-
+// ─── Main component ───────────────────────────────────────────────────────────
 export default function LandingPage() {
-  const [rotIdx, setRotIdx] = useState(0)
-  const [navScrolled, setNavScrolled] = useState(false)
-  const [agents, setAgents] = useState<AgentData[]>(FALLBACK_AGENTS)
-  const [totals, setTotals] = useState<Totals>({ total_aum_usd: '$0', total_trades: 0, avg_return_pct: '0', agents_live: 5 })
-  const [loaded, setLoaded] = useState(false)
+  const { wallet, connect, connecting, shortAddress } = useWallet()
+  const [agents, setAgents] = useState<AgentData[]>(FALLBACK)
+  const [scrolled, setScrolled] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const [user, setUser] = useState<{ id: string; email: string } | null>(null)
 
-  // Fetch real agent data
-  const fetchData = useCallback(async () => {
-    try {
-      const res = await fetch('/api/agents/public-stats')
-      const data = await res.json()
-      if (data.agents?.length > 0) {
-        setAgents(data.agents)
-        setTotals(data.totals)
-        setLoaded(true)
-      }
-    } catch { /* keep fallback */ }
-  }, [])
-
+  // Scroll detection
   useEffect(() => {
-    const initial = window.setTimeout(() => {
-      void fetchData()
-    }, 0)
-    const iv = setInterval(fetchData, 30_000) // refresh every 30s
-    return () => {
-      clearTimeout(initial)
-      clearInterval(iv)
-    }
-  }, [fetchData])
-
-  useEffect(() => {
-    const iv = setInterval(() => setRotIdx(i => (i + 1) % ROT_WORDS.length), 3000)
-    return () => clearInterval(iv)
-  }, [])
-
-  useEffect(() => {
-    const handler = () => setNavScrolled(window.scrollY > 30)
+    const handler = () => setScrolled(window.scrollY > 40)
     window.addEventListener('scroll', handler, { passive: true })
     return () => window.removeEventListener('scroll', handler)
   }, [])
 
-  // Build ticker items from live data
-  const tickerItems = agents.map(a => ({
-    ticker: a.ticker,
-    price: a.nav,
-    chg: a.ret,
-    pos: a.pos,
-  }))
+  // Auth check
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data: { user: u } }) => setUser(u ? { id: u.id, email: u.email ?? '' } : null))
+  }, [])
+
+  // Fetch live agent data
+  useEffect(() => {
+    fetch('/api/agents/public-stats').then(r => r.json()).then(data => {
+      if (Array.isArray(data?.agents) && data.agents.length > 0) setAgents(data.agents)
+    }).catch(() => {})
+  }, [])
+
+  const connected = wallet.connected
 
   return (
-    <div style={{ background: 'var(--bg)', color: 'var(--white)', overflowX: 'hidden' }}>
-      {/* NAVBAR */}
-      <nav style={{
-        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000,
-        borderBottom: navScrolled ? '1px solid var(--border)' : '1px solid transparent',
-        background: navScrolled ? 'rgba(7,9,15,0.92)' : 'transparent',
-        backdropFilter: navScrolled ? 'blur(16px)' : 'none',
-        transition: 'all .3s',
-      }}>
-        <div style={{ maxWidth: 1160, margin: '0 auto', padding: '0 1.5rem', height: 64, display: 'flex', alignItems: 'center', gap: '2rem' }}>
-          <Link href="/" style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1.2rem', letterSpacing: '-.02em' }}>
-            AS<span style={{ color: 'var(--gold)' }}>E</span>
-          </Link>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '2rem', marginLeft: 'auto' }} className="nav-desktop">
-            <Link href="#agents" style={{ fontSize: '.88rem', fontWeight: 600, color: 'var(--muted)', transition: 'color .2s' }} onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--white)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}>Agents</Link>
-            <Link href="#how" style={{ fontSize: '.88rem', fontWeight: 600, color: 'var(--muted)', transition: 'color .2s' }} onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--white)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}>How It Works</Link>
-            <Link href="#waitlist" style={{ fontSize: '.88rem', fontWeight: 600, color: 'var(--muted)', transition: 'color .2s' }} onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--white)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}>Join Waitlist</Link>
-            <Link href="/login" style={{ fontSize: '.88rem', fontWeight: 600, color: 'var(--muted)', transition: 'color .2s' }} onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--white)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}>Login</Link>
-            <Link href="/signup" className="btn-primary" style={{ fontSize: '.88rem', padding: '.55rem 1.2rem', borderRadius: 10 }}>
-              Get Started
-            </Link>
-          </div>
+    <div style={{ background: 'var(--bg)', color: 'var(--white)', minHeight: '100vh', fontFamily: 'var(--font-head)' }}>
+      <style>{`
+        /* ── NAV ── */
+        .lp-nav {
+          position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+          height: 62px; display: flex; align-items: center; justify-content: space-between;
+          padding: 0 2rem;
+          transition: background .3s, border-color .3s, backdrop-filter .3s;
+        }
+        .lp-nav.scrolled {
+          background: rgba(8,6,18,.92);
+          border-bottom: 1px solid rgba(148,130,255,.12);
+          backdrop-filter: blur(24px) saturate(180%);
+          -webkit-backdrop-filter: blur(24px) saturate(180%);
+        }
+        .lp-nav-links { display: flex; align-items: center; gap: .25rem; }
+        .lp-nav-link { padding: .4rem .8rem; border-radius: 9px; font-size: .85rem; font-weight: 600; color: rgba(240,235,255,.55); transition: all .18s; border: 1px solid transparent; }
+        .lp-nav-link:hover { color: var(--white); border-color: rgba(148,130,255,.2); background: rgba(148,130,255,.07); }
+        .lp-brand { font-size: 1.15rem; font-weight: 900; letter-spacing: -.025em; }
+        .lp-brand span { color: var(--gold); }
+        .lp-nav-right { display: flex; align-items: center; gap: .65rem; }
+
+        /* ── HERO ── */
+        .lp-hero {
+          min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+          justify-content: center; text-align: center; padding: 6rem 2rem 4rem;
+          position: relative; overflow: hidden;
+        }
+        .lp-hero-glow {
+          position: absolute; inset: 0; pointer-events: none;
+          background:
+            radial-gradient(ellipse 70% 50% at 50% 30%, rgba(148,130,255,.1) 0%, transparent 60%),
+            radial-gradient(ellipse 40% 30% at 75% 70%, rgba(125,211,252,.06) 0%, transparent 55%),
+            radial-gradient(ellipse 35% 25% at 25% 75%, rgba(249,168,212,.05) 0%, transparent 55%);
+        }
+        .lp-hero-grid {
+          position: absolute; inset: 0; pointer-events: none;
+          background-image: linear-gradient(rgba(148,130,255,.03) 1px, transparent 1px), linear-gradient(90deg, rgba(148,130,255,.03) 1px, transparent 1px);
+          background-size: 56px 56px;
+        }
+        .lp-eyebrow { display: inline-flex; align-items: center; gap: .5rem; padding: .28rem .85rem; border-radius: 999px; border: 1px solid rgba(148,130,255,.28); background: rgba(148,130,255,.08); font-family: var(--font-mono); font-size: .65rem; letter-spacing: .12em; color: var(--gold); font-weight: 700; text-transform: uppercase; margin-bottom: 1.5rem; }
+        .lp-live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulseGreen 2.2s ease-in-out infinite; flex-shrink: 0; }
+        .lp-h1 { font-size: clamp(2.8rem, 6vw, 5rem); font-weight: 900; letter-spacing: -.04em; line-height: 1.04; margin-bottom: 1.4rem; }
+        .lp-h1 .accent { background: linear-gradient(135deg, #9B8CFF, #C4B5FD, #7DD3FC); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .lp-sub { font-size: 1.15rem; color: var(--muted); max-width: 580px; line-height: 1.65; margin-bottom: 2.5rem; }
+        .lp-hero-actions { display: flex; align-items: center; gap: .85rem; flex-wrap: wrap; justify-content: center; }
+        .lp-cta-primary { display: inline-flex; align-items: center; gap: .6rem; padding: .85rem 1.8rem; border-radius: 14px; font-weight: 700; font-size: .95rem; background: linear-gradient(135deg, #7C3AED, #9B8CFF, #7DD3FC); color: #fff; border: 0; cursor: pointer; transition: all .2s cubic-bezier(.16,1,.3,1); white-space: nowrap; }
+        .lp-cta-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 36px rgba(124,58,237,.4); }
+        .lp-cta-secondary { display: inline-flex; align-items: center; gap: .5rem; padding: .82rem 1.6rem; border-radius: 14px; font-weight: 600; font-size: .92rem; background: rgba(148,130,255,.07); color: var(--white); border: 1px solid rgba(148,130,255,.22); cursor: pointer; transition: all .2s; text-decoration: none; }
+        .lp-cta-secondary:hover { background: rgba(148,130,255,.13); border-color: rgba(148,130,255,.4); transform: translateY(-1px); }
+        .lp-trust-row { display: flex; align-items: center; gap: 1.5rem; margin-top: 2.5rem; flex-wrap: wrap; justify-content: center; }
+        .lp-trust-item { font-size: .78rem; color: rgba(210,200,255,.4); font-family: var(--font-mono); letter-spacing: .06em; display: flex; align-items: center; gap: .4rem; }
+        .lp-trust-item::before { content: '✓'; color: var(--green); font-size: .75rem; }
+
+        /* ── SECTION ── */
+        .lp-section { padding: 5rem 2rem; max-width: 1280px; margin: 0 auto; }
+        .lp-section-label { font-family: var(--font-mono); font-size: .65rem; letter-spacing: .14em; color: var(--gold); font-weight: 700; text-transform: uppercase; margin-bottom: .75rem; }
+        .lp-section-title { font-size: clamp(1.75rem, 3.5vw, 2.5rem); font-weight: 900; letter-spacing: -.03em; margin-bottom: .75rem; }
+        .lp-section-sub { font-size: .95rem; color: var(--muted); max-width: 560px; line-height: 1.7; }
+
+        /* ── STEPS ── */
+        .lp-steps { display: grid; grid-template-columns: repeat(3,1fr); gap: 1.5rem; margin-top: 3rem; }
+        @media (max-width: 768px) { .lp-steps { grid-template-columns: 1fr; } }
+        .lp-step { background: rgba(148,130,255,.04); border: 1px solid rgba(148,130,255,.1); border-radius: 20px; padding: 1.75rem; position: relative; transition: all .28s; }
+        .lp-step:hover { border-color: rgba(148,130,255,.25); transform: translateY(-3px); box-shadow: 0 16px 48px rgba(0,0,0,.3), 0 0 24px rgba(148,130,255,.06); }
+        .lp-step-num { font-family: var(--font-mono); font-size: .7rem; letter-spacing: .1em; color: var(--gold); font-weight: 700; margin-bottom: .85rem; opacity: .7; }
+        .lp-step-icon { font-size: 1.75rem; margin-bottom: .85rem; }
+        .lp-step-title { font-size: 1.05rem; font-weight: 800; margin-bottom: .5rem; }
+        .lp-step-desc { font-size: .85rem; color: var(--muted); line-height: 1.6; }
+
+        /* ── AGENT CARDS ── */
+        .lp-agents-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px,1fr)); gap: 1.1rem; margin-top: 2.5rem; }
+        .lp-agent-card { background: rgba(148,130,255,.04); border: 1px solid rgba(148,130,255,.1); border-radius: 18px; padding: 1.25rem; cursor: pointer; transition: all .25s cubic-bezier(.16,1,.3,1); }
+        .lp-agent-card:hover { border-color: rgba(148,130,255,.28); transform: translateY(-3px); box-shadow: 0 16px 48px rgba(0,0,0,.35), 0 0 20px rgba(148,130,255,.06); }
+        .lp-agent-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: .85rem; }
+        .lp-agent-ticker { font-family: var(--font-mono); font-size: .68rem; letter-spacing: .1em; color: var(--gold); font-weight: 700; margin-bottom: .2rem; }
+        .lp-agent-name { font-size: .97rem; font-weight: 800; }
+        .lp-agent-type { font-size: .68rem; color: var(--muted); margin-top: .15rem; }
+        .lp-ret { font-family: var(--font-mono); font-size: .92rem; font-weight: 700; }
+        .lp-agent-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: .85rem; }
+        .lp-agent-stats { display: flex; gap: 1rem; }
+        .lp-agent-stat { font-size: .72rem; color: var(--muted); }
+        .lp-agent-stat strong { color: var(--white); font-size: .8rem; display: block; font-weight: 700; }
+        .lp-sub-btn { padding: .35rem .9rem; border-radius: 9px; font-size: .78rem; font-weight: 700; background: rgba(148,130,255,.12); border: 1px solid rgba(148,130,255,.28); color: var(--gold); cursor: pointer; transition: all .18s; white-space: nowrap; }
+        .lp-sub-btn:hover { background: rgba(148,130,255,.2); border-color: rgba(148,130,255,.5); }
+
+        /* ── FEATURE GRID ── */
+        .lp-features { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap: 1rem; margin-top: 2.5rem; }
+        .lp-feature { background: rgba(148,130,255,.04); border: 1px solid rgba(148,130,255,.09); border-radius: 16px; padding: 1.5rem; }
+        .lp-feature-icon { font-size: 1.4rem; margin-bottom: .75rem; }
+        .lp-feature-title { font-size: .95rem; font-weight: 800; margin-bottom: .4rem; }
+        .lp-feature-desc { font-size: .83rem; color: var(--muted); line-height: 1.6; }
+
+        /* ── FUTURE BANNER ── */
+        .lp-future { margin: 4rem auto; max-width: 760px; background: rgba(148,130,255,.06); border: 1px solid rgba(148,130,255,.18); border-radius: 20px; padding: 2.5rem; text-align: center; }
+        .lp-future-label { font-family: var(--font-mono); font-size: .62rem; letter-spacing: .14em; color: var(--accent-sky); font-weight: 700; text-transform: uppercase; margin-bottom: .6rem; }
+        .lp-future-title { font-size: 1.5rem; font-weight: 900; letter-spacing: -.03em; margin-bottom: .75rem; }
+        .lp-future-desc { font-size: .9rem; color: var(--muted); line-height: 1.7; }
+        .lp-future-chips { display: flex; gap: .6rem; justify-content: center; margin-top: 1.5rem; flex-wrap: wrap; }
+        .lp-future-chip { padding: .3rem .9rem; border-radius: 999px; font-size: .72rem; font-family: var(--font-mono); font-weight: 600; letter-spacing: .06em; background: rgba(125,211,252,.08); border: 1px solid rgba(125,211,252,.2); color: var(--accent-sky); }
+
+        /* ── FOOTER ── */
+        .lp-footer { border-top: 1px solid rgba(148,130,255,.1); padding: 2.5rem; text-align: center; font-size: .8rem; color: var(--faint); }
+
+        /* ── WALLET MODAL ── */
+        .wallet-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.65); backdrop-filter: blur(8px); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+        .wallet-modal { background: var(--bg3); border: 1px solid rgba(148,130,255,.2); border-radius: 24px; padding: 2rem; max-width: 400px; width: 100%; box-shadow: 0 40px 100px rgba(0,0,0,.7); }
+        .wallet-modal-title { font-size: 1.25rem; font-weight: 800; margin-bottom: .35rem; }
+        .wallet-modal-sub { font-size: .85rem; color: var(--muted); margin-bottom: 1.5rem; }
+        .wallet-option { display: flex; align-items: center; gap: .9rem; padding: .9rem 1.1rem; border-radius: 14px; border: 1px solid rgba(148,130,255,.15); background: rgba(148,130,255,.05); cursor: pointer; margin-bottom: .75rem; transition: all .2s; width: 100%; font-family: inherit; }
+        .wallet-option:hover { border-color: rgba(148,130,255,.35); background: rgba(148,130,255,.1); }
+        .wallet-option-name { font-weight: 700; font-size: .92rem; text-align: left; }
+        .wallet-option-sub { font-size: .75rem; color: var(--muted); text-align: left; }
+      `}</style>
+
+      {/* ── NAV ─────────────────────────────────────────────────────────────── */}
+      <nav className={`lp-nav ${scrolled ? 'scrolled' : ''}`}>
+        <Link href="/" className="lp-brand">ASE<span>.</span></Link>
+        <div className="lp-nav-links" style={{ display: mobileOpen ? 'none' : 'flex' }}>
+          <Link href="/agents" className="lp-nav-link">Agents</Link>
+          <Link href="/builders" className="lp-nav-link">Builders</Link>
+          <Link href="/dashboard/backtest" className="lp-nav-link">Algo Lab</Link>
+        </div>
+        <div className="lp-nav-right">
+          {user ? (
+            <Link href="/dashboard" className="lp-cta-secondary" style={{ padding: '.4rem 1rem', fontSize: '.84rem' }}>Dashboard →</Link>
+          ) : (
+            <>
+              <Link href="/login" className="lp-nav-link">Sign in</Link>
+              <Link href="/signup" className="lp-cta-secondary" style={{ padding: '.42rem 1.1rem', fontSize: '.84rem' }}>Get Started</Link>
+            </>
+          )}
         </div>
       </nav>
 
-      {/* TICKER BAR */}
-      <div style={{ position: 'fixed', top: 64, left: 0, right: 0, zIndex: 900, background: 'rgba(7,9,15,.92)', borderBottom: '1px solid var(--border)', backdropFilter: 'blur(10px)', height: 36, display: 'flex', alignItems: 'center', overflow: 'hidden' }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', letterSpacing: '.12em', color: loaded ? 'var(--green)' : 'var(--gold)', padding: '0 1rem', borderRight: '1px solid var(--border)', whiteSpace: 'nowrap', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-          {loaded && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', animation: 'dotBlink 1.8s infinite' }} />}
-          {loaded ? 'LIVE' : 'LOADING'}
+      {/* ── HERO ─────────────────────────────────────────────────────────────── */}
+      <section className="lp-hero">
+        <div className="lp-hero-glow" />
+        <div className="lp-hero-grid" />
+
+        <div className="lp-eyebrow">
+          <span className="lp-live-dot" />
+          {agents.length} Bots Live Now — Free Beta
         </div>
-        <div style={{ flex: 1, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', width: 'max-content', animation: 'tickerMove 24s linear infinite' }}>
-            {[...tickerItems, ...tickerItems].map((t, i) => (
-              <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem', padding: '0 1.4rem', fontFamily: 'var(--font-mono)', fontSize: '.65rem', borderRight: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
-                <span style={{ color: 'var(--white)', fontWeight: 600 }}>{t.ticker}</span>
-                <span style={{ color: 'var(--muted)' }}>{t.price}</span>
-                <span style={{ color: t.pos ? 'var(--green)' : 'var(--red)' }}>{t.chg}</span>
-              </span>
+
+        <h1 className="lp-h1">
+          Subscribe to<br />
+          <span className="accent">Proven Trading Bots</span>
+        </h1>
+
+        <p className="lp-sub">
+          Connect your wallet. Subscribe to verified AI trading agents.
+          Watch them execute real crypto strategies — fully transparent, always auditable.
+        </p>
+
+        <div className="lp-hero-actions">
+          <Link href="/agents" className="lp-cta-primary">
+            Browse Agents
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </Link>
+          <Link href="/builders/submit" className="lp-cta-secondary">Submit Your Bot →</Link>
+        </div>
+
+        <div className="lp-trust-row">
+          {['No custody risk', 'Real Alpaca execution', 'Verified performance', 'Free beta access'].map(t => (
+            <div key={t} className="lp-trust-item">{t}</div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── HOW IT WORKS ─────────────────────────────────────────────────────── */}
+      <section className="lp-section">
+        <ScrollFadeUp>
+          <div className="lp-section-label">How It Works</div>
+          <h2 className="lp-section-title">Three steps to bot alpha</h2>
+          <p className="lp-section-sub">No fund minimums. No lock-ups. Subscribe to a bot and see exactly what it does, every trade.</p>
+        </ScrollFadeUp>
+        <div className="lp-steps">
+          {[
+            { num: '01', icon: '🔗', title: 'Connect Wallet', desc: 'Connect MetaMask or Coinbase Wallet. Your wallet is your identity — no email required. Your keys, your account.' },
+            { num: '02', icon: '🤖', title: 'Subscribe to a Bot', desc: 'Browse 10 verified trading agents with backtested performance. Subscribe in one click. Free during beta — future: on-chain subscription payments.' },
+            { num: '03', icon: '📈', title: 'Watch it Trade', desc: 'Your bot executes real crypto strategies on Alpaca. Track its live NAV, every fill, every signal — full transparency on your dashboard.' },
+          ].map((s, i) => (
+            <ScrollFadeUp key={s.num} delay={i * 120}>
+              <div className="lp-step">
+                <div className="lp-step-num">STEP {s.num}</div>
+                <div className="lp-step-icon">{s.icon}</div>
+                <div className="lp-step-title">{s.title}</div>
+                <div className="lp-step-desc">{s.desc}</div>
+              </div>
+            </ScrollFadeUp>
+          ))}
+        </div>
+      </section>
+
+      {/* ── LIVE AGENTS ──────────────────────────────────────────────────────── */}
+      <section className="lp-section" style={{ paddingTop: '1rem' }}>
+        <ScrollFadeUp>
+          <div className="lp-section-label">Live Agents</div>
+          <h2 className="lp-section-title">Pick your strategy</h2>
+          <p className="lp-section-sub">Every bot is backtested before listing. Live performance tracked in real-time on Alpaca paper trading.</p>
+        </ScrollFadeUp>
+
+        <div className="lp-agents-grid">
+          {agents.slice(0, 6).map((agent, i) => (
+            <ScrollFadeUp key={agent.slug} delay={i * 80}>
+              <Link href={`/agents/${agent.slug}`} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
+                <div className="lp-agent-card">
+                  <div className="lp-agent-top">
+                    <div>
+                      <div className="lp-agent-ticker">{agent.ticker}</div>
+                      <div className="lp-agent-name">{agent.name}</div>
+                      <div className="lp-agent-type">{agent.type}</div>
+                    </div>
+                    <div>
+                      <div className={`lp-ret`} style={{ color: agent.pos ? 'var(--green)' : 'var(--red)', textAlign: 'right' }}>{agent.ret}</div>
+                      <Spark data={agent.spark} pos={agent.pos} />
+                    </div>
+                  </div>
+                  <div className="lp-agent-bottom">
+                    <div className="lp-agent-stats">
+                      <div className="lp-agent-stat"><strong>{agent.sharpe > 0 ? agent.sharpe.toFixed(2) : '--'}</strong>Sharpe</div>
+                      <div className="lp-agent-stat"><strong>{agent.win_rate > 0 ? `${agent.win_rate.toFixed(0)}%` : '--'}</strong>Win Rate</div>
+                      <div className="lp-agent-stat"><strong>{agent.subscriber_count}</strong>Subscribers</div>
+                    </div>
+                    <div className="lp-sub-btn">Subscribe →</div>
+                  </div>
+                </div>
+              </Link>
+            </ScrollFadeUp>
+          ))}
+        </div>
+
+        <ScrollFadeUp delay={200}>
+          <div style={{ textAlign: 'center', marginTop: '2rem' }}>
+            <Link href="/agents" className="lp-cta-secondary" style={{ display: 'inline-flex' }}>View All {agents.length} Agents →</Link>
+          </div>
+        </ScrollFadeUp>
+      </section>
+
+      {/* ── FEATURES ─────────────────────────────────────────────────────────── */}
+      <section className="lp-section">
+        <ScrollFadeUp>
+          <div className="lp-section-label">Why ASE</div>
+          <h2 className="lp-section-title">Built different</h2>
+        </ScrollFadeUp>
+        <div className="lp-features">
+          {[
+            { icon: '🔍', title: 'Backtested Before Listed', desc: 'Every agent passes our 4-gate authentication: out-of-sample testing, CPCV, PBO analysis, and Deflated Sharpe Ratio to eliminate overfitting.' },
+            { icon: '📊', title: 'Full Trade Transparency', desc: 'Every buy, every sell, every signal is logged on your dashboard. No black boxes. You see exactly what the bot is doing and why.' },
+            { icon: '⚡', title: 'Always Trading', desc: 'Agents run 24/7 on Alpaca. Crypto markets never close — neither do our bots. Live signals, live fills, real execution.' },
+            { icon: '🔒', title: 'Wallet-First Auth', desc: 'Connect MetaMask or Coinbase Wallet. Sign in with your keys — no email needed. Future: on-chain subscriptions via Coinbase Payments.' },
+            { icon: '🤖', title: 'Submit Your Bot', desc: 'Build a strategy in Python, submit it, we run the gauntlet. Pass our authentication pipeline and get listed in the marketplace.' },
+            { icon: '🪙', title: 'Coming: Tokenized Assets', desc: 'Phase 2: agent performance backed by on-chain security tokens (ERC-3643). Trade into and out of strategy positions on a secondary market.' },
+          ].map((f, i) => (
+            <ScrollFadeUp key={f.title} delay={i * 60}>
+              <div className="lp-feature">
+                <div className="lp-feature-icon">{f.icon}</div>
+                <div className="lp-feature-title">{f.title}</div>
+                <div className="lp-feature-desc">{f.desc}</div>
+              </div>
+            </ScrollFadeUp>
+          ))}
+        </div>
+      </section>
+
+      {/* ── FUTURE ROADMAP ───────────────────────────────────────────────────── */}
+      <ScrollFadeUp>
+        <div className="lp-future" style={{ margin: '2rem auto 4rem', padding: '2rem' }}>
+          <div className="lp-future-label">Coming in Phase 2</div>
+          <h3 className="lp-future-title">Tokenized Strategy Assets</h3>
+          <p className="lp-future-desc">
+            Today you subscribe to a bot. Tomorrow you'll be able to hold a tokenized stake in its performance —
+            an ERC-3643 security token representing fractional economic exposure to the agent's returns.
+            Trade in and out on ASE's secondary market. Your subscription history gives you priority access.
+          </p>
+          <div className="lp-future-chips">
+            {['ERC-3643 Tokens', 'Chainlink NAV Oracle', 'On-Chain Subscriptions', 'Secondary Market AMM', 'Equities & ETFs'].map(c => (
+              <span key={c} className="lp-future-chip">{c}</span>
             ))}
           </div>
         </div>
-      </div>
+      </ScrollFadeUp>
 
-      {/* HERO SECTION */}
-      <section style={{ minHeight: '100vh', padding: '140px 1.5rem 80px', display: 'flex', alignItems: 'center', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px)', backgroundSize: '60px 60px', opacity: .4, pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 60% 50% at 70% 50%,rgba(232,172,32,.04) 0%,transparent 70%)', pointerEvents: 'none' }} />
-        <div style={{ maxWidth: 1160, margin: '0 auto', width: '100%', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4rem', alignItems: 'center', position: 'relative' }} className="hero-grid">
-          <ScrollFadeUp>
+      {/* ── BUILDER CTA ──────────────────────────────────────────────────────── */}
+      <section className="lp-section" style={{ paddingTop: 0, paddingBottom: '3rem' }}>
+        <ScrollFadeUp>
+          <div style={{ background: 'rgba(148,130,255,.06)', border: '1px solid rgba(148,130,255,.18)', borderRadius: 20, padding: '2.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1.5rem' }}>
             <div>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem', fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.1em', color: 'var(--gold)', border: '1px solid rgba(232,172,32,.25)', background: 'rgba(232,172,32,.06)', padding: '.35rem .85rem', borderRadius: 999, marginBottom: '1.5rem' }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--gold)', animation: 'dotBlink 1.8s infinite', display: 'inline-block' }} />
-                {totals.agents_live} AGENTS LIVE · TRADING NOW
-              </div>
-
-              <h1 style={{ fontFamily: 'var(--font-head)', fontSize: 'clamp(2.8rem,6vw,4.2rem)', fontWeight: 800, letterSpacing: '-.03em', lineHeight: 1.15, marginBottom: '1.25rem' }}>
-                <span style={{ display: 'inline-block', overflow: 'hidden', position: 'relative', verticalAlign: 'text-bottom', minHeight: '1.15em' }}>
-                  {ROT_WORDS.map((w, i) => (
-                    <span key={w} style={{
-                      display: 'block',
-                      position: 'absolute',
-                      top: 0, left: 0,
-                      whiteSpace: 'nowrap',
-                      transition: 'transform .6s cubic-bezier(.4,0,.2,1), opacity .6s',
-                      transform: i === rotIdx ? 'translateY(0)' : i < rotIdx ? 'translateY(-100%)' : 'translateY(100%)',
-                      opacity: i === rotIdx ? 1 : 0,
-                      background: 'linear-gradient(135deg,#4BD1FF,#7EF3E9)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      backgroundClip: 'text'
-                    }}>
-                      {w}
-                    </span>
-                  ))}
-                </span>
-              </h1>
-
-              <p style={{ fontSize: '1.05rem', color: 'var(--muted)', lineHeight: 1.75, maxWidth: 520, marginBottom: '2rem' }}>
-                ASE turns algorithmic trading into an investable asset class. Back live agents, track every trade, and price each strategy off actual capital in the pool.
+              <div className="lp-section-label">For Builders</div>
+              <h3 style={{ fontSize: '1.4rem', fontWeight: 900, letterSpacing: '-.025em', marginBottom: '.4rem' }}>Got a strategy that actually works?</h3>
+              <p style={{ fontSize: '.88rem', color: 'var(--muted)', maxWidth: 480, lineHeight: 1.65 }}>
+                Submit your Python strategy. We run it through backtesting, CPCV analysis, and overfitting checks.
+                Pass the bar and get listed in front of subscribers.
               </p>
-
-              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '2rem' }}>
-                <Link href="#waitlist" className="btn-primary haptic-press" onClick={() => triggerHaptic(10)}>Join Investor Cohort</Link>
-                <Link href="#waitlist" className="btn-secondary haptic-press" onClick={() => triggerHaptic(10)}>Apply as Builder</Link>
-              </div>
-
-              {/* Live stats strip */}
-              <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '.08em' }}>Total AUM</div>
-                  <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.1rem', fontWeight: 700, color: 'var(--gold)' }}>{totals.total_aum_usd || '$0'}</div>
-                </div>
-                <div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '.08em' }}>Total Trades</div>
-                  <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.1rem', fontWeight: 700 }}>{totals.total_trades || 0}</div>
-                </div>
-                <div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '.08em' }}>Agents Live</div>
-                  <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.1rem', fontWeight: 700 }}>{totals.agents_live || 5}</div>
-                </div>
-              </div>
             </div>
-          </ScrollFadeUp>
-
-          {/* Hero Card Preview — real data */}
-          <ScrollFadeUp>
-            <div style={{ position: 'relative' }}>
-              <div style={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 20, overflow: 'hidden', boxShadow: '0 40px 100px rgba(0,0,0,.7)' }}>
-                <div className="win-bar">
-                  <span className="dot dot-r" /><span className="dot dot-y" /><span className="dot dot-g" />
-                  <span className="win-title" style={{ marginLeft: '.3rem' }}>ase.app · Live Agents</span>
-                  <span className="pill pill-green" style={{ marginLeft: 'auto' }}>TRADING</span>
-                </div>
-                <div style={{ padding: '1rem' }}>
-                  {agents.slice(0, 4).map((a, i) => (
-                    <div key={a.ticker} style={{ display: 'flex', alignItems: 'center', gap: '.75rem', padding: '.6rem .5rem', borderBottom: i < 3 ? '1px solid var(--border)' : 'none' }}>
-                      <div style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(232,172,32,.08)', border: '1px solid rgba(232,172,32,.15)', display: 'grid', placeItems: 'center', fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--gold)', fontWeight: 700, flexShrink: 0 }}>
-                        {a.ticker.replace('$', '').slice(0, 2)}
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontFamily: 'var(--font-head)', fontSize: '.78rem', fontWeight: 700 }}>{a.name}</div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)' }}>{a.ticker}</div>
-                      </div>
-                      <Spark data={a.spark} pos={a.pos} />
-                      <div style={{ textAlign: 'right', minWidth: 52 }}>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', fontWeight: 700 }}>{a.nav}</div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: a.pos ? 'var(--green)' : 'var(--red)' }}>{a.ret}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </ScrollFadeUp>
-        </div>
+            <Link href="/builders/submit" className="lp-cta-primary" style={{ flexShrink: 0 }}>Submit Your Agent →</Link>
+          </div>
+        </ScrollFadeUp>
       </section>
 
-      {/* EXCHANGE MODULE PREVIEW */}
-      <section style={{ padding: '70px 1.5rem', background: 'linear-gradient(180deg, rgba(12,20,36,0.9), rgba(7,9,15,0.9))' }}>
-        <div style={{ maxWidth: 1160, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
-            <div className="eyebrow">EXCHANGE-GRADE UX</div>
-            <h2 style={{ fontFamily: 'var(--font-head)', fontSize: 'clamp(1.8rem,3.5vw,2.5rem)', fontWeight: 800, marginTop: '.5rem' }}>
-              Designed like real trading terminals
-            </h2>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1rem' }} className="why-grid">
-            {[
-              { title: 'Watchlist + Movers', desc: 'Prioritize what is breaking out now, not static tables.' },
-              { title: 'Portfolio Curve', desc: 'Timeframe toggles and realized execution overlays.' },
-              { title: 'Risk Monitor', desc: 'Concentration, buy/sell pressure, and cash-readiness in one panel.' },
-              { title: 'Execution Tape', desc: 'Recent fills and cash ledger with live status indicators.' },
-            ].map((module) => (
-              <HoverCard key={module.title} className="card card-interactive" style={{ padding: '1.4rem' }}>
-                <div style={{ fontFamily: 'var(--font-head)', fontSize: '1rem', fontWeight: 800, marginBottom: '.55rem' }}>{module.title}</div>
-                <div style={{ fontSize: '.86rem', color: 'var(--muted)', lineHeight: 1.65 }}>{module.desc}</div>
-              </HoverCard>
-            ))}
-          </div>
+      {/* ── FOOTER ───────────────────────────────────────────────────────────── */}
+      <footer className="lp-footer">
+        <div style={{ marginBottom: '.75rem', display: 'flex', justifyContent: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
+          <Link href="/agents" style={{ color: 'var(--faint)', fontSize: '.8rem' }}>Agents</Link>
+          <Link href="/builders" style={{ color: 'var(--faint)', fontSize: '.8rem' }}>Builders</Link>
+          <Link href="/dashboard/backtest" style={{ color: 'var(--faint)', fontSize: '.8rem' }}>Algo Lab</Link>
+          <Link href="/login" style={{ color: 'var(--faint)', fontSize: '.8rem' }}>Sign In</Link>
+          <a href="mailto:founders@launchase.com" style={{ color: 'var(--faint)', fontSize: '.8rem' }}>Contact</a>
         </div>
-      </section>
-
-      {/* THE SHIFT - Before/After comparison */}
-      <section style={{ padding: '80px 1.5rem', background: 'rgba(0,0,0,.3)' }}>
-        <div style={{ maxWidth: 1160, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
-            <div className="eyebrow">THE PARADIGM SHIFT</div>
-            <h2 style={{ fontFamily: 'var(--font-head)', fontSize: 'clamp(1.8rem,3.5vw,2.8rem)', fontWeight: 800, marginTop: '.5rem' }}>From closed systems to owned assets</h2>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.5rem' }} className="shift-grid">
-            {[
-              { label: 'Before: Hedge Funds', desc: 'Inaccessible to most investors', badge: 'Closed', badgeColor: 'rgba(232,64,64,.1)', badgeText: '#FF6B8A' },
-              { label: 'Before: Copy Trading', desc: 'No ownership, no alignment', badge: 'No Stake', badgeColor: 'rgba(232,64,64,.1)', badgeText: '#FF6B8A' },
-              { label: 'Before: Algo Bots', desc: 'Misaligned incentives', badge: 'Opaque', badgeColor: 'rgba(232,64,64,.1)', badgeText: '#FF6B8A' },
-            ].map((item, i) => (
-              <ScrollFadeUp key={i}>
-                <HoverCard className="card" style={{ padding: '2rem 1.5rem', opacity: 0.6 }}>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.1em', color: 'var(--muted)', marginBottom: '1rem', textTransform: 'uppercase' }}>{item.label}</div>
-                  <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.1rem', fontWeight: 700, marginBottom: '.75rem' }}>{item.desc}</div>
-                  <div style={{ display: 'inline-block', padding: '.35rem .75rem', borderRadius: 6, background: item.badgeColor, color: item.badgeText, fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 600 }}>{item.badge}</div>
-                </HoverCard>
-              </ScrollFadeUp>
-            ))}
-            <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '1rem 0', fontSize: '1.5rem', color: 'var(--gold)' }}>
-              ↓ The ASE Difference ↓
-            </div>
-            {[
-              { label: 'Now: ASE Agents', desc: 'Own real trading strategies', badge: 'Accessible', badgeColor: 'rgba(14,173,110,.1)', badgeText: '#32D3A2' },
-              { label: 'Now: True Ownership', desc: 'Your tokens appreciate with NAV', badge: 'Owned', badgeColor: 'rgba(14,173,110,.1)', badgeText: '#32D3A2' },
-              { label: 'Now: Verified Performance', desc: 'Aligned incentives at every level', badge: 'Transparent', badgeColor: 'rgba(14,173,110,.1)', badgeText: '#32D3A2' },
-            ].map((item, i) => (
-              <ScrollFadeUp key={i + 3}>
-                <HoverCard className="card" style={{ padding: '2rem 1.5rem', borderColor: 'rgba(14,173,110,.2)' }}>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.1em', color: 'var(--gold)', marginBottom: '1rem', textTransform: 'uppercase' }}>{item.label}</div>
-                  <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.1rem', fontWeight: 700, marginBottom: '.75rem' }}>{item.desc}</div>
-                  <div style={{ display: 'inline-block', padding: '.35rem .75rem', borderRadius: 6, background: item.badgeColor, color: item.badgeText, fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 600 }}>{item.badge}</div>
-                </HoverCard>
-              </ScrollFadeUp>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* HOW IT WORKS */}
-      <section id="how" style={{ padding: '80px 1.5rem' }}>
-        <div style={{ maxWidth: 1160, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
-            <div className="eyebrow">HOW IT WORKS</div>
-            <h2 style={{ fontFamily: 'var(--font-head)', fontSize: 'clamp(1.8rem,3.5vw,2.8rem)', fontWeight: 800, marginTop: '.5rem' }}>Own, Trade, Grow</h2>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.25rem' }} className="steps-grid">
-            {[
-              { n: '01', title: 'OWN', desc: "Buy tokens in a trading agent's capital pool and own a real piece of their strategy. More capital means bigger positions and faster growth." },
-              { n: '02', title: 'TRADE', desc: 'Agents execute verified strategies 24/7 on live crypto markets. Every trade is logged in real-time with full transparency.' },
-              { n: '03', title: 'GROW', desc: 'Trading profits increase NAV, your tokens appreciate. Token price reflects the total pool: $10k seed at $100, $70k pool at $700.' },
-            ].map((s) => (
-              <ScrollFadeUp key={s.n}>
-                <HoverCard className="card" style={{ padding: '2rem 1.5rem' }}>
-                  <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(232,172,32,.1)', border: '1px solid rgba(232,172,32,.2)', display: 'grid', placeItems: 'center', fontFamily: 'var(--font-mono)', fontSize: '.75rem', color: 'var(--gold)', fontWeight: 700, marginBottom: '1.5rem' }}>{s.n}</div>
-                  <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.15rem', fontWeight: 800, marginBottom: '1rem' }}>{s.title}</div>
-                  <div style={{ fontSize: '.92rem', color: 'var(--muted)', lineHeight: 1.7 }}>{s.desc}</div>
-                </HoverCard>
-              </ScrollFadeUp>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* LIVE AGENTS - real data */}
-      <section id="agents" style={{ padding: '80px 1.5rem', background: 'rgba(0,0,0,.3)' }}>
-        <div style={{ maxWidth: 1160, margin: '0 auto' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '2.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-            <div>
-              <div className="eyebrow">LIVE AGENTS</div>
-              <h2 style={{ fontFamily: 'var(--font-head)', fontSize: 'clamp(1.8rem,3.5vw,2.8rem)', fontWeight: 800, marginTop: '.5rem' }}>Five verified trading strategies</h2>
-            </div>
-            <Link href="/dashboard/exchange" className="btn-secondary">View Exchange</Link>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: '1.25rem' }} className="agents-grid">
-            {agents.map((a) => (
-              <ScrollFadeUp key={a.ticker}>
-                <HoverCard className="card" style={{ padding: '1.5rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '.75rem' }}>
-                    <div>
-                      <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '.95rem' }}>{a.name}</div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)', marginTop: '.15rem' }}>{a.ticker}</div>
-                    </div>
-                    <span className="pill pill-green" style={{ fontSize: '.52rem' }}>LIVE</span>
-                  </div>
-                  <div style={{ marginBottom: '1rem' }}>
-                    <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.5rem', fontWeight: 800, color: a.pos ? 'var(--green)' : 'var(--red)' }}>{a.ret}</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)' }}>Total Return</div>
-                  </div>
-                  <div style={{ marginBottom: '1rem' }}>
-                    <Spark data={a.spark} pos={a.pos} />
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem', paddingTop: '.75rem', borderTop: '1px solid var(--border)' }}>
-                    <div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.68rem', fontWeight: 700 }}>{a.nav}</div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)' }}>NAV/share</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.68rem', fontWeight: 700 }}>{a.total_trades}</div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)' }}>Trades</div>
-                    </div>
-                    <div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.68rem', fontWeight: 700 }}>{a.win_rate.toFixed(0)}%</div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)' }}>Win Rate</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--muted)' }}>{a.type}</div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)' }}>Strategy</div>
-                    </div>
-                  </div>
-                </HoverCard>
-              </ScrollFadeUp>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* WHY DIFFERENT */}
-      <section style={{ padding: '80px 1.5rem' }}>
-        <div style={{ maxWidth: 1160, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
-            <div className="eyebrow">WHY ASE IS DIFFERENT</div>
-            <h2 style={{ fontFamily: 'var(--font-head)', fontSize: 'clamp(1.8rem,3.5vw,2.8rem)', fontWeight: 800, marginTop: '.5rem' }}>Built for trust and transparency</h2>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1.5rem' }} className="why-grid">
-            {[
-              { icon: '◆', title: 'Real Execution', desc: 'Every trade executes against live market data. No simulated returns, no fake performance.' },
-              { icon: '▲', title: 'Pool-Based Pricing', desc: 'Token price = total capital pool / base. $10k = $100, $70k = $700. Simple, transparent.' },
-              { icon: '★', title: 'Performance-Aligned', desc: 'Developers profit only when you do. No AUM-based rent extraction.' },
-              { icon: '◉', title: 'Full Transparency', desc: 'See every trade, every signal, every decision your agent makes in real-time.' },
-            ].map((item, i) => (
-              <ScrollFadeUp key={i}>
-                <HoverCard className="card" style={{ padding: '1.75rem 1.5rem' }}>
-                  <div style={{ fontSize: '1.8rem', color: 'var(--gold)', marginBottom: '.5rem' }}>{item.icon}</div>
-                  <div style={{ fontFamily: 'var(--font-head)', fontSize: '1rem', fontWeight: 800, marginBottom: '.75rem' }}>{item.title}</div>
-                  <div style={{ fontSize: '.9rem', color: 'var(--muted)', lineHeight: 1.65 }}>{item.desc}</div>
-                </HoverCard>
-              </ScrollFadeUp>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* DUAL WAITLIST - Investors & Builders */}
-      <section id="waitlist" style={{ padding: '80px 1.5rem', background: 'rgba(0,0,0,.3)' }}>
-        <div style={{ maxWidth: 1160, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
-            <div className="eyebrow">EARLY ACCESS</div>
-            <h2 style={{ fontFamily: 'var(--font-head)', fontSize: 'clamp(1.8rem,3.5vw,2.8rem)', fontWeight: 800, marginTop: '.5rem' }}>Two doors into the network</h2>
-            <p style={{ fontSize: '1rem', color: 'var(--muted)', marginTop: '.75rem', maxWidth: 600, margin: '.75rem auto 0' }}>
-              Investors get early access to the strongest live agents. Builders get distribution, diligence, and capital formation infrastructure.
-            </p>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', maxWidth: 900, margin: '0 auto' }} className="audience-grid">
-            <ScrollFadeUp>
-              <div style={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 16, padding: '2rem', position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, var(--green), transparent)' }} />
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.1em', color: 'var(--green)', marginBottom: '.75rem', textTransform: 'uppercase' }}>FOR INVESTORS</div>
-                <h3 style={{ fontFamily: 'var(--font-head)', fontSize: '1.3rem', fontWeight: 800, marginBottom: '.5rem' }}>For investors</h3>
-                <p style={{ fontSize: '.85rem', color: 'var(--muted)', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                  Allocate into the first live cohort, see auditable strategy behavior, and track pricing directly off deployed capital and realized performance.
-                </p>
-                <WaitlistForm type="investor" />
-              </div>
-            </ScrollFadeUp>
-            <ScrollFadeUp>
-              <div style={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 16, padding: '2rem', position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, var(--gold), transparent)' }} />
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.1em', color: 'var(--gold)', marginBottom: '.75rem', textTransform: 'uppercase' }}>FOR BUILDERS</div>
-                <h3 style={{ fontFamily: 'var(--font-head)', fontSize: '1.3rem', fontWeight: 800, marginBottom: '.5rem' }}>For builders</h3>
-                <p style={{ fontSize: '.85rem', color: 'var(--muted)', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                  Submit your repo, track record, and stack. We handle the storefront, investor funnel, and operational rails once you clear diligence.
-                </p>
-                <WaitlistForm type="builder" />
-              </div>
-            </ScrollFadeUp>
-          </div>
-        </div>
-      </section>
-
-      {/* STATS BAR - Real data */}
-      <section style={{ padding: '60px 1.5rem' }}>
-        <div style={{ maxWidth: 1160, margin: '0 auto' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '2rem', textAlign: 'center' }} className="stats-grid">
-            {[
-              { num: totals.total_aum_usd || '$0', label: 'Total AUM' },
-              { num: `${totals.agents_live || 5}`, label: 'Live Agents' },
-              { num: `${totals.total_trades || 0}`, label: 'Total Trades' },
-              { num: '24/7', label: 'Markets Covered' },
-            ].map((stat) => (
-              <ScrollFadeUp key={stat.label}>
-                <div>
-                  <div style={{ fontFamily: 'var(--font-head)', fontSize: 'clamp(1.8rem,4vw,2.8rem)', fontWeight: 800, color: 'var(--gold)', marginBottom: '.5rem' }}>{stat.num}</div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', color: 'var(--muted)', lineHeight: 1.5 }}>{stat.label}</div>
-                </div>
-              </ScrollFadeUp>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* FINAL CTA */}
-      <section style={{ padding: '100px 1.5rem', textAlign: 'center', background: 'rgba(232,172,32,.02)' }}>
-        <div style={{ maxWidth: 700, margin: '0 auto' }}>
-          <h2 style={{ fontFamily: 'var(--font-head)', fontSize: 'clamp(2rem,4.5vw,3.2rem)', fontWeight: 800, marginBottom: '1rem' }}>The first exchange where you own the algorithm</h2>
-          <p style={{ fontSize: '1.05rem', color: 'var(--muted)', lineHeight: 1.75, marginBottom: '2.5rem' }}>Start investing in verified trading strategies. Real market data, real execution, full transparency.</p>
-          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link href="/signup" className="btn-primary">Create Free Account</Link>
-            <Link href="#waitlist" className="btn-secondary">Join Waitlist</Link>
-          </div>
-        </div>
-      </section>
-
-      {/* FOOTER */}
-      <footer style={{ borderTop: '1px solid var(--border)', padding: '3rem 1.5rem 2rem' }}>
-        <div style={{ maxWidth: 1160, margin: '0 auto' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '2rem', marginBottom: '2rem' }} className="footer-grid">
-            <div>
-              <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1rem', marginBottom: '1rem' }}>AS<span style={{ color: 'var(--gold)' }}>E</span></div>
-              <p style={{ fontSize: '.85rem', color: 'var(--faint)', lineHeight: 1.6 }}>The Agent Securities Exchange. Own verified trading strategies as assets.</p>
-            </div>
-            <div>
-              <div style={{ fontFamily: 'var(--font-head)', fontSize: '.95rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--white)' }}>Product</div>
-              <ul style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
-                {[['Exchange', '/dashboard/exchange'], ['Dashboard', '/dashboard'], ['Deposit', '/dashboard/deposit']].map(([label, href]) => (
-                  <li key={label}><Link href={href} style={{ fontSize: '.85rem', color: 'var(--muted)', transition: 'color .2s' }} onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--white)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}>{label}</Link></li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <div style={{ fontFamily: 'var(--font-head)', fontSize: '.95rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--white)' }}>Developers</div>
-              <ul style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
-                {[['Submit Agent', '#waitlist'], ['Documentation', '#'], ['Support', '#']].map(([label, href]) => (
-                  <li key={label}><Link href={href} style={{ fontSize: '.85rem', color: 'var(--muted)', transition: 'color .2s' }} onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--white)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}>{label}</Link></li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <div style={{ fontFamily: 'var(--font-head)', fontSize: '.95rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--white)' }}>Legal</div>
-              <ul style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
-                {['Terms', 'Privacy', 'Disclaimer'].map(link => (
-                  <li key={link}><Link href="#" style={{ fontSize: '.85rem', color: 'var(--muted)', transition: 'color .2s' }} onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--white)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}>{link}</Link></li>
-                ))}
-              </ul>
-            </div>
-          </div>
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-            <div style={{ fontSize: '.8rem', color: 'var(--faint)' }}>© 2026 Agent Securities Exchange. Paper trading only. Not financial advice.</div>
-            <div style={{ display: 'flex', gap: '1.5rem' }}>
-              {['Twitter', 'GitHub', 'Discord'].map(social => (
-                <Link key={social} href="#" style={{ fontSize: '.8rem', color: 'var(--muted)', transition: 'color .2s' }} onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--gold)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}>{social}</Link>
-              ))}
-            </div>
-          </div>
-        </div>
+        <div>© 2026 Agent Securities Exchange · Paper trading only — not financial advice</div>
       </footer>
-
-      {/* CSS */}
-      <style>{`
-        @media(max-width:900px){
-          .hero-grid,.steps-grid,.why-grid,.audience-grid{grid-template-columns:1fr!important}
-          .shift-grid{grid-template-columns:1fr!important}
-          .nav-desktop{flex-direction:column;gap:.75rem!important}
-        }
-        @media(max-width:600px){
-          .agents-grid{grid-template-columns:1fr!important}
-          .stats-grid{grid-template-columns:repeat(2,1fr)!important}
-          .footer-grid{grid-template-columns:1fr!important}
-        }
-      `}</style>
     </div>
   )
 }

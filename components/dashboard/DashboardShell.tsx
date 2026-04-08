@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { useWallet } from '@/components/WalletProvider'
 import { fmtUSD } from '@/lib/utils'
 
 interface Props {
@@ -14,13 +16,13 @@ interface Props {
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Overview' },
-  { href: '/dashboard/exchange', label: 'Exchange' },
-  { href: '/dashboard/deposit', label: 'Funding' },
+  { href: '/agents', label: 'Agents' },
+  { href: '/dashboard/backtest', label: 'Algo Lab' },
 ]
 
 const QUICK_ITEMS = [
-  { href: '/dashboard/deposit', label: 'Deposit' },
-  { href: '/dashboard/exchange', label: 'Trade' },
+  { href: '/agents', label: 'Browse Agents' },
+  { href: '/builders/submit', label: 'Submit Agent' },
 ]
 
 function triggerHaptic(ms = 8) {
@@ -33,6 +35,7 @@ export default function DashboardShell({ user, initialBalance, children }: Props
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
+  const { wallet, connecting: walletConnecting, connect: connectWallet, shortAddress } = useWallet()
 
   const [balance, setBalance] = useState(initialBalance)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -69,8 +72,8 @@ export default function DashboardShell({ user, initialBalance, children }: Props
     <div className="dashboard-shell-v2">
       <header className="dashboard-shell-topbar">
         <div className="dashboard-shell-brand-row">
-          <Link href="/" className="dashboard-shell-brand" onClick={() => triggerHaptic()}>
-            AS<span>E</span>
+          <Link href="/" className="dashboard-shell-logo" onClick={() => triggerHaptic()}>
+            <Image src="/logo.png" alt="ASE" width={30} height={30} priority />
           </Link>
 
           <nav className="dashboard-shell-nav desktop-only">
@@ -105,6 +108,24 @@ export default function DashboardShell({ user, initialBalance, children }: Props
               </Link>
             ))}
           </div>
+
+          {/* Wallet Connect */}
+          <button
+            className="dashboard-wallet-btn desktop-only"
+            onClick={() => connectWallet()}
+            disabled={walletConnecting}
+            title={wallet.connected ? `Connected: ${wallet.address}` : 'Connect Wallet'}
+            style={wallet.connected ? { background: 'rgba(110,231,183,.12)', borderColor: 'rgba(110,231,183,.3)', color: '#6EE7B7' } : {}}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+              <rect x="2" y="7" width="20" height="14" rx="3" stroke="currentColor" strokeWidth="2"/>
+              <path d="M16 14a1 1 0 1 1-2 0 1 1 0 0 1 2 0z" fill="currentColor"/>
+              <path d="M6 7V5a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" stroke="currentColor" strokeWidth="2"/>
+            </svg>
+            {wallet.connected
+              ? shortAddress
+              : walletConnecting ? 'Connecting…' : 'Connect Wallet'}
+          </button>
 
           <div className="dashboard-balance-pill">
             <span className="dashboard-live-dot" />
@@ -145,15 +166,15 @@ export default function DashboardShell({ user, initialBalance, children }: Props
                 <Link href="/account" onClick={() => setShowDropdown(false)}>
                   Account Settings
                 </Link>
-                <Link href="/dashboard/deposit" onClick={() => setShowDropdown(false)}>
-                  Add Funds
+                <Link href="/agents" onClick={() => setShowDropdown(false)}>
+                  Browse Agents
                 </Link>
-                <Link href="/dashboard/exchange" onClick={() => setShowDropdown(false)}>
-                  Open Exchange
+                <Link href="/builders/submit" onClick={() => setShowDropdown(false)}>
+                  Submit an Agent
                 </Link>
-                <a href="https://robinhood.com/us/en/support/articles/get-started-with-robinhood-legend/?hcs=true" target="_blank" rel="noreferrer">
-                  Trading UX Reference
-                </a>
+                <Link href="/dashboard/backtest" onClick={() => setShowDropdown(false)}>
+                  Algo Lab
+                </Link>
                 <button
                   onClick={() => {
                     setShowDropdown(false)

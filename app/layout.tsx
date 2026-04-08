@@ -1,13 +1,15 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import { WalletProvider } from '@/components/WalletProvider'
 
 export const metadata: Metadata = {
-  title: 'ASE — AI Trading Agent Exchange',
-  description: 'The marketplace for verified AI trading agents.',
+  title: 'ASE — Subscribe to Proven Trading Bots',
+  description: 'Connect your wallet and subscribe to verified AI trading bots. Real crypto execution, real-time performance, full transparency.',
+  icons: { icon: '/logo.png', apple: '/logo.png' },
 }
 
 export const viewport: Viewport = {
-  themeColor: '#07090F',
+  themeColor: '#080612',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -16,9 +18,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" />
       </head>
-      <body suppressHydrationWarning>{children}</body>
+      <body suppressHydrationWarning>
+        <WalletProvider>{children}</WalletProvider>
+      </body>
     </html>
   )
 }

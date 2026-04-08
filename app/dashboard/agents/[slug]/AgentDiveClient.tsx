@@ -206,10 +206,10 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
           <p style={{ color: '#888', fontSize: '.95rem', marginTop: '.5rem', maxWidth: '600px' }}>{agent.description}</p>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.3rem', fontWeight: 700, color: '#4BD1FF' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.3rem', fontWeight: 700, color: '#E8AC20' }}>
             {fmtUSD(nav)}
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.8rem', color: totalReturn >= 0 ? '#32D3A2' : '#FF6B8A', marginTop: '.3rem' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.8rem', color: totalReturn >= 0 ? '#0EAD6E' : '#E84040', marginTop: '.3rem' }}>
             {totalReturn >= 0 ? '+' : ''}{fmtPct(totalReturn)}
           </div>
         </div>
@@ -228,9 +228,9 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
               padding: '.5rem 1rem',
               background: 'transparent',
               border: 'none',
-              color: tab === t ? '#4BD1FF' : '#666',
+              color: tab === t ? '#E8AC20' : '#666',
               cursor: 'pointer',
-              borderBottom: tab === t ? '2px solid #4BD1FF' : 'none',
+              borderBottom: tab === t ? '2px solid #E8AC20' : 'none',
               transition: 'all .15s',
             }}
           >
@@ -250,8 +250,8 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
                 <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="navGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#4BD1FF" stopOpacity={0.4} />
-                      <stop offset="100%" stopColor="#4BD1FF" stopOpacity={0} />
+                      <stop offset="0%" stopColor="#E8AC20" stopOpacity={0.4} />
+                      <stop offset="100%" stopColor="#E8AC20" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <XAxis dataKey="date" stroke="#444" style={{ fontSize: '.7rem' }} />
@@ -265,7 +265,7 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
                     }}
                     cursor={{ strokeDasharray: '3 3' }}
                   />
-                  <Area type="monotone" dataKey="nav" stroke="#4BD1FF" strokeWidth={2} fill="url(#navGradient)" isAnimationActive={true} />
+                  <Area type="monotone" dataKey="nav" stroke="#E8AC20" strokeWidth={2} fill="url(#navGradient)" isAnimationActive={true} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -274,10 +274,10 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
           {/* Top Metrics Grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
             {[
-              { label: 'TOTAL RETURN', value: fmtPct(totalReturn), color: totalReturn >= 0 ? '#32D3A2' : '#FF6B8A' },
-              { label: 'SHARPE RATIO', value: sharpe.toFixed(2), color: '#4A90E2' },
-              { label: 'MAX DRAWDOWN', value: `-${maxDD.toFixed(1)}%`, color: '#FF6B8A' },
-              { label: 'WIN RATE', value: `${winRate.toFixed(1)}%`, color: '#32D3A2' },
+              { label: 'TOTAL RETURN', value: fmtPct(totalReturn), color: totalReturn >= 0 ? '#0EAD6E' : '#E84040' },
+              { label: 'SHARPE RATIO', value: sharpe.toFixed(2), color: '#E8AC20' },
+              { label: 'MAX DRAWDOWN', value: `-${maxDD.toFixed(1)}%`, color: '#E84040' },
+              { label: 'WIN RATE', value: `${winRate.toFixed(1)}%`, color: '#0EAD6E' },
             ].map((m, i) => (
               <div key={i} className="stat-card glass-card" style={{ padding: '1.5rem' }}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', letterSpacing: '.12em', color: '#888', marginBottom: '.75rem', textTransform: 'uppercase', fontWeight: 600 }}>
@@ -300,8 +300,8 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
                   <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="ddGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#FF6B8A" stopOpacity={0.3} />
-                        <stop offset="100%" stopColor="#FF6B8A" stopOpacity={0} />
+                        <stop offset="0%" stopColor="#E84040" stopOpacity={0.3} />
+                        <stop offset="100%" stopColor="#E84040" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <XAxis dataKey="date" stroke="#444" style={{ fontSize: '.7rem' }} />
@@ -313,7 +313,7 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
                         borderRadius: '12px'
                       }}
                     />
-                    <Area type="monotone" dataKey="dd" stroke="#FF6B8A" strokeWidth={2} fill="url(#ddGradient)" isAnimationActive={true} />
+                    <Area type="monotone" dataKey="dd" stroke="#E84040" strokeWidth={2} fill="url(#ddGradient)" isAnimationActive={true} />
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
@@ -327,8 +327,8 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
               {pnlDistribution.wins !== undefined || pnlDistribution.losses !== undefined ? (
                 <ResponsiveContainer width="100%" height={280}>
                   <BarChart data={[
-                    { name: 'Wins', value: pnlDistribution.wins || 0, fill: '#32D3A2' },
-                    { name: 'Losses', value: pnlDistribution.losses || 0, fill: '#FF6B8A' }
+                    { name: 'Wins', value: pnlDistribution.wins || 0, fill: '#0EAD6E' },
+                    { name: 'Losses', value: pnlDistribution.losses || 0, fill: '#E84040' }
                   ]} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                     <XAxis dataKey="name" stroke="#444" style={{ fontSize: '.7rem' }} />
                     <YAxis stroke="#444" style={{ fontSize: '.7rem' }} />
@@ -341,8 +341,8 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
                     />
                     <Bar dataKey="value" radius={[8, 8, 0, 0]}>
                       {[
-                        { name: 'Wins', value: pnlDistribution.wins || 0, fill: '#32D3A2' },
-                        { name: 'Losses', value: pnlDistribution.losses || 0, fill: '#FF6B8A' }
+                        { name: 'Wins', value: pnlDistribution.wins || 0, fill: '#0EAD6E' },
+                        { name: 'Losses', value: pnlDistribution.losses || 0, fill: '#E84040' }
                       ].map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.fill} />
                       ))}
@@ -365,7 +365,7 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
               </div>
               <div style={{ paddingBottom: '1.5rem', borderBottom: '1px solid #1a2332' }}>
                 <div style={{ color: '#888', marginBottom: '.5rem', fontSize: '.75rem', textTransform: 'uppercase', fontWeight: 600 }}>Total AUM</div>
-                <div style={{ fontSize: '1.4rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: '#4BD1FF' }}>{fmtUSD(agent.total_aum_cents)}</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: '#E8AC20' }}>{fmtUSD(agent.total_aum_cents)}</div>
               </div>
               <div style={{ paddingBottom: '1.5rem', borderBottom: '1px solid #1a2332' }}>
                 <div style={{ color: '#888', marginBottom: '.5rem', fontSize: '.75rem', textTransform: 'uppercase', fontWeight: 600 }}>Strategy</div>
@@ -373,7 +373,7 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
               </div>
               <div style={{ paddingBottom: '1.5rem', borderBottom: '1px solid #1a2332' }}>
                 <div style={{ color: '#888', marginBottom: '.5rem', fontSize: '.75rem', textTransform: 'uppercase', fontWeight: 600 }}>Status</div>
-                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: agent.status === 'active' ? '#32D3A2' : '#FF6B8A' }}>
+                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: agent.status === 'active' ? '#0EAD6E' : '#E84040' }}>
                   {agent.status.toUpperCase()}
                 </div>
               </div>
@@ -386,13 +386,13 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '2rem' }}>
               <div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: '#888', marginBottom: '.75rem', textTransform: 'uppercase', fontWeight: 600 }}>REALIZED P&L</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.6rem', fontWeight: 700, color: totalRealizedPnL >= 0 ? '#32D3A2' : '#FF6B8A', fontVariantNumeric: 'tabular-nums' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.6rem', fontWeight: 700, color: totalRealizedPnL >= 0 ? '#0EAD6E' : '#E84040', fontVariantNumeric: 'tabular-nums' }}>
                   {totalRealizedPnL >= 0 ? '+' : ''}{fmtUSD(totalRealizedPnL)}
                 </div>
               </div>
               <div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: '#888', marginBottom: '.75rem', textTransform: 'uppercase', fontWeight: 600 }}>UNREALIZED P&L</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.6rem', fontWeight: 700, color: totalUnrealizedPnL >= 0 ? '#32D3A2' : '#FF6B8A', fontVariantNumeric: 'tabular-nums' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.6rem', fontWeight: 700, color: totalUnrealizedPnL >= 0 ? '#0EAD6E' : '#E84040', fontVariantNumeric: 'tabular-nums' }}>
                   {totalUnrealizedPnL >= 0 ? '+' : ''}{fmtUSD(totalUnrealizedPnL)}
                 </div>
               </div>
@@ -400,11 +400,11 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
             {pnlDistribution.wins !== undefined || pnlDistribution.losses !== undefined ? (
               <div style={{ marginTop: '1.5rem', display: 'flex', gap: '2rem', paddingTop: '1.5rem', borderTop: '1px solid #1a2332' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', fontFamily: 'var(--font-mono)', fontSize: '.85rem' }}>
-                  <div style={{ width: '12px', height: '12px', background: '#32D3A2', borderRadius: '3px' }} />
+                  <div style={{ width: '12px', height: '12px', background: '#0EAD6E', borderRadius: '3px' }} />
                   <span>Winning Trades: <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{pnlDistribution.wins || 0}</span></span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', fontFamily: 'var(--font-mono)', fontSize: '.85rem' }}>
-                  <div style={{ width: '12px', height: '12px', background: '#FF6B8A', borderRadius: '3px' }} />
+                  <div style={{ width: '12px', height: '12px', background: '#E84040', borderRadius: '3px' }} />
                   <span>Losing Trades: <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{pnlDistribution.losses || 0}</span></span>
                 </div>
               </div>
@@ -418,12 +418,12 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
           {/* Risk Metrics Grid - 3 columns */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
             {[
-              { label: 'VOLATILITY', value: volatility.toFixed(2), unit: '%', color: '#4BD1FF', subtext: 'Annualized std dev' },
-              { label: 'SORTINO RATIO', value: sortinoRatio.toFixed(2), color: '#4A90E2', subtext: 'Downside risk adjusted' },
-              { label: 'CALMAR RATIO', value: calmarRatio.toFixed(2), color: '#32D3A2', subtext: 'Return vs max drawdown' },
-              { label: 'AVG TRADE P&L', value: fmtUSD(avgTradePnL), color: avgTradePnL >= 0 ? '#32D3A2' : '#FF6B8A', subtext: 'Mean trade profit' },
-              { label: 'PROFIT FACTOR', value: profitFactor === Infinity ? '∞' : profitFactor.toFixed(2), color: profitFactor > 1 ? '#32D3A2' : '#FF6B8A', subtext: 'Wins vs losses ratio' },
-              { label: 'EXPOSURE', value: exposure.toFixed(1), unit: '%', color: '#4A90E2', subtext: 'Market exposure level' },
+              { label: 'VOLATILITY', value: volatility.toFixed(2), unit: '%', color: '#E8AC20', subtext: 'Annualized std dev' },
+              { label: 'SORTINO RATIO', value: sortinoRatio.toFixed(2), color: '#E8AC20', subtext: 'Downside risk adjusted' },
+              { label: 'CALMAR RATIO', value: calmarRatio.toFixed(2), color: '#0EAD6E', subtext: 'Return vs max drawdown' },
+              { label: 'AVG TRADE P&L', value: fmtUSD(avgTradePnL), color: avgTradePnL >= 0 ? '#0EAD6E' : '#E84040', subtext: 'Mean trade profit' },
+              { label: 'PROFIT FACTOR', value: profitFactor === Infinity ? '∞' : profitFactor.toFixed(2), color: profitFactor > 1 ? '#0EAD6E' : '#E84040', subtext: 'Wins vs losses ratio' },
+              { label: 'EXPOSURE', value: exposure.toFixed(1), unit: '%', color: '#E8AC20', subtext: 'Market exposure level' },
             ].map((item, i) => (
               <div key={i} className="stat-card glass-card" style={{ padding: '1.5rem' }}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', letterSpacing: '.12em', color: '#888', marginBottom: '.75rem', textTransform: 'uppercase', fontWeight: 600 }}>
@@ -444,14 +444,14 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '.75rem' }}>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', color: '#888', textTransform: 'uppercase', fontWeight: 600 }}>Current Exposure</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: '#4A90E2', fontVariantNumeric: 'tabular-nums' }}>{exposure.toFixed(1)}%</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: '#E8AC20', fontVariantNumeric: 'tabular-nums' }}>{exposure.toFixed(1)}%</span>
                 </div>
                 <div style={{ height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
                   <div
                     style={{
                       height: '100%',
                       width: `${Math.min(exposure, 100)}%`,
-                      background: `linear-gradient(90deg, #4A90E2 0%, ${exposure > 75 ? '#FF6B8A' : '#4A90E2'} 100%)`,
+                      background: `linear-gradient(90deg, #E8AC20 0%, ${exposure > 75 ? '#E84040' : '#E8AC20'} 100%)`,
                       borderRadius: '4px',
                       transition: 'width 0.6s cubic-bezier(0.16, 1, 0.3, 1)',
                       boxShadow: '0 0 12px rgba(74, 144, 226, 0.4)'
@@ -462,14 +462,14 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '.75rem' }}>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', color: '#888', textTransform: 'uppercase', fontWeight: 600 }}>Volatility Level</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: '#4BD1FF', fontVariantNumeric: 'tabular-nums' }}>{volatility.toFixed(1)}%</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: '#E8AC20', fontVariantNumeric: 'tabular-nums' }}>{volatility.toFixed(1)}%</span>
                 </div>
                 <div style={{ height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
                   <div
                     style={{
                       height: '100%',
                       width: `${Math.min(volatility / 2, 100)}%`,
-                      background: `linear-gradient(90deg, #4BD1FF 0%, ${volatility > 50 ? '#FF6B8A' : '#4BD1FF'} 100%)`,
+                      background: `linear-gradient(90deg, #E8AC20 0%, ${volatility > 50 ? '#E84040' : '#E8AC20'} 100%)`,
                       borderRadius: '4px',
                       transition: 'width 0.6s cubic-bezier(0.16, 1, 0.3, 1)',
                       boxShadow: '0 0 12px rgba(232, 172, 32, 0.3)'
@@ -485,7 +485,7 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
             <div className="glass-card" style={{ padding: '2rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
                 <h3 style={{ fontFamily: 'var(--font-head)', fontSize: '1rem', fontWeight: 700, letterSpacing: '-0.02em' }}>Winning Streak</h3>
-                <div style={{ width: '40px', height: '40px', background: '#32D3A2', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#000', fontSize: '1rem' }}>
+                <div style={{ width: '40px', height: '40px', background: '#0EAD6E', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#000', fontSize: '1rem' }}>
                   {consecutiveMetrics.wins}
                 </div>
               </div>
@@ -496,7 +496,7 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
             <div className="glass-card" style={{ padding: '2rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
                 <h3 style={{ fontFamily: 'var(--font-head)', fontSize: '1rem', fontWeight: 700, letterSpacing: '-0.02em' }}>Losing Streak</h3>
-                <div style={{ width: '40px', height: '40px', background: '#FF6B8A', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#FFF', fontSize: '1rem' }}>
+                <div style={{ width: '40px', height: '40px', background: '#E84040', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#FFF', fontSize: '1rem' }}>
                   {consecutiveMetrics.losses}
                 </div>
               </div>
@@ -514,8 +514,8 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
                 <LineChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="volGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#4BD1FF" stopOpacity={0.3} />
-                      <stop offset="100%" stopColor="#4BD1FF" stopOpacity={0} />
+                      <stop offset="0%" stopColor="#E8AC20" stopOpacity={0.3} />
+                      <stop offset="100%" stopColor="#E8AC20" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <XAxis dataKey="date" stroke="#444" style={{ fontSize: '.7rem' }} />
@@ -528,7 +528,7 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
                     }}
                     cursor={{ strokeDasharray: '3 3' }}
                   />
-                  <Line type="monotone" dataKey="ret" stroke="#4BD1FF" strokeWidth={2} dot={false} isAnimationActive={true} />
+                  <Line type="monotone" dataKey="ret" stroke="#E8AC20" strokeWidth={2} dot={false} isAnimationActive={true} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
@@ -543,9 +543,9 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
           {/* Trade Summary Stats */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
             {[
-              { label: 'TOTAL TRADES', value: trades.length.toString(), color: '#4A90E2' },
-              { label: 'WINNING TRADES', value: (pnlDistribution.wins || 0).toString(), color: '#32D3A2' },
-              { label: 'LOSING TRADES', value: (pnlDistribution.losses || 0).toString(), color: '#FF6B8A' },
+              { label: 'TOTAL TRADES', value: trades.length.toString(), color: '#E8AC20' },
+              { label: 'WINNING TRADES', value: (pnlDistribution.wins || 0).toString(), color: '#0EAD6E' },
+              { label: 'LOSING TRADES', value: (pnlDistribution.losses || 0).toString(), color: '#E84040' },
             ].map((item, i) => (
               <div key={i} className="stat-card glass-card" style={{ padding: '1.5rem' }}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', letterSpacing: '.12em', color: '#888', marginBottom: '.75rem', textTransform: 'uppercase', fontWeight: 600 }}>
@@ -565,8 +565,8 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart
                   data={[
-                    { name: 'Wins', value: pnlDistribution.wins || 0, fill: '#32D3A2' },
-                    { name: 'Losses', value: pnlDistribution.losses || 0, fill: '#FF6B8A' }
+                    { name: 'Wins', value: pnlDistribution.wins || 0, fill: '#0EAD6E' },
+                    { name: 'Losses', value: pnlDistribution.losses || 0, fill: '#E84040' }
                   ]}
                   margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
                 >
@@ -581,8 +581,8 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
                   />
                   <Bar dataKey="value" radius={[8, 8, 0, 0]} isAnimationActive={true}>
                     {[
-                      { name: 'Wins', value: pnlDistribution.wins || 0, fill: '#32D3A2' },
-                      { name: 'Losses', value: pnlDistribution.losses || 0, fill: '#FF6B8A' }
+                      { name: 'Wins', value: pnlDistribution.wins || 0, fill: '#0EAD6E' },
+                      { name: 'Losses', value: pnlDistribution.losses || 0, fill: '#E84040' }
                     ].map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.fill} />
                     ))}
@@ -630,15 +630,15 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
                         }}
                       >
                         <td style={{ padding: '1rem', color: '#999' }}>{fmtDateTime(t.filled_at)}</td>
-                        <td style={{ padding: '1rem', color: '#4BD1FF', fontWeight: 700 }}>{t.symbol}</td>
+                        <td style={{ padding: '1rem', color: '#E8AC20', fontWeight: 700 }}>{t.symbol}</td>
                         <td style={{ padding: '1rem', textAlign: 'center' }}>
-                          <span style={{ padding: '.4rem .7rem', background: t.side === 'buy' ? 'rgba(14, 173, 110, 0.2)' : 'rgba(232, 64, 64, 0.2)', color: t.side === 'buy' ? '#32D3A2' : '#FF6B8A', borderRadius: '6px', fontSize: '.7rem', fontWeight: 700, border: `1px solid ${t.side === 'buy' ? '#32D3A2' : '#FF6B8A'}` }}>
+                          <span style={{ padding: '.4rem .7rem', background: t.side === 'buy' ? 'rgba(14, 173, 110, 0.2)' : 'rgba(232, 64, 64, 0.2)', color: t.side === 'buy' ? '#0EAD6E' : '#E84040', borderRadius: '6px', fontSize: '.7rem', fontWeight: 700, border: `1px solid ${t.side === 'buy' ? '#0EAD6E' : '#E84040'}` }}>
                             {t.side.toUpperCase()}
                           </span>
                         </td>
                         <td style={{ padding: '1rem', textAlign: 'right', color: '#E0E0E0', fontVariantNumeric: 'tabular-nums' }}>{t.qty.toFixed(4)}</td>
                         <td style={{ padding: '1rem', textAlign: 'right', color: '#E0E0E0', fontVariantNumeric: 'tabular-nums' }}>{fmtUSD(t.fill_price * 100)}</td>
-                        <td style={{ padding: '1rem', textAlign: 'right', color: t.pnl_cents === null ? '#888' : t.pnl_cents >= 0 ? '#32D3A2' : '#FF6B8A', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                        <td style={{ padding: '1rem', textAlign: 'right', color: t.pnl_cents === null ? '#888' : t.pnl_cents >= 0 ? '#0EAD6E' : '#E84040', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
                           {t.pnl_cents === null ? '—' : (t.pnl_cents >= 0 ? '+' : '') + fmtUSD(t.pnl_cents)}
                         </td>
                       </tr>
@@ -656,9 +656,9 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
           {/* Key Verification Metrics */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
             {[
-              { label: 'PBO SCORE', value: pbo.toFixed(1), unit: '%', color: pbo < 30 ? '#32D3A2' : pbo < 60 ? '#4BD1FF' : '#FF6B8A', description: 'Probability of Backtest Overfitting' },
-              { label: 'DEFLATED SHARPE', value: dsr.toFixed(2), color: dsr > 1 ? '#32D3A2' : dsr > 0.5 ? '#4BD1FF' : '#FF6B8A', description: 'Risk-adjusted after multiple testing' },
-              { label: 'DATA INTEGRITY', value: dataIntegrity.toFixed(0), unit: '%', color: dataIntegrity > 80 ? '#32D3A2' : dataIntegrity > 60 ? '#4BD1FF' : '#FF6B8A', description: 'Completeness & consistency score' },
+              { label: 'PBO SCORE', value: pbo.toFixed(1), unit: '%', color: pbo < 30 ? '#0EAD6E' : pbo < 60 ? '#E8AC20' : '#E84040', description: 'Probability of Backtest Overfitting' },
+              { label: 'DEFLATED SHARPE', value: dsr.toFixed(2), color: dsr > 1 ? '#0EAD6E' : dsr > 0.5 ? '#E8AC20' : '#E84040', description: 'Risk-adjusted after multiple testing' },
+              { label: 'DATA INTEGRITY', value: dataIntegrity.toFixed(0), unit: '%', color: dataIntegrity > 80 ? '#0EAD6E' : dataIntegrity > 60 ? '#E8AC20' : '#E84040', description: 'Completeness & consistency score' },
             ].map((item, i) => (
               <div key={i} className="stat-card glass-card" style={{ padding: '2rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
@@ -684,10 +684,10 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
             <h3 style={{ fontFamily: 'var(--font-head)', fontSize: '1.1rem', fontWeight: 700, marginBottom: '1.5rem', letterSpacing: '-0.02em' }}>Track Record</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem' }}>
               {[
-                { label: 'Total Trades', value: trades.length.toString(), color: '#4A90E2', subtext: 'Executed trades' },
-                { label: 'Days Active', value: daysActive.toString(), color: '#4BD1FF', subtext: 'Days since first trade' },
-                { label: 'Avg Hold Time', value: avgHoldTime > 0 ? `${avgHoldTime}h` : 'N/A', color: '#4A90E2', subtext: 'Average position duration' },
-                { label: 'Best Trade', value: trades.length > 0 ? fmtUSD(Math.max(0, ...trades.map(t => t.pnl_cents || 0))) : '$0', color: '#32D3A2', subtext: 'Max single trade profit' },
+                { label: 'Total Trades', value: trades.length.toString(), color: '#E8AC20', subtext: 'Executed trades' },
+                { label: 'Days Active', value: daysActive.toString(), color: '#E8AC20', subtext: 'Days since first trade' },
+                { label: 'Avg Hold Time', value: avgHoldTime > 0 ? `${avgHoldTime}h` : 'N/A', color: '#E8AC20', subtext: 'Average position duration' },
+                { label: 'Best Trade', value: trades.length > 0 ? fmtUSD(Math.max(0, ...trades.map(t => t.pnl_cents || 0))) : '$0', color: '#0EAD6E', subtext: 'Max single trade profit' },
               ].map((item, i) => (
                 <div key={i} style={{ paddingBottom: '1.5rem', borderBottom: '1px solid #1a2332' }}>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', letterSpacing: '.1em', color: '#888', marginBottom: '.75rem', textTransform: 'uppercase', fontWeight: 600 }}>
@@ -708,9 +708,9 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
               <h3 style={{ fontFamily: 'var(--font-head)', fontSize: '1rem', fontWeight: 700, marginBottom: '1.5rem', letterSpacing: '-0.02em' }}>Trade Quality</h3>
               <div style={{ display: 'grid', gap: '1rem' }}>
                 {[
-                  { label: 'Profit Factor', value: profitFactor === Infinity ? '∞' : profitFactor.toFixed(2), color: profitFactor > 1 ? '#32D3A2' : '#FF6B8A' },
-                  { label: 'Win Rate', value: `${winRate.toFixed(1)}%`, color: winRate > 50 ? '#32D3A2' : '#FF6B8A' },
-                  { label: 'Avg Trade P&L', value: fmtUSD(avgTradePnL), color: avgTradePnL >= 0 ? '#32D3A2' : '#FF6B8A' },
+                  { label: 'Profit Factor', value: profitFactor === Infinity ? '∞' : profitFactor.toFixed(2), color: profitFactor > 1 ? '#0EAD6E' : '#E84040' },
+                  { label: 'Win Rate', value: `${winRate.toFixed(1)}%`, color: winRate > 50 ? '#0EAD6E' : '#E84040' },
+                  { label: 'Avg Trade P&L', value: fmtUSD(avgTradePnL), color: avgTradePnL >= 0 ? '#0EAD6E' : '#E84040' },
                 ].map((item, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '1rem', borderBottom: i < 2 ? '1px solid #1a2332' : 'none' }}>
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', color: '#888' }}>{item.label}</span>
@@ -724,9 +724,9 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
               <h3 style={{ fontFamily: 'var(--font-head)', fontSize: '1rem', fontWeight: 700, marginBottom: '1.5rem', letterSpacing: '-0.02em' }}>Streak Analysis</h3>
               <div style={{ display: 'grid', gap: '1rem' }}>
                 {[
-                  { label: 'Max Consecutive Wins', value: consecutiveMetrics.wins.toString(), color: '#32D3A2' },
-                  { label: 'Max Consecutive Losses', value: consecutiveMetrics.losses.toString(), color: '#FF6B8A' },
-                  { label: 'Sortino Ratio', value: sortinoRatio.toFixed(2), color: '#4A90E2' },
+                  { label: 'Max Consecutive Wins', value: consecutiveMetrics.wins.toString(), color: '#0EAD6E' },
+                  { label: 'Max Consecutive Losses', value: consecutiveMetrics.losses.toString(), color: '#E84040' },
+                  { label: 'Sortino Ratio', value: sortinoRatio.toFixed(2), color: '#E8AC20' },
                 ].map((item, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '1rem', borderBottom: i < 2 ? '1px solid #1a2332' : 'none' }}>
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', color: '#888' }}>{item.label}</span>
@@ -743,14 +743,14 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
               <div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: '#888', marginBottom: '.75rem', textTransform: 'uppercase', fontWeight: 600 }}>Worst Trade</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.3rem', fontWeight: 700, color: '#FF6B8A', fontVariantNumeric: 'tabular-nums' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.3rem', fontWeight: 700, color: '#E84040', fontVariantNumeric: 'tabular-nums' }}>
                   {trades.length > 0 ? fmtUSD(Math.min(0, ...trades.map(t => t.pnl_cents || 0))) : '$0'}
                 </div>
                 <div style={{ fontSize: '.75rem', color: '#666', marginTop: '.5rem' }}>Maximum single trade loss</div>
               </div>
               <div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: '#888', marginBottom: '.75rem', textTransform: 'uppercase', fontWeight: 600 }}>Max Drawdown</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.3rem', fontWeight: 700, color: '#FF6B8A', fontVariantNumeric: 'tabular-nums' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.3rem', fontWeight: 700, color: '#E84040', fontVariantNumeric: 'tabular-nums' }}>
                   -{maxDD.toFixed(1)}%
                 </div>
                 <div style={{ fontSize: '.75rem', color: '#666', marginTop: '.5rem' }}>Peak-to-trough decline</div>
