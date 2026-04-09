@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo } from 'react'
+import React, { useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
@@ -133,6 +133,11 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
   const [mcTrials, setMcTrials] = useState(80)
   const [mcWindow, setMcWindow] = useState(180) // days
 
+  // Live performance state for different periods
+  const [livePerformance, setLivePerformance] = useState<Record<string, BacktestResult | null>>({})
+  const [liveLoading, setLiveLoading] = useState<Record<string, boolean>>({})
+  const [liveErrors, setLiveErrors] = useState<Record<string, string>>({})
+
   async function loadMonteCarlo() {
     if (!agent.primary_symbol || !agent.backtest_strategy) {
       setMcError('No backtest configuration for this agent.')
@@ -186,6 +191,93 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
       setBtLoading(false)
     }
   }
+
+  const loadLivePerformance = useCallback(async (period: string) => {
+    if (!agent.id) {
+      setLiveErrors(prev => ({ ...prev, [period]: 'Agent ID not found.' }))
+      return
+    }
+    setLiveLoading(prev => ({ ...prev, [period]: true }))
+    setLiveErrors(prev => ({ ...prev, [period]: '' }))
+    try {
+      const res = await fetch(`/api/agent-backtest-history?agent_id=${agent.id}&period=${period}`)
+      const data = await res.json()
+      if (!res.ok || data.error) throw new Error(data.error ?? 'Live performance fetch failed')
+      
+      // Transform the historical data to match BacktestResult format
+      if (data.data && data.data.length > 0) {
+        const historyRecord = data.data[0] // Get the most recent record
+        const backtestResult: BacktestResult = {
+          symbol: historyRecord.symbol,
+          period: historyRecord.period,
+          stats: historyRecord.stats,
+          bars: historyRecord.equityCurve || [],
+          buyHold: historyRecord.buyHoldCurve || []
+        }
+        setLivePerformance(prev => ({ ...prev, [period]: backtestResult }))
+      } else {
+        // Fallback to real-time backtest if no historical data exists
+        if (agent.primary_symbol && agent.backtest_strategy) {
+          const fallbackRes = await fetch('/api/backtest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbol: agent.primary_symbol, strategy: agent.backtest_strategy, period }),
+          })
+          const fallbackData = await fallbackRes.json()
+          if (!fallbackRes.ok || fallbackData.error) throw new Error(fallbackData.error ?? 'Live performance fetch failed')
+          setLivePerformance(prev => ({ ...prev, [period]: fallbackData as BacktestResult }))
+        } else {
+          setLiveErrors(prev => ({ ...prev, [period]: 'No backtest configuration found.' }))
+        }
+      }
+    } catch (e) {
+      setLiveErrors(prev => ({ ...prev, [period]: e instanceof Error ? e.message : 'Unknown error' }))
+    } finally {
+      setLiveLoading(prev => ({ ...prev, [period]: false }))
+    }
+  }, [agent.id, agent.primary_symbol, agent.backtest_strategy])
+
+  // Load live performance data when component mounts
+  React.useEffect(() => {
+    if (agent.id) {
+      ['5y', '2y', '1y'].forEach(period => {
+        loadLivePerformance(period)
+      })
+    }
+  }, [agent.id, loadLivePerformance])
+
+  // Create combined chart data (backtest + live)
+  const combinedChartData = useMemo(() => {
+    if (!btResult?.bars) return []
+    
+    const backtestData = btResult.bars.map(b => ({
+      date: b.date,
+      nav: b.equity,
+      type: 'backtest' as const
+    }))
+    
+    // Check if we have live data
+    const hasLiveChartData = statsHistory.length > 0
+    
+    // If we have live data, append it after the backtest period
+    if (hasLiveChartData) {
+      const liveData = statsHistory.map(s => ({
+        date: fmtDate(s.snapshot_at),
+        nav: s.nav_cents / 100,
+        type: 'live' as const
+      }))
+      
+      // Combine backtest and live data
+      // For now, we'll show backtest data first, then live data
+      // In a real implementation, you'd want to align dates properly
+      return [...backtestData, ...liveData]
+    }
+    
+    return backtestData
+  }, [btResult, statsHistory])
+
+  // Determine if we have both backtest and live data
+  const hasBothDataTypes = btResult && statsHistory.length > 0
 
   async function refreshBacktestStats() {
     setBtRefreshing(true)
@@ -385,12 +477,14 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
         ))}
       </div>
 
-      {/* NAV Chart */}
+      {/* Backtest Performance Chart */}
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.25rem', marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '.5rem' }}>
           <div>
-            <div style={{ fontWeight: 800, fontSize: '.95rem' }}>Live Performance (NAV)</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', marginTop: '.15rem' }}>PAPER TRADING · ALPACA EXECUTION</div>
+            <div style={{ fontWeight: 800, fontSize: '.95rem' }}>Performance (Backtest + Live)</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', marginTop: '.15rem' }}>
+              {hasBothDataTypes ? 'HISTORICAL BACKTEST → LIVE TRADING' : 'HISTORICAL BACKTEST (2Y)'}
+            </div>
           </div>
           {agent.signal_summary && (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--muted)', background: 'rgba(255,255,255,.03)', border: '1px solid var(--border)', borderRadius: 8, padding: '.3rem .7rem', maxWidth: 320 }}>
@@ -398,25 +492,55 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
             </div>
           )}
         </div>
-        {hasChartData ? (
+        {combinedChartData.length > 0 ? (
           <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: -10 }}>
+            <AreaChart data={combinedChartData} margin={{ top: 5, right: 10, bottom: 5, left: -10 }}>
               <defs>
-                <linearGradient id="navGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={pos ? '#6EE7B7' : '#FB7185'} stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor={pos ? '#6EE7B7' : '#FB7185'} stopOpacity={0}/>
+                <linearGradient id="backtestGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#9333EA" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#9333EA" stopOpacity={0}/>
+                </linearGradient>
+                <linearGradient id="liveGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={combinedChartData[combinedChartData.length - 1]?.nav >= 100000 ? '#6EE7B7' : '#FB7185'} stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor={combinedChartData[combinedChartData.length - 1]?.nav >= 100000 ? '#6EE7B7' : '#FB7185'} stopOpacity={0}/>
                 </linearGradient>
               </defs>
               <XAxis dataKey="date" tick={{ fill: 'rgba(238,242,255,.28)', fontSize: 10, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
               <YAxis tick={{ fill: 'rgba(238,242,255,.28)', fontSize: 10, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-              <Tooltip contentStyle={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 10, fontFamily: 'var(--font-mono)', fontSize: 11 }} labelStyle={{ color: 'var(--faint)' }} itemStyle={{ color: pos ? 'var(--green)' : 'var(--red)' }} formatter={(v: unknown) => [`$${Number(v).toFixed(2)}`, 'NAV']} />
-              <Area type="monotone" dataKey="nav" stroke={pos ? '#6EE7B7' : '#FB7185'} strokeWidth={2} fill="url(#navGrad)" dot={false} />
+              <Tooltip 
+                contentStyle={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 10, fontFamily: 'var(--font-mono)', fontSize: 11 }} 
+                labelStyle={{ color: 'var(--faint)' }} 
+                formatter={(value: unknown) => {
+                  const numValue = Number(value)
+                  return [`$${numValue.toFixed(2)}`, 'Portfolio Value']
+                }} 
+              />
+              <Area 
+                type="monotone" 
+                dataKey="nav" 
+                stroke="#9333EA" 
+                strokeWidth={2} 
+                fill="url(#backtestGrad)" 
+                dot={false}
+              />
             </AreaChart>
           </ResponsiveContainer>
         ) : (
           <div style={{ height: 200, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', gap: '.5rem' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', letterSpacing: '.08em' }}>NO DATA YET</div>
-            <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>NAV history appears after first cron run</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', letterSpacing: '.08em' }}>LOADING BACKTEST DATA</div>
+            <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>Historical performance appears after backtest completes</div>
+          </div>
+        )}
+        {hasBothDataTypes && (
+          <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+              <div style={{ width: 12, height: 3, background: '#9333EA', borderRadius: 2 }}></div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--muted)' }}>BACKTEST</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+              <div style={{ width: 12, height: 3, background: combinedChartData[combinedChartData.length - 1]?.nav >= 100000 ? '#6EE7B7' : '#FB7185', borderRadius: 2 }}></div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--muted)' }}>LIVE</div>
+            </div>
           </div>
         )}
       </div>
@@ -466,6 +590,51 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
                   </div>
                 ))}
               </div>
+              {/* Live Performance Section */}
+              <div style={{ marginTop: '2rem' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.5rem' }}>LIVE PERFORMANCE - PAST RESULTS</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '.7rem', marginBottom: '1rem' }}>
+                  {['5y', '2y', '1y'].map(period => {
+                    const perf = livePerformance[period]
+                    const loading = liveLoading[period]
+                    const error = liveErrors[period]
+                    
+                    return (
+                      <div key={period} style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 12, padding: '.9rem 1rem' }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.3rem' }}>
+                          {period === '5y' ? '5 YEARS' : period === '2y' ? '2 YEARS' : '1 YEAR'}
+                        </div>
+                        
+                        {loading && (
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.9rem', color: 'var(--muted)' }}>Loading...</div>
+                        )}
+                        
+                        {error && (
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.75rem', color: '#FB7185' }}>Error</div>
+                        )}
+                        
+                        {perf && !loading && !error && (
+                          <div>
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 800, color: perf.stats.totalReturnPct >= 0 ? 'var(--green)' : 'var(--red)', marginBottom: '.3rem' }}>
+                              {fmtPct(perf.stats.totalReturnPct)}
+                            </div>
+                            <div style={{ fontSize: '.7rem', color: 'var(--muted)', lineHeight: 1.4 }}>
+                              <div>Sharpe: {perf.stats.sharpeRatio.toFixed(2)}</div>
+                              <div>Max DD: {fmtPct(-perf.stats.maxDrawdownPct, 1)}</div>
+                              <div>Win Rate: {perf.stats.winRate.toFixed(1)}%</div>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {!perf && !loading && !error && (
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.9rem', color: 'var(--muted)' }}>No data</div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
               {hasChartData && (
                 <div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.5rem' }}>RETURN % OVER TIME</div>

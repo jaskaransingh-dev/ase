@@ -25,7 +25,7 @@
  */
 
 import { NextResponse } from 'next/server'
-import { runBacktest, runBuyAndHold, STRATEGIES, type OHLCV, type BacktestStats } from '@/lib/backtest'
+import { runBacktest, runBuyAndHold, STRATEGIES, type OHLCV } from '@/lib/backtest'
 
 // DO NOT use edge runtime — Yahoo Finance blocks Cloudflare edge IPs
 // and edge runtime has memory limits that cause "Internal Server Error"
@@ -83,7 +83,49 @@ function parseYahooResponse(json: YahooChartResponse, symbol: string): OHLCV[] {
   return bars
 }
 
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+// Simple in-memory cache to reduce repeated API calls
+const cache = new Map<string, { data: OHLCV[], timestamp: number }>()
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+function getCacheKey(symbol: string, period: string, interval: string): string {
+  return `${symbol}-${period}-${interval}`
+}
+
+function getCachedData(symbol: string, period: string, interval: string): OHLCV[] | null {
+  const key = getCacheKey(symbol, period, interval)
+  const cached = cache.get(key)
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data
+  }
+  if (cached) {
+    cache.delete(key) // Clean up expired cache
+  }
+  return null
+}
+
+function setCachedData(symbol: string, period: string, interval: string, data: OHLCV[]): void {
+  const key = getCacheKey(symbol, period, interval)
+  cache.set(key, { data, timestamp: Date.now() })
+  
+  // Prevent cache from growing too large
+  if (cache.size > 50) {
+    const oldestKey = Array.from(cache.keys())[0]
+    cache.delete(oldestKey)
+  }
+}
+
 export async function fetchYahooFinance(symbol: string, period: string, interval: string): Promise<OHLCV[]> {
+  // Check cache first
+  const cached = getCachedData(symbol, period, interval)
+  if (cached) {
+    console.log(`Cache hit for ${symbol} ${period} ${interval}`)
+    return cached
+  }
+
   const days = PERIOD_DAYS[period] ?? 730
   const end = Math.floor(Date.now() / 1000)
   const start = end - days * 86400
@@ -96,28 +138,100 @@ export async function fetchYahooFinance(symbol: string, period: string, interval
   const urls = [
     `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?${qs}`,
     `https://query2.finance.yahoo.com/v8/finance/chart/${encoded}?${qs}`,
+    `https://yfapi.net/v8/finance/chart/${encoded}?${qs}`,
+    `https://finance.yahoo.com/quote/${encoded}/history?${qs}`,
   ]
 
-  const headers: Record<string, string> = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  const userAgents = [
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+  ]
+  
+  const getRandomUserAgent = () => userAgents[Math.floor(Math.random() * userAgents.length)]
+  
+  const getHeaders = () => ({
+    'User-Agent': getRandomUserAgent(),
     'Accept': 'application/json',
     'Accept-Language': 'en-US,en;q=0.9',
-  }
+    'Cache-Control': 'max-age=0',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+    'sec-ch-ua': '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"macOS"',
+  })
 
   let lastError: Error = new Error(`Failed to fetch data for ${symbol}`)
+  
+  // Add initial delay to avoid immediate rate limiting
+  await sleep(Math.random() * 1000 + 500) // 500-1500ms
+  
   for (const url of urls) {
-    try {
-      const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) })
-      if (!res.ok) {
-        lastError = new Error(`Yahoo Finance returned ${res.status} for ${symbol}`)
-        continue
+    // Retry logic with exponential backoff for rate limiting
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        // Add longer delays between retries and URLs
+        if (attempt > 0 || url !== urls[0]) {
+          const delay = Math.random() * 2000 + 1000 // 1000-3000ms
+          await sleep(delay)
+        }
+        
+        // Refresh headers for each retry to get new user agent
+        const freshHeaders = getHeaders()
+        
+        const timeout = 25000 + (attempt * 10000) // Increase timeout for retries
+        const res = await fetch(url, { headers: freshHeaders, signal: AbortSignal.timeout(timeout) })
+        
+        if (res.status === 429) {
+          // Rate limited - wait with exponential backoff
+          const waitTime = Math.min(3000 * Math.pow(2, attempt), 20000) // Max 20 seconds
+          console.warn(`Yahoo Finance rate limited for ${symbol}, waiting ${waitTime}ms (attempt ${attempt + 1})`)
+          if (attempt < 2) {
+            await sleep(waitTime)
+            continue
+          }
+        }
+        
+        if (res.status === 403) {
+          // Forbidden - likely blocked, try next URL
+          console.warn(`Yahoo Finance blocked request for ${symbol} (${res.status}), trying next endpoint`)
+          lastError = new Error(`Yahoo Finance returned ${res.status} for ${symbol}`)
+          break // Exit retry loop for this URL, try next one
+        }
+        
+        if (!res.ok) {
+          lastError = new Error(`Yahoo Finance returned ${res.status} for ${symbol}`)
+          break // Exit retry loop for this URL
+        }
+        
+        const json = await res.json() as YahooChartResponse
+        const data = parseYahooResponse(json, symbol)
+        
+        // Cache the successful result
+        setCachedData(symbol, period, interval, data)
+        
+        return data
+      } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') {
+          lastError = new Error(`Request timeout for ${symbol}`)
+        } else {
+          lastError = e instanceof Error ? e : new Error('Fetch failed')
+        }
+        
+        // Only retry on network errors or timeouts, not on parsing errors
+        if (attempt < 2 && (lastError.message.includes('timeout') || lastError.message.includes('fetch'))) {
+          const waitTime = Math.min(2000 * Math.pow(2, attempt), 8000)
+          await sleep(waitTime)
+        }
       }
-      const json = await res.json() as YahooChartResponse
-      return parseYahooResponse(json, symbol)
-    } catch (e) {
-      lastError = e instanceof Error ? e : new Error('Fetch failed')
     }
   }
+  
   throw lastError
 }
 

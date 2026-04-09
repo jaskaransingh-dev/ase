@@ -29,8 +29,8 @@ async function runAgentBacktest(agent: {
   slug: string
   primary_symbol: string
   backtest_strategy: string
-}) {
-  const bars = await fetchYahooFinance(agent.primary_symbol, '2y', '1d')
+}, period: string = '2y') {
+  const bars = await fetchYahooFinance(agent.primary_symbol, period, '1d')
   if (bars.length < 60) throw new Error(`Not enough data for ${agent.primary_symbol} (${bars.length} bars)`)
 
   const meta = STRATEGIES[agent.backtest_strategy]
@@ -43,7 +43,7 @@ async function runAgentBacktest(agent: {
   const storagePayload = {
     symbol: agent.primary_symbol,
     strategy: agent.backtest_strategy,
-    period: '2y',
+    period,
     computed_at: new Date().toISOString(),
     stats: result.stats,
     buyHold: {
@@ -97,53 +97,131 @@ export async function POST(req: NextRequest) {
   if (!agents || agents.length === 0) return NextResponse.json({ ok: true, message: 'No agents to backtest' })
 
   const results: Record<string, unknown> = {}
+  const periods = ['1y', '2y', '5y'] // Run backtests for multiple periods
 
   for (const agent of agents) {
     if (!agent.primary_symbol || !agent.backtest_strategy) continue
 
+    const agentResults: {
+      ok: boolean
+      symbol: string
+      strategy: string
+      periods: Record<string, unknown>
+      totalReturnPct?: string
+      annualizedReturnPct?: string
+      sharpeRatio?: string
+      maxDrawdownPct?: string
+      winRate?: string
+      totalTrades?: number
+    } = {
+      ok: true,
+      symbol: agent.primary_symbol,
+      strategy: agent.backtest_strategy,
+      periods: {}
+    }
+
     try {
-      const { result, storagePayload } = await runAgentBacktest({
-        id: agent.id,
-        slug: agent.slug,
-        primary_symbol: agent.primary_symbol,
-        backtest_strategy: agent.backtest_strategy,
-      })
+      let primaryStoragePayload: {
+        symbol: string
+        strategy: string
+        period: string
+        computed_at: string
+        stats: unknown
+        buyHold: { totalReturnPct: number }
+        equityCurve: unknown[]
+        buyHoldCurve: unknown[]
+      } | null = null
+      let primaryStats: {
+        totalReturnPct: number
+        annualizedReturnPct: number
+        sharpeRatio: number
+        maxDrawdownPct: number
+        winRate: number
+        totalTrades: number
+      } | null = null
 
-      const s = result.stats
+      // Run backtests for all periods
+      for (const period of periods) {
+        try {
+          const { result, storagePayload } = await runAgentBacktest({
+            id: agent.id,
+            slug: agent.slug,
+            primary_symbol: agent.primary_symbol,
+            backtest_strategy: agent.backtest_strategy,
+          }, period)
 
-      // 1. Store full backtest in agents.backtest_stats JSONB
-      await admin
-        .from('agents')
-        .update({ backtest_stats: storagePayload })
-        .eq('id', agent.id)
+          const s = result.stats
+          
+          // Store the 2y period as the primary backtest for compatibility
+          if (period === '2y') {
+            primaryStoragePayload = storagePayload
+            primaryStats = s
+          }
 
-      // 2. Insert agent_stats snapshot with backtest-derived metrics
-      //    NAV is $100k × (1 + totalReturn/100) to show absolute growth
-      const navCents = Math.round(100_000 * (1 + s.totalReturnPct / 100) * 100)
+          // Store period-specific results in a separate table for historical data
+          await admin.from('agent_backtest_history').upsert({
+            agent_id: agent.id,
+            period,
+            symbol: agent.primary_symbol,
+            strategy: agent.backtest_strategy,
+            computed_at: now,
+            stats: s,
+            buy_hold_return_pct: storagePayload.buyHold.totalReturnPct,
+            equity_curve: storagePayload.equityCurve,
+            buy_hold_curve: storagePayload.buyHoldCurve,
+          }, {
+            onConflict: 'agent_id,period'
+          })
 
-      await admin.from('agent_stats').insert({
-        agent_id: agent.id,
-        snapshot_at: now,
-        nav_cents: navCents,
-        total_return_pct: parseFloat(s.totalReturnPct.toFixed(4)),
-        sharpe_ratio: parseFloat(s.sharpeRatio.toFixed(4)),
-        max_drawdown_pct: parseFloat(s.maxDrawdownPct.toFixed(4)),
-        win_rate_pct: parseFloat(s.winRate.toFixed(4)),
-        total_trades: s.totalTrades,
-        is_simulation: true,
-      })
+          agentResults.periods[period] = {
+            totalReturnPct: s.totalReturnPct.toFixed(2) + '%',
+            annualizedReturnPct: s.annualizedReturnPct.toFixed(2) + '%',
+            sharpeRatio: s.sharpeRatio.toFixed(2),
+            maxDrawdownPct: s.maxDrawdownPct.toFixed(2) + '%',
+            winRate: s.winRate.toFixed(1) + '%',
+            totalTrades: s.totalTrades,
+          }
 
-      results[agent.slug] = {
-        ok: true,
-        symbol: agent.primary_symbol,
-        strategy: agent.backtest_strategy,
-        totalReturnPct: s.totalReturnPct.toFixed(2) + '%',
-        annualizedReturnPct: s.annualizedReturnPct.toFixed(2) + '%',
-        sharpeRatio: s.sharpeRatio.toFixed(2),
-        maxDrawdownPct: s.maxDrawdownPct.toFixed(2) + '%',
-        winRate: s.winRate.toFixed(1) + '%',
-        totalTrades: s.totalTrades,
+          console.log(`[backtest] ${agent.slug} ${period}: ${s.totalReturnPct.toFixed(2)}% return`)
+        } catch (periodErr) {
+          const msg = periodErr instanceof Error ? periodErr.message : 'Unknown error'
+          console.error(`[backtest] ${agent.slug} ${period} failed:`, msg)
+          agentResults.periods[period] = { ok: false, error: msg }
+        }
       }
+
+      // Store primary backtest (2y) in agents.backtest_stats for backward compatibility
+      if (primaryStoragePayload && primaryStats) {
+        await admin
+          .from('agents')
+          .update({ backtest_stats: primaryStoragePayload })
+          .eq('id', agent.id)
+
+        // Insert agent_stats snapshot with 2y backtest-derived metrics
+        const navCents = Math.round(100_000 * (1 + primaryStats.totalReturnPct / 100) * 100)
+
+        await admin.from('agent_stats').insert({
+          agent_id: agent.id,
+          snapshot_at: now,
+          nav_cents: navCents,
+          total_return_pct: parseFloat(primaryStats.totalReturnPct.toFixed(4)),
+          sharpe_ratio: parseFloat(primaryStats.sharpeRatio.toFixed(4)),
+          max_drawdown_pct: parseFloat(primaryStats.maxDrawdownPct.toFixed(4)),
+          win_rate_pct: parseFloat(primaryStats.winRate.toFixed(4)),
+          total_trades: primaryStats.totalTrades,
+          is_simulation: true,
+        })
+
+        // Add summary stats to results
+        agentResults.totalReturnPct = primaryStats.totalReturnPct.toFixed(2) + '%'
+        agentResults.annualizedReturnPct = primaryStats.annualizedReturnPct.toFixed(2) + '%'
+        agentResults.sharpeRatio = primaryStats.sharpeRatio.toFixed(2)
+        agentResults.maxDrawdownPct = primaryStats.maxDrawdownPct.toFixed(2) + '%'
+        agentResults.winRate = primaryStats.winRate.toFixed(1) + '%'
+        agentResults.totalTrades = primaryStats.totalTrades
+      }
+
+      results[agent.slug] = agentResults
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
       console.error(`[backtest] ${agent.slug} failed:`, msg)
