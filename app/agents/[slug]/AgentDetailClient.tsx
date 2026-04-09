@@ -156,12 +156,15 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
     }
   }
 
-  const ret = latestStats?.total_return_pct ?? 0
-  const sharpe = latestStats?.sharpe_ratio ?? 0
-  const maxDD = latestStats?.max_drawdown_pct ?? 0
-  const winRate = latestStats?.win_rate_pct ?? 0
-  const totalTrades = latestStats?.total_trades ?? 0
+  // Prefer backtest-derived stats from cachedBacktestStats if no live stats exist
+  const bt = cachedBacktestStats?.stats
+  const ret = latestStats?.total_return_pct ?? bt?.totalReturnPct ?? 0
+  const sharpe = latestStats?.sharpe_ratio ?? bt?.sharpeRatio ?? 0
+  const maxDD = latestStats?.max_drawdown_pct ?? bt?.maxDrawdownPct ?? 0
+  const winRate = latestStats?.win_rate_pct ?? bt?.winRate ?? 0
+  const totalTrades = latestStats?.total_trades ?? bt?.totalTrades ?? 0
   const pos = ret >= 0
+  const hasBacktestData = !!cachedBacktestStats
   const info = strategyInfo[agent.strategy_type] || { label: agent.strategy_type, color: 'var(--white)' }
 
   const chartData = statsHistory.map(s => ({
@@ -270,7 +273,9 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
           <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.9rem', fontWeight: 800, color: pos ? 'var(--green)' : 'var(--red)', marginBottom: '.15rem' }}>
             {fmtPct(ret)}
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', marginBottom: '1rem' }}>Total Return (paper)</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', marginBottom: '1rem' }}>
+            {hasBacktestData && !latestStats ? `Backtest Return · ${cachedBacktestStats!.symbol} · ${cachedBacktestStats!.period}` : 'Total Return (paper)'}
+          </div>
 
           {isSubscribed ? (
             <>
@@ -482,11 +487,25 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
             <div>
               {/* Period selector */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', letterSpacing: '.08em' }}>
-                  {agent.primary_symbol ?? '—'} · {agent.backtest_strategy?.replace(/_/g, ' ') ?? 'no strategy'}
-                </span>
-                <div style={{ display: 'flex', gap: '.4rem', marginLeft: 'auto' }}>
-                  {(['6mo', '1y', '2y', '5y'] as const).map(p => (
+                <div>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', letterSpacing: '.08em' }}>
+                    {agent.primary_symbol ?? '—'} · {agent.backtest_strategy?.replace(/_/g, ' ') ?? 'no strategy'}
+                  </span>
+                  {cachedBacktestStats && (
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', marginLeft: '.5rem' }}>
+                      · cached {new Date(cachedBacktestStats.computed_at).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: '.4rem', marginLeft: 'auto', alignItems: 'center' }}>
+                  <button
+                    onClick={refreshBacktestStats}
+                    disabled={btRefreshing}
+                    style={{ padding: '.3rem .7rem', borderRadius: 8, fontSize: '.68rem', fontFamily: 'var(--font-mono)', border: '1px solid rgba(110,231,183,.25)', background: 'rgba(110,231,183,.07)', color: btRefreshing ? 'var(--faint)' : '#6EE7B7', cursor: btRefreshing ? 'default' : 'pointer' }}
+                  >
+                    {btRefreshing ? 'Updating…' : '↻ Refresh'}
+                  </button>
+                  {(['1y', '2y', '5y'] as const).map(p => (
                     <button key={p}
                       onClick={() => { setBtPeriod(p); setBtResult(null); loadBacktest(p) }}
                       style={{

@@ -19,7 +19,7 @@ export default async function AgentsPage() {
 
   const { data } = await supabase
     .from('agents')
-    .select('*, agent_stats(nav_cents,total_return_pct,sharpe_ratio,max_drawdown_pct,win_rate_pct,total_trades,snapshot_at)')
+    .select('*, agent_stats(nav_cents,total_return_pct,sharpe_ratio,max_drawdown_pct,win_rate_pct,total_trades,snapshot_at), backtest_stats')
     .eq('status', 'active')
     .order('created_at')
 
@@ -28,6 +28,8 @@ export default async function AgentsPage() {
     monthly_fee_cents?: number
     subscriber_count?: number
     primary_symbol?: string
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    backtest_stats?: any
   }
 
   const agentsList = (data ?? []) as AgentRow[]
@@ -82,16 +84,20 @@ export default async function AgentsPage() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(340px,1fr))', gap: '1.25rem' }}>
           {agentsList.map((agent: AgentRow) => {
-            const latestStats = Array.isArray(agent.agent_stats) ? agent.agent_stats[0] : agent.agent_stats ?? null
-            const ret = latestStats?.total_return_pct ?? 0
-            const sharpe = latestStats?.sharpe_ratio ?? 0
-            const maxDD = latestStats?.max_drawdown_pct ?? 0
-            const winRate = latestStats?.win_rate_pct ?? 0
+            const statsArr = Array.isArray(agent.agent_stats) ? agent.agent_stats : (agent.agent_stats ? [agent.agent_stats] : [])
+            const latestStats = statsArr.length > 0 ? statsArr.reduce((a: typeof statsArr[0], b: typeof statsArr[0]) => (a.snapshot_at > b.snapshot_at ? a : b)) : null
+            // Fall back to cached backtest stats when no live agent_stats exist
+            const bt = agent.backtest_stats?.stats
+            const ret = latestStats?.total_return_pct ?? bt?.totalReturnPct ?? 0
+            const sharpe = latestStats?.sharpe_ratio ?? bt?.sharpeRatio ?? 0
+            const maxDD = latestStats?.max_drawdown_pct ?? bt?.maxDrawdownPct ?? 0
+            const winRate = latestStats?.win_rate_pct ?? bt?.winRate ?? 0
             const info = strategyInfo[agent.strategy_type] || { label: agent.strategy_type, color: 'var(--white)' }
             const pos = ret >= 0
             const isSubscribed = userSubAgentIds.has(agent.id)
             const monthlyFee = agent.monthly_fee_cents ?? 0
             const subscribers = agent.subscriber_count ?? 0
+            const isBacktestData = !latestStats && !!bt
 
             return (
               <div key={agent.id} style={{ background: 'var(--bg2)', borderRadius: 20, padding: '1.5rem', border: '1px solid var(--border)', position: 'relative', display: 'flex', flexDirection: 'column' }}>
@@ -126,7 +132,9 @@ export default async function AgentsPage() {
                 {/* Return */}
                 <div style={{ marginBottom: '1rem' }}>
                   <div style={{ fontFamily: 'var(--font-head)', fontSize: '1.8rem', fontWeight: 800, color: pos ? 'var(--green)' : 'var(--red)' }}>{fmtPct(ret)}</div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: 'var(--faint)', marginTop: '.1rem' }}>Total Return (paper)</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: 'var(--faint)', marginTop: '.1rem' }}>
+                    {isBacktestData ? `Backtest Return · ${agent.backtest_stats?.symbol ?? agent.primary_symbol} · ${agent.backtest_stats?.period ?? '2y'}` : 'Total Return (paper)'}
+                  </div>
                 </div>
 
                 {/* Stats */}
