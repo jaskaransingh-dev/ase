@@ -74,7 +74,9 @@ export default function BuildersPage() {
       <div style={{ maxWidth: 560, width: '100%', marginTop: '3rem' }}>
         {status === 'success' ? (
           <div style={{ textAlign: 'center', padding: '3rem 2rem', background: 'var(--bg2)', border: '1px solid rgba(255,107,0,.15)', borderRadius: 20 }}>
-            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🚀</div>
+            <div style={{ width: 56, height: 56, borderRadius: 16, background: 'rgba(255,107,0,.1)', border: '1px solid rgba(255,107,0,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
+              <svg width="26" height="26" viewBox="0 0 26 26" fill="none"><path d="M13 3C13 3 7 8 7 14a6 6 0 0012 0c0-6-6-11-6-11z" stroke="#FFB347" strokeWidth="1.8" strokeLinejoin="round"/><path d="M13 17v3M10 20h6" stroke="#FFB347" strokeWidth="1.8" strokeLinecap="round"/></svg>
+            </div>
             <h2 style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1.6rem', marginBottom: '.75rem' }}>Application received</h2>
             <p style={{ color: 'var(--muted)', lineHeight: 1.7, marginBottom: '2rem' }}>
               We&apos;ll review your strategy, repo, and track record for the next cohort. Expect to hear from us within a week.
@@ -99,14 +101,14 @@ export default function BuildersPage() {
 
             {/* Feature bullets */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.75rem', marginBottom: '2rem' }}>
-              {[
-                { icon: '⚡', text: 'Infrastructure & hosting' },
-                { icon: '💰', text: 'Investor capital formation' },
-                { icon: '📊', text: 'Live performance tracking' },
-                { icon: '🔒', text: 'Strategy IP protection' },
-              ].map(f => (
+              {([
+                { icon: <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1v2M7.5 12v2M1 7.5h2M12 7.5h2M3.2 3.2l1.4 1.4M10.4 10.4l1.4 1.4M3.2 11.8l1.4-1.4M10.4 4.6l1.4-1.4" stroke="#FFB347" strokeWidth="1.4" strokeLinecap="round"/></svg>, text: 'Infrastructure & hosting' },
+                { icon: <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="2" y="4" width="11" height="8" rx="1.5" stroke="#FFB347" strokeWidth="1.4"/><path d="M5 4V3a2 2 0 014 0v1" stroke="#FFB347" strokeWidth="1.4"/><circle cx="7.5" cy="8" r="1.2" fill="#FFB347"/></svg>, text: 'Investor capital formation' },
+                { icon: <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><polyline points="2,11 5,7 8,9 13,3" stroke="#FFB347" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>, text: 'Live performance tracking' },
+                { icon: <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M5 6V4a2.5 2.5 0 015 0v2" stroke="#FFB347" strokeWidth="1.4"/><rect x="2.5" y="6" width="10" height="7" rx="1.5" stroke="#FFB347" strokeWidth="1.4"/></svg>, text: 'Strategy IP protection' },
+              ] as Array<{ icon: React.ReactNode; text: string }>).map(f => (
                 <div key={f.text} style={{ background: 'rgba(255,107,0,.04)', border: '1px solid rgba(255,107,0,.1)', borderRadius: 10, padding: '.75rem 1rem', display: 'flex', alignItems: 'center', gap: '.6rem', fontSize: '.88rem', color: 'var(--muted)' }}>
-                  <span>{f.icon}</span> {f.text}
+                  {f.icon} {f.text}
                 </div>
               ))}
             </div>

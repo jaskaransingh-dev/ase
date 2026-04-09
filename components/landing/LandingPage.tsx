@@ -159,7 +159,7 @@ export default function LandingPage() {
         .lp-step { background: rgba(148,130,255,.04); border: 1px solid rgba(148,130,255,.1); border-radius: 20px; padding: 1.75rem; position: relative; transition: all .28s; }
         .lp-step:hover { border-color: rgba(148,130,255,.25); transform: translateY(-3px); box-shadow: 0 16px 48px rgba(0,0,0,.3), 0 0 24px rgba(148,130,255,.06); }
         .lp-step-num { font-family: var(--font-mono); font-size: .7rem; letter-spacing: .1em; color: var(--gold); font-weight: 700; margin-bottom: .85rem; opacity: .7; }
-        .lp-step-icon { font-size: 1.75rem; margin-bottom: .85rem; }
+        .lp-step-icon { width: 40px; height: 40px; margin-bottom: .85rem; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: rgba(148,130,255,.1); border: 1px solid rgba(148,130,255,.2); }
         .lp-step-title { font-size: 1.05rem; font-weight: 800; margin-bottom: .5rem; }
         .lp-step-desc { font-size: .85rem; color: var(--muted); line-height: 1.6; }
 
@@ -182,7 +182,7 @@ export default function LandingPage() {
         /* ── FEATURE GRID ── */
         .lp-features { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap: 1rem; margin-top: 2.5rem; }
         .lp-feature { background: rgba(148,130,255,.04); border: 1px solid rgba(148,130,255,.09); border-radius: 16px; padding: 1.5rem; }
-        .lp-feature-icon { font-size: 1.4rem; margin-bottom: .75rem; }
+        .lp-feature-icon { width: 36px; height: 36px; margin-bottom: .75rem; display: flex; align-items: center; justify-content: center; border-radius: 9px; background: rgba(148,130,255,.1); border: 1px solid rgba(148,130,255,.18); }
         .lp-feature-title { font-size: .95rem; font-weight: 800; margin-bottom: .4rem; }
         .lp-feature-desc { font-size: .83rem; color: var(--muted); line-height: 1.6; }
 
@@ -235,29 +235,29 @@ export default function LandingPage() {
 
         <div className="lp-eyebrow">
           <span className="lp-live-dot" />
-          {agents.length} Bots Live Now — Free Beta
+          {agents.length} Agents Running Live
         </div>
 
         <h1 className="lp-h1">
-          Subscribe to<br />
-          <span className="accent">Proven Trading Bots</span>
+          Invest in<br />
+          <span className="accent">Algorithmic Trading Agents</span>
         </h1>
 
         <p className="lp-sub">
-          Connect your wallet. Subscribe to verified AI trading agents.
-          Watch them execute real crypto strategies — fully transparent, always auditable.
+          Subscribe to audited, quantitative trading strategies running 24/7 on live markets.
+          Full transparency on every trade, every signal, every position.
         </p>
 
         <div className="lp-hero-actions">
           <Link href="/agents" className="lp-cta-primary">
-            Browse Agents
+            View Agents
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </Link>
-          <Link href="/builders/submit" className="lp-cta-secondary">Submit Your Bot →</Link>
+          <Link href="/signup" className="lp-cta-secondary">Create Account →</Link>
         </div>
 
         <div className="lp-trust-row">
-          {['No custody risk', 'Real Alpaca execution', 'Verified performance', 'Free beta access'].map(t => (
+          {['No custody risk', 'Alpaca-executed trades', 'Audited strategies', 'Paper trading — no real funds'].map(t => (
             <div key={t} className="lp-trust-item">{t}</div>
           ))}
         </div>
@@ -267,15 +267,36 @@ export default function LandingPage() {
       <section className="lp-section">
         <ScrollFadeUp>
           <div className="lp-section-label">How It Works</div>
-          <h2 className="lp-section-title">Three steps to bot alpha</h2>
-          <p className="lp-section-sub">No fund minimums. No lock-ups. Subscribe to a bot and see exactly what it does, every trade.</p>
+          <h2 className="lp-section-title">Three steps to live alpha</h2>
+          <p className="lp-section-sub">No fund minimums, no lock-ups. Subscribe to a strategy and track every trade in real time.</p>
         </ScrollFadeUp>
         <div className="lp-steps">
-          {[
-            { num: '01', icon: '🔗', title: 'Connect Wallet', desc: 'Connect MetaMask or Coinbase Wallet. Your wallet is your identity — no email required. Your keys, your account.' },
-            { num: '02', icon: '🤖', title: 'Subscribe to a Bot', desc: 'Browse 10 verified trading agents with backtested performance. Subscribe in one click. Free during beta — future: on-chain subscription payments.' },
-            { num: '03', icon: '📈', title: 'Watch it Trade', desc: 'Your bot executes real crypto strategies on Alpaca. Track its live NAV, every fill, every signal — full transparency on your dashboard.' },
-          ].map((s, i) => (
+          {([
+            {
+              num: '01',
+              icon: (
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="#9B8CFF" strokeWidth="1.6"/><path d="M10 7v3l2 2" stroke="#9B8CFF" strokeWidth="1.6" strokeLinecap="round"/></svg>
+              ),
+              title: 'Create Account',
+              desc: 'Sign up with email or Coinbase. Your account is your identity — no wallet required to get started.',
+            },
+            {
+              num: '02',
+              icon: (
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="3" y="5" width="14" height="10" rx="2" stroke="#9B8CFF" strokeWidth="1.6"/><path d="M3 8h14" stroke="#9B8CFF" strokeWidth="1.6"/></svg>
+              ),
+              title: 'Subscribe to a Strategy',
+              desc: 'Browse 10 audited trading agents with verified backtests and live performance. Subscribe in one click with paper credits.',
+            },
+            {
+              num: '03',
+              icon: (
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><polyline points="3,14 7,9 11,12 17,5" stroke="#9B8CFF" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              ),
+              title: 'Track Live Performance',
+              desc: 'Agents trade 24/7 on Alpaca. Follow live NAV, every fill, every signal — full audit trail on your dashboard.',
+            },
+          ] as Array<{ num: string; icon: React.ReactNode; title: string; desc: string }>).map((s, i) => (
             <ScrollFadeUp key={s.num} delay={i * 120}>
               <div className="lp-step">
                 <div className="lp-step-num">STEP {s.num}</div>
@@ -337,17 +358,41 @@ export default function LandingPage() {
       <section className="lp-section">
         <ScrollFadeUp>
           <div className="lp-section-label">Why ASE</div>
-          <h2 className="lp-section-title">Built different</h2>
+          <h2 className="lp-section-title">Institutional rigour, accessible to everyone</h2>
         </ScrollFadeUp>
         <div className="lp-features">
-          {[
-            { icon: '🔍', title: 'Backtested Before Listed', desc: 'Every agent passes our 4-gate authentication: out-of-sample testing, CPCV, PBO analysis, and Deflated Sharpe Ratio to eliminate overfitting.' },
-            { icon: '📊', title: 'Full Trade Transparency', desc: 'Every buy, every sell, every signal is logged on your dashboard. No black boxes. You see exactly what the bot is doing and why.' },
-            { icon: '⚡', title: 'Always Trading', desc: 'Agents run 24/7 on Alpaca. Crypto markets never close — neither do our bots. Live signals, live fills, real execution.' },
-            { icon: '🔒', title: 'Wallet-First Auth', desc: 'Connect MetaMask or Coinbase Wallet. Sign in with your keys — no email needed. Future: on-chain subscriptions via Coinbase Payments.' },
-            { icon: '🤖', title: 'Submit Your Bot', desc: 'Build a strategy in Python, submit it, we run the gauntlet. Pass our authentication pipeline and get listed in the marketplace.' },
-            { icon: '🪙', title: 'Coming: Tokenized Assets', desc: 'Phase 2: agent performance backed by on-chain security tokens (ERC-3643). Trade into and out of strategy positions on a secondary market.' },
-          ].map((f, i) => (
+          {([
+            {
+              icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="6.5" stroke="#9B8CFF" strokeWidth="1.5"/><path d="M6 9l2 2 4-4" stroke="#9B8CFF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+              title: 'Audited Before Listed',
+              desc: 'Every agent passes out-of-sample testing, CPCV, PBO analysis, and Deflated Sharpe Ratio screening to eliminate overfitting.',
+            },
+            {
+              icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="2" width="14" height="14" rx="3" stroke="#9B8CFF" strokeWidth="1.5"/><path d="M5 9h8M5 6h5M5 12h3" stroke="#9B8CFF" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+              title: 'Full Trade Transparency',
+              desc: 'Every buy, every sell, every signal logged and visible on your dashboard. No black boxes — complete audit trail on every position.',
+            },
+            {
+              icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="6.5" stroke="#9B8CFF" strokeWidth="1.5"/><path d="M9 5v4l2.5 2.5" stroke="#9B8CFF" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+              title: '24/7 Execution',
+              desc: 'Agents run continuously on Alpaca. Crypto markets never close — neither do our strategies. Live signals and live fills around the clock.',
+            },
+            {
+              icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2l1.8 5.4H17l-4.9 3.6 1.8 5.4L9 13l-4.9 3.4 1.8-5.4L1 7.4h6.2z" stroke="#9B8CFF" strokeWidth="1.5" strokeLinejoin="round"/></svg>,
+              title: 'Paper Trading — Zero Risk',
+              desc: 'All strategies run on Alpaca paper trading. Real market data, real execution logic — no real capital at risk. Learn risk-free.',
+            },
+            {
+              icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4 14V8M8 14V4M12 14v-6M16 14V6" stroke="#9B8CFF" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+              title: 'Submit Your Strategy',
+              desc: 'Quantitative traders can submit Python strategies. Pass our validation pipeline and get listed in front of subscribers.',
+            },
+            {
+              icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="6.5" stroke="#9B8CFF" strokeWidth="1.5"/><path d="M6.5 11.5C6.5 11.5 7.5 13 9 13s2.5-1.5 2.5-1.5M6 8.5a.5.5 0 110-1 .5.5 0 010 1zm6 0a.5.5 0 110-1 .5.5 0 010 1z" stroke="#9B8CFF" strokeWidth="1.2" strokeLinecap="round"/></svg>,
+              title: 'Roadmap: Tokenized Positions',
+              desc: 'Phase 2: agent performance backed by ERC-3643 security tokens. Trade in and out of strategy positions on ASE\'s secondary market.',
+            },
+          ] as Array<{ icon: React.ReactNode; title: string; desc: string }>).map((f, i) => (
             <ScrollFadeUp key={f.title} delay={i * 60}>
               <div className="lp-feature">
                 <div className="lp-feature-icon">{f.icon}</div>
@@ -399,11 +444,14 @@ export default function LandingPage() {
         <div style={{ marginBottom: '.75rem', display: 'flex', justifyContent: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
           <Link href="/agents" style={{ color: 'var(--faint)', fontSize: '.8rem' }}>Agents</Link>
           <Link href="/builders" style={{ color: 'var(--faint)', fontSize: '.8rem' }}>Builders</Link>
-          <Link href="/dashboard/backtest" style={{ color: 'var(--faint)', fontSize: '.8rem' }}>Algo Lab</Link>
+          <Link href="/dashboard/backtest" style={{ color: 'var(--faint)', fontSize: '.8rem' }}>Strategy Lab</Link>
           <Link href="/login" style={{ color: 'var(--faint)', fontSize: '.8rem' }}>Sign In</Link>
+          <Link href="/legal/terms" style={{ color: 'var(--faint)', fontSize: '.8rem' }}>Terms</Link>
+          <Link href="/legal/privacy" style={{ color: 'var(--faint)', fontSize: '.8rem' }}>Privacy</Link>
+          <Link href="/legal/securities" style={{ color: 'var(--faint)', fontSize: '.8rem' }}>Securities Disclaimer</Link>
           <a href="mailto:founders@launchase.com" style={{ color: 'var(--faint)', fontSize: '.8rem' }}>Contact</a>
         </div>
-        <div>© 2026 Agent Securities Exchange · Paper trading only — not financial advice</div>
+        <div>© 2026 Agent Securities Exchange (ASE) · Paper trading simulation only — not investment advice · Past performance does not guarantee future results</div>
       </footer>
     </div>
   )
