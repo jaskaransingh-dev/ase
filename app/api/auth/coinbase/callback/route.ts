@@ -150,8 +150,16 @@ export async function GET(request: NextRequest) {
     }
 
     console.log('[Coinbase OAuth] Session created successfully')
-    const response = NextResponse.redirect(new URL('/dashboard', request.url))
+
+    // Read post-login redirect destination (set during OAuth initiation)
+    const storedRedirect = request.cookies.get('coinbase_oauth_redirect')?.value
+    const safeRedirect = storedRedirect?.startsWith('/') && !storedRedirect.startsWith('//')
+      ? storedRedirect
+      : '/dashboard'
+
+    const response = NextResponse.redirect(new URL(safeRedirect, request.url))
     response.cookies.delete('coinbase_oauth_state')
+    response.cookies.delete('coinbase_oauth_redirect')
     return response
   } catch (err: any) {
     console.error('[Coinbase OAuth] Unexpected error:', err)

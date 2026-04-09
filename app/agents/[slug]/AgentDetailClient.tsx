@@ -1,51 +1,29 @@
 'use client'
-import React, { useState, useMemo, useCallback } from 'react'
+import React, { useState, useMemo, useCallback, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { fmtPct, fmtDate } from '@/lib/utils'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { fmtDate } from '@/lib/utils'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Agent {
-  id: string
-  name: string
-  slug: string
-  description: string
-  strategy_type: string
-  status: string
-  alert_level?: string
-  drawdown_pct?: number
-  monthly_fee_cents?: number
-  subscriber_count?: number
-  primary_symbol?: string
-  backtest_strategy?: string
-  signal_summary?: string
+  id: string; name: string; slug: string; description: string
+  strategy_type: string; status: string; alert_level?: string
+  drawdown_pct?: number; monthly_fee_cents?: number; subscriber_count?: number
+  primary_symbol?: string; backtest_strategy?: string; signal_summary?: string
 }
 interface Stats {
-  id: string
-  nav_cents: number
-  total_return_pct: number
-  sharpe_ratio: number
-  max_drawdown_pct: number
-  win_rate_pct: number
-  total_trades: number
-  snapshot_at: string
+  id: string; nav_cents: number; total_return_pct: number; sharpe_ratio: number
+  max_drawdown_pct: number; win_rate_pct: number; total_trades: number; snapshot_at: string
 }
 interface Trade {
-  id: string
-  symbol: string
-  side: string
-  qty: number
-  fill_price: number
-  filled_at: string
-  pnl_cents: number
+  id: string; symbol: string; side: string; qty: number
+  fill_price: number; filled_at: string; pnl_cents: number
 }
 interface CachedBacktestStats {
-  symbol: string
-  strategy: string
-  period: string
-  computed_at: string
-  stats: BacktestStats
-  buyHold: { totalReturnPct: number }
+  symbol: string; strategy: string; period: string; computed_at: string
+  stats: BacktestStats; buyHold: { totalReturnPct: number }
   equityCurve: Array<{ date: string; equity: number }>
   buyHoldCurve: Array<{ date: string; equity: number }>
 }
@@ -60,27 +38,25 @@ interface BacktestResult {
   symbol: string; period: string
 }
 interface MCResult {
-  start: string; end: string; bars: number
-  strategyReturn: number; marketReturn: number; excessReturn: number
-  sharpe: number; maxDrawdown: number; winRate: number; totalTrades: number
+  start: string; end: string; bars: number; strategyReturn: number; marketReturn: number
+  excessReturn: number; sharpe: number; maxDrawdown: number; winRate: number; totalTrades: number
 }
 interface MCSummary {
-  nTrials: number; windowDays: number
-  medianReturn: number; meanReturn: number
-  medianExcess: number; meanExcess: number; medianSharpe: number
-  beatRate: number; medianDrawdown: number
-  p10Return: number; p90Return: number
-  results: MCResult[]
+  nTrials: number; windowDays: number; medianReturn: number; meanReturn: number
+  medianExcess: number; meanExcess: number; medianSharpe: number; beatRate: number
+  medianDrawdown: number; p10Return: number; p90Return: number; results: MCResult[]
+}
+interface UserHolding {
+  id: string; shares: number; invested_cents: number
+  current_value_cents: number; pnl_cents: number; status: string
 }
 interface Props {
-  agent: Agent
-  statsHistory: Stats[]
-  latestStats: Stats | null
-  trades: Trade[]
-  isLoggedIn: boolean
-  isSubscribed: boolean
-  cachedBacktestStats: CachedBacktestStats | null
+  agent: Agent; statsHistory: Stats[]; latestStats: Stats | null
+  trades: Trade[]; isLoggedIn: boolean; isSubscribed: boolean
+  cachedBacktestStats: CachedBacktestStats | null; initialHolding?: UserHolding | null
 }
+
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const TABS = ['Overview', 'Performance', 'Trades', 'Strategy', 'Backtest', 'Monte Carlo'] as const
 type Tab = typeof TABS[number]
@@ -94,100 +70,289 @@ const strategyDescriptions: Record<string, string> = {
 }
 
 const strategyColor: Record<string, string> = {
-  momentum: '#3b7eff',
-  mean_reversion: '#16c784',
-  trend_following: '#7c5cff',
-  crypto_momentum: '#f59e0b',
-  crypto_mean_reversion: '#06b6d4',
+  momentum: '#3b7eff', mean_reversion: '#16c784', trend_following: '#7c5cff',
+  crypto_momentum: '#f59e0b', crypto_mean_reversion: '#06b6d4',
 }
 
-function StatCell({ label, value, color }: { label: string; value: string; color?: string }) {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const fP = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
+const col = (v: number) => v >= 0 ? 'var(--green)' : 'var(--red)'
+const fmt$ = (cents: number) => `$${(cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+// ─── UI atoms ─────────────────────────────────────────────────────────────────
+
+function KpiCard({ label, value, color, sub }: { label: string; value: string; color?: string; sub?: string }) {
   return (
-    <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 9, padding: '.7rem .9rem' }}>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: '.25rem' }}>{label}</div>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.95rem', fontWeight: 700, color: color ?? 'var(--white)', letterSpacing: '-.01em' }}>{value}</div>
+    <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.7rem .9rem' }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: '.28rem' }}>{label}</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: color ?? 'var(--white)', letterSpacing: '-.01em' }}>{value}</div>
+      {sub && <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.46rem', color: 'var(--faint)', marginTop: '.12rem' }}>{sub}</div>}
     </div>
   )
 }
 
-export default function AgentDetailClient({ agent, statsHistory, latestStats, trades, isLoggedIn, isSubscribed: initialIsSubscribed, cachedBacktestStats }: Props) {
+function MiniStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div style={{ background: 'rgba(255,255,255,.025)', border: '1px solid var(--border)', borderRadius: 7, padding: '.38rem .5rem' }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.08rem' }}>{label}</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.76rem', fontWeight: 700, color: color ?? 'var(--white)' }}>{value}</div>
+    </div>
+  )
+}
+
+// ─── Invest Modal ─────────────────────────────────────────────────────────────
+
+function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
+  agentId: string; agentName: string; navCents: number
+  onClose: () => void; onSuccess: (result: { shares: number; amount: number }) => void
+}) {
+  const [balance, setBalance] = useState<number | null>(null)
+  const [amount, setAmount] = useState(50)
+  const [loading, setLoading] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [fetching, setFetching] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/user/wallet').then(r => r.json()).then(d => setBalance(d.balance_cents ?? 0)).catch(() => setBalance(0)).finally(() => setFetching(false))
+  }, [])
+
+  const maxAmount = balance !== null ? Math.floor(balance / 100) : 1000
+  const cappedAmount = Math.min(Math.max(amount, 0), maxAmount)
+  const projectedShares = navCents > 0 ? (cappedAmount * 100) / navCents : 0
+
+  async function handleInvest() {
+    if (cappedAmount < 10) { setMsg('Minimum investment is $10'); return }
+    setLoading(true); setMsg('')
+    try {
+      const res = await fetch('/api/holdings/invest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: agentId, amount_cents: Math.round(cappedAmount * 100) }) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      onSuccess({ shares: data.shares, amount: cappedAmount })
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Investment failed') }
+    setLoading(false)
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(4,3,12,.9)', backdropFilter: 'blur(20px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg2)', border: '1px solid rgba(59,127,255,.22)', borderRadius: 20, padding: '2rem', width: '100%', maxWidth: 400, boxShadow: '0 40px 80px rgba(0,0,0,.7)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+          <div>
+            <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1.1rem' }}>Allocate Credits</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', marginTop: '.18rem' }}>Paper trading — {agentName}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,.06)', border: '1px solid var(--border)', borderRadius: 9, width: 32, height: 32, cursor: 'pointer', color: 'var(--faint)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>x</button>
+        </div>
+
+        <div style={{ background: 'rgba(59,127,255,.05)', border: '1px solid rgba(59,127,255,.16)', borderRadius: 11, padding: '.8rem 1rem', marginBottom: '1.2rem' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.22rem' }}>YOUR PAPER BALANCE</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.2rem', fontWeight: 700, color: fetching ? 'var(--faint)' : 'var(--blue2)' }}>
+            {fetching ? '—' : fmt$(balance ?? 0)}
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', marginTop: '.16rem' }}>Simulated credits — no real money</div>
+        </div>
+
+        <div style={{ marginBottom: '1.2rem' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.45rem' }}>AMOUNT</div>
+          <div style={{ position: 'relative' }}>
+            <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', fontFamily: 'var(--font-mono)', fontSize: '.88rem', color: 'var(--muted)' }}>$</span>
+            <input type="number" value={amount} min={10} max={maxAmount} onChange={e => setAmount(Number(e.target.value))} style={{ width: '100%', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.68rem 1rem .68rem 1.7rem', color: 'var(--white)', fontFamily: 'var(--font-mono)', fontSize: '.92rem', outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+          <div style={{ display: 'flex', gap: '.35rem', marginTop: '.4rem' }}>
+            {[25, 50, 100].filter(v => v <= maxAmount).map(v => (
+              <button key={v} onClick={() => setAmount(v)} style={{ flex: 1, padding: '.28rem', background: amount === v ? 'rgba(59,127,255,.1)' : 'rgba(255,255,255,.03)', border: `1px solid ${amount === v ? 'rgba(59,127,255,.28)' : 'var(--border)'}`, borderRadius: 6, color: amount === v ? 'var(--blue2)' : 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.58rem', cursor: 'pointer', fontWeight: 600 }}>${v}</button>
+            ))}
+            <button onClick={() => setAmount(maxAmount)} style={{ flex: 1, padding: '.28rem', background: amount === maxAmount ? 'rgba(59,127,255,.1)' : 'rgba(255,255,255,.03)', border: `1px solid ${amount === maxAmount ? 'rgba(59,127,255,.28)' : 'var(--border)'}`, borderRadius: 6, color: amount === maxAmount ? 'var(--blue2)' : 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.58rem', cursor: 'pointer', fontWeight: 600 }}>MAX</button>
+          </div>
+        </div>
+
+        <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.7rem 1rem', marginBottom: '1.2rem' }}>
+          {[['Projected shares', projectedShares.toFixed(4)], ['NAV per share', fmt$(navCents)]].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: k === 'Projected shares' ? '.35rem' : 0 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.07em' }}>{k}</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.8rem', fontWeight: 700 }}>{v}</span>
+            </div>
+          ))}
+        </div>
+
+        {msg && <div style={{ marginBottom: '.9rem', padding: '.65rem .9rem', background: 'rgba(242,54,69,.07)', border: '1px solid rgba(242,54,69,.18)', borderRadius: 9, fontFamily: 'var(--font-mono)', fontSize: '.68rem', color: 'var(--red)' }}>{msg}</div>}
+
+        <button onClick={handleInvest} disabled={loading || fetching || cappedAmount < 10} style={{ width: '100%', padding: '.75rem', borderRadius: 10, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, cursor: loading || fetching || cappedAmount < 10 ? 'not-allowed' : 'pointer', opacity: loading || fetching || cappedAmount < 10 ? .5 : 1, letterSpacing: '-.01em' }}>
+          {loading ? 'Processing...' : `Invest $${Math.max(0, cappedAmount)}`}
+        </button>
+        <div style={{ marginTop: '.85rem', fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', lineHeight: 1.65, textAlign: 'center' }}>
+          Paper trading only — simulated credits, not real money.<br />Trades execute on Coinbase at real market prices.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Deallocate Modal ─────────────────────────────────────────────────────────
+
+function DeallocateModal({ holding, agentName, navCents, onClose, onSuccess }: {
+  holding: UserHolding; agentName: string; navCents: number
+  onClose: () => void; onSuccess: (returnedCents: number) => void
+}) {
+  const maxShares = holding.shares
+  const [sharesToSell, setSharesToSell] = useState(maxShares)
+  const [loading, setLoading] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  const sellValue = Math.round(Math.min(sharesToSell, maxShares) * navCents)
+  const pctToSell = maxShares > 0 ? Math.round((sharesToSell / maxShares) * 100) : 0
+
+  async function handleSell() {
+    setLoading(true); setMsg('')
+    try {
+      const res = await fetch('/api/holdings/sell', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ holding_id: holding.id, shares_to_sell: sharesToSell }) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      onSuccess(data.returned_cents)
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Failed') }
+    setLoading(false)
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(4,3,12,.9)', backdropFilter: 'blur(20px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg2)', border: '1px solid rgba(242,54,69,.2)', borderRadius: 20, padding: '2rem', width: '100%', maxWidth: 400, boxShadow: '0 40px 80px rgba(0,0,0,.7)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+          <div>
+            <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1.1rem' }}>Deallocate Funds</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', marginTop: '.18rem' }}>{agentName}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,.06)', border: '1px solid var(--border)', borderRadius: 9, width: 32, height: 32, cursor: 'pointer', color: 'var(--faint)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>x</button>
+        </div>
+
+        <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 11, padding: '.85rem 1rem', marginBottom: '1.2rem' }}>
+          {[['Total shares', maxShares.toFixed(4)], ['Current value', fmt$(holding.current_value_cents)], ['P&L', `${holding.pnl_cents >= 0 ? '+' : ''}${fmt$(holding.pnl_cents)}`]].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: k !== 'P&L' ? '.35rem' : 0 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.07em' }}>{k}</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.8rem', fontWeight: 700, color: k === 'P&L' ? (holding.pnl_cents >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--white)' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ marginBottom: '1.2rem' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.45rem' }}>SHARES TO SELL</div>
+          <input type="number" value={sharesToSell} min={0} max={maxShares} step={maxShares / 100} onChange={e => setSharesToSell(Math.min(Number(e.target.value), maxShares))} style={{ width: '100%', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.68rem 1rem', color: 'var(--white)', fontFamily: 'var(--font-mono)', fontSize: '.92rem', outline: 'none', boxSizing: 'border-box' }} />
+          <div style={{ display: 'flex', gap: '.35rem', marginTop: '.4rem' }}>
+            {[25, 50, 75, 100].map(pct => (
+              <button key={pct} onClick={() => setSharesToSell(maxShares * pct / 100)} style={{ flex: 1, padding: '.28rem', background: pctToSell === pct ? 'rgba(242,54,69,.1)' : 'rgba(255,255,255,.03)', border: `1px solid ${pctToSell === pct ? 'rgba(242,54,69,.28)' : 'var(--border)'}`, borderRadius: 6, color: pctToSell === pct ? 'var(--red)' : 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.58rem', cursor: 'pointer', fontWeight: 600 }}>{pct}%</button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ background: 'rgba(242,54,69,.04)', border: '1px solid rgba(242,54,69,.14)', borderRadius: 10, padding: '.7rem 1rem', marginBottom: '1.2rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.07em' }}>CREDITS RETURNED</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.88rem', fontWeight: 700, color: 'var(--white)' }}>{fmt$(sellValue)}</span>
+          </div>
+        </div>
+
+        {msg && <div style={{ marginBottom: '.9rem', padding: '.65rem .9rem', background: 'rgba(242,54,69,.07)', border: '1px solid rgba(242,54,69,.18)', borderRadius: 9, fontFamily: 'var(--font-mono)', fontSize: '.68rem', color: 'var(--red)' }}>{msg}</div>}
+
+        <button onClick={handleSell} disabled={loading || sharesToSell <= 0} style={{ width: '100%', padding: '.75rem', borderRadius: 10, border: 0, background: 'rgba(242,54,69,.9)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, cursor: loading || sharesToSell <= 0 ? 'not-allowed' : 'pointer', opacity: loading || sharesToSell <= 0 ? .5 : 1, letterSpacing: '-.01em' }}>
+          {loading ? 'Processing...' : `Sell ${sharesToSell.toFixed(4)} shares`}
+        </button>
+        <div style={{ marginTop: '.85rem', fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', lineHeight: 1.65, textAlign: 'center' }}>
+          Credits returned to your paper balance instantly.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+export default function AgentDetailClient({
+  agent, statsHistory, latestStats, trades,
+  isLoggedIn, isSubscribed: initialIsSubscribed,
+  cachedBacktestStats, initialHolding,
+}: Props) {
   const router = useRouter()
   const [tab, setTab] = useState<Tab>('Overview')
   const [isSubscribed, setIsSubscribed] = useState(initialIsSubscribed)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
 
-  // Backtest state
+  const [showInvestModal, setShowInvestModal]       = useState(false)
+  const [showDeallocateModal, setShowDeallocateModal] = useState(false)
+  const [holding, setHolding] = useState<UserHolding | null>(initialHolding ?? null)
+  const [statusMsg, setStatusMsg] = useState('')
+
+  // Backtest
   const [btResult, setBtResult] = useState<BacktestResult | null>(() => {
     if (!cachedBacktestStats) return null
-    const c = cachedBacktestStats
-    return { stats: c.stats, bars: c.equityCurve, buyHold: c.buyHoldCurve, symbol: c.symbol, period: c.period }
+    return { stats: cachedBacktestStats.stats, bars: cachedBacktestStats.equityCurve, buyHold: cachedBacktestStats.buyHoldCurve, symbol: cachedBacktestStats.symbol, period: cachedBacktestStats.period }
   })
-  const [btLoading, setBtLoading] = useState(false)
-  const [btError, setBtError] = useState('')
-  const [btPeriod, setBtPeriod] = useState(cachedBacktestStats?.period ?? '2y')
+  const [btLoading, setBtLoading]     = useState(false)
+  const [btError, setBtError]         = useState('')
+  const [btPeriod, setBtPeriod]       = useState(cachedBacktestStats?.period ?? '2y')
   const [btRefreshing, setBtRefreshing] = useState(false)
 
-  // Monte Carlo state
-  const [mcResult, setMcResult] = useState<MCSummary | null>(null)
+  // Monte Carlo
+  const [mcResult, setMcResult]   = useState<MCSummary | null>(null)
   const [mcLoading, setMcLoading] = useState(false)
-  const [mcError, setMcError] = useState('')
-  const [mcTrials, setMcTrials] = useState(80)
-  const [mcWindow, setMcWindow] = useState(180)
+  const [mcError, setMcError]     = useState('')
+  const [mcTrials, setMcTrials]   = useState(80)
+  const [mcWindow, setMcWindow]   = useState(180)
 
-  // Live perf state
-  const [livePerformance, setLivePerformance] = useState<Record<string, BacktestResult | null>>({})
-  const [liveLoading, setLiveLoading] = useState<Record<string, boolean>>({})
-  const [liveErrors, setLiveErrors] = useState<Record<string, string>>({})
+  // Period performance
+  const [livePerf, setLivePerf]       = useState<Record<string, BacktestResult | null>>({})
+  const [livePerfLoading, setLivePerfLoading] = useState<Record<string, boolean>>({})
+  const [livePerfErrors, setLivePerfErrors]   = useState<Record<string, string>>({})
 
-  const loadLivePerformance = useCallback(async (period: string) => {
-    if (!agent.id) return
-    setLiveLoading(prev => ({ ...prev, [period]: true }))
-    setLiveErrors(prev => ({ ...prev, [period]: '' }))
+  const refreshHolding = useCallback(async () => {
+    if (!isLoggedIn) return
+    try {
+      const res = await fetch(`/api/user/holding?agent_id=${agent.id}`)
+      if (res.ok) { const d = await res.json(); setHolding(d.holding) }
+    } catch { /* silent */ }
+  }, [isLoggedIn, agent.id])
+
+  useEffect(() => { if (isSubscribed) refreshHolding() }, [isSubscribed, refreshHolding])
+
+  const loadLivePerf = useCallback(async (period: string) => {
+    setLivePerfLoading(p => ({ ...p, [period]: true }))
+    setLivePerfErrors(p => ({ ...p, [period]: '' }))
     try {
       const res = await fetch(`/api/agent-backtest-history?agent_id=${agent.id}&period=${period}`)
-      const data = await res.json()
-      if (!res.ok || data.error) throw new Error(data.error ?? 'Fetch failed')
-      if (data.data && data.data.length > 0) {
-        const h = data.data[0]
-        setLivePerformance(prev => ({ ...prev, [period]: { symbol: h.symbol, period: h.period, stats: h.stats, bars: h.equityCurve || [], buyHold: h.buyHoldCurve || [] } }))
+      const d = await res.json()
+      if (!res.ok || d.error) throw new Error(d.error ?? 'Fetch failed')
+      if (d.data?.length > 0) {
+        const h = d.data[0]
+        setLivePerf(p => ({ ...p, [period]: { symbol: h.symbol, period: h.period, stats: h.stats, bars: h.equityCurve || [], buyHold: h.buyHoldCurve || [] } }))
       } else if (agent.primary_symbol && agent.backtest_strategy) {
-        const fallback = await fetch('/api/backtest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: agent.primary_symbol, strategy: agent.backtest_strategy, period }) })
-        const fb = await fallback.json()
-        if (!fallback.ok || fb.error) throw new Error(fb.error ?? 'Fetch failed')
-        setLivePerformance(prev => ({ ...prev, [period]: fb as BacktestResult }))
+        const fb = await (await fetch('/api/backtest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: agent.primary_symbol, strategy: agent.backtest_strategy, period }) })).json()
+        if (!fb.error) setLivePerf(p => ({ ...p, [period]: fb as BacktestResult }))
       }
-    } catch (e) {
-      setLiveErrors(prev => ({ ...prev, [period]: e instanceof Error ? e.message : 'Error' }))
-    } finally {
-      setLiveLoading(prev => ({ ...prev, [period]: false }))
-    }
+    } catch (e) { setLivePerfErrors(p => ({ ...p, [period]: e instanceof Error ? e.message : 'Error' })) }
+    finally { setLivePerfLoading(p => ({ ...p, [period]: false })) }
   }, [agent.id, agent.primary_symbol, agent.backtest_strategy])
 
-  React.useEffect(() => {
-    if (agent.id) ['5y', '2y', '1y'].forEach(p => loadLivePerformance(p))
-  }, [agent.id, loadLivePerformance])
+  useEffect(() => { if (agent.id) ['5y', '2y', '1y'].forEach(p => loadLivePerf(p)) }, [agent.id, loadLivePerf])
 
   async function loadBacktest(period = btPeriod) {
     if (!agent.primary_symbol || !agent.backtest_strategy) { setBtError('No backtest configuration.'); return }
     setBtLoading(true); setBtError('')
     try {
       const res = await fetch('/api/backtest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: agent.primary_symbol, strategy: agent.backtest_strategy, period }) })
-      const data = await res.json()
-      if (!res.ok || data.error) throw new Error(data.error ?? 'Backtest failed')
-      setBtResult(data as BacktestResult)
+      const d = await res.json()
+      if (!res.ok || d.error) throw new Error(d.error ?? 'Backtest failed')
+      setBtResult(d as BacktestResult)
     } catch (e) { setBtError(e instanceof Error ? e.message : 'Error') }
     finally { setBtLoading(false) }
   }
 
   async function loadMonteCarlo() {
-    if (!agent.primary_symbol || !agent.backtest_strategy) { setMcError('No backtest config.'); return }
+    if (!agent.primary_symbol || !agent.backtest_strategy) { setMcError('No config.'); return }
     setMcLoading(true); setMcError('')
     try {
       const res = await fetch('/api/backtest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: agent.primary_symbol, strategy: agent.backtest_strategy, period: '10y', monteCarlo: true, nTrials: mcTrials, windowDays: mcWindow, seed: 42 }) })
-      const data = await res.json()
-      if (!res.ok || data.error) throw new Error(data.error ?? 'MC failed')
-      setMcResult(data.monteCarlo as MCSummary)
+      const d = await res.json()
+      if (!res.ok || d.error) throw new Error(d.error ?? 'MC failed')
+      setMcResult(d.monteCarlo as MCSummary)
     } catch (e) { setMcError(e instanceof Error ? e.message : 'Error') }
     finally { setMcLoading(false) }
   }
@@ -207,14 +372,13 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
   }
 
   async function handleSubscribe() {
-    if (!isLoggedIn) { router.push('/login'); return }
+    if (!isLoggedIn) { router.push(`/login?redirect=/agents/${agent.slug}`); return }
     setLoading(true); setMsg('')
     try {
       const res = await fetch('/api/subscriptions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: agent.id }) })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      setIsSubscribed(true); setMsg('Subscribed successfully.')
-      router.refresh()
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      setIsSubscribed(true); router.refresh()
     } catch (e: unknown) { setMsg(e instanceof Error ? e.message : 'Failed') }
     setLoading(false)
   }
@@ -223,13 +387,14 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
     setLoading(true); setMsg('')
     try {
       const res = await fetch('/api/subscriptions', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: agent.id }) })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      setIsSubscribed(false); setMsg('Unsubscribed.')
-      router.refresh()
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      setIsSubscribed(false); router.refresh()
     } catch (e: unknown) { setMsg(e instanceof Error ? e.message : 'Error') }
     setLoading(false)
   }
+
+  // ── Derived values ─────────────────────────────────────────────────────────
 
   const bt = cachedBacktestStats?.stats
   const ret = latestStats?.total_return_pct ?? bt?.totalReturnPct ?? 0
@@ -239,9 +404,12 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
   const totalTrades = latestStats?.total_trades ?? bt?.totalTrades ?? 0
   const pos = ret >= 0
   const hasBacktestData = !!cachedBacktestStats
+  const isLive = !!latestStats
   const monthlyFee = agent.monthly_fee_cents ?? 0
   const subscribers = agent.subscriber_count ?? 0
   const sColor = strategyColor[agent.strategy_type] ?? 'var(--muted)'
+  const currentNavCents = latestStats?.nav_cents ?? 10_000
+  const chartColor = pos ? '#16c784' : '#f23645'
 
   const annualizedVolPct = useMemo(() => {
     if (statsHistory.length < 3) return null
@@ -256,476 +424,547 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
     return Math.sqrt(variance) * Math.sqrt(365) * 100
   }, [statsHistory])
 
-  // Chart data from backtest (cached) or live stats
   const perfChartData = useMemo(() => {
     if (cachedBacktestStats?.equityCurve?.length) {
       const step = Math.max(1, Math.floor(cachedBacktestStats.equityCurve.length / 200))
-      return cachedBacktestStats.equityCurve
-        .filter((_, i) => i % step === 0)
-        .map(p => ({ date: p.date.slice(5), value: p.equity, bh: 0 }))
+      return cachedBacktestStats.equityCurve.filter((_, i) => i % step === 0).map(p => ({ date: p.date.slice(5), value: p.equity }))
     }
-    return statsHistory.map(s => ({ date: fmtDate(s.snapshot_at), value: s.nav_cents / 100, bh: 0 }))
+    return statsHistory.map(s => ({ date: fmtDate(s.snapshot_at), value: s.nav_cents / 100 }))
   }, [cachedBacktestStats, statsHistory])
 
-  const chartColor = pos ? '#16c784' : '#f23645'
-
-  const fP = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
-  const col = (v: number) => v >= 0 ? 'var(--green)' : 'var(--red)'
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: '1.75rem 2rem', maxWidth: 1300, margin: '0 auto' }}>
+    <div style={{ padding: '1.5rem 2rem 4rem', maxWidth: 1260, margin: '0 auto' }}>
 
-      {/* Back */}
-      <Link href="/agents" style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', display: 'inline-flex', alignItems: 'center', gap: '.3rem', marginBottom: '1.25rem', letterSpacing: '.04em' }}>
-        &larr; AGENTS
-      </Link>
+      {/* Breadcrumb */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', marginBottom: '1.25rem' }}>
+        <Link href="/agents" style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.06em', textDecoration: 'none' }}>
+          AGENTS
+        </Link>
+        <span style={{ color: 'var(--border)', fontSize: '.6rem' }}>/</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--muted)', letterSpacing: '.04em' }}>{agent.name}</span>
+      </div>
 
-      {/* Alerts */}
+      {/* Alert banners */}
       {agent.alert_level === 'yellow' && (
-        <div style={{ background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.25)', borderRadius: 10, padding: '.7rem 1rem', marginBottom: '1rem', color: 'var(--amber)', fontSize: '.82rem', fontFamily: 'var(--font-mono)' }}>
-          WARNING: Agent is {agent.drawdown_pct?.toFixed(1)}% below peak NAV. Monitor closely.
+        <div style={{ background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.2)', borderRadius: 9, padding: '.65rem 1rem', marginBottom: '.75rem', color: '#f59e0b', fontSize: '.78rem', fontFamily: 'var(--font-mono)' }}>
+          Soft alert — agent is {agent.drawdown_pct?.toFixed(1)}% below peak NAV. Monitor closely.
         </div>
       )}
       {agent.alert_level === 'hard' && (
-        <div style={{ background: 'rgba(242,54,69,.08)', border: '1px solid rgba(242,54,69,.25)', borderRadius: 10, padding: '.7rem 1rem', marginBottom: '1rem', color: 'var(--red)', fontSize: '.82rem', fontFamily: 'var(--font-mono)' }}>
-          HARD ALERT: 40%+ drawdown. Agent under review. Subscriptions paused.
+        <div style={{ background: 'rgba(242,54,69,.06)', border: '1px solid rgba(242,54,69,.2)', borderRadius: 9, padding: '.65rem 1rem', marginBottom: '.75rem', color: 'var(--red)', fontSize: '.78rem', fontFamily: 'var(--font-mono)' }}>
+          Hard alert — 40%+ drawdown. Agent under review. New investments suspended.
         </div>
       )}
 
-      {/* Header: two-column */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: '1.5rem', alignItems: 'start', marginBottom: '1.25rem' }} className="detail-header-grid">
+      {/* ── 2-column layout: left=content, right=sticky card ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 296px', gap: '1.75rem', alignItems: 'start' }} className="detail-main-grid">
 
-        {/* Left: Agent info */}
+        {/* ── LEFT COLUMN ── */}
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
-            <div style={{ width: 44, height: 44, borderRadius: 10, background: `${sColor}14`, border: `1px solid ${sColor}28`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', fontWeight: 700, color: sColor }}>
+          {/* Agent identity */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.8rem', marginBottom: '.9rem' }}>
+            <div style={{ width: 48, height: 48, borderRadius: 12, background: `${sColor}12`, border: `1.5px solid ${sColor}25`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '.1rem' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', fontWeight: 800, color: sColor }}>
                 {(agent.primary_symbol ?? 'XX').split('-')[0].slice(0, 3)}
               </span>
             </div>
-            <div>
-              <h1 style={{ fontSize: '1.4rem', fontWeight: 700, letterSpacing: '-.025em', lineHeight: 1.1 }}>{agent.name}</h1>
-              <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', marginTop: '.25rem', flexWrap: 'wrap' }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', letterSpacing: '.04em' }}>
-                  {agent.primary_symbol ?? 'MULTI'}
-                </span>
-                <span style={{ color: 'var(--faint)', fontSize: '.55rem' }}>·</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', letterSpacing: '.06em', padding: '.12rem .45rem', borderRadius: 4, background: `${sColor}12`, color: sColor, border: `1px solid ${sColor}25` }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h1 style={{ fontSize: '1.45rem', fontWeight: 800, letterSpacing: '-.03em', lineHeight: 1.15, marginBottom: '.32rem' }}>{agent.name}</h1>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem', alignItems: 'center' }}>
+                {agent.primary_symbol && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.56rem', color: 'var(--faint)', letterSpacing: '.05em' }}>{agent.primary_symbol}</span>}
+                <span style={{ color: 'var(--border)', fontSize: '.5rem' }}>·</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', letterSpacing: '.07em', padding: '.1rem .4rem', borderRadius: 4, background: `${sColor}10`, color: sColor, border: `1px solid ${sColor}24` }}>
                   {agent.strategy_type.replace(/_/g, ' ').toUpperCase()}
                 </span>
-                <span style={{ color: 'var(--faint)', fontSize: '.55rem' }}>·</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--green)', letterSpacing: '.06em', padding: '.12rem .45rem', borderRadius: 4, background: 'rgba(22,199,132,.08)', border: '1px solid rgba(22,199,132,.2)' }}>
-                  VERIFIED
-                </span>
+                <span style={{ color: 'var(--border)', fontSize: '.5rem' }}>·</span>
+                {isLive
+                  ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', padding: '.08rem .38rem', borderRadius: 4, background: 'rgba(22,199,132,.08)', border: '1px solid rgba(22,199,132,.2)', color: 'var(--green)', letterSpacing: '.06em' }}>LIVE</span>
+                  : <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', padding: '.08rem .38rem', borderRadius: 4, background: 'rgba(59,127,255,.07)', border: '1px solid rgba(59,127,255,.18)', color: 'var(--blue2)', letterSpacing: '.06em' }}>PAPER</span>
+                }
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', padding: '.08rem .38rem', borderRadius: 4, background: 'rgba(110,231,183,.07)', border: '1px solid rgba(110,231,183,.18)', color: '#6EE7B7', letterSpacing: '.06em' }}>VERIFIED</span>
               </div>
             </div>
           </div>
-          <p style={{ fontSize: '.85rem', color: 'var(--muted)', lineHeight: 1.65, maxWidth: 580, marginBottom: '.75rem' }}>{agent.description}</p>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: 'var(--faint)' }}>
-            {subscribers} subscribers&nbsp;&nbsp;·&nbsp;&nbsp;{monthlyFee === 0 ? 'Free during beta' : `$${(monthlyFee / 100).toFixed(0)}/mo`}
-          </div>
-        </div>
 
-        {/* Right: Subscribe panel */}
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.25rem', position: 'sticky', top: 72 }}>
-          {/* Return display */}
-          <div style={{ marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.25rem' }}>
-              {hasBacktestData && !latestStats ? `${cachedBacktestStats!.period.toUpperCase()} BACKTEST RETURN` : 'TOTAL RETURN'}
-            </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.75rem', fontWeight: 700, color: pos ? 'var(--green)' : 'var(--red)', letterSpacing: '-.02em' }}>
-              {fP(ret)}
-            </div>
-            {hasBacktestData && (
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)', marginTop: '.15rem' }}>
-                {cachedBacktestStats!.symbol} · computed {new Date(cachedBacktestStats!.computed_at).toLocaleDateString()}
-              </div>
-            )}
+          <p style={{ fontSize: '.84rem', color: 'var(--muted)', lineHeight: 1.72, marginBottom: '1.25rem', maxWidth: 560 }}>{agent.description}</p>
+
+          {/* KPI strip */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: '.45rem', marginBottom: '1.5rem' }} className="kpi-strip">
+            <KpiCard label="Total Return" value={fP(ret)} color={pos ? 'var(--green)' : 'var(--red)'} sub={isLive ? 'LIVE' : hasBacktestData ? cachedBacktestStats!.period.toUpperCase() + ' BT' : undefined} />
+            <KpiCard label="Sharpe" value={sharpe.toFixed(2)} color={sharpe >= 1.5 ? 'var(--green)' : sharpe >= 0.7 ? 'var(--amber)' : 'var(--red)'} />
+            <KpiCard label="Max DD" value={fP(-maxDD)} color="var(--red)" />
+            <KpiCard label="Win Rate" value={winRate.toFixed(1) + '%'} color={winRate >= 55 ? 'var(--green)' : winRate >= 45 ? 'var(--amber)' : 'var(--red)'} />
+            <KpiCard label="Trades" value={totalTrades.toString()} />
+            <KpiCard label="Ann. Vol" value={annualizedVolPct !== null ? annualizedVolPct.toFixed(1) + '%' : 'N/A'} />
           </div>
 
-          {/* Quick stats */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.4rem', marginBottom: '1rem' }}>
-            {[
-              { k: 'Sharpe', v: sharpe.toFixed(2) },
-              { k: 'Max DD', v: fP(-maxDD) },
-              { k: 'Win %', v: winRate.toFixed(0) + '%' },
-              { k: 'Trades', v: totalTrades.toString() },
-            ].map(({ k, v }) => (
-              <div key={k} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 7, padding: '.45rem .6rem' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.1rem' }}>{k.toUpperCase()}</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.78rem', fontWeight: 700 }}>{v}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Subscribe CTA */}
-          {isSubscribed ? (
-            <div>
-              <div style={{ background: 'rgba(22,199,132,.08)', border: '1px solid rgba(22,199,132,.2)', borderRadius: 9, padding: '.55rem .75rem', marginBottom: '.65rem', fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--green)', textAlign: 'center', letterSpacing: '.04em' }}>
-                SUBSCRIBED
-              </div>
-              <button onClick={handleUnsubscribe} disabled={loading} style={{ width: '100%', padding: '.6rem', borderRadius: 9, border: '1px solid rgba(242,54,69,.25)', background: 'rgba(242,54,69,.06)', color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: '.68rem', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: '.04em' }}>
-                {loading ? 'PROCESSING' : 'UNSUBSCRIBE'}
-              </button>
-            </div>
-          ) : (
-            <div>
-              {!isLoggedIn && (
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', marginBottom: '.6rem', textAlign: 'center' }}>
-                  Sign in to subscribe
-                </div>
-              )}
-              <button onClick={handleSubscribe} disabled={loading || agent.alert_level === 'hard'} style={{ width: '100%', padding: '.7rem', borderRadius: 9, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.85rem', fontWeight: 600, cursor: loading || agent.alert_level === 'hard' ? 'not-allowed' : 'pointer', opacity: agent.alert_level === 'hard' ? .4 : 1, transition: 'all .18s', letterSpacing: '-.01em' }}
-                onMouseEnter={e => { if (!loading && agent.alert_level !== 'hard') (e.currentTarget as HTMLButtonElement).style.background = 'var(--blue2)' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--blue)' }}
-              >
-                {loading ? 'Processing...' : monthlyFee === 0 ? 'Subscribe Free' : `Subscribe — $${(monthlyFee / 100).toFixed(0)}/mo`}
-              </button>
-            </div>
-          )}
-
-          {msg && (
-            <div style={{ marginTop: '.55rem', fontFamily: 'var(--font-mono)', fontSize: '.62rem', textAlign: 'center', color: msg.toLowerCase().includes('failed') || msg.toLowerCase().includes('error') ? 'var(--red)' : 'var(--green)' }}>
-              {msg}
-            </div>
-          )}
-
-          {agent.signal_summary && (
-            <div style={{ marginTop: '.85rem', paddingTop: '.85rem', borderTop: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--muted)', lineHeight: 1.5 }}>
-              {agent.signal_summary}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Stats strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: '.5rem', marginBottom: '1.25rem' }} className="kpi-strip">
-        <StatCell label="Total Return" value={fP(ret)} color={pos ? 'var(--green)' : 'var(--red)'} />
-        <StatCell label="Sharpe Ratio" value={sharpe.toFixed(2)} color={sharpe >= 1 ? 'var(--green)' : sharpe >= 0.5 ? 'var(--amber)' : 'var(--red)'} />
-        <StatCell label="Max Drawdown" value={fP(-maxDD)} color="var(--red)" />
-        <StatCell label="Win Rate" value={winRate.toFixed(1) + '%'} color={winRate >= 55 ? 'var(--green)' : winRate >= 45 ? 'var(--amber)' : 'var(--red)'} />
-        <StatCell label="Total Trades" value={totalTrades.toString()} />
-        <StatCell label="Ann. Volatility" value={annualizedVolPct !== null ? annualizedVolPct.toFixed(1) + '%' : 'N/A'} />
-      </div>
-
-      {/* Performance chart */}
-      {perfChartData.length > 1 && (
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.1rem 1.25rem', marginBottom: '1.25rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', gap: '.75rem', flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: '.88rem' }}>Performance</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', marginTop: '.12rem', letterSpacing: '.06em' }}>
-                {hasBacktestData ? `BACKTEST · ${cachedBacktestStats!.symbol} · ${cachedBacktestStats!.period.toUpperCase()}` : 'LIVE NAV HISTORY'}
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-              <div style={{ width: 10, height: 2, background: chartColor, borderRadius: 2 }} />
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)', letterSpacing: '.08em' }}>STRATEGY</span>
-            </div>
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={perfChartData} margin={{ top: 4, right: 8, bottom: 4, left: -12 }}>
-              <defs>
-                <linearGradient id="perfGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={chartColor} stopOpacity={0.18} />
-                  <stop offset="95%" stopColor={chartColor} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 9, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-              <YAxis tick={{ fill: 'var(--faint)', fontSize: 9, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
-              <Tooltip contentStyle={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 9, fontFamily: 'var(--font-mono)', fontSize: 10 }} labelStyle={{ color: 'var(--faint)' }} formatter={(v: unknown) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`, 'Value']} />
-              <Area type="monotone" dataKey="value" stroke={chartColor} strokeWidth={1.8} fill="url(#perfGrad)" dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* Tabs */}
-      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden' }}>
-        {/* Tab bar */}
-        <div style={{ display: 'flex', gap: '.15rem', padding: '.5rem .65rem', borderBottom: '1px solid var(--border)', background: 'rgba(0,0,0,.15)', overflowX: 'auto' }}>
-          {TABS.map(t => (
-            <button key={t} onClick={() => handleTabChange(t)} style={{
-              fontFamily: 'var(--font-mono)', fontSize: '.62rem', fontWeight: 600, letterSpacing: '.05em',
-              padding: '.4rem .8rem', borderRadius: 7, whiteSpace: 'nowrap',
-              border: `1px solid ${tab === t ? 'rgba(59,127,255,.3)' : 'transparent'}`,
-              color: tab === t ? 'var(--blue2)' : 'var(--faint)',
-              background: tab === t ? 'rgba(59,127,255,.08)' : 'transparent',
-              cursor: 'pointer', transition: 'all .14s',
-            }}>
-              {t.toUpperCase()}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ padding: '1.25rem' }}>
-
-          {/* -- OVERVIEW -- */}
-          {tab === 'Overview' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.75rem' }} className="tab-grid">
-              {[
-                { title: 'Strategy', body: agent.strategy_type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + ' — ' + (strategyDescriptions[agent.strategy_type] || 'Systematic algorithmic strategy.') },
-                { title: 'Verification', body: 'Methodology disclosure submitted, ledger format validated, out-of-sample test passed. Real-time execution on paper trading infrastructure.' },
-                { title: 'Execution', body: 'Trades execute on Alpaca paper trading. Position signals delivered in real-time to subscribers. P&L tracked per account.' },
-                { title: 'Subscription Terms', body: monthlyFee === 0 ? 'Free during beta. Connect wallet for future on-chain settlement. Cancel anytime.' : `$${(monthlyFee / 100).toFixed(2)}/month. Cancel anytime. Wallet optional.` },
-              ].map(({ title, body }) => (
-                <div key={title} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '1rem 1.1rem' }}>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 600, letterSpacing: '.1em', color: 'var(--blue2)', marginBottom: '.45rem', textTransform: 'uppercase' }}>{title}</div>
-                  <p style={{ fontSize: '.82rem', color: 'var(--muted)', lineHeight: 1.65 }}>{body}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* -- PERFORMANCE -- */}
-          {tab === 'Performance' && (
-            <div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '.6rem', marginBottom: '1.25rem' }} className="perf-grid">
-                {[
-                  { label: 'Total Return', value: fP(ret), color: col(ret) },
-                  { label: 'Sharpe Ratio', value: sharpe.toFixed(2), color: sharpe >= 1 ? 'var(--green)' : sharpe >= 0.5 ? 'var(--amber)' : 'var(--red)' },
-                  { label: 'Max Drawdown', value: fP(-maxDD), color: 'var(--red)' },
-                  { label: 'Win Rate', value: winRate.toFixed(1) + '%', color: winRate >= 55 ? 'var(--green)' : 'var(--red)' },
-                  { label: 'Total Trades', value: totalTrades.toString(), color: 'var(--white)' },
-                  { label: 'Ann. Volatility', value: annualizedVolPct !== null ? annualizedVolPct.toFixed(1) + '%' : 'N/A', color: 'var(--white)' },
-                ].map(({ label, value, color }) => (
-                  <div key={label} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.8rem 1rem' }}>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.2rem' }}>{label.toUpperCase()}</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color }}>{value}</div>
+          {/* Performance chart */}
+          {perfChartData.length > 1 && (
+            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 13, padding: '1.1rem 1.2rem', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.85rem', flexWrap: 'wrap', gap: '.4rem' }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '.86rem', letterSpacing: '-.01em' }}>
+                    {isLive ? 'Live NAV History' : 'Backtest Equity Curve'}
                   </div>
-                ))}
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', marginTop: '.1rem', letterSpacing: '.07em' }}>
+                    {hasBacktestData ? `${cachedBacktestStats!.symbol} · ${cachedBacktestStats!.period.toUpperCase()} · $10K INITIAL` : 'LIVE PORTFOLIO NAV'}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                  <div style={{ width: 10, height: 2, background: chartColor, borderRadius: 2 }} />
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)', letterSpacing: '.08em' }}>STRATEGY</span>
+                </div>
               </div>
-
-              {/* Period breakdown */}
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.6rem', textTransform: 'uppercase' }}>Backtested Period Breakdown</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '.6rem' }}>
-                {['5y', '2y', '1y'].map(period => {
-                  const perf = livePerformance[period]
-                  const isLoading = liveLoading[period]
-                  return (
-                    <div key={period} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.85rem 1rem' }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.35rem' }}>
-                        {period === '5y' ? '5 YEARS' : period === '2y' ? '2 YEARS' : '1 YEAR'}
-                      </div>
-                      {isLoading ? (
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--faint)' }}>Loading...</div>
-                      ) : perf ? (
-                        <div>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: perf.stats.totalReturnPct >= 0 ? 'var(--green)' : 'var(--red)', marginBottom: '.3rem' }}>
-                            {fP(perf.stats.totalReturnPct)}
-                          </div>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: 'var(--muted)', lineHeight: 1.55 }}>
-                            Sharpe {perf.stats.sharpeRatio.toFixed(2)} · DD {fP(-perf.stats.maxDrawdownPct)} · W {perf.stats.winRate.toFixed(0)}%
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--faint)' }}>No data</div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart data={perfChartData} margin={{ top: 2, right: 4, bottom: 2, left: -16 }}>
+                  <defs>
+                    <linearGradient id="pg" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={chartColor} stopOpacity={0.18} />
+                      <stop offset="95%" stopColor={chartColor} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 9, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={{ fill: 'var(--faint)', fontSize: 9, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip contentStyle={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, fontFamily: 'var(--font-mono)', fontSize: 10 }} labelStyle={{ color: 'var(--faint)' }} formatter={(v: unknown) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`, 'Value']} />
+                  <Area type="monotone" dataKey="value" stroke={chartColor} strokeWidth={2} fill="url(#pg)" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
           )}
 
-          {/* -- TRADES -- */}
-          {tab === 'Trades' && (
-            <div>
-              {trades.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.68rem', letterSpacing: '.08em' }}>
-                  NO TRADES RECORDED
-                </div>
-              ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '.72rem' }}>
-                    <thead>
-                      <tr>
-                        {['Symbol', 'Side', 'Qty', 'Fill Price', 'P&L', 'Date'].map(h => (
-                          <th key={h} style={{ padding: '.5rem .75rem', textAlign: 'left', color: 'var(--faint)', fontWeight: 600, fontSize: '.58rem', letterSpacing: '.08em', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h.toUpperCase()}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {trades.map((t, i) => {
-                        const pnl = t.pnl_cents ?? 0
-                        return (
-                          <tr key={t.id} style={{ borderBottom: i < trades.length - 1 ? '1px solid rgba(30,55,100,.2)' : 'none' }}>
-                            <td style={{ padding: '.5rem .75rem', fontWeight: 700, color: 'var(--white)' }}>{t.symbol}</td>
-                            <td style={{ padding: '.5rem .75rem', color: t.side === 'buy' ? 'var(--green)' : 'var(--red)', fontWeight: 700, textTransform: 'uppercase' }}>{t.side}</td>
-                            <td style={{ padding: '.5rem .75rem', color: 'var(--muted)' }}>{t.qty}</td>
-                            <td style={{ padding: '.5rem .75rem', color: 'var(--muted)' }}>${t.fill_price.toFixed(2)}</td>
-                            <td style={{ padding: '.5rem .75rem', color: pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--faint)' }}>
-                              {pnl !== 0 ? `${pnl > 0 ? '+' : ''}$${(pnl / 100).toFixed(2)}` : '—'}
-                            </td>
-                            <td style={{ padding: '.5rem .75rem', color: 'var(--faint)', whiteSpace: 'nowrap' }}>{new Date(t.filled_at).toLocaleDateString()}</td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* -- STRATEGY -- */}
-          {tab === 'Strategy' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.75rem' }} className="tab-grid">
-              {[
-                { title: 'Logic', body: strategyDescriptions[agent.strategy_type] || 'Systematic strategy with defined entry and exit signals based on technical indicators.' },
-                { title: 'Execution Infrastructure', body: 'Trades execute on Alpaca paper trading. Signals delivered in real-time. Live crypto execution available on supported pairs.' },
-                { title: 'Risk Management', body: 'Max drawdown circuit breaker at 40%. Position sizing enforced per signal. Verified via out-of-sample testing and Deflated Sharpe Ratio analysis.' },
-                { title: 'On-Chain Settlement (Planned)', body: 'ERC-3643 tokenized shares, Chainlink price feeds, and on-chain settlement planned for Phase 2. Current subscriptions tracked off-chain.' },
-              ].map(({ title, body }) => (
-                <div key={title} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '1rem 1.1rem' }}>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 600, letterSpacing: '.1em', color: 'var(--blue2)', marginBottom: '.45rem', textTransform: 'uppercase' }}>{title}</div>
-                  <p style={{ fontSize: '.82rem', color: 'var(--muted)', lineHeight: 1.65 }}>{body}</p>
-                </div>
+          {/* Tabs */}
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 13, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', gap: '.12rem', padding: '.45rem .6rem', borderBottom: '1px solid var(--border)', background: 'rgba(0,0,0,.1)', overflowX: 'auto' }}>
+              {TABS.map(t => (
+                <button key={t} onClick={() => handleTabChange(t)} style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 600, letterSpacing: '.06em', padding: '.35rem .7rem', borderRadius: 6, whiteSpace: 'nowrap', border: `1px solid ${tab === t ? 'rgba(59,127,255,.28)' : 'transparent'}`, color: tab === t ? 'var(--blue2)' : 'var(--faint)', background: tab === t ? 'rgba(59,127,255,.07)' : 'transparent', cursor: 'pointer', transition: 'all .12s' }}>
+                  {t.toUpperCase()}
+                </button>
               ))}
             </div>
-          )}
 
-          {/* -- BACKTEST -- */}
-          {tab === 'Backtest' && (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '.5rem' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: 'var(--faint)', letterSpacing: '.06em' }}>
-                  {agent.primary_symbol ?? '—'} · {agent.backtest_strategy?.replace(/_/g, ' ') ?? '—'}
-                </div>
-                <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <button onClick={refreshBacktestStats} disabled={btRefreshing} style={{ padding: '.3rem .65rem', borderRadius: 7, fontSize: '.62rem', fontFamily: 'var(--font-mono)', border: '1px solid rgba(22,199,132,.2)', background: 'rgba(22,199,132,.06)', color: btRefreshing ? 'var(--faint)' : 'var(--green)', cursor: btRefreshing ? 'default' : 'pointer', letterSpacing: '.04em' }}>
-                    {btRefreshing ? 'UPDATING' : 'REFRESH'}
-                  </button>
-                  {(['1y', '2y', '5y'] as const).map(p => (
-                    <button key={p} onClick={() => { setBtPeriod(p); setBtResult(null); loadBacktest(p) }} style={{ padding: '.3rem .65rem', borderRadius: 7, fontSize: '.65rem', fontFamily: 'var(--font-mono)', border: `1px solid ${btPeriod === p ? 'rgba(59,127,255,.35)' : 'var(--border)'}`, background: btPeriod === p ? 'rgba(59,127,255,.08)' : 'transparent', color: btPeriod === p ? 'var(--blue2)' : 'var(--faint)', cursor: 'pointer' }}>
-                      {p.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            <div style={{ padding: '1.25rem' }}>
 
-              {btLoading && <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.68rem', letterSpacing: '.08em' }}>RUNNING BACKTEST</div>}
-              {btError && !btLoading && <div style={{ padding: '.75rem 1rem', background: 'rgba(242,54,69,.08)', border: '1px solid rgba(242,54,69,.2)', borderRadius: 10, color: 'var(--red)', fontSize: '.82rem', fontFamily: 'var(--font-mono)' }}>{btError}</div>}
-
-              {btResult && !btLoading && (() => {
-                const bs = btResult.stats
-                const step = Math.max(1, Math.floor(btResult.bars.length / 250))
-                const cd = btResult.bars.filter((_, i) => i % step === 0).map((b, i) => ({ date: b.date.slice(5), strategy: Math.round(b.equity), buyHold: Math.round(btResult.buyHold[Math.min(i * step, btResult.buyHold.length - 1)]?.equity ?? 0) }))
-                return (
-                  <>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: '.5rem', marginBottom: '1.1rem' }}>
-                      {[
-                        { label: 'Total Return', value: fP(bs.totalReturnPct), color: col(bs.totalReturnPct) },
-                        { label: 'Ann. Return', value: fP(bs.annualizedReturnPct), color: col(bs.annualizedReturnPct) },
-                        { label: 'Sharpe', value: bs.sharpeRatio.toFixed(2), color: bs.sharpeRatio >= 1 ? 'var(--green)' : bs.sharpeRatio >= 0 ? 'var(--amber)' : 'var(--red)' },
-                        { label: 'Max DD', value: `-${bs.maxDrawdownPct.toFixed(2)}%`, color: 'var(--red)' },
-                        { label: 'Win Rate', value: bs.winRate.toFixed(1) + '%', color: bs.winRate >= 50 ? 'var(--green)' : 'var(--red)' },
-                        { label: 'Trades', value: String(bs.totalTrades), color: 'var(--white)' },
-                        { label: 'Best Trade', value: fP(bs.bestTradePct), color: 'var(--green)' },
-                        { label: 'Worst Trade', value: fP(bs.worstTradePct), color: 'var(--red)' },
-                        { label: 'Calmar', value: bs.calmarRatio.toFixed(2), color: col(bs.calmarRatio) },
-                      ].map(({ label, value, color }) => (
-                        <div key={label} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 9, padding: '.65rem .8rem' }}>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.2rem' }}>{label.toUpperCase()}</div>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.9rem', fontWeight: 700, color }}>{value}</div>
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.5rem' }}>
-                      EQUITY CURVE · $100K INITIAL · {btResult.symbol} · {btResult.period.toUpperCase()}
-                    </div>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <AreaChart data={cd} margin={{ top: 4, right: 8, bottom: 4, left: -12 }}>
-                        <defs>
-                          <linearGradient id="btStratGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="var(--blue)" stopOpacity={0.25} />
-                            <stop offset="95%" stopColor="var(--blue)" stopOpacity={0} />
-                          </linearGradient>
-                          <linearGradient id="btBhGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="var(--muted)" stopOpacity={0.12} />
-                            <stop offset="95%" stopColor="var(--muted)" stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 9, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                        <YAxis tick={{ fill: 'var(--faint)', fontSize: 9, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
-                        <Tooltip contentStyle={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 9, fontFamily: 'var(--font-mono)', fontSize: 10 }} formatter={(v: unknown, name: unknown) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`, name === 'strategy' ? 'Strategy' : 'Buy & Hold']} />
-                        <Legend wrapperStyle={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--faint)' }} />
-                        <Area type="monotone" dataKey="buyHold" stroke="var(--muted)" strokeWidth={1} fill="url(#btBhGrad)" dot={false} name="buyHold" />
-                        <Area type="monotone" dataKey="strategy" stroke="var(--blue)" strokeWidth={1.8} fill="url(#btStratGrad)" dot={false} name="strategy" />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </>
-                )
-              })()}
-            </div>
-          )}
-
-          {/* -- MONTE CARLO -- */}
-          {tab === 'Monte Carlo' && (
-            <div>
-              <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              {/* OVERVIEW */}
+              {tab === 'Overview' && (
                 <div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.3rem' }}>TRIALS</div>
-                  <input type="number" value={mcTrials} onChange={e => setMcTrials(Number(e.target.value))} min={10} max={500} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 7, padding: '.4rem .65rem', color: 'var(--white)', fontFamily: 'var(--font-mono)', fontSize: '.78rem', width: 80, outline: 'none' }} />
-                </div>
-                <div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.3rem' }}>WINDOW (DAYS)</div>
-                  <input type="number" value={mcWindow} onChange={e => setMcWindow(Number(e.target.value))} min={60} max={365} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 7, padding: '.4rem .65rem', color: 'var(--white)', fontFamily: 'var(--font-mono)', fontSize: '.78rem', width: 90, outline: 'none' }} />
-                </div>
-                <button onClick={loadMonteCarlo} disabled={mcLoading} style={{ padding: '.5rem 1.1rem', borderRadius: 9, background: 'var(--blue)', color: '#fff', border: 0, fontFamily: 'var(--font-head)', fontSize: '.8rem', fontWeight: 600, cursor: mcLoading ? 'not-allowed' : 'pointer', opacity: mcLoading ? .6 : 1 }}>
-                  {mcLoading ? 'Running...' : 'Run Monte Carlo'}
-                </button>
-              </div>
-
-              {mcError && <div style={{ padding: '.75rem 1rem', background: 'rgba(242,54,69,.08)', border: '1px solid rgba(242,54,69,.2)', borderRadius: 10, color: 'var(--red)', fontSize: '.82rem', fontFamily: 'var(--font-mono)', marginBottom: '1rem' }}>{mcError}</div>}
-
-              {mcResult && (
-                <>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(130px,1fr))', gap: '.5rem', marginBottom: '1.1rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.7rem', marginBottom: '.7rem' }} className="tab-grid">
                     {[
-                      { label: 'Trials Run', value: mcResult.nTrials.toString(), color: 'var(--white)' },
-                      { label: 'Median Return', value: fP(mcResult.medianReturn), color: col(mcResult.medianReturn) },
-                      { label: 'Median Excess', value: fP(mcResult.medianExcess), color: col(mcResult.medianExcess) },
-                      { label: 'Beat Market', value: (mcResult.beatRate * 100).toFixed(0) + '%', color: mcResult.beatRate >= 0.5 ? 'var(--green)' : 'var(--red)' },
-                      { label: 'Median Sharpe', value: mcResult.medianSharpe.toFixed(2), color: mcResult.medianSharpe >= 1 ? 'var(--green)' : 'var(--muted)' },
-                      { label: 'P10 Return', value: fP(mcResult.p10Return), color: col(mcResult.p10Return) },
-                      { label: 'P90 Return', value: fP(mcResult.p90Return), color: col(mcResult.p90Return) },
-                      { label: 'Median DD', value: fP(-mcResult.medianDrawdown), color: 'var(--red)' },
-                    ].map(({ label, value, color }) => (
-                      <div key={label} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 9, padding: '.65rem .8rem' }}>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.2rem' }}>{label.toUpperCase()}</div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.9rem', fontWeight: 700, color }}>{value}</div>
+                      { title: 'Strategy Logic', body: strategyDescriptions[agent.strategy_type] || 'Systematic algorithmic strategy with defined entry and exit signals based on technical indicators.' },
+                      { title: 'Verification', body: 'Methodology disclosure submitted, ledger format validated, out-of-sample test passed. Real-time execution via Coinbase Exchange.' },
+                      { title: 'Execution', body: 'Trades execute on Coinbase at real market prices. Positions tracked per subscriber account for accurate P&L attribution.' },
+                      { title: 'Paper Trading', body: monthlyFee === 0 ? 'Subscribe free during beta. Allocate paper credits to activate live trading. Cancel anytime — no real funds at risk.' : `$${(monthlyFee / 100).toFixed(2)}/month. Paper credits fund the agent. No real capital required.` },
+                    ].map(({ title, body }) => (
+                      <div key={title} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '1rem 1.1rem' }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--blue2)', marginBottom: '.45rem', textTransform: 'uppercase' }}>{title}</div>
+                        <p style={{ fontSize: '.8rem', color: 'var(--muted)', lineHeight: 1.68, margin: 0 }}>{body}</p>
                       </div>
                     ))}
                   </div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.5rem' }}>
-                    TRIAL RETURNS DISTRIBUTION ({mcResult.nTrials} windows of {mcResult.windowDays}d)
+                  <div style={{ background: 'rgba(59,127,255,.04)', border: '1px solid rgba(59,127,255,.12)', borderRadius: 10, padding: '1rem 1.1rem' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--blue2)', marginBottom: '.6rem' }}>HOW IT WORKS</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem' }} className="how-grid">
+                      {[
+                        { n: '01', title: 'Subscribe', desc: 'Subscribe to the agent for free. No payment required during beta.' },
+                        { n: '02', title: 'Allocate Credits', desc: 'Add paper credits from your balance (new accounts get $100 free) to activate trading.' },
+                        { n: '03', title: 'Agent Trades', desc: 'The algorithm trades on Coinbase at real prices. Track P&L in real-time.' },
+                      ].map(({ n, title, desc }) => (
+                        <div key={n}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 800, color: 'rgba(59,127,255,.28)', marginBottom: '.3rem' }}>{n}</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.64rem', fontWeight: 700, color: 'var(--white)', marginBottom: '.22rem' }}>{title}</div>
+                          <div style={{ fontSize: '.78rem', color: 'var(--muted)', lineHeight: 1.62 }}>{desc}</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <ResponsiveContainer width="100%" height={180}>
-                    <AreaChart data={mcResult.results.sort((a, b) => a.strategyReturn - b.strategyReturn).map((r, i) => ({ i, strategy: +r.strategyReturn.toFixed(2), market: +r.marketReturn.toFixed(2) }))} margin={{ top: 4, right: 8, bottom: 4, left: -12 }}>
-                      <XAxis dataKey="i" tick={false} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fill: 'var(--faint)', fontSize: 9, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
-                      <Tooltip contentStyle={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 9, fontFamily: 'var(--font-mono)', fontSize: 10 }} formatter={(v: unknown, n: unknown) => [`${Number(v).toFixed(2)}%`, n === 'strategy' ? 'Strategy' : 'Market']} />
-                      <Area type="monotone" dataKey="market" stroke="var(--muted)" strokeWidth={1} fill="rgba(120,140,180,.08)" dot={false} name="market" />
-                      <Area type="monotone" dataKey="strategy" stroke="var(--blue)" strokeWidth={1.5} fill="rgba(59,127,255,.1)" dot={false} name="strategy" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </>
+                </div>
+              )}
+
+              {/* PERFORMANCE */}
+              {tab === 'Performance' && (
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '.55rem', marginBottom: '1.3rem' }} className="perf-grid">
+                    {[
+                      { label: 'Total Return', value: fP(ret), color: col(ret) },
+                      { label: 'Sharpe Ratio', value: sharpe.toFixed(2), color: sharpe >= 1 ? 'var(--green)' : sharpe >= 0.5 ? 'var(--amber)' : 'var(--red)' },
+                      { label: 'Max Drawdown', value: fP(-maxDD), color: 'var(--red)' },
+                      { label: 'Win Rate', value: winRate.toFixed(1) + '%', color: winRate >= 55 ? 'var(--green)' : 'var(--red)' },
+                      { label: 'Total Trades', value: totalTrades.toString(), color: 'var(--white)' },
+                      { label: 'Ann. Volatility', value: annualizedVolPct !== null ? annualizedVolPct.toFixed(1) + '%' : 'N/A', color: 'var(--white)' },
+                    ].map(({ label, value, color }) => <KpiCard key={label} label={label} value={value} color={color} />)}
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.55rem', textTransform: 'uppercase' }}>Backtest Period Breakdown</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '.55rem' }}>
+                    {['5y', '2y', '1y'].map(period => {
+                      const perf = livePerf[period]
+                      const isLoadingPeriod = livePerfLoading[period]
+                      return (
+                        <div key={period} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.9rem 1rem' }}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.38rem' }}>
+                            {period === '5y' ? '5 YEARS' : period === '2y' ? '2 YEARS' : '1 YEAR'}
+                          </div>
+                          {isLoadingPeriod ? (
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: 'var(--faint)' }}>Loading...</div>
+                          ) : perf ? (
+                            <div>
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 800, color: perf.stats.totalReturnPct >= 0 ? 'var(--green)' : 'var(--red)', marginBottom: '.32rem' }}>
+                                {fP(perf.stats.totalReturnPct)}
+                              </div>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.2rem' }}>
+                                {[['Sharpe', perf.stats.sharpeRatio.toFixed(2)], ['Max DD', fP(-perf.stats.maxDrawdownPct)], ['Win%', perf.stats.winRate.toFixed(0) + '%'], ['Trades', perf.stats.totalTrades.toString()]].map(([k, v]) => (
+                                  <div key={k} style={{ fontFamily: 'var(--font-mono)', fontSize: '.56rem', color: 'var(--muted)' }}>
+                                    <span style={{ color: 'var(--faint)', fontSize: '.48rem' }}>{k} </span>{v}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : livePerfErrors[period] ? (
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--red)' }}>Error</div>
+                          ) : (
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: 'var(--faint)' }}>No data</div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* TRADES */}
+              {tab === 'Trades' && (
+                <div>
+                  {trades.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.66rem', letterSpacing: '.08em' }}>NO TRADES RECORDED YET</div>
+                  ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '.7rem' }}>
+                        <thead>
+                          <tr>{['Symbol', 'Side', 'Qty', 'Fill Price', 'P&L', 'Date'].map(h => (
+                            <th key={h} style={{ padding: '.5rem .7rem', textAlign: 'left', color: 'var(--faint)', fontWeight: 600, fontSize: '.52rem', letterSpacing: '.1em', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h.toUpperCase()}</th>
+                          ))}</tr>
+                        </thead>
+                        <tbody>
+                          {trades.map((t, i) => {
+                            const pnl = t.pnl_cents ?? 0
+                            return (
+                              <tr key={t.id} style={{ borderBottom: i < trades.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
+                                <td style={{ padding: '.5rem .7rem', fontWeight: 700 }}>{t.symbol}</td>
+                                <td style={{ padding: '.5rem .7rem', color: t.side === 'buy' ? 'var(--green)' : 'var(--red)', fontWeight: 700, textTransform: 'uppercase', fontSize: '.63rem' }}>{t.side}</td>
+                                <td style={{ padding: '.5rem .7rem', color: 'var(--muted)' }}>{Number(t.qty).toFixed(4)}</td>
+                                <td style={{ padding: '.5rem .7rem', color: 'var(--muted)' }}>${Number(t.fill_price).toFixed(2)}</td>
+                                <td style={{ padding: '.5rem .7rem', color: pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--faint)', fontWeight: pnl !== 0 ? 700 : 400 }}>
+                                  {pnl !== 0 ? `${pnl > 0 ? '+' : ''}$${(pnl / 100).toFixed(2)}` : '—'}
+                                </td>
+                                <td style={{ padding: '.5rem .7rem', color: 'var(--faint)', whiteSpace: 'nowrap' }}>{new Date(t.filled_at).toLocaleDateString()}</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* STRATEGY */}
+              {tab === 'Strategy' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.7rem' }} className="tab-grid">
+                  {[
+                    { title: 'Logic', body: strategyDescriptions[agent.strategy_type] || 'Systematic strategy with defined entry and exit signals based on technical indicators.' },
+                    { title: 'Infrastructure', body: 'Executes via Coinbase Exchange at real market prices. Market data sourced from Yahoo Finance. Positions tracked per subscriber account.' },
+                    { title: 'Risk Management', body: 'Hard circuit breaker at 40% max drawdown — agent paused automatically. Position sizing enforced per signal. Verified via out-of-sample testing and Deflated Sharpe Ratio analysis.' },
+                    { title: 'On-Chain Settlement (Planned)', body: 'ERC-3643 tokenized shares, Chainlink price feeds, and on-chain settlement planned for Phase 2. Current subscriptions tracked off-chain.' },
+                  ].map(({ title, body }) => (
+                    <div key={title} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '1rem 1.1rem' }}>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--blue2)', marginBottom: '.45rem', textTransform: 'uppercase' }}>{title}</div>
+                      <p style={{ fontSize: '.8rem', color: 'var(--muted)', lineHeight: 1.68, margin: 0 }}>{body}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* BACKTEST */}
+              {tab === 'Backtest' && (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.9rem', flexWrap: 'wrap', gap: '.5rem' }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '.86rem', marginBottom: '.12rem' }}>Backtest Results</div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', color: 'var(--faint)', letterSpacing: '.06em' }}>
+                        {agent.primary_symbol ?? '—'} · {agent.backtest_strategy?.replace(/_/g, ' ') ?? '—'}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
+                      <button onClick={refreshBacktestStats} disabled={btRefreshing} style={{ padding: '.3rem .6rem', borderRadius: 6, fontSize: '.58rem', fontFamily: 'var(--font-mono)', border: '1px solid rgba(22,199,132,.18)', background: 'rgba(22,199,132,.04)', color: btRefreshing ? 'var(--faint)' : 'var(--green)', cursor: btRefreshing ? 'default' : 'pointer', letterSpacing: '.04em' }}>
+                        {btRefreshing ? 'UPDATING...' : 'REFRESH'}
+                      </button>
+                      {(['1y', '2y', '5y'] as const).map(p => (
+                        <button key={p} onClick={() => { setBtPeriod(p); setBtResult(null); loadBacktest(p) }} style={{ padding: '.3rem .6rem', borderRadius: 6, fontSize: '.6rem', fontFamily: 'var(--font-mono)', border: `1px solid ${btPeriod === p ? 'rgba(59,127,255,.3)' : 'var(--border)'}`, background: btPeriod === p ? 'rgba(59,127,255,.07)' : 'transparent', color: btPeriod === p ? 'var(--blue2)' : 'var(--faint)', cursor: 'pointer' }}>
+                          {p.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {btLoading && <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.66rem', letterSpacing: '.08em' }}>RUNNING BACKTEST...</div>}
+                  {btError && !btLoading && <div style={{ padding: '.7rem .9rem', background: 'rgba(242,54,69,.06)', border: '1px solid rgba(242,54,69,.16)', borderRadius: 9, color: 'var(--red)', fontSize: '.8rem', fontFamily: 'var(--font-mono)' }}>{btError}</div>}
+
+                  {btResult && !btLoading && (() => {
+                    const bs = btResult.stats
+                    const step = Math.max(1, Math.floor(btResult.bars.length / 250))
+                    const cd = btResult.bars.filter((_, i) => i % step === 0).map((b, i) => ({
+                      date: b.date.slice(5),
+                      strategy: Math.round(b.equity),
+                      buyHold: Math.round(btResult.buyHold[Math.min(i * step, btResult.buyHold.length - 1)]?.equity ?? 0),
+                    }))
+                    return (
+                      <>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(110px,1fr))', gap: '.45rem', marginBottom: '1.1rem' }}>
+                          {[
+                            { label: 'Total Return', value: fP(bs.totalReturnPct), color: col(bs.totalReturnPct) },
+                            { label: 'Ann. Return', value: fP(bs.annualizedReturnPct), color: col(bs.annualizedReturnPct) },
+                            { label: 'Sharpe', value: bs.sharpeRatio.toFixed(2), color: bs.sharpeRatio >= 1 ? 'var(--green)' : bs.sharpeRatio >= 0 ? 'var(--amber)' : 'var(--red)' },
+                            { label: 'Max DD', value: `-${bs.maxDrawdownPct.toFixed(2)}%`, color: 'var(--red)' },
+                            { label: 'Win Rate', value: bs.winRate.toFixed(1) + '%', color: bs.winRate >= 50 ? 'var(--green)' : 'var(--red)' },
+                            { label: 'Trades', value: String(bs.totalTrades) },
+                            { label: 'Best Trade', value: fP(bs.bestTradePct), color: 'var(--green)' },
+                            { label: 'Worst Trade', value: fP(bs.worstTradePct), color: 'var(--red)' },
+                            { label: 'Calmar', value: bs.calmarRatio.toFixed(2), color: col(bs.calmarRatio) },
+                          ].map(({ label, value, color }) => <KpiCard key={label} label={label} value={value} color={color} />)}
+                        </div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.45rem' }}>
+                          EQUITY CURVE · $10K INITIAL · {btResult.symbol} · {btResult.period.toUpperCase()}
+                        </div>
+                        <ResponsiveContainer width="100%" height={220}>
+                          <AreaChart data={cd} margin={{ top: 2, right: 4, bottom: 2, left: -16 }}>
+                            <defs>
+                              <linearGradient id="bsg" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--blue)" stopOpacity={0.22} /><stop offset="95%" stopColor="var(--blue)" stopOpacity={0} /></linearGradient>
+                              <linearGradient id="bbg" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--muted)" stopOpacity={0.08} /><stop offset="95%" stopColor="var(--muted)" stopOpacity={0} /></linearGradient>
+                            </defs>
+                            <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 9, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                            <YAxis tick={{ fill: 'var(--faint)', fontSize: 9, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                            <Tooltip contentStyle={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, fontFamily: 'var(--font-mono)', fontSize: 10 }} formatter={(v: unknown, name: unknown) => [`$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`, name === 'strategy' ? 'Strategy' : 'Buy & Hold']} />
+                            <Legend wrapperStyle={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--faint)', paddingTop: 8 }} />
+                            <Area type="monotone" dataKey="buyHold" stroke="var(--muted)" strokeWidth={1} fill="url(#bbg)" dot={false} name="buyHold" />
+                            <Area type="monotone" dataKey="strategy" stroke="var(--blue)" strokeWidth={2} fill="url(#bsg)" dot={false} name="strategy" />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </>
+                    )
+                  })()}
+                </div>
+              )}
+
+              {/* MONTE CARLO */}
+              {tab === 'Monte Carlo' && (
+                <div>
+                  <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    {[['TRIALS', mcTrials, 10, 500, (v: number) => setMcTrials(v), 80], ['WINDOW (DAYS)', mcWindow, 60, 365, (v: number) => setMcWindow(v), 90]].map(([label, value, min, max, setter]) => (
+                      <div key={label as string}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.28rem' }}>{label as string}</div>
+                        <input type="number" value={value as number} min={min as number} max={max as number} onChange={e => (setter as (v: number) => void)(Number(e.target.value))} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 7, padding: '.38rem .6rem', color: 'var(--white)', fontFamily: 'var(--font-mono)', fontSize: '.76rem', width: label === 'TRIALS' ? 78 : 90, outline: 'none' }} />
+                      </div>
+                    ))}
+                    <button onClick={loadMonteCarlo} disabled={mcLoading} style={{ padding: '.48rem 1rem', borderRadius: 8, background: 'var(--blue)', color: '#fff', border: 0, fontFamily: 'var(--font-head)', fontSize: '.78rem', fontWeight: 700, cursor: mcLoading ? 'not-allowed' : 'pointer', opacity: mcLoading ? .6 : 1 }}>
+                      {mcLoading ? 'Running...' : 'Run Monte Carlo'}
+                    </button>
+                  </div>
+                  {mcError && <div style={{ padding: '.7rem .9rem', background: 'rgba(242,54,69,.06)', border: '1px solid rgba(242,54,69,.16)', borderRadius: 9, color: 'var(--red)', fontSize: '.8rem', fontFamily: 'var(--font-mono)', marginBottom: '1rem' }}>{mcError}</div>}
+                  {mcResult && (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(125px,1fr))', gap: '.45rem', marginBottom: '1.1rem' }}>
+                        {[
+                          { label: 'Trials Run', value: mcResult.nTrials.toString() },
+                          { label: 'Median Return', value: fP(mcResult.medianReturn), color: col(mcResult.medianReturn) },
+                          { label: 'Median Excess', value: fP(mcResult.medianExcess), color: col(mcResult.medianExcess) },
+                          { label: 'Beat Market', value: (mcResult.beatRate * 100).toFixed(0) + '%', color: mcResult.beatRate >= 0.5 ? 'var(--green)' : 'var(--red)' },
+                          { label: 'Median Sharpe', value: mcResult.medianSharpe.toFixed(2), color: mcResult.medianSharpe >= 1 ? 'var(--green)' : 'var(--muted)' },
+                          { label: 'P10 Return', value: fP(mcResult.p10Return), color: col(mcResult.p10Return) },
+                          { label: 'P90 Return', value: fP(mcResult.p90Return), color: col(mcResult.p90Return) },
+                          { label: 'Median DD', value: fP(-mcResult.medianDrawdown), color: 'var(--red)' },
+                        ].map(({ label, value, color }) => <KpiCard key={label} label={label} value={value} color={color} />)}
+                      </div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.45rem' }}>
+                        RETURN DISTRIBUTION ({mcResult.nTrials} windows of {mcResult.windowDays}d)
+                      </div>
+                      <ResponsiveContainer width="100%" height={170}>
+                        <AreaChart data={mcResult.results.sort((a, b) => a.strategyReturn - b.strategyReturn).map((r, i) => ({ i, strategy: +r.strategyReturn.toFixed(2), market: +r.marketReturn.toFixed(2) }))} margin={{ top: 2, right: 4, bottom: 2, left: -16 }}>
+                          <XAxis dataKey="i" tick={false} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fill: 'var(--faint)', fontSize: 9, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
+                          <Tooltip contentStyle={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8, fontFamily: 'var(--font-mono)', fontSize: 10 }} formatter={(v: unknown, n: unknown) => [`${Number(v).toFixed(2)}%`, n === 'strategy' ? 'Strategy' : 'Market']} />
+                          <Area type="monotone" dataKey="market" stroke="var(--muted)" strokeWidth={1} fill="rgba(120,140,180,.06)" dot={false} name="market" />
+                          <Area type="monotone" dataKey="strategy" stroke="var(--blue)" strokeWidth={1.5} fill="rgba(59,127,255,.09)" dot={false} name="strategy" />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </>
+                  )}
+                </div>
               )}
             </div>
-          )}
+          </div>
+        </div>
+
+        {/* ── RIGHT COLUMN — sticky card ── */}
+        <div style={{ position: 'sticky', top: 72 }}>
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 15, padding: '1.3rem', overflow: 'hidden' }}>
+
+            {/* Return */}
+            <div style={{ marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.12em', marginBottom: '.28rem' }}>
+                {isLive ? 'LIVE TOTAL RETURN' : hasBacktestData ? `${cachedBacktestStats!.period.toUpperCase()} BACKTEST RETURN` : 'RETURN'}
+              </div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '2rem', fontWeight: 800, color: pos ? 'var(--green)' : 'var(--red)', letterSpacing: '-.02em', lineHeight: 1 }}>
+                {fP(ret)}
+              </div>
+              {hasBacktestData && (
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.46rem', color: 'var(--faint)', marginTop: '.28rem' }}>
+                  {cachedBacktestStats!.symbol} · {new Date(cachedBacktestStats!.computed_at).toLocaleDateString()}
+                </div>
+              )}
+            </div>
+
+            {/* Mini stats 2x2 */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.38rem', marginBottom: '1rem' }}>
+              <MiniStat label="Sharpe" value={sharpe.toFixed(2)} color={sharpe >= 1 ? 'var(--green)' : sharpe >= 0.5 ? 'var(--amber)' : 'var(--red)'} />
+              <MiniStat label="Max DD" value={fP(-maxDD)} color="var(--red)" />
+              <MiniStat label="Win %" value={winRate.toFixed(0) + '%'} color={winRate >= 55 ? 'var(--green)' : 'var(--amber)'} />
+              <MiniStat label="Trades" value={totalTrades.toString()} />
+            </div>
+
+            {/* Subscribe */}
+            {isSubscribed ? (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.45rem', background: 'rgba(22,199,132,.06)', border: '1px solid rgba(22,199,132,.16)', borderRadius: 8, padding: '.45rem .7rem', marginBottom: '.55rem' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', display: 'inline-block', flexShrink: 0 }} />
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--green)', fontWeight: 700, letterSpacing: '.06em', flex: 1 }}>SUBSCRIBED</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)' }}>{subscribers} subs</span>
+                </div>
+                <button onClick={handleUnsubscribe} disabled={loading} style={{ width: '100%', padding: '.45rem', borderRadius: 7, border: '1px solid rgba(242,54,69,.18)', background: 'transparent', color: 'rgba(242,54,69,.6)', fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: '.04em' }}>
+                  {loading ? 'Processing...' : 'Unsubscribe'}
+                </button>
+              </div>
+            ) : (
+              <div>
+                {!isLoggedIn && (
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.56rem', color: 'var(--faint)', textAlign: 'center', marginBottom: '.55rem' }}>
+                    <Link href={`/login?redirect=/agents/${agent.slug}`} style={{ color: 'var(--blue2)', textDecoration: 'none' }}>Sign in</Link> to subscribe
+                  </div>
+                )}
+                <button onClick={handleSubscribe} disabled={loading || agent.alert_level === 'hard'} style={{ width: '100%', padding: '.72rem', borderRadius: 9, border: 0, background: agent.alert_level === 'hard' ? 'var(--bg3)' : 'var(--blue)', color: agent.alert_level === 'hard' ? 'var(--faint)' : '#fff', fontFamily: 'var(--font-head)', fontSize: '.86rem', fontWeight: 700, cursor: loading || agent.alert_level === 'hard' ? 'not-allowed' : 'pointer', letterSpacing: '-.01em', transition: 'background .15s' }}
+                  onMouseEnter={e => { if (!loading && agent.alert_level !== 'hard') (e.currentTarget as HTMLButtonElement).style.background = 'var(--blue2)' }}
+                  onMouseLeave={e => { if (agent.alert_level !== 'hard') (e.currentTarget as HTMLButtonElement).style.background = 'var(--blue)' }}
+                >
+                  {loading ? 'Processing...' : monthlyFee === 0 ? 'Subscribe Free' : `Subscribe — $${(monthlyFee / 100).toFixed(0)}/mo`}
+                </button>
+                {subscribers > 0 && (
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)', textAlign: 'center', marginTop: '.4rem' }}>
+                    {subscribers} subscriber{subscribers !== 1 ? 's' : ''} · {monthlyFee === 0 ? 'Free beta' : `$${(monthlyFee / 100).toFixed(0)}/mo`}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {msg && <div style={{ marginTop: '.45rem', fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--red)', textAlign: 'center' }}>{msg}</div>}
+
+            {/* Investment section */}
+            {isSubscribed && (
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.85rem', marginTop: '.85rem' }}>
+                {holding ? (
+                  <div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.55rem' }}>YOUR POSITION</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.35rem', marginBottom: '.6rem' }}>
+                      {[
+                        { label: 'INVESTED', value: fmt$(holding.invested_cents), color: undefined },
+                        { label: 'VALUE', value: fmt$(holding.current_value_cents), color: undefined },
+                        { label: 'SHARES', value: holding.shares.toFixed(4), color: undefined },
+                        { label: 'P&L', value: `${holding.pnl_cents >= 0 ? '+' : ''}${fmt$(holding.pnl_cents)}`, color: holding.pnl_cents >= 0 ? 'var(--green)' : 'var(--red)' },
+                      ].map(({ label, value, color }) => (
+                        <div key={label} style={{ background: label === 'P&L' ? (holding.pnl_cents >= 0 ? 'rgba(22,199,132,.05)' : 'rgba(242,54,69,.05)') : 'var(--bg3)', border: `1px solid ${label === 'P&L' ? (holding.pnl_cents >= 0 ? 'rgba(22,199,132,.16)' : 'rgba(242,54,69,.16)') : 'var(--border)'}`, borderRadius: 7, padding: '.4rem .55rem' }}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: 'var(--faint)', marginBottom: '.1rem' }}>{label}</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.76rem', fontWeight: 700, color: color ?? 'var(--white)' }}>{value}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.35rem' }}>
+                      <button onClick={() => setShowInvestModal(true)} style={{ padding: '.5rem', borderRadius: 7, border: '1px solid rgba(59,127,255,.24)', background: 'rgba(59,127,255,.06)', color: 'var(--blue2)', fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '.04em' }}>
+                        Add More
+                      </button>
+                      <button onClick={() => setShowDeallocateModal(true)} style={{ padding: '.5rem', borderRadius: 7, border: '1px solid rgba(242,54,69,.2)', background: 'rgba(242,54,69,.05)', color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '.04em' }}>
+                        Deallocate
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.45rem' }}>PAPER TRADING</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: 'var(--muted)', lineHeight: 1.62, marginBottom: '.65rem' }}>
+                      Allocate simulated credits to activate live trading on Coinbase.
+                    </div>
+                    <button onClick={() => setShowInvestModal(true)} disabled={agent.alert_level === 'hard'} style={{ width: '100%', padding: '.62rem', borderRadius: 8, border: 0, background: 'linear-gradient(135deg, #3b7eff 0%, #7c5cff 100%)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.84rem', fontWeight: 700, cursor: agent.alert_level === 'hard' ? 'not-allowed' : 'pointer', letterSpacing: '-.01em', opacity: agent.alert_level === 'hard' ? .4 : 1 }}>
+                      Allocate Credits
+                    </button>
+                  </div>
+                )}
+
+                {statusMsg && (
+                  <div style={{ marginTop: '.5rem', fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--green)', textAlign: 'center' }}>
+                    {statusMsg}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Signal */}
+            {agent.signal_summary && (
+              <div style={{ marginTop: '.85rem', paddingTop: '.85rem', borderTop: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: '.56rem', color: 'var(--muted)', lineHeight: 1.55 }}>
+                <span style={{ color: 'var(--faint)', fontSize: '.46rem', letterSpacing: '.08em' }}>LAST SIGNAL </span>
+                {agent.signal_summary}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
+      {/* Modals */}
+      {showInvestModal && (
+        <InvestModal
+          agentId={agent.id}
+          agentName={agent.name}
+          navCents={currentNavCents}
+          onClose={() => setShowInvestModal(false)}
+          onSuccess={({ shares, amount }) => {
+            setShowInvestModal(false)
+            setStatusMsg(`Invested $${amount} — ${shares.toFixed(4)} shares acquired`)
+            refreshHolding()
+            router.refresh()
+          }}
+        />
+      )}
+
+      {showDeallocateModal && holding && (
+        <DeallocateModal
+          holding={holding}
+          agentName={agent.name}
+          navCents={currentNavCents}
+          onClose={() => setShowDeallocateModal(false)}
+          onSuccess={returnedCents => {
+            setShowDeallocateModal(false)
+            setStatusMsg(`Deallocated — ${fmt$(returnedCents)} returned to balance`)
+            refreshHolding()
+            router.refresh()
+          }}
+        />
+      )}
+
       <style>{`
-        @media (max-width: 820px) {
-          .detail-header-grid { grid-template-columns: 1fr !important; }
+        @media (max-width: 920px) {
+          .detail-main-grid { grid-template-columns: 1fr !important; }
           .kpi-strip { grid-template-columns: repeat(3,1fr) !important; }
-          .tab-grid { grid-template-columns: 1fr !important; }
-          .perf-grid { grid-template-columns: repeat(2,1fr) !important; }
         }
-        @media (max-width: 520px) {
+        @media (max-width: 580px) {
           .kpi-strip { grid-template-columns: repeat(2,1fr) !important; }
+          .tab-grid, .perf-grid { grid-template-columns: 1fr !important; }
+          .how-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
     </div>

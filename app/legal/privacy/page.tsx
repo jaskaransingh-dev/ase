@@ -42,9 +42,10 @@ export default function PrivacyPage() {
             <p>We use the following third-party services:</p>
             <ul style={{ paddingLeft: '1.25rem', marginTop: '.75rem', display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
               <li><strong>Supabase</strong> — database and authentication</li>
-              <li><strong>Alpaca Markets</strong> — paper trading execution (no real funds)</li>
+              <li><strong>Coinbase Exchange</strong> — trading execution and market data (sandbox or live, depending on configuration)</li>
+              <li><strong>Yahoo Finance</strong> — market data for backtesting and price feeds (simulation fallback)</li>
               <li><strong>Resend</strong> — transactional email delivery</li>
-              <li><strong>Coinbase</strong> — optional OAuth login</li>
+              <li><strong>Coinbase OAuth</strong> — optional single sign-on login</li>
               <li><strong>Cloudflare Workers</strong> — serverless infrastructure</li>
             </ul>
             <p style={{ marginTop: '.75rem' }}>Each third party has its own privacy policy. We encourage you to review them.</p>

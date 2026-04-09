@@ -1,16 +1,30 @@
 /**
  * POST /api/cron/run-agents
  *
- * Runs all 10 sophisticated trading strategies against live Alpaca crypto market data.
+ * Runs all 10 sophisticated trading strategies using live Yahoo Finance market data.
  * Each agent:
  *   1. Checks its own open positions from agent_trades (DB-tracked, per-agent)
- *   2. Fetches real crypto bars from Alpaca v1beta3 endpoint
+ *   2. Fetches real crypto price bars from Yahoo Finance
  *   3. Calculates advanced indicators and signals
- *   4. Executes orders via Alpaca paper trading if signal fires
+ *   4. Executes orders via Coinbase Exchange (sandbox or production)
  *   5. Logs fills to agent_trades immediately with fill price + P&L
  *   6. Stores decision state: signal_summary and portfolio snapshot
  *
  * Protected by CRON_SECRET header. Safe to call every minute.
+ *
+ * Coinbase trading configuration (env vars):
+ *   COINBASE_TRADE_KEY         - API key from Coinbase Exchange / Advanced Trade
+ *   COINBASE_TRADE_SECRET      - Base64-encoded signing secret
+ *   COINBASE_TRADE_PASSPHRASE  - Passphrase from key creation
+ *   COINBASE_TRADE_SANDBOX     - "false" for production (default: sandbox)
+ *
+ * If Coinbase credentials are not set, agents run in simulation mode —
+ * trades are computed and logged but not sent to any exchange.
+ *
+ * Fund pooling:
+ *   When users subscribe and allocate credits, total_aum_cents grows.
+ *   calculateTradingCapitalCents(aum) = PLATFORM_SEED + aum.
+ *   Every new dollar of AUM increases the agent's position sizing.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -29,52 +43,37 @@ import {
   StrategyResult,
   getAgentPositions,
 } from '@/lib/agents'
-import { getCryptoBars } from '@/lib/alpaca'
+import { getCryptoBars, getLatestCryptoPrice } from '@/lib/market-data'
+import { healthCheckCoinbase } from '@/lib/coinbase-trade'
 import { calculateNavFromState, calculateHoldingValueCents, calculateTradingCapitalCents, PLATFORM_SEED_CAPITAL_CENTS } from '@/lib/market'
 
 export const dynamic = 'force-dynamic'
-
-// Health check: verify Alpaca connectivity before running agents
-async function healthCheckAlpaca(alpacaKey: string, alpacaSecret: string): Promise<boolean> {
-  try {
-    // Try to fetch a simple bar to verify connection
-    const bars = await getCryptoBars('BTC/USD', '1Day', 1)
-    return bars.length > 0
-  } catch (err) {
-    console.error('Alpaca health check failed:', err instanceof Error ? err.message : 'Unknown error')
-    return false
-  }
-}
 
 // Map agent DB slug → strategy runner
 const STRATEGY_MAP: Record<
   string,
   (admin: ReturnType<typeof createAdminClient>, agentId: string, key: string, secret: string, capital: number) => Promise<StrategyResult>
 > = {
-  'btc-momentum':   runBtcMomentum,
+  'btc-momentum':    runBtcMomentum,
   'eth-mean-revert': runEthMeanRevert,
-  'crypto-trend':   runCryptoTrend,
-  'sol-breakout':   runSolBreakout,
-  'defi-basket':    runDefiBasket,
-  'btc-eth-pairs':  runBtcEthPairs,
-  'vol-harvester':  runVolHarvester,
-  'momentum-carry': runMomentumCarry,
-  'cascade-detect': runCascadeDetect,
-  'defi-yield':     runDefiYield,
+  'crypto-trend':    runCryptoTrend,
+  'sol-breakout':    runSolBreakout,
+  'defi-basket':     runDefiBasket,
+  'btc-eth-pairs':   runBtcEthPairs,
+  'vol-harvester':   runVolHarvester,
+  'momentum-carry':  runMomentumCarry,
+  'cascade-detect':  runCascadeDetect,
+  'defi-yield':      runDefiYield,
 }
 
 export async function POST(req: NextRequest) {
   let targetAgentId: string | null = null
-  if (req.method === 'POST') {
-    try {
-      const body = await req.json()
-      targetAgentId = typeof body?.agent_id === 'string' ? body.agent_id : null
-    } catch {
-      targetAgentId = null
-    }
-  }
+  try {
+    const body = await req.json()
+    targetAgentId = typeof body?.agent_id === 'string' ? body.agent_id : null
+  } catch { /* no body */ }
 
-  // Auth: require CRON_SECRET header (skip check if secret not configured in dev)
+  // Auth: require CRON_SECRET header
   const cronSecret = process.env.CRON_SECRET
   if (cronSecret) {
     const authHeader = req.headers.get('x-cron-secret')
@@ -83,22 +82,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const alpacaKey = process.env.ALPACA_KEY_ID || ''
-  const alpacaSecret = process.env.ALPACA_SECRET_KEY || ''
-
-  if (!alpacaKey || !alpacaSecret) {
-    return NextResponse.json(
-      { error: 'Alpaca credentials not configured', env_vars: ['ALPACA_KEY_ID', 'ALPACA_SECRET_KEY'] },
-      { status: 500 }
-    )
-  }
-
-  // Health check: verify Alpaca connectivity before running agents
-  const isHealthy = await healthCheckAlpaca(alpacaKey, alpacaSecret)
-  if (!isHealthy) {
+  // Connectivity check — Coinbase ticker endpoint (public, no auth required)
+  const healthy = await healthCheckCoinbase()
+  if (!healthy) {
     return NextResponse.json({
       ok: false,
-      error: 'Alpaca health check failed - skipping agent runs',
+      error: 'Coinbase/market data health check failed — skipping agent runs',
       ran_at: new Date().toISOString(),
     }, { status: 503 })
   }
@@ -106,17 +95,18 @@ export async function POST(req: NextRequest) {
   const admin = createAdminClient()
   const ran_at = new Date().toISOString()
 
+  // Coinbase credentials passed into strategies (ignored in simulation mode)
+  const tradeKey    = process.env.COINBASE_TRADE_KEY    ?? ''
+  const tradeSecret = process.env.COINBASE_TRADE_SECRET ?? ''
+
   let agentsQuery = admin
     .from('agents')
     .select('id, slug, total_aum_cents, share_price_cents, alert_level')
     .eq('status', 'active')
 
-  if (targetAgentId) {
-    agentsQuery = agentsQuery.eq('id', targetAgentId)
-  }
+  if (targetAgentId) agentsQuery = agentsQuery.eq('id', targetAgentId)
 
   const { data: agents, error: agentsError } = await agentsQuery
-
   if (agentsError || !agents?.length) {
     return NextResponse.json({
       ok: false,
@@ -125,39 +115,28 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Circuit breaker logging hook (Phase 2: full ADV cross-agent check)
-  console.log(`[circuit] cross-agent symbol exposure check — ${agents.length} agents in this cron tick`)
+  console.log(`[run-agents] ${agents.length} agents in this cron tick`)
 
   const results: Record<string, StrategyResult | { error: string; agent_slug: string }> = {}
   let totalTrades = 0
 
   for (const agent of agents) {
-    // Skip agents under hard drawdown delisting (White Paper Section 7.4)
+    // Skip agents under hard drawdown delisting
     if (agent.alert_level === 'hard') {
       results[agent.slug] = { agent_slug: agent.slug, error: 'Skipped — hard drawdown alert' }
-      console.warn(`[cron] ${agent.slug}: SKIPPED — hard drawdown delisting`)
+      console.warn(`[run-agents] ${agent.slug}: SKIPPED — hard drawdown`)
       continue
     }
 
     const runner = STRATEGY_MAP[agent.slug]
     if (!runner) {
-      results[agent.slug] = {
-        agent_slug: agent.slug,
-        error: 'No strategy runner configured',
-      }
-      try {
-        await admin
-          .from('agents')
-          .update({ last_error: 'No strategy runner configured' })
-          .eq('id', agent.id)
-      } catch (_) { /* best-effort */ }
+      results[agent.slug] = { agent_slug: agent.slug, error: 'No strategy runner configured' }
+      await admin.from('agents').update({ last_error: 'No strategy runner configured' }).eq('id', agent.id).catch(() => {})
       continue
     }
 
     try {
-      // Re-fetch the latest AUM for this agent (may have changed since cron started
-      // if a user bought/sold shares in between). This ensures agents always trade
-      // with the most up-to-date capital amount.
+      // Re-fetch latest AUM (may have changed since cron started)
       const { data: freshAgent } = await admin
         .from('agents')
         .select('total_aum_cents')
@@ -165,61 +144,37 @@ export async function POST(req: NextRequest) {
         .single()
 
       const aumCents = Number(freshAgent?.total_aum_cents ?? agent.total_aum_cents) || 0
-      // Capital = platform seed + ALL investor capital (additive, not max)
-      // Every dollar an investor adds goes directly into the trading pool.
-      // More AUM → agent trades larger positions → more absolute P&L → higher NAV %.
       const capitalCents = calculateTradingCapitalCents(aumCents)
 
-      console.log(`Running ${agent.slug} with $${(capitalCents / 100).toFixed(0)} capital (seed: $${(PLATFORM_SEED_CAPITAL_CENTS/100).toFixed(0)} + investor AUM: $${(aumCents / 100).toFixed(0)})`)
+      console.log(`[run-agents] ${agent.slug}: capital $${(capitalCents / 100).toFixed(0)} (seed $${(PLATFORM_SEED_CAPITAL_CENTS / 100).toFixed(0)} + AUM $${(aumCents / 100).toFixed(0)})`)
 
-      const result = await runner(admin, agent.id, alpacaKey, alpacaSecret, capitalCents)
+      const result = await runner(admin, agent.id, tradeKey, tradeSecret, capitalCents)
       results[agent.slug] = result
 
-      // Store latest signal summary + portfolio state on the agents row itself
-      // (agent_stats is a time-series table; live state lives on agents)
-      try {
-        await admin
-          .from('agents')
-          .update({
-            signal_summary: result.signal_summary || 'SCANNING',
-            portfolio_json: JSON.stringify(result.portfolio),
-            last_run_at: ran_at,
-            last_error: null, // Clear any previous errors on successful run
-          })
-          .eq('id', agent.id)
-      } catch (statsErr) {
-        console.warn(`Failed to store signal state for ${agent.slug}:`, statsErr)
-      }
+      // Persist signal state
+      await admin.from('agents').update({
+        signal_summary: result.signal_summary || 'SCANNING',
+        portfolio_json: JSON.stringify(result.portfolio),
+        last_run_at: ran_at,
+        last_error: null,
+      }).eq('id', agent.id).catch(e => console.warn(`signal_summary update failed for ${agent.slug}:`, e))
 
-      // Count actual trades (BUY or SELL actions)
       const tradeCount = result.actions.filter(a => a.action === 'BUY' || a.action === 'SELL').length
       totalTrades += tradeCount
-
-      if (tradeCount > 0) {
-        console.log(`${agent.slug}: executed ${tradeCount} live trade(s); NAV will be recalculated`)
-      }
+      if (tradeCount > 0) console.log(`[run-agents] ${agent.slug}: ${tradeCount} trade(s) executed`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
-      console.error(`Agent ${agent.slug} failed:`, msg)
-      results[agent.slug] = {
-        agent_slug: agent.slug,
-        error: msg,
-      }
-      // Store the error on the agent row for visibility
-      try {
-        await admin
-          .from('agents')
-          .update({ last_error: msg })
-          .eq('id', agent.id)
-      } catch (_) { /* best-effort */ }
+      console.error(`[run-agents] ${agent.slug} failed:`, msg)
+      results[agent.slug] = { agent_slug: agent.slug, error: msg }
+      await admin.from('agents').update({ last_error: msg }).eq('id', agent.id).catch(() => {})
     }
   }
 
-  // ── NAV RECALCULATION: Update share prices after all agents finish running ──
-  console.log('Starting NAV recalculation for all agents...')
+  // ── NAV Recalculation ──────────────────────────────────────────────────────
+  console.log('[run-agents] Recalculating NAV for all agents...')
+
   for (const agent of agents) {
     try {
-      // Get investor capital
       const { data: activeHoldings } = await admin
         .from('holdings')
         .select('id, shares, invested_cents')
@@ -227,11 +182,10 @@ export async function POST(req: NextRequest) {
         .eq('status', 'active')
 
       const investorCapitalCents = (activeHoldings ?? []).reduce(
-        (sum, holding) => sum + (Number(holding.invested_cents) || 0),
-        0
+        (sum, h) => sum + (Number(h.invested_cents) || 0), 0
       )
 
-      // Get realized P&L from closed trades
+      // Realized P&L
       const { data: closedTrades } = await admin
         .from('agent_trades')
         .select('pnl_cents')
@@ -242,51 +196,39 @@ export async function POST(req: NextRequest) {
         (sum, t) => sum + (Number(t.pnl_cents) || 0), 0
       )
 
-      // Get unrealized P&L from open positions
+      // Unrealized P&L — price from Yahoo Finance (no Alpaca)
       const openPositions = await getAgentPositions(admin, agent.id)
       let unrealizedPnlCents = 0
       const priceCache: Record<string, number> = {}
 
       for (const pos of openPositions) {
         if (!priceCache[pos.symbol]) {
-          const bars = await getCryptoBars(pos.symbol, '1Day', 1)
-          priceCache[pos.symbol] = bars.length > 0 ? bars[bars.length - 1].c : pos.avg_entry
+          const price = await getLatestCryptoPrice(pos.symbol)
+          priceCache[pos.symbol] = price ?? pos.avg_entry
         }
-        const currentPrice = priceCache[pos.symbol]
-        const unrealizedDollars = pos.qty * (currentPrice - pos.avg_entry)
-        unrealizedPnlCents += Math.round(unrealizedDollars * 100)
+        const current = priceCache[pos.symbol]
+        unrealizedPnlCents += Math.round(pos.qty * (current - pos.avg_entry) * 100)
       }
 
-      // Calculate new NAV
-      const totalPnlCents = realizedPnlCents + unrealizedPnlCents
       const navState = calculateNavFromState({
         investorCapitalCents,
-        totalPnlCents,
+        totalPnlCents: realizedPnlCents + unrealizedPnlCents,
       })
       const navCents = navState.navCents
 
-      // Update agent share price
-      await admin
-        .from('agents')
-        .update({
-          share_price_cents: navCents,
-          total_aum_cents: investorCapitalCents,
-        })
-        .eq('id', agent.id)
+      await admin.from('agents').update({
+        share_price_cents: navCents,
+        total_aum_cents: investorCapitalCents,
+      }).eq('id', agent.id)
 
-      // Update holdings current value
       for (const holding of activeHoldings ?? []) {
         const currentValue = calculateHoldingValueCents(Number(holding.shares) || 0, navCents)
-        await admin
-          .from('holdings')
-          .update({ current_value_cents: currentValue })
-          .eq('id', holding.id)
+        await admin.from('holdings').update({ current_value_cents: currentValue }).eq('id', holding.id)
       }
 
-      console.log(`${agent.slug}: NAV updated to ${(navCents / 100).toFixed(2)} USD`)
+      console.log(`[run-agents] ${agent.slug}: NAV = $${(navCents / 100).toFixed(2)}`)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error'
-      console.error(`NAV recalculation failed for ${agent.slug}:`, msg)
+      console.error(`[run-agents] NAV recalc failed for ${agent.slug}:`, err instanceof Error ? err.message : err)
     }
   }
 
@@ -300,7 +242,6 @@ export async function POST(req: NextRequest) {
   })
 }
 
-// Allow GET for easy manual testing in browser
 export async function GET(req: NextRequest) {
   return POST(req)
 }

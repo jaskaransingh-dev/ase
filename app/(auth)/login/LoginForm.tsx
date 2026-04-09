@@ -154,7 +154,8 @@ export default function LoginForm() {
             <button
               type="button"
               onClick={() => {
-                window.location.href = '/api/auth/coinbase'
+                const dest = redirect !== '/dashboard' ? `?redirect=${encodeURIComponent(redirect)}` : ''
+                window.location.href = `/api/auth/coinbase${dest}`
               }}
               style={{
                 width: '100%', padding: '.75rem 1rem', borderRadius: 12,

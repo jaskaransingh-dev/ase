@@ -11,7 +11,7 @@
  */
 
 import { SupabaseClient } from '@supabase/supabase-js'
-import { getCryptoBars, submitOrder, waitForFill, AlpacaBar } from './alpaca'
+import { getCryptoBars, submitOrder, waitForFill, AlpacaBar } from './market-data'
 
 // ── AGENT CONFIG ──────────────────────────────────────────────────────────
 

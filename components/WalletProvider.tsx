@@ -44,6 +44,28 @@ interface WalletContextValue {
 
 const DEFAULT: WalletState = { address: null, chainId: null, type: null, connected: false }
 
+const LS_KEY = 'ase_wallet'
+
+function saveWalletToStorage(w: WalletState) {
+  try {
+    if (typeof window !== 'undefined') {
+      if (w.address) {
+        localStorage.setItem(LS_KEY, JSON.stringify({ address: w.address, chainId: w.chainId, type: w.type }))
+      } else {
+        localStorage.removeItem(LS_KEY)
+      }
+    }
+  } catch { /* ignore */ }
+}
+
+function loadWalletFromStorage(): Partial<WalletState> | null {
+  try {
+    if (typeof window === 'undefined') return null
+    const raw = localStorage.getItem(LS_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
 const WalletCtx = createContext<WalletContextValue>({
   wallet: DEFAULT,
   connecting: false,
@@ -311,16 +333,35 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [modalOpen, setModalOpen] = useState(false)
   const pendingPrefer = useRef<'coinbase' | 'metamask' | 'injected' | undefined>(undefined)
 
-  // Restore session on mount
+  // Restore session on mount: first try active provider, then localStorage
   useEffect(() => {
-    getConnectedWallet().then(w => { if (w) setWallet(w) })
+    getConnectedWallet().then(w => {
+      if (w) {
+        setWallet(w)
+        saveWalletToStorage(w)
+      } else {
+        // Restore address from localStorage for display (provider may not be unlocked yet)
+        const stored = loadWalletFromStorage()
+        if (stored?.address) {
+          setWallet({ address: stored.address, chainId: stored.chainId ?? null, type: stored.type ?? null, connected: false })
+        }
+      }
+    })
   }, [])
 
   // Listen for account / chain changes
   useEffect(() => {
     const unsubAccounts = onAccountsChanged((accounts) => {
-      if (accounts.length === 0) setWallet(DEFAULT)
-      else setWallet(prev => ({ ...prev, address: accounts[0].toLowerCase(), connected: true }))
+      if (accounts.length === 0) {
+        setWallet(DEFAULT)
+        saveWalletToStorage(DEFAULT)
+      } else {
+        setWallet(prev => {
+          const next = { ...prev, address: accounts[0].toLowerCase(), connected: true }
+          saveWalletToStorage(next)
+          return next
+        })
+      }
     })
     const unsubChain = onChainChanged((chainId) => {
       setWallet(prev => ({ ...prev, chainId }))
@@ -339,6 +380,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         state = await connectWallet(prefer)
       }
       setWallet(state)
+      saveWalletToStorage(state)
       setModalOpen(false)
 
       // Persist wallet address to Supabase profile
@@ -376,6 +418,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const disconnect = useCallback(() => {
     setWallet(DEFAULT)
+    saveWalletToStorage(DEFAULT)
     setError(null)
   }, [])
 

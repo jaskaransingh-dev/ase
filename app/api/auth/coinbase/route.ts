@@ -8,7 +8,12 @@ export async function GET(request: Request) {
     return NextResponse.redirect(new URL('/login?error=oauth_not_configured', request.url))
   }
 
-  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin).replace(/\/+$/, '')
+  const url = new URL(request.url)
+  // Preserve the redirect destination through the OAuth round-trip
+  const redirectAfter = url.searchParams.get('redirect') ?? '/dashboard'
+  const safeRedirect = redirectAfter.startsWith('/') && !redirectAfter.startsWith('//') ? redirectAfter : '/dashboard'
+
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || url.origin).replace(/\/+$/, '')
   const redirectUri = `${baseUrl}/api/auth/coinbase/callback`
 
   const state = crypto.randomUUID()
@@ -22,6 +27,14 @@ export async function GET(request: Request) {
 
   const response = NextResponse.redirect(authUrl.toString())
   response.cookies.set('coinbase_oauth_state', state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 300,
+    path: '/',
+  })
+  // Preserve post-login redirect destination
+  response.cookies.set('coinbase_oauth_redirect', safeRedirect, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
