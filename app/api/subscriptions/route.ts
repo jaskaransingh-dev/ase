@@ -37,7 +37,7 @@ export async function POST(req: Request) {
 
   if (!agent_id) return NextResponse.json({ error: 'agent_id required' }, { status: 400 })
 
-  // Use admin client to verify agent — bypasses any RLS on the agents table
+  // Use admin client for all writes — bypasses RLS, avoids auth cookie issues in API routes
   const admin = createAdminClient()
   const { data: agent } = await admin
     .from('agents').select('id, status').eq('id', agent_id).single()
@@ -52,11 +52,12 @@ export async function POST(req: Request) {
   )
   // Then ensure wallet exists
   await admin.from('wallets').upsert(
-    { user_id: user.id, balance_cents: 10000 },
+    { user_id: user.id, balance_cents: 0 },
     { onConflict: 'user_id' }
   )
 
-  const { data, error } = await supabase
+  // Upsert subscription with admin client — avoids RLS cookie propagation issues
+  const { data, error } = await admin
     .from('subscriptions')
     .upsert({
       user_id: user.id,
@@ -82,7 +83,8 @@ export async function DELETE(req: Request) {
   const { agent_id } = body
   if (!agent_id) return NextResponse.json({ error: 'agent_id required' }, { status: 400 })
 
-  const { error } = await supabase
+  const admin = createAdminClient()
+  const { error } = await admin
     .from('subscriptions')
     .update({ status: 'cancelled' })
     .eq('user_id', user.id)

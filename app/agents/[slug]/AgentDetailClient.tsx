@@ -40,6 +40,17 @@ interface Trade {
   pnl_cents: number
 }
 
+interface CachedBacktestStats {
+  symbol: string
+  strategy: string
+  period: string
+  computed_at: string
+  stats: BacktestStats
+  buyHold: { totalReturnPct: number }
+  equityCurve: Array<{ date: string; equity: number }>
+  buyHoldCurve: Array<{ date: string; equity: number }>
+}
+
 interface Props {
   agent: Agent
   statsHistory: Stats[]
@@ -47,6 +58,7 @@ interface Props {
   trades: Trade[]
   isLoggedIn: boolean
   isSubscribed: boolean
+  cachedBacktestStats: CachedBacktestStats | null
 }
 
 const TABS = ['Overview', 'Performance', 'Trades', 'Strategy', 'Backtest'] as const
@@ -79,18 +91,26 @@ const strategyInfo: Record<string, { label: string; color: string }> = {
   crypto_mean_reversion: { label: 'Crypto Arb',      color: '#0EAD6E' },
 }
 
-export default function AgentDetailClient({ agent, statsHistory, latestStats, trades, isLoggedIn, isSubscribed: initialIsSubscribed }: Props) {
+export default function AgentDetailClient({ agent, statsHistory, latestStats, trades, isLoggedIn, isSubscribed: initialIsSubscribed, cachedBacktestStats }: Props) {
   const router = useRouter()
   const [tab, setTab] = useState<Tab>('Overview')
   const [isSubscribed, setIsSubscribed] = useState(initialIsSubscribed)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
 
-  // Backtest state
-  const [btResult, setBtResult] = useState<BacktestResult | null>(null)
+  // Backtest state — pre-populate from cached DB result if available
+  const [btResult, setBtResult] = useState<BacktestResult | null>(() => {
+    if (!cachedBacktestStats) return null
+    const c = cachedBacktestStats
+    // Merge equityCurve + buyHoldCurve into the bars/buyHold shape the UI expects
+    const bars = c.equityCurve.map(p => ({ date: p.date, equity: p.equity }))
+    const buyHold = c.buyHoldCurve.map(p => ({ date: p.date, equity: p.equity }))
+    return { stats: c.stats, bars, buyHold, symbol: c.symbol, period: c.period }
+  })
   const [btLoading, setBtLoading] = useState(false)
   const [btError, setBtError] = useState('')
-  const [btPeriod, setBtPeriod] = useState('1y')
+  const [btPeriod, setBtPeriod] = useState(cachedBacktestStats?.period ?? '2y')
+  const [btRefreshing, setBtRefreshing] = useState(false)
 
   async function loadBacktest(period = btPeriod) {
     if (!agent.primary_symbol || !agent.backtest_strategy) {
@@ -112,6 +132,20 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
       setBtError(e instanceof Error ? e.message : 'Unknown error')
     } finally {
       setBtLoading(false)
+    }
+  }
+
+  async function refreshBacktestStats() {
+    setBtRefreshing(true)
+    try {
+      await fetch('/api/cron/run-backtests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agent.id }),
+      })
+      router.refresh()
+    } finally {
+      setBtRefreshing(false)
     }
   }
 

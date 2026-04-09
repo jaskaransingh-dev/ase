@@ -62,7 +62,7 @@ function triggerHaptic(ms = 8) {
 export default function DashboardPage() {
   const supabase = createClient()
   const router = useRouter()
-  const { wallet, shortAddress, openModal } = useWallet()
+  const { wallet, shortAddress, network, openModal, disconnect } = useWallet()
 
   const [loading, setLoading] = useState(true)
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
@@ -189,10 +189,10 @@ export default function DashboardPage() {
       {!wallet.connected && (
         <div style={{ background: 'rgba(155,140,255,.06)', border: '1px solid rgba(155,140,255,.2)', borderRadius: 14, padding: '1rem 1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
-            <div style={{ fontWeight: 700, fontSize: '.9rem', marginBottom: '.2rem' }}>Connect your wallet</div>
-            <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>Required to subscribe to agents and for future on-chain settlement.</div>
+            <div style={{ fontWeight: 700, fontSize: '.9rem', marginBottom: '.2rem' }}>Connect your wallet (optional)</div>
+            <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>Wallet connection is used for future on-chain settlement. You can subscribe to agents without one.</div>
           </div>
-          <button onClick={openModal} className="btn-primary" style={{ fontSize: '.8rem', padding: '.5rem 1rem' }}>
+          <button onClick={openModal} className="btn-secondary" style={{ fontSize: '.8rem', padding: '.5rem 1rem' }}>
             Connect Wallet →
           </button>
         </div>
@@ -201,10 +201,15 @@ export default function DashboardPage() {
       {wallet.connected && (
         <div style={{ background: 'rgba(110,231,183,.05)', border: '1px solid rgba(110,231,183,.15)', borderRadius: 14, padding: '.75rem 1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '.75rem' }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#6EE7B7', display: 'inline-block', flexShrink: 0 }} />
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: '#6EE7B7' }}>Wallet connected: {shortAddress}</span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginLeft: 'auto' }}>
-            {wallet.chainId ?? 'Unknown chain'}
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: '#6EE7B7' }}>
+            {wallet.type === 'coinbase' ? 'Coinbase Wallet' : wallet.type === 'metamask' ? 'MetaMask' : 'Wallet'}: {shortAddress}
           </span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginLeft: 'auto' }}>
+            {network ?? 'Unknown network'}
+          </span>
+          <button onClick={disconnect} style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 .25rem' }}>
+            Disconnect
+          </button>
         </div>
       )}
 
