@@ -20,7 +20,7 @@ export async function POST(req: Request) {
       type: 'recovery',
       email: email,
       options: {
-        redirectTo: `${appUrl}/api/auth/callback?next=/reset-password`,
+        redirectTo: `${appUrl}/api/auth/callback?next=/reset-password&type=recovery`,
       },
     })
 

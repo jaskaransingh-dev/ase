@@ -8,16 +8,17 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  // Use admin client to bypass RLS for reads — profile/wallet tables may have restrictive policies
+  const admin = createAdminClient()
   const [walletRes, profileRes] = await Promise.all([
-    supabase.from('wallets').select('balance_cents').eq('user_id', user.id).single(),
-    supabase.from('profiles').select('display_name').eq('id', user.id).single(),
+    admin.from('wallets').select('balance_cents').eq('user_id', user.id).single(),
+    admin.from('profiles').select('display_name').eq('id', user.id).single(),
   ])
 
   // Auto-provision wallet + profile if they don't exist yet (first login)
   if (!walletRes.data) {
-    const admin = createAdminClient()
     await Promise.all([
-      admin.from('profiles').upsert({ id: user.id, display_name: user.email!.split('@')[0] }),
+      admin.from('profiles').upsert({ id: user.id, display_name: user.email!.split('@')[0] }, { onConflict: 'id' }),
       admin.from('wallets').upsert({ user_id: user.id, balance_cents: 10000 }, { onConflict: 'user_id' }),
     ])
     await admin.from('transactions').insert({

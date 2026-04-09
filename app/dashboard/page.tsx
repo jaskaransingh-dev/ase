@@ -10,7 +10,7 @@ import { fmtUSD, fmtPct, fmtDateTime } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
 
-type Agent = { id: string; name: string; slug: string; signal_summary?: string; last_run_at?: string; primary_symbol?: string; strategy_type?: string }
+type Agent = { id: string; name: string; slug: string; signal_summary?: string; primary_symbol?: string; strategy_type?: string }
 type Subscription = {
   id: string
   agent_id: string
@@ -74,10 +74,10 @@ export default function DashboardPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
 
-      const [subsRes, tradesRes, agentsRes] = await Promise.all([
+      const [subsRes, tradesRes, agentsRes, statsRes] = await Promise.all([
         supabase
           .from('subscriptions')
-          .select('id, agent_id, created_at, agents(id, name, slug, signal_summary, last_run_at, primary_symbol, strategy_type, agent_stats(total_return_pct, sharpe_ratio, max_drawdown_pct, win_rate_pct, nav_cents, snapshot_at))')
+          .select('id, agent_id, created_at, agents(id, name, slug, signal_summary, primary_symbol, strategy_type)')
           .eq('user_id', user.id)
           .eq('status', 'active')
           .order('created_at', { ascending: false }),
@@ -88,27 +88,44 @@ export default function DashboardPage() {
           .limit(30),
         supabase
           .from('agents')
-          .select('id, name, slug, signal_summary, last_run_at')
+          .select('id, name, slug, signal_summary, status')
           .eq('status', 'active'),
+        // Fetch agent_stats separately to avoid FK join issues
+        supabase
+          .from('agent_stats')
+          .select('agent_id, total_return_pct, sharpe_ratio, max_drawdown_pct, win_rate_pct, nav_cents, snapshot_at')
+          .order('snapshot_at', { ascending: false }),
       ])
 
+      // Build stats lookup map keyed by agent_id (one row per agent, most recent)
+      const statsMap: Record<string, { total_return_pct: number; sharpe_ratio: number; max_drawdown_pct: number; win_rate_pct: number; nav_cents: number; snapshot_at: string }> = {}
+      for (const s of (statsRes.data ?? [])) {
+        if (!statsMap[s.agent_id]) statsMap[s.agent_id] = s
+      }
+
+      // Merge stats into subscriptions
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setSubscriptions((subsRes.data ?? []) as any as Subscription[])
+      const subsWithStats = ((subsRes.data ?? []) as any[]).map((sub: any) => ({
+        ...sub,
+        agents: sub.agents ? {
+          ...sub.agents,
+          agent_stats: statsMap[sub.agent_id] ? [statsMap[sub.agent_id]] : [],
+        } : sub.agents,
+      }))
+
+      setSubscriptions(subsWithStats as Subscription[])
       setTrades((tradesRes.data ?? []) as Trade[])
 
       if (agentsRes.data && tradesRes.data) {
-        const now = Date.now()
-        const staleCutoff = now - 25 * 60000
-        const tenMinAgo = now - 10 * 60000
+        const tenMinAgo = Date.now() - 10 * 60000
 
         const activityMap: Record<string, AgentActivity> = {}
         for (const agent of agentsRes.data) {
-          const lastRun = agent.last_run_at ? new Date(agent.last_run_at).getTime() : 0
           activityMap[agent.id] = {
             agent_id: agent.id,
             agent_name: agent.name,
             slug: agent.slug,
-            status: lastRun < staleCutoff ? 'OFFLINE' : 'SCANNING',
+            status: 'SCANNING',
             symbol: '--',
             last_trade_at: '',
             signal_summary: agent.signal_summary ?? '',

@@ -7,6 +7,7 @@
  */
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,7 +18,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('subscriptions')
-    .select('*, agents(id, name, slug, ticker, description, strategy_type, status, signal_summary, last_run_at, monthly_fee_cents, subscriber_count, primary_symbol)')
+    .select('*, agents(id, name, slug, ticker, description, strategy_type, status, signal_summary, monthly_fee_cents, subscriber_count, primary_symbol)')
     .eq('user_id', user.id)
     .eq('status', 'active')
     .order('created_at', { ascending: false })
@@ -57,8 +58,12 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Ensure wallet + profile exist
-  await supabase.from('wallets').upsert({ user_id: user.id, balance_cents: 0 }, { onConflict: 'user_id' })
+  // Ensure wallet + profile exist (use admin to bypass RLS on writes)
+  const admin = createAdminClient()
+  await Promise.all([
+    admin.from('profiles').upsert({ id: user.id, display_name: user.email!.split('@')[0] }, { onConflict: 'id' }),
+    admin.from('wallets').upsert({ user_id: user.id, balance_cents: 10000 }, { onConflict: 'user_id' }),
+  ])
 
   return NextResponse.json({ subscription: data })
 }
