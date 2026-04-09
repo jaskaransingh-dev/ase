@@ -59,6 +59,55 @@ type YahooChartResponse = {
   }
 }
 
+// ─── Binance fallback for crypto pairs ──────────────────────────────────────
+
+function toBinanceSymbol(yahooSymbol: string): string | null {
+  const m = yahooSymbol.match(/^([A-Z0-9]+)-USD$/)
+  return m ? `${m[1]}USDT` : null
+}
+
+async function fetchBinanceData(symbol: string, period: string, interval: string): Promise<OHLCV[]> {
+  const binanceSym = toBinanceSymbol(symbol)
+  if (!binanceSym) throw new Error(`No Binance mapping for ${symbol}`)
+
+  const binanceInterval = interval === '1wk' ? '1w' : '1d'
+  const days = PERIOD_DAYS[period] ?? 730
+  const endMs = Date.now()
+  const startMs = endMs - days * 86400000
+
+  const bars: OHLCV[] = []
+  let currentStart = startMs
+
+  while (currentStart < endMs) {
+    const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSym}&interval=${binanceInterval}&startTime=${currentStart}&endTime=${endMs}&limit=1000`
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) })
+    if (!res.ok) throw new Error(`Binance returned ${res.status} for ${symbol}`)
+
+    const data = await res.json() as Array<[number, string, string, string, string, string]>
+    if (data.length === 0) break
+
+    for (const c of data) {
+      bars.push({
+        date: new Date(c[0]).toISOString().slice(0, 10),
+        open: parseFloat(c[1]),
+        high: parseFloat(c[2]),
+        low: parseFloat(c[3]),
+        close: parseFloat(c[4]),
+        volume: parseFloat(c[5]),
+      })
+    }
+
+    if (data.length < 1000) break
+    const msPerBar = interval === '1wk' ? 7 * 86400000 : 86400000
+    currentStart = data[data.length - 1][0] + msPerBar
+  }
+
+  if (bars.length === 0) throw new Error(`No Binance data for ${symbol}`)
+  return bars
+}
+
+// ─── Yahoo Finance response parser ──────────────────────────────────────────
+
 function parseYahooResponse(json: YahooChartResponse, symbol: string): OHLCV[] {
   const chart = json.chart
   if (chart.error) throw new Error(chart.error.description)
@@ -126,6 +175,18 @@ export async function fetchYahooFinance(symbol: string, period: string, interval
     return cached
   }
 
+  // Try Binance first for crypto pairs — faster and more reliable than Yahoo Finance
+  if (toBinanceSymbol(symbol)) {
+    try {
+      const data = await fetchBinanceData(symbol, period, interval)
+      setCachedData(symbol, period, interval, data)
+      console.log(`[backtest] Binance: ${data.length} bars for ${symbol}`)
+      return data
+    } catch (e) {
+      console.warn(`[backtest] Binance failed for ${symbol}, falling back to Yahoo: ${e instanceof Error ? e.message : e}`)
+    }
+  }
+
   const days = PERIOD_DAYS[period] ?? 730
   const end = Math.floor(Date.now() / 1000)
   const start = end - days * 86400
@@ -167,10 +228,7 @@ export async function fetchYahooFinance(symbol: string, period: string, interval
   })
 
   let lastError: Error = new Error(`Failed to fetch data for ${symbol}`)
-  
-  // Add initial delay to avoid immediate rate limiting
-  await sleep(Math.random() * 1000 + 500) // 500-1500ms
-  
+
   for (const url of urls) {
     // Retry logic with exponential backoff for rate limiting
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -393,6 +451,20 @@ export async function GET() {
   })
 }
 
+// Agent slug → locked symbol mapping (mirrors /api/backtest/agents)
+const AGENT_LOCKED_SYMBOLS: Record<string, string> = {
+  'btc-momentum':    'BTC-USD',
+  'eth-mean-revert': 'ETH-USD',
+  'sol-breakout':    'SOL-USD',
+  'crypto-trend':    'BTC-USD',
+  'defi-basket':     'ETH-USD',
+  'vol-harvester':   'ETH-USD',
+  'btc-eth-pairs':   'BTC-USD',
+  'momentum-carry':  'BTC-USD',
+  'cascade-detect':  'BTC-USD',
+  'defi-yield':      'ETH-USD',
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json() as {
@@ -402,6 +474,7 @@ export async function POST(req: Request) {
       period?: string
       interval?: string
       fee?: number
+      agent_slug?: string  // optional — enforces symbol lock for agent backtests
       // Monte Carlo fields
       monteCarlo?: boolean
       nTrials?: number
@@ -409,8 +482,21 @@ export async function POST(req: Request) {
       seed?: number
     }
 
-    const symbol = (body.symbol ?? 'BTC-USD').toUpperCase().trim()
+    const requestedSymbol = (body.symbol ?? 'BTC-USD').toUpperCase().trim()
     const strategyId = body.strategy ?? 'momentum_crossover'
+
+    // If an agent_slug is provided, enforce that the symbol matches the agent's locked symbol
+    let symbol = requestedSymbol
+    if (body.agent_slug) {
+      const locked = AGENT_LOCKED_SYMBOLS[body.agent_slug]
+      if (locked && locked !== requestedSymbol) {
+        return NextResponse.json(
+          { error: `Agent "${body.agent_slug}" must be backtested with ${locked}, not ${requestedSymbol}` },
+          { status: 400 }
+        )
+      }
+      if (locked) symbol = locked
+    }
     const params = body.params ?? {}
     const period = body.period ?? '2y'
     const interval = body.interval ?? '1d'

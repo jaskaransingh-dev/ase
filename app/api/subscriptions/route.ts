@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   // Use admin client for all writes — bypasses RLS, avoids auth cookie issues in API routes
   const admin = createAdminClient()
   const { data: agent } = await admin
-    .from('agents').select('id, status').eq('id', agent_id).single()
+    .from('agents').select('id, slug, status').eq('id', agent_id).single()
 
   if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
   if (agent.status !== 'active') return NextResponse.json({ error: 'Agent not currently accepting subscriptions' }, { status: 422 })
@@ -59,6 +59,7 @@ export async function POST(req: Request) {
     .upsert({
       user_id: user.id,
       agent_id,
+      bot_slug: agent.slug,
       wallet_address: wallet_address ?? null,
       status: 'active',
       plan: 'beta',

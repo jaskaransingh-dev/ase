@@ -119,7 +119,7 @@ export default function BacktestPage() {
       const res = await fetch('/api/backtest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol: agent.symbol, strategy: agent.strategy, params: agent.params, period: agentPeriod }),
+        body: JSON.stringify({ symbol: agent.symbol, strategy: agent.strategy, params: agent.params, period: agentPeriod, agent_slug: agent.slug }),
       })
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error ?? 'Backtest failed')
@@ -491,7 +491,9 @@ export default function BacktestPage() {
                     <div className="bt-agent-name">{agent.name}</div>
                     <div className="bt-agent-desc">{agent.description}</div>
                     <div className="bt-agent-meta">
-                      <span className="bt-agent-badge">{agent.symbol}</span>
+                      <span className="bt-agent-badge" title="Symbol locked — agent strategy is designed for this asset only" style={{ borderColor: 'rgba(110,231,183,.25)', color: '#6EE7B7', background: 'rgba(110,231,183,.06)' }}>
+                        🔒 {agent.symbol}
+                      </span>
                       <span className="bt-agent-badge">{STRATEGIES[agent.strategy]?.name ?? agent.strategy}</span>
                     </div>
                   </div>

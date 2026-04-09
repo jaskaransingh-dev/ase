@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { createClient } from '@/lib/supabase/client'
 import { useWallet } from '@/components/WalletProvider'
-import { fmtUSD, fmtPct, fmtDateTime } from '@/lib/utils'
+import { fmtPct, fmtDateTime } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
 

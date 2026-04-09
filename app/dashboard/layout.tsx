@@ -8,34 +8,18 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Use admin client to bypass RLS for reads — profile/wallet tables may have restrictive policies
+  // Use admin client to bypass RLS for profile reads
   const admin = createAdminClient()
-  const [walletRes, profileRes] = await Promise.all([
-    admin.from('wallets').select('balance_cents').eq('user_id', user.id).single(),
-    admin.from('profiles').select('display_name').eq('id', user.id).single(),
-  ])
+  const profileRes = await admin.from('profiles').select('display_name').eq('id', user.id).single()
 
-  // Auto-provision wallet + profile if they don't exist yet (first login)
-  if (!walletRes.data) {
-    await Promise.all([
-      admin.from('profiles').upsert({ id: user.id, display_name: user.email!.split('@')[0] }, { onConflict: 'id' }),
-      admin.from('wallets').upsert({ user_id: user.id, balance_cents: 10000 }, { onConflict: 'user_id' }),
-    ])
-    await admin.from('transactions').insert({
-      user_id: user.id,
-      type: 'deposit',
-      amount_cents: 10000,
-      reference_id: 'signup_bonus',
-      note: 'Welcome bonus — $100 paper credits',
-    })
+  // Auto-provision profile on first login
+  if (!profileRes.data) {
+    await admin.from('profiles').upsert({ id: user.id, display_name: user.email!.split('@')[0] }, { onConflict: 'id' })
   }
-
-  const balance = walletRes.data?.balance_cents ?? 10000
 
   return (
     <DashboardShell
       user={{ id: user.id, email: user.email!, name: profileRes.data?.display_name || user.email!.split('@')[0] }}
-      initialBalance={balance}
     >
       {children}
     </DashboardShell>

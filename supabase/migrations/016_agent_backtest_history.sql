@@ -1,9 +1,9 @@
 -- ══════════════════════════════════════════════════════════════
--- 016: Agent Backtest History — store multi-period backtest results
+-- 016: Agent Backtest History — safe rerunnable migration
 -- Run in Supabase SQL editor
 -- ══════════════════════════════════════════════════════════════
 
--- Create agent_backtest_history table for storing multi-period backtest results
+-- 1. Create table if missing
 CREATE TABLE IF NOT EXISTS agent_backtest_history (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_id uuid NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
@@ -11,51 +11,75 @@ CREATE TABLE IF NOT EXISTS agent_backtest_history (
   symbol text NOT NULL,
   strategy text NOT NULL,
   computed_at timestamptz NOT NULL DEFAULT now(),
-  
+
   -- Backtest statistics (JSON)
   stats jsonb NOT NULL,
-  
+
   -- Buy and hold comparison
   buy_hold_return_pct numeric NOT NULL,
-  
+
   -- Downsampled equity curves for charts
   equity_curve jsonb,
   buy_hold_curve jsonb,
-  
+
   -- Constraints
   UNIQUE(agent_id, period),
-  
+
   -- Timestamps
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Enable RLS
+-- 2. Enable RLS
 ALTER TABLE agent_backtest_history ENABLE ROW LEVEL SECURITY;
 
--- Create policy - public read access for agent performance data
-CREATE POLICY "agent_backtest_history_public_read" ON agent_backtest_history
-  FOR SELECT USING (true);
+-- 3. Recreate policies safely
+DROP POLICY IF EXISTS "agent_backtest_history_public_read" ON agent_backtest_history;
+DROP POLICY IF EXISTS "agent_backtest_history_service_write" ON agent_backtest_history;
+DROP POLICY IF EXISTS "agent_backtest_history_service_update" ON agent_backtest_history;
+DROP POLICY IF EXISTS "agent_backtest_history_service_delete" ON agent_backtest_history;
 
--- Create policy - only service role can write
-CREATE POLICY "agent_backtest_history_service_write" ON agent_backtest_history
-  FOR INSERT WITH CHECK (false);
-  
-CREATE POLICY "agent_backtest_history_service_update" ON agent_backtest_history
-  FOR UPDATE WITH CHECK (false);
-  
-CREATE POLICY "agent_backtest_history_service_delete" ON agent_backtest_history
-  FOR DELETE WITH CHECK (false);
+-- Public read access
+CREATE POLICY "agent_backtest_history_public_read"
+ON agent_backtest_history
+FOR SELECT
+USING (true);
 
--- Indexes for performance
-CREATE INDEX IF NOT EXISTS agent_backtest_history_agent_id_idx ON agent_backtest_history(agent_id);
-CREATE INDEX IF NOT EXISTS agent_backtest_history_period_idx ON agent_backtest_history(period);
-CREATE INDEX IF NOT EXISTS agent_backtest_history_computed_at_idx ON agent_backtest_history(computed_at);
-CREATE INDEX IF NOT EXISTS agent_backtest_history_agent_period_idx ON agent_backtest_history(agent_id, period);
+-- Nobody writes directly from client roles
+CREATE POLICY "agent_backtest_history_service_write"
+ON agent_backtest_history
+FOR INSERT
+WITH CHECK (false);
 
--- Update timestamp trigger
+CREATE POLICY "agent_backtest_history_service_update"
+ON agent_backtest_history
+FOR UPDATE
+USING (false)
+WITH CHECK (false);
+
+CREATE POLICY "agent_backtest_history_service_delete"
+ON agent_backtest_history
+FOR DELETE
+USING (false);
+
+-- 4. Indexes
+CREATE INDEX IF NOT EXISTS agent_backtest_history_agent_id_idx
+  ON agent_backtest_history(agent_id);
+
+CREATE INDEX IF NOT EXISTS agent_backtest_history_period_idx
+  ON agent_backtest_history(period);
+
+CREATE INDEX IF NOT EXISTS agent_backtest_history_computed_at_idx
+  ON agent_backtest_history(computed_at);
+
+CREATE INDEX IF NOT EXISTS agent_backtest_history_agent_period_idx
+  ON agent_backtest_history(agent_id, period);
+
+-- 5. Updated-at trigger function
 CREATE OR REPLACE FUNCTION update_agent_backtest_history_updated_at()
-RETURNS trigger LANGUAGE plpgsql AS $$
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
 BEGIN
   NEW.updated_at = now();
   RETURN NEW;
@@ -63,11 +87,13 @@ END;
 $$;
 
 DROP TRIGGER IF EXISTS update_agent_backtest_history_updated_at ON agent_backtest_history;
+
 CREATE TRIGGER update_agent_backtest_history_updated_at
   BEFORE UPDATE ON agent_backtest_history
-  FOR EACH ROW EXECUTE FUNCTION update_agent_backtest_history_updated_at();
+  FOR EACH ROW
+  EXECUTE FUNCTION update_agent_backtest_history_updated_at();
 
--- Create view for easy access to latest backtest results
+-- 6. Latest backtests view
 CREATE OR REPLACE VIEW agent_latest_backtests AS
 SELECT DISTINCT ON (agent_id, period)
   agent_id,
@@ -84,9 +110,9 @@ SELECT DISTINCT ON (agent_id, period)
 FROM agent_backtest_history
 ORDER BY agent_id, period, computed_at DESC;
 
--- Create view for agent performance summary
+-- 7. Agent performance summary view
 CREATE OR REPLACE VIEW agent_performance_summary AS
-SELECT 
+SELECT
   a.id as agent_id,
   a.name as agent_name,
   a.slug as agent_slug,
@@ -94,56 +120,56 @@ SELECT
   a.status,
   a.subscriber_count,
   a.monthly_fee_cents,
-  
-  -- Latest 2y backtest results (primary)
-  stats_2y->>'totalReturnPct' as total_return_2y_pct,
-  stats_2y->>'annualizedReturnPct' as annualized_return_2y_pct,
-  stats_2y->>'sharpeRatio' as sharpe_ratio_2y,
-  stats_2y->>'maxDrawdownPct' as max_drawdown_2y_pct,
-  stats_2y->>'winRate' as win_rate_2y_pct,
-  stats_2y->>'totalTrades' as total_trades_2y,
-  
+
+  -- Latest 2y backtest results
+  bt_2y.stats->>'totalReturnPct'       as total_return_2y_pct,
+  bt_2y.stats->>'annualizedReturnPct'  as annualized_return_2y_pct,
+  bt_2y.stats->>'sharpeRatio'          as sharpe_ratio_2y,
+  bt_2y.stats->>'maxDrawdownPct'       as max_drawdown_2y_pct,
+  bt_2y.stats->>'winRate'              as win_rate_2y_pct,
+  bt_2y.stats->>'totalTrades'          as total_trades_2y,
+
   -- Latest 1y backtest results
-  stats_1y->>'totalReturnPct' as total_return_1y_pct,
-  stats_1y->>'annualizedReturnPct' as annualized_return_1y_pct,
-  stats_1y->>'sharpeRatio' as sharpe_ratio_1y,
-  stats_1y->>'maxDrawdownPct' as max_drawdown_1y_pct,
-  stats_1y->>'winRate' as win_rate_1y_pct,
-  stats_1y->>'totalTrades' as total_trades_1y,
-  
+  bt_1y.stats->>'totalReturnPct'       as total_return_1y_pct,
+  bt_1y.stats->>'annualizedReturnPct'  as annualized_return_1y_pct,
+  bt_1y.stats->>'sharpeRatio'          as sharpe_ratio_1y,
+  bt_1y.stats->>'maxDrawdownPct'       as max_drawdown_1y_pct,
+  bt_1y.stats->>'winRate'              as win_rate_1y_pct,
+  bt_1y.stats->>'totalTrades'          as total_trades_1y,
+
   -- Latest 5y backtest results
-  stats_5y->>'totalReturnPct' as total_return_5y_pct,
-  stats_5y->>'annualizedReturnPct' as annualized_return_5y_pct,
-  stats_5y->>'sharpeRatio' as sharpe_ratio_5y,
-  stats_5y->>'maxDrawdownPct' as max_drawdown_5y_pct,
-  stats_5y->>'winRate' as win_rate_5y_pct,
-  stats_5y->>'totalTrades' as total_trades_5y,
-  
+  bt_5y.stats->>'totalReturnPct'       as total_return_5y_pct,
+  bt_5y.stats->>'annualizedReturnPct'  as annualized_return_5y_pct,
+  bt_5y.stats->>'sharpeRatio'          as sharpe_ratio_5y,
+  bt_5y.stats->>'maxDrawdownPct'       as max_drawdown_5y_pct,
+  bt_5y.stats->>'winRate'              as win_rate_5y_pct,
+  bt_5y.stats->>'totalTrades'          as total_trades_5y,
+
   -- Latest computed timestamps
   bt_2y.computed_at as last_computed_2y,
   bt_1y.computed_at as last_computed_1y,
   bt_5y.computed_at as last_computed_5y
-  
+
 FROM agents a
 LEFT JOIN LATERAL (
-  SELECT stats, computed_at 
-  FROM agent_backtest_history 
-  WHERE agent_id = a.id AND period = '2y' 
-  ORDER BY computed_at DESC 
+  SELECT stats, computed_at
+  FROM agent_backtest_history
+  WHERE agent_id = a.id AND period = '2y'
+  ORDER BY computed_at DESC
   LIMIT 1
 ) bt_2y ON true
 LEFT JOIN LATERAL (
-  SELECT stats, computed_at 
-  FROM agent_backtest_history 
-  WHERE agent_id = a.id AND period = '1y' 
-  ORDER BY computed_at DESC 
+  SELECT stats, computed_at
+  FROM agent_backtest_history
+  WHERE agent_id = a.id AND period = '1y'
+  ORDER BY computed_at DESC
   LIMIT 1
 ) bt_1y ON true
 LEFT JOIN LATERAL (
-  SELECT stats, computed_at 
-  FROM agent_backtest_history 
-  WHERE agent_id = a.id AND period = '5y' 
-  ORDER BY computed_at DESC 
+  SELECT stats, computed_at
+  FROM agent_backtest_history
+  WHERE agent_id = a.id AND period = '5y'
+  ORDER BY computed_at DESC
   LIMIT 1
 ) bt_5y ON true
 WHERE a.status = 'active';

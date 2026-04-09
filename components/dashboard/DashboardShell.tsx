@@ -1,16 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useWallet } from '@/components/WalletProvider'
-import { fmtUSD } from '@/lib/utils'
 
 interface Props {
   user: { id: string; email: string; name: string }
-  initialBalance: number
   children: React.ReactNode
 }
 
@@ -31,37 +29,14 @@ function triggerHaptic(ms = 8) {
   }
 }
 
-export default function DashboardShell({ user, initialBalance, children }: Props) {
+export default function DashboardShell({ user, children }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
   const { wallet, connecting: walletConnecting, shortAddress, openModal, disconnect } = useWallet()
 
-  const [balance, setBalance] = useState(initialBalance)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
-
-  useEffect(() => {
-    const channel = supabase
-      .channel('wallet-updates-v2')
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'wallets',
-          filter: `user_id=eq.${user.id}`,
-        },
-        (payload) => {
-          setBalance((payload.new as { balance_cents: number }).balance_cents)
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [supabase, user.id])
 
   async function handleSignOut() {
     await supabase.auth.signOut()
@@ -134,11 +109,6 @@ export default function DashboardShell({ user, initialBalance, children }: Props
               {walletConnecting ? 'Connecting…' : 'Connect Wallet'}
             </button>
           )}
-
-          <div className="dashboard-balance-pill">
-            <span className="dashboard-live-dot" />
-            {fmtUSD(balance)}
-          </div>
 
           <button
             className="dashboard-mobile-toggle mobile-only"
