@@ -2,7 +2,7 @@
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { fmtPct, fmtDate } from '@/lib/utils'
 
 interface Agent {
@@ -49,8 +49,19 @@ interface Props {
   isSubscribed: boolean
 }
 
-const TABS = ['Overview', 'Performance', 'Trades', 'Strategy'] as const
+const TABS = ['Overview', 'Performance', 'Trades', 'Strategy', 'Backtest'] as const
 type Tab = typeof TABS[number]
+
+interface BacktestStats {
+  totalReturnPct: number; annualizedReturnPct: number; sharpeRatio: number
+  maxDrawdownPct: number; winRate: number; totalTrades: number
+  bestTradePct: number; worstTradePct: number; calmarRatio: number
+}
+interface BacktestBar { date: string; equity: number }
+interface BacktestResult {
+  stats: BacktestStats; bars: BacktestBar[]; buyHold: BacktestBar[]
+  symbol: string; period: string
+}
 
 const strategyDescriptions: Record<string, string> = {
   momentum: 'Weekly rebalance targeting highest-momentum stocks from a curated watchlist. Position-size capped at 20% per holding.',
@@ -74,6 +85,42 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
   const [isSubscribed, setIsSubscribed] = useState(initialIsSubscribed)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
+
+  // Backtest state
+  const [btResult, setBtResult] = useState<BacktestResult | null>(null)
+  const [btLoading, setBtLoading] = useState(false)
+  const [btError, setBtError] = useState('')
+  const [btPeriod, setBtPeriod] = useState('1y')
+
+  async function loadBacktest(period = btPeriod) {
+    if (!agent.primary_symbol || !agent.backtest_strategy) {
+      setBtError('No backtest configuration for this agent.')
+      return
+    }
+    setBtLoading(true)
+    setBtError('')
+    try {
+      const res = await fetch('/api/backtest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: agent.primary_symbol, strategy: agent.backtest_strategy, period }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) throw new Error(data.error ?? 'Backtest failed')
+      setBtResult(data as BacktestResult)
+    } catch (e) {
+      setBtError(e instanceof Error ? e.message : 'Unknown error')
+    } finally {
+      setBtLoading(false)
+    }
+  }
+
+  function handleTabChange(t: Tab) {
+    setTab(t)
+    if (t === 'Backtest' && !btResult && !btLoading) {
+      loadBacktest()
+    }
+  }
 
   const ret = latestStats?.total_return_pct ?? 0
   const sharpe = latestStats?.sharpe_ratio ?? 0
@@ -287,7 +334,7 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden', marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', gap: '.25rem', padding: '.5rem .75rem', background: 'rgba(0,0,0,.2)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
           {TABS.map(t => (
-            <button key={t} onClick={() => setTab(t)}
+            <button key={t} onClick={() => handleTabChange(t)}
               style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', fontWeight: 700, letterSpacing: '.04em', padding: '.45rem .75rem', borderRadius: 9, border: `1px solid ${tab === t ? 'rgba(155,140,255,.25)' : 'transparent'}`, color: tab === t ? 'var(--gold)' : 'var(--faint)', background: tab === t ? 'rgba(155,140,255,.08)' : 'transparent', cursor: 'pointer', transition: 'all .14s' }}>
               {t}
             </button>
@@ -394,6 +441,122 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
                   <p style={{ fontSize: '.83rem', color: 'var(--muted)', lineHeight: 1.65 }}>{body}</p>
                 </div>
               ))}
+            </div>
+          )}
+
+          {tab === 'Backtest' && (
+            <div>
+              {/* Period selector */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', letterSpacing: '.08em' }}>
+                  {agent.primary_symbol ?? '—'} · {agent.backtest_strategy?.replace(/_/g, ' ') ?? 'no strategy'}
+                </span>
+                <div style={{ display: 'flex', gap: '.4rem', marginLeft: 'auto' }}>
+                  {(['6mo', '1y', '2y', '5y'] as const).map(p => (
+                    <button key={p}
+                      onClick={() => { setBtPeriod(p); setBtResult(null); loadBacktest(p) }}
+                      style={{
+                        padding: '.3rem .7rem', borderRadius: 8, fontSize: '.72rem', fontFamily: 'var(--font-mono)',
+                        border: `1px solid ${btPeriod === p ? 'rgba(155,140,255,.4)' : 'var(--border)'}`,
+                        background: btPeriod === p ? 'rgba(155,140,255,.1)' : 'transparent',
+                        color: btPeriod === p ? '#c8b8ff' : 'var(--faint)', cursor: 'pointer',
+                      }}>
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {btLoading && (
+                <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.75rem' }}>
+                  Running backtest…
+                </div>
+              )}
+
+              {btError && !btLoading && (
+                <div style={{ padding: '.75rem 1rem', background: 'rgba(232,64,64,.08)', border: '1px solid rgba(232,64,64,.2)', borderRadius: 12, color: '#FB7185', fontSize: '.85rem' }}>
+                  {btError}
+                </div>
+              )}
+
+              {btResult && !btLoading && (() => {
+                const bs = btResult.stats
+                const step = Math.max(1, Math.floor(btResult.bars.length / 300))
+                const chartData = btResult.bars
+                  .filter((_, i) => i % step === 0)
+                  .map((b, i) => ({
+                    date: b.date.slice(5),
+                    strategy: Math.round(b.equity),
+                    buyHold: Math.round(btResult.buyHold[Math.min(i * step, btResult.buyHold.length - 1)]?.equity ?? 0),
+                  }))
+
+                const fP = (v: number) => { const s = v >= 0 ? '+' : ''; return `${s}${v.toFixed(2)}%` }
+                const fN = (v: number) => v.toFixed(2)
+                const col = (v: number) => v >= 0 ? 'var(--green)' : 'var(--red)'
+
+                return (
+                  <>
+                    {/* Stats */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(130px,1fr))', gap: '.65rem', marginBottom: '1.25rem' }}>
+                      {[
+                        { label: 'Total Return', value: fP(bs.totalReturnPct), color: col(bs.totalReturnPct) },
+                        { label: 'Ann. Return', value: fP(bs.annualizedReturnPct), color: col(bs.annualizedReturnPct) },
+                        { label: 'Sharpe', value: fN(bs.sharpeRatio), color: bs.sharpeRatio >= 1 ? 'var(--green)' : bs.sharpeRatio >= 0 ? 'var(--gold)' : 'var(--red)' },
+                        { label: 'Max Drawdown', value: `-${fN(bs.maxDrawdownPct)}%`, color: 'var(--red)' },
+                        { label: 'Win Rate', value: `${fN(bs.winRate)}%`, color: bs.winRate >= 50 ? 'var(--green)' : 'var(--red)' },
+                        { label: 'Total Trades', value: String(bs.totalTrades), color: 'var(--white)' },
+                        { label: 'Best Trade', value: fP(bs.bestTradePct), color: 'var(--green)' },
+                        { label: 'Worst Trade', value: fP(bs.worstTradePct), color: 'var(--red)' },
+                        { label: 'Calmar', value: fN(bs.calmarRatio), color: col(bs.calmarRatio) },
+                      ].map(({ label, value, color }) => (
+                        <div key={label} style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 12, padding: '.8rem 1rem' }}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.3rem' }}>{label.toUpperCase()}</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 800, color }}>{value}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Equity chart */}
+                    <div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.5rem' }}>
+                        EQUITY CURVE · $100K initial · {btResult.symbol} · {btResult.period}
+                      </div>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <AreaChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: -10 }}>
+                          <defs>
+                            <linearGradient id="btStratGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#9482ff" stopOpacity={0.35} />
+                              <stop offset="95%" stopColor="#9482ff" stopOpacity={0} />
+                            </linearGradient>
+                            <linearGradient id="btBhGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#6ee7b7" stopOpacity={0.2} />
+                              <stop offset="95%" stopColor="#6ee7b7" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <XAxis dataKey="date" tick={{ fill: 'rgba(238,242,255,.28)', fontSize: 9, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                          <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fill: 'rgba(238,242,255,.28)', fontSize: 9, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} width={48} />
+                          <Tooltip
+                            contentStyle={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 10, fontFamily: 'var(--font-mono)', fontSize: 11 }}
+                            formatter={(v: unknown) => [`$${Number(v).toLocaleString()}`, '']}
+                          />
+                          <Legend wrapperStyle={{ fontSize: 11, color: 'rgba(238,242,255,.5)', fontFamily: 'var(--font-mono)' }} />
+                          <Area type="monotone" dataKey="buyHold" name="Buy & Hold" stroke="#6ee7b7" strokeWidth={1.5} fill="url(#btBhGrad)" dot={false} />
+                          <Area type="monotone" dataKey="strategy" name="Agent Strategy" stroke="#9482ff" strokeWidth={2} fill="url(#btStratGrad)" dot={false} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', marginTop: '.5rem' }}>
+                      Simulated backtest on historical data. Not a guarantee of future performance. Paper trading only.
+                    </div>
+                  </>
+                )
+              })()}
+
+              {!btResult && !btLoading && !btError && (
+                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.75rem' }}>
+                  Loading historical backtest…
+                </div>
+              )}
             </div>
           )}
         </div>

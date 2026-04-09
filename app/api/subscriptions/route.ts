@@ -37,12 +37,24 @@ export async function POST(req: Request) {
 
   if (!agent_id) return NextResponse.json({ error: 'agent_id required' }, { status: 400 })
 
-  // Verify agent exists and is active
-  const { data: agent } = await supabase
+  // Use admin client to verify agent — bypasses any RLS on the agents table
+  const admin = createAdminClient()
+  const { data: agent } = await admin
     .from('agents').select('id, status').eq('id', agent_id).single()
 
   if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
-  if (agent.status !== 'active') return NextResponse.json({ error: 'Agent not accepting subscriptions' }, { status: 422 })
+  if (agent.status !== 'active') return NextResponse.json({ error: 'Agent not currently accepting subscriptions' }, { status: 422 })
+
+  // Ensure profile exists first (wallet has FK → profiles)
+  await admin.from('profiles').upsert(
+    { id: user.id, display_name: user.email?.split('@')[0] ?? 'user' },
+    { onConflict: 'id' }
+  )
+  // Then ensure wallet exists
+  await admin.from('wallets').upsert(
+    { user_id: user.id, balance_cents: 10000 },
+    { onConflict: 'user_id' }
+  )
 
   const { data, error } = await supabase
     .from('subscriptions')
@@ -57,13 +69,6 @@ export async function POST(req: Request) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  // Ensure wallet + profile exist (use admin to bypass RLS on writes)
-  const admin = createAdminClient()
-  await Promise.all([
-    admin.from('profiles').upsert({ id: user.id, display_name: user.email!.split('@')[0] }, { onConflict: 'id' }),
-    admin.from('wallets').upsert({ user_id: user.id, balance_cents: 10000 }, { onConflict: 'user_id' }),
-  ])
 
   return NextResponse.json({ subscription: data })
 }

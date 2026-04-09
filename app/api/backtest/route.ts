@@ -36,42 +36,25 @@ const PERIOD_DAYS: Record<string, number> = {
   '10y': 3650,
 }
 
-async function fetchYahooFinance(symbol: string, period: string, interval: string): Promise<OHLCV[]> {
-  const days = PERIOD_DAYS[period] ?? 730
-  const end = Math.floor(Date.now() / 1000)
-  const start = end - days * 86400
-
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&period1=${start}&period2=${end}&includePrePost=false`
-
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; ASE-Backtest/1.0)',
-      Accept: 'application/json',
-    },
-  })
-
-  if (!res.ok) {
-    throw new Error(`Yahoo Finance returned ${res.status} for ${symbol}`)
+type YahooChartResponse = {
+  chart: {
+    result?: Array<{
+      timestamp: number[]
+      indicators: {
+        quote: Array<{
+          open: number[]
+          high: number[]
+          low: number[]
+          close: number[]
+          volume: number[]
+        }>
+      }
+    }>
+    error?: { description: string }
   }
+}
 
-  const json = await res.json() as {
-    chart: {
-      result?: Array<{
-        timestamp: number[]
-        indicators: {
-          quote: Array<{
-            open: number[]
-            high: number[]
-            low: number[]
-            close: number[]
-            volume: number[]
-          }>
-        }
-      }>
-      error?: { description: string }
-    }
-  }
-
+function parseYahooResponse(json: YahooChartResponse, symbol: string): OHLCV[] {
   const chart = json.chart
   if (chart.error) throw new Error(chart.error.description)
   const result = chart.result?.[0]
@@ -92,8 +75,46 @@ async function fetchYahooFinance(symbol: string, period: string, interval: strin
       volume: q.volume[i] ?? 0,
     })
   }
-
   return bars
+}
+
+async function fetchYahooFinance(symbol: string, period: string, interval: string): Promise<OHLCV[]> {
+  const days = PERIOD_DAYS[period] ?? 730
+  const end = Math.floor(Date.now() / 1000)
+  const start = end - days * 86400
+
+  const qs = `interval=${interval}&period1=${start}&period2=${end}&includePrePost=false&events=history`
+  const encoded = encodeURIComponent(symbol)
+
+  // Try both Yahoo Finance hosts — query1 is primary, query2 is fallback
+  const urls = [
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?${qs}`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/${encoded}?${qs}`,
+  ]
+
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Origin': 'https://finance.yahoo.com',
+    'Referer': 'https://finance.yahoo.com/',
+  }
+
+  let lastError: Error = new Error(`Failed to fetch data for ${symbol}`)
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { headers })
+      if (!res.ok) {
+        lastError = new Error(`Yahoo Finance returned ${res.status} for ${symbol}`)
+        continue
+      }
+      const json = await res.json() as YahooChartResponse
+      return parseYahooResponse(json, symbol)
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error('Fetch failed')
+    }
+  }
+  throw lastError
 }
 
 export async function GET() {

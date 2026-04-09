@@ -5,7 +5,7 @@ import Link from 'next/link'
 import {
   Area, AreaChart, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
-import { STRATEGIES } from '@/lib/backtest'
+import { STRATEGIES, runBacktest, runBuyAndHold, type OHLCV } from '@/lib/backtest'
 
 // ──────────────────────────────────────────────
 // Agent backtest types
@@ -80,8 +80,25 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
 // ──────────────────────────────────────────────
 // Main component
 // ──────────────────────────────────────────────
+const CUSTOM_CODE_TEMPLATE = `// bars: Array<{ date, open, high, low, close, volume }>
+// Return: number[] — same length as bars, 1 = long, 0 = flat
+function strategy(bars) {
+  const closes = bars.map(b => b.close)
+  const window = 20
+  const positions = new Array(bars.length).fill(0)
+
+  for (let i = window; i < bars.length; i++) {
+    // Simple moving average crossover (fast 10 vs slow 20)
+    const fast = closes.slice(i - 10, i).reduce((a, b) => a + b, 0) / 10
+    const slow = closes.slice(i - window, i).reduce((a, b) => a + b, 0) / window
+    positions[i] = fast > slow ? 1 : 0
+  }
+
+  return positions
+}`
+
 export default function BacktestPage() {
-  const [tab, setTab] = useState<'lab' | 'agents'>('lab')
+  const [tab, setTab] = useState<'lab' | 'agents' | 'custom'>('lab')
   const [agents, setAgents] = useState<AgentEntry[]>([])
   const [agentLoading, setAgentLoading] = useState(false)
   const [agentResult, setAgentResult] = useState<BacktestResult | null>(null)
@@ -114,6 +131,128 @@ export default function BacktestPage() {
     }
   }
 
+  // ── Custom Code Lab state ──
+  const [customCode, setCustomCode] = useState(CUSTOM_CODE_TEMPLATE)
+  const [customSymbol, setCustomSymbol] = useState('BTC-USD')
+  const [customPeriod, setCustomPeriod] = useState('2y')
+  const [customLoading, setCustomLoading] = useState(false)
+  const [customError, setCustomError] = useState('')
+  const [customResult, setCustomResult] = useState<BacktestResult | null>(null)
+
+  async function runCustomBacktest() {
+    setCustomLoading(true)
+    setCustomError('')
+    setCustomResult(null)
+    try {
+      // 1. Fetch OHLCV from our API
+      const res = await fetch('/api/backtest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: customSymbol, strategy: 'momentum_crossover', period: customPeriod }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) throw new Error(data.error ?? 'Failed to fetch market data')
+
+      // 2. Reconstruct bare OHLCV bars from the returned bars
+      const bars: OHLCV[] = data.bars.map((b: { date: string; close: number; equity: number }) => ({
+        date: b.date,
+        open: b.close, high: b.close, low: b.close, close: b.close, volume: 0,
+      }))
+
+      // 3. Execute user code in a sandboxed Function
+      let userFn: (bars: OHLCV[]) => number[]
+      try {
+        // Wrap in try/catch so syntax errors surface nicely
+        // eslint-disable-next-line no-new-func
+        userFn = new Function('bars', `
+          "use strict";
+          ${customCode}
+          if (typeof strategy !== 'function') throw new Error('Define a function named strategy(bars)');
+          return strategy(bars);
+        `) as (bars: OHLCV[]) => number[]
+      } catch (e) {
+        throw new Error(`Code error: ${e instanceof Error ? e.message : String(e)}`)
+      }
+
+      let positions: number[]
+      try {
+        positions = userFn(bars)
+      } catch (e) {
+        throw new Error(`Runtime error: ${e instanceof Error ? e.message : String(e)}`)
+      }
+
+      if (!Array.isArray(positions) || positions.length !== bars.length) {
+        throw new Error(`strategy() must return an array of length ${bars.length} (got ${Array.isArray(positions) ? positions.length : typeof positions})`)
+      }
+
+      // 4. Simulate equity curve locally
+      const INITIAL = 100_000
+      const fee = 0.001
+      let equity = INITIAL
+      let prevPos = 0
+      const equityCurve: number[] = []
+      for (let i = 0; i < bars.length; i++) {
+        const pos = positions[i] ? 1 : 0
+        if (pos !== prevPos && i > 0) equity *= (1 - fee)
+        if (i > 0 && positions[i - 1]) {
+          equity *= (1 + (bars[i].close - bars[i - 1].close) / bars[i - 1].close)
+        }
+        equityCurve.push(equity)
+        prevPos = pos
+      }
+
+      // 5. Compute stats inline (mirrors lib/backtest computeStats)
+      const n = equityCurve.length
+      const initial = equityCurve[0], final = equityCurve[n - 1]
+      const totalReturnPct = ((final - initial) / initial) * 100
+      const years = Math.max((new Date(bars[n - 1].date).getTime() - new Date(bars[0].date).getTime()) / (365.25 * 864e5), 0.01)
+      const annualizedReturnPct = (Math.pow(final / initial, 1 / years) - 1) * 100
+      const dailyRets = equityCurve.slice(1).map((v, i) => (v - equityCurve[i]) / equityCurve[i])
+      const meanR = dailyRets.reduce((a, b) => a + b, 0) / dailyRets.length
+      const stdR = Math.sqrt(dailyRets.reduce((s, r) => s + (r - meanR) ** 2, 0) / dailyRets.length)
+      const sharpeRatio = stdR === 0 ? 0 : (meanR / stdR) * Math.sqrt(252)
+      let peak = equityCurve[0], maxDD = 0
+      for (const v of equityCurve) { if (v > peak) peak = v; const dd = (peak - v) / peak; if (dd > maxDD) maxDD = dd }
+      const trades: { entry: number; exit: number }[] = []
+      let inT = false, entryP = 0
+      for (let i = 0; i < positions.length; i++) {
+        const p = positions[i] ? 1 : 0
+        if (!inT && p === 1) { inT = true; entryP = bars[i].close }
+        else if (inT && (p === 0 || i === positions.length - 1)) { inT = false; trades.push({ entry: entryP, exit: bars[i].close }) }
+      }
+      const tradePcts = trades.map(t => ((t.exit - t.entry) / t.entry) * 100)
+      const profitableTrades = tradePcts.filter(p => p > 0).length
+      const winRate = trades.length > 0 ? (profitableTrades / trades.length) * 100 : 0
+      const stats = {
+        totalReturnPct, annualizedReturnPct,
+        sharpeRatio: Math.round(sharpeRatio * 100) / 100,
+        maxDrawdownPct: maxDD * 100, winRate,
+        totalTrades: trades.length, profitableTrades,
+        avgTradeDurationDays: 0,
+        bestTradePct: tradePcts.length > 0 ? Math.max(...tradePcts) : 0,
+        worstTradePct: tradePcts.length > 0 ? Math.min(...tradePcts) : 0,
+        calmarRatio: maxDD === 0 ? 0 : Math.round((annualizedReturnPct / (maxDD * 100)) * 100) / 100,
+      }
+
+      const resultBars = bars.map((bar, i) => ({ date: bar.date, close: bar.close, position: positions[i] ? 1 : 0, equity: equityCurve[i] }))
+      const buyHold = runBuyAndHold(bars)
+
+      setCustomResult({
+        symbol: customSymbol,
+        period: customPeriod,
+        strategy: { name: 'Custom Strategy', description: '', plainEnglish: '', bestFor: '', mainRisk: '' },
+        stats,
+        bars: resultBars,
+        buyHold,
+      })
+    } catch (e) {
+      setCustomError(e instanceof Error ? e.message : 'Unknown error')
+    } finally {
+      setCustomLoading(false)
+    }
+  }
+
+  // ── Strategy Lab state ──
   const [symbol, setSymbol] = useState('BTC-USD')
   const [strategyId, setStrategyId] = useState('momentum_crossover')
   const [period, setPeriod] = useState('2y')
@@ -319,6 +458,7 @@ export default function BacktestPage() {
       <div className="bt-tab-row">
         <button className={`bt-tab ${tab === 'lab' ? 'is-active' : ''}`} onClick={() => setTab('lab')}>Strategy Lab</button>
         <button className={`bt-tab ${tab === 'agents' ? 'is-active' : ''}`} onClick={() => setTab('agents')}>Agent Backtest</button>
+        <button className={`bt-tab ${tab === 'custom' ? 'is-active' : ''}`} onClick={() => setTab('custom')}>Custom Code</button>
       </div>
 
       {/* ─── AGENT BACKTEST TAB ─── */}
@@ -426,6 +566,151 @@ export default function BacktestPage() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ─── CUSTOM CODE TAB ─── */}
+      {tab === 'custom' && (
+        <div>
+          <style>{`
+            .bt-editor {
+              width: 100%; min-height: 320px; resize: vertical;
+              font-family: var(--font-mono); font-size: .8rem; line-height: 1.6;
+              background: rgba(10,8,24,0.95); border: 1px solid rgba(148,130,255,.2);
+              border-radius: 14px; color: #c8b8ff; padding: 1rem 1.2rem;
+              outline: none; tab-size: 2;
+            }
+            .bt-editor:focus { border-color: rgba(148,130,255,.45); }
+          `}</style>
+
+          <div style={{ marginBottom: '1rem', fontSize: '.88rem', color: 'rgba(220,210,255,.5)', lineHeight: 1.6 }}>
+            Write a <code style={{ color: '#b8a8ff', fontFamily: 'var(--font-mono)', fontSize: '.8rem' }}>strategy(bars)</code> function that receives OHLCV bars and returns a{' '}
+            <code style={{ color: '#b8a8ff', fontFamily: 'var(--font-mono)', fontSize: '.8rem' }}>number[]</code> of positions (1 = long, 0 = flat).
+            Code runs locally in your browser — no data leaves the page.
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '1.5rem', alignItems: 'start' }} className="custom-grid">
+            {/* Code editor */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <textarea
+                className="bt-editor"
+                value={customCode}
+                onChange={e => setCustomCode(e.target.value)}
+                spellCheck={false}
+                onKeyDown={e => {
+                  // Tab key inserts spaces instead of changing focus
+                  if (e.key === 'Tab') {
+                    e.preventDefault()
+                    const el = e.currentTarget
+                    const start = el.selectionStart
+                    const end = el.selectionEnd
+                    const next = customCode.substring(0, start) + '  ' + customCode.substring(end)
+                    setCustomCode(next)
+                    requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = start + 2 })
+                  }
+                }}
+              />
+              {customError && <div className="bt-error">{customError}</div>}
+            </div>
+
+            {/* Controls */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div className="bt-panel">
+                <div className="bt-panel-title">Asset & Timeframe</div>
+                <div className="bt-field">
+                  <label className="bt-label">Symbol</label>
+                  <select className="bt-select" value={customSymbol} onChange={e => setCustomSymbol(e.target.value)}>
+                    {ASSET_GROUPS.map(g => (
+                      <optgroup key={g.group} label={g.group} className="bt-optgroup">
+                        {g.items.map(t => <option key={t} value={t}>{t}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+                <div className="bt-field">
+                  <label className="bt-label">Period</label>
+                  <div className="bt-period-row">
+                    {PERIODS.map(p => (
+                      <button key={p} className={`bt-period-btn ${customPeriod === p ? 'is-active' : ''}`} onClick={() => setCustomPeriod(p)}>{p}</button>
+                    ))}
+                  </div>
+                </div>
+                <button className="bt-run-btn" onClick={runCustomBacktest} disabled={customLoading}>
+                  {customLoading ? 'Running…' : 'Run Strategy ▶'}
+                </button>
+              </div>
+
+              <div className="bt-panel" style={{ fontSize: '.78rem', color: 'rgba(220,210,255,.5)', lineHeight: 1.65 }}>
+                <div className="bt-panel-title">Available Helpers</div>
+                <div style={{ fontFamily: 'var(--font-mono)', display: 'flex', flexDirection: 'column', gap: '.4rem', fontSize: '.72rem' }}>
+                  <div><span style={{ color: '#b8a8ff' }}>bars[i].close</span> — closing price</div>
+                  <div><span style={{ color: '#b8a8ff' }}>bars[i].open/high/low</span> — OHLC</div>
+                  <div><span style={{ color: '#b8a8ff' }}>bars[i].volume</span> — volume</div>
+                  <div><span style={{ color: '#b8a8ff' }}>bars[i].date</span> — ISO date string</div>
+                  <div style={{ marginTop: '.5rem', color: 'rgba(220,210,255,.35)' }}>Standard JS Math, Array methods available. No fetch or DOM access.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Custom code results */}
+          {customResult && !customLoading && (() => {
+            const cs = customResult.stats
+            const customChartData = customResult.bars
+              .filter((_, i) => i % Math.max(1, Math.floor(customResult.bars.length / 300)) === 0)
+              .map((b, i) => ({
+                date: b.date.slice(5),
+                strategy: Math.round(b.equity),
+                buyHold: Math.round(customResult.buyHold[Math.min(i * Math.max(1, Math.floor(customResult.bars.length / 300)), customResult.buyHold.length - 1)]?.equity ?? 0),
+              }))
+            return (
+              <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <div className="bt-panel">
+                  <div className="bt-panel-title">Custom Strategy · {customResult.symbol} · {customResult.period}</div>
+                  <div className="bt-stats-grid">
+                    <div className="bt-stat"><div className="bt-stat-label">Total Return</div><div className="bt-stat-value" style={{ color: colorOf(cs.totalReturnPct) }}>{fmtPct(cs.totalReturnPct)}</div></div>
+                    <div className="bt-stat"><div className="bt-stat-label">Ann. Return</div><div className="bt-stat-value" style={{ color: colorOf(cs.annualizedReturnPct) }}>{fmtPct(cs.annualizedReturnPct)}</div></div>
+                    <div className="bt-stat"><div className="bt-stat-label">Sharpe</div><div className="bt-stat-value" style={{ color: cs.sharpeRatio >= 1 ? 'var(--bt-pos)' : cs.sharpeRatio >= 0 ? '#fde68a' : 'var(--bt-neg)' }}>{fmtNum(cs.sharpeRatio)}</div></div>
+                    <div className="bt-stat"><div className="bt-stat-label">Max Drawdown</div><div className="bt-stat-value" style={{ color: 'var(--bt-neg)' }}>-{fmtNum(cs.maxDrawdownPct)}%</div></div>
+                    <div className="bt-stat"><div className="bt-stat-label">Win Rate</div><div className="bt-stat-value" style={{ color: cs.winRate >= 50 ? 'var(--bt-pos)' : 'var(--bt-neg)' }}>{fmtNum(cs.winRate)}%</div></div>
+                    <div className="bt-stat"><div className="bt-stat-label">Trades</div><div className="bt-stat-value">{cs.totalTrades}</div></div>
+                    <div className="bt-stat"><div className="bt-stat-label">Best Trade</div><div className="bt-stat-value" style={{ color: 'var(--bt-pos)' }}>{fmtPct(cs.bestTradePct)}</div></div>
+                    <div className="bt-stat"><div className="bt-stat-label">Worst Trade</div><div className="bt-stat-value" style={{ color: 'var(--bt-neg)' }}>{fmtPct(cs.worstTradePct)}</div></div>
+                    <div className="bt-stat"><div className="bt-stat-label">Calmar</div><div className="bt-stat-value" style={{ color: colorOf(cs.calmarRatio) }}>{fmtNum(cs.calmarRatio)}</div></div>
+                  </div>
+                </div>
+                <div className="bt-panel">
+                  <div className="bt-panel-title">Equity Curve · $100K initial capital</div>
+                  <div className="bt-chart-wrap">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={customChartData}>
+                        <defs>
+                          <linearGradient id="csGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#9482ff" stopOpacity={0.35} />
+                            <stop offset="95%" stopColor="#9482ff" stopOpacity={0} />
+                          </linearGradient>
+                          <linearGradient id="csBh" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#6ee7b7" stopOpacity={0.2} />
+                            <stop offset="95%" stopColor="#6ee7b7" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <XAxis dataKey="date" tick={{ fill: 'rgba(220,210,255,.3)', fontSize: 10 }} tickLine={false} axisLine={false} />
+                        <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fill: 'rgba(220,210,255,.3)', fontSize: 10 }} tickLine={false} axisLine={false} width={52} />
+                        <Tooltip content={<ChartTooltip />} />
+                        <Legend wrapperStyle={{ fontSize: 11, color: 'rgba(220,210,255,.5)' }} />
+                        <Area type="monotone" dataKey="buyHold" name="Buy & Hold" stroke="#6ee7b7" strokeWidth={1.5} fill="url(#csBh)" dot={false} />
+                        <Area type="monotone" dataKey="strategy" name="Custom Strategy" stroke="#9482ff" strokeWidth={2.2} fill="url(#csGrad)" dot={false} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
+          <style>{`
+            @media (max-width: 900px) { .custom-grid { grid-template-columns: 1fr !important; } }
+          `}</style>
         </div>
       )}
 
