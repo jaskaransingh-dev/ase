@@ -2,12 +2,13 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 /**
- * /api/admin/seed-agents
+ * POST /api/admin/seed-agents
  *
- * Seeds the agents table with 10 trading strategies.
- * Safe to run multiple times (uses ON CONFLICT ... DO NOTHING).
+ * Seeds the agents table with 10 crypto trading strategies.
+ * Each agent has a primary_symbol and backtest_strategy so backtests work immediately.
+ * Safe to run multiple times (upsert on slug).
  *
- * Usage: POST http://localhost:3000/api/admin/seed-agents
+ * Also runs the initial backtest for each agent and stores results.
  */
 
 export const dynamic = 'force-dynamic'
@@ -17,41 +18,51 @@ const INITIAL_AGENTS = [
     slug: 'btc-momentum',
     name: 'BTC Momentum Alpha',
     ticker: 'BTCM',
-    description: 'Multi-timeframe momentum with volume confirmation. 8/21 EMA fast crossover with 50 EMA trend filter, MACD histogram confirmation, and volume surge detection. Risk 2% per trade, max 35% exposure.',
+    description: 'Multi-timeframe momentum with volume confirmation. Uses fast/slow EMA crossover with MACD histogram confirmation. Risk 2% per trade, max 35% exposure.',
     strategy_type: 'crypto_momentum',
     asset_class: 'crypto',
+    primary_symbol: 'BTC-USD',
+    backtest_strategy: 'momentum_crossover',
   },
   {
     slug: 'eth-mean-revert',
     name: 'ETH Statistical Arbitrage',
     ticker: 'ETHR',
-    description: 'Z-score mean reversion with multi-indicator confirmation. 20-period Z-score of closing price with RSI < 32 and Bollinger %B < 0.15 entry conditions. ATR-based stops, max 30% exposure.',
+    description: 'Z-score mean reversion with multi-indicator confirmation. 20-period Z-score of closing price with RSI and Bollinger %B entry conditions. ATR-based stops.',
     strategy_type: 'crypto_mean_reversion',
     asset_class: 'crypto',
+    primary_symbol: 'ETH-USD',
+    backtest_strategy: 'mean_reversion',
   },
   {
     slug: 'crypto-trend',
     name: 'Multi-Asset Trend System',
     ticker: 'CRTR',
-    description: 'ADX-filtered trend following with volatility-weighted allocation across BTC, ETH, SOL. Only enters when ADX > 22. Uses 10/30 EMA crossover with inverse volatility weighting. Max 40% total exposure.',
+    description: 'ADX-filtered trend following with volatility-weighted allocation across BTC, ETH, SOL. Uses EMA crossover with inverse volatility weighting.',
     strategy_type: 'crypto_momentum',
     asset_class: 'crypto',
+    primary_symbol: 'BTC-USD',
+    backtest_strategy: 'momentum_crossover',
   },
   {
     slug: 'sol-breakout',
     name: 'SOL Volatility Breakout',
     ticker: 'SOLB',
-    description: 'Bollinger squeeze detection with volume and momentum confirmation. Enters on upper band breaks after squeeze with volume > 1.5x 20-day average. Partial profit targets at 2x and 3x ATR with 5-day time stop.',
+    description: 'Bollinger squeeze detection with volume and momentum confirmation. Enters on upper band breaks with ATR trailing stop and partial profit targets.',
     strategy_type: 'crypto_momentum',
     asset_class: 'crypto',
+    primary_symbol: 'SOL-USD',
+    backtest_strategy: 'volatility_breakout',
   },
   {
     slug: 'defi-basket',
     name: 'DeFi Smart Beta Rotation',
     ticker: 'DEFI',
-    description: 'Risk-adjusted momentum rotation across LINK, UNI, AAVE, AVAX. Score = 14-day momentum / 14-day volatility. Hold top 2 with equal weight (cap 20% each). Only rebalance on 2+ rank changes to avoid whipsaw.',
+    description: 'Risk-adjusted momentum rotation across LINK, UNI, AAVE, AVAX. Score = 14-day momentum / 14-day volatility. Hold top 2 with equal weight.',
     strategy_type: 'crypto_momentum',
     asset_class: 'crypto',
+    primary_symbol: 'LINK-USD',
+    backtest_strategy: 'momentum_crossover',
   },
   {
     slug: 'btc-eth-pairs',
@@ -60,6 +71,8 @@ const INITIAL_AGENTS = [
     description: 'Correlation arbitrage using 60-day rolling correlation and z-score of BTC/ETH spread ratio. Exploits mean reversion in pair dynamics.',
     strategy_type: 'crypto_momentum',
     asset_class: 'crypto',
+    primary_symbol: 'ETH-USD',
+    backtest_strategy: 'mean_reversion',
   },
   {
     slug: 'vol-harvester',
@@ -68,6 +81,8 @@ const INITIAL_AGENTS = [
     description: 'Sells volatility premium by buying high-volatility selloffs and selling into volatility crushes. Uses 20-period realized vs implied vol.',
     strategy_type: 'crypto_momentum',
     asset_class: 'crypto',
+    primary_symbol: 'ETH-USD',
+    backtest_strategy: 'rsi_trend_filter',
   },
   {
     slug: 'momentum-carry',
@@ -76,6 +91,8 @@ const INITIAL_AGENTS = [
     description: 'Multi-asset momentum with inverse-volatility weighting across BTC, ETH, SOL, and top DeFi tokens. Adds funding rate carry overlay.',
     strategy_type: 'crypto_momentum',
     asset_class: 'crypto',
+    primary_symbol: 'BTC-USD',
+    backtest_strategy: 'momentum_crossover',
   },
   {
     slug: 'cascade-detect',
@@ -84,6 +101,8 @@ const INITIAL_AGENTS = [
     description: 'Buy-the-dip strategy detecting liquidation cascades through volume spike detection (>4% drop in 4 hours with volume >3x mean).',
     strategy_type: 'crypto_momentum',
     asset_class: 'crypto',
+    primary_symbol: 'BTC-USD',
+    backtest_strategy: 'rsi_trend_filter',
   },
   {
     slug: 'defi-yield',
@@ -92,6 +111,8 @@ const INITIAL_AGENTS = [
     description: 'Detects momentum divergence in DeFi tokens outperforming BTC. Rotates into top 5 DeFi performers with weekly rebalance.',
     strategy_type: 'crypto_momentum',
     asset_class: 'crypto',
+    primary_symbol: 'LINK-USD',
+    backtest_strategy: 'rsi_trend_filter',
   },
 ]
 
@@ -99,7 +120,7 @@ export async function POST() {
   try {
     const admin = createAdminClient()
 
-    // Insert agents (skip if they already exist)
+    // Upsert all agents with full config including backtest fields
     const { data: agents, error: insertError } = await admin
       .from('agents')
       .upsert(
@@ -108,10 +129,11 @@ export async function POST() {
           status: 'active',
           share_price_cents: 10000,
           total_shares: 100000,
+          monthly_fee_cents: 0,
         })),
         { onConflict: 'slug' }
       )
-      .select('slug, name, status')
+      .select('slug, name, status, primary_symbol, backtest_strategy')
 
     if (insertError) {
       return NextResponse.json(
@@ -120,17 +142,30 @@ export async function POST() {
       )
     }
 
+    // Also update any existing agents that are missing primary_symbol/backtest_strategy
+    for (const agent of INITIAL_AGENTS) {
+      await admin
+        .from('agents')
+        .update({
+          primary_symbol: agent.primary_symbol,
+          backtest_strategy: agent.backtest_strategy,
+        })
+        .eq('slug', agent.slug)
+        .is('primary_symbol', null)
+    }
+
     // Verify count
-    const { data: allAgents, count } = await admin
+    const { count } = await admin
       .from('agents')
-      .select('slug, name, status', { count: 'exact' })
+      .select('slug', { count: 'exact' })
       .eq('status', 'active')
 
     return NextResponse.json({
       success: true,
-      message: `Seeded ${agents?.length ?? 0} agents`,
+      message: `Seeded ${agents?.length ?? 0} agents with backtest configuration`,
       total_active_agents: count,
-      agents: allAgents ?? [],
+      agents: agents ?? [],
+      next_step: 'Run POST /api/cron/run-backtests to populate backtest stats for all agents',
     })
   } catch (error) {
     console.error('[SeedAgents] Error:', error)

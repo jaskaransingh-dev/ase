@@ -75,6 +75,20 @@ interface BacktestResult {
   symbol: string; period: string
 }
 
+interface MCResult {
+  start: string; end: string; bars: number
+  strategyReturn: number; marketReturn: number; excessReturn: number
+  sharpe: number; maxDrawdown: number; winRate: number; totalTrades: number
+}
+interface MCSummary {
+  nTrials: number; windowDays: number
+  medianReturn: number; meanReturn: number
+  medianExcess: number; meanExcess: number; medianSharpe: number
+  beatRate: number; medianDrawdown: number
+  p10Return: number; p90Return: number
+  results: MCResult[]
+}
+
 const strategyDescriptions: Record<string, string> = {
   momentum: 'Weekly rebalance targeting highest-momentum stocks from a curated watchlist. Position-size capped at 20% per holding.',
   mean_reversion: 'Enters when RSI drops below 30 on large-cap equities. Exits at RSI > 55 or +8% gain. Max 3 open positions.',
@@ -111,6 +125,44 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
   const [btError, setBtError] = useState('')
   const [btPeriod, setBtPeriod] = useState(cachedBacktestStats?.period ?? '2y')
   const [btRefreshing, setBtRefreshing] = useState(false)
+
+  // Monte Carlo state
+  const [mcResult, setMcResult] = useState<MCSummary | null>(null)
+  const [mcLoading, setMcLoading] = useState(false)
+  const [mcError, setMcError] = useState('')
+  const [mcTrials, setMcTrials] = useState(80)
+  const [mcWindow, setMcWindow] = useState(180) // days
+
+  async function loadMonteCarlo() {
+    if (!agent.primary_symbol || !agent.backtest_strategy) {
+      setMcError('No backtest configuration for this agent.')
+      return
+    }
+    setMcLoading(true)
+    setMcError('')
+    try {
+      const res = await fetch('/api/backtest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol: agent.primary_symbol,
+          strategy: agent.backtest_strategy,
+          period: '10y',
+          monteCarlo: true,
+          nTrials: mcTrials,
+          windowDays: mcWindow,
+          seed: 42,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) throw new Error(data.error ?? 'Monte Carlo failed')
+      setMcResult(data.monteCarlo as MCSummary)
+    } catch (e) {
+      setMcError(e instanceof Error ? e.message : 'Unknown error')
+    } finally {
+      setMcLoading(false)
+    }
+  }
 
   async function loadBacktest(period = btPeriod) {
     if (!agent.primary_symbol || !agent.backtest_strategy) {
@@ -610,6 +662,130 @@ export default function AgentDetailClient({ agent, statsHistory, latestStats, tr
                   Loading historical backtest…
                 </div>
               )}
+
+              {/* ── Monte Carlo Blind Test ── */}
+              <div style={{ marginTop: '2rem', borderTop: '1px solid var(--border)', paddingTop: '1.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '.5rem' }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '.9rem' }}>Blind Test (Monte Carlo)</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', marginTop: '.15rem' }}>
+                      Run {mcTrials} random windows of {mcWindow} days across all available history
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <select value={mcTrials} onChange={e => setMcTrials(Number(e.target.value))}
+                      style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', padding: '.3rem .5rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--white)', cursor: 'pointer' }}>
+                      {[20, 50, 80, 100, 200].map(n => <option key={n} value={n}>{n} trials</option>)}
+                    </select>
+                    <select value={mcWindow} onChange={e => setMcWindow(Number(e.target.value))}
+                      style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', padding: '.3rem .5rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--white)', cursor: 'pointer' }}>
+                      {[
+                        { v: 30, l: '1 month' }, { v: 60, l: '2 months' }, { v: 90, l: '3 months' },
+                        { v: 180, l: '6 months' }, { v: 365, l: '1 year' },
+                      ].map(({ v, l }) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                    <button onClick={loadMonteCarlo} disabled={mcLoading}
+                      className="btn-primary"
+                      style={{ fontSize: '.72rem', padding: '.35rem .85rem', borderRadius: 9 }}>
+                      {mcLoading ? 'Running…' : 'Run Blind Test'}
+                    </button>
+                  </div>
+                </div>
+
+                {mcError && !mcLoading && (
+                  <div style={{ padding: '.75rem 1rem', background: 'rgba(232,64,64,.08)', border: '1px solid rgba(232,64,64,.2)', borderRadius: 12, color: '#FB7185', fontSize: '.85rem', marginBottom: '1rem' }}>
+                    {mcError}
+                  </div>
+                )}
+
+                {mcLoading && (
+                  <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.75rem' }}>
+                    Running {mcTrials} random window tests…
+                  </div>
+                )}
+
+                {mcResult && !mcLoading && (() => {
+                  const m = mcResult
+                  const fP = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
+                  const col = (v: number) => v >= 0 ? 'var(--green)' : 'var(--red)'
+
+                  // Grade the strategy
+                  const grade = m.beatRate >= 0.60 && m.medianExcess > 0 && m.medianSharpe >= 1
+                    ? { label: 'Strong', color: 'var(--green)', bg: 'rgba(110,231,183,.1)' }
+                    : m.beatRate >= 0.50 && m.medianSharpe >= 0.5
+                    ? { label: 'Mixed', color: 'var(--gold)', bg: 'rgba(251,191,36,.1)' }
+                    : { label: 'Weak', color: '#FB7185', bg: 'rgba(251,113,133,.1)' }
+
+                  return (
+                    <>
+                      {/* Grade badge */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', marginBottom: '1rem' }}>
+                        <span style={{ fontFamily: 'var(--font-head)', fontSize: '1.1rem', fontWeight: 800, padding: '.4rem .9rem', borderRadius: 10, background: grade.bg, color: grade.color, border: `1px solid ${grade.color}30` }}>
+                          {grade.label}
+                        </span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: 'var(--muted)' }}>
+                          across {m.nTrials} random {mcWindow}-day windows
+                        </span>
+                      </div>
+
+                      {/* Summary stats */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: '.6rem', marginBottom: '1.25rem' }}>
+                        {[
+                          { label: 'Beat Rate', value: (m.beatRate * 100).toFixed(0) + '%', color: m.beatRate >= 0.5 ? 'var(--green)' : 'var(--red)' },
+                          { label: 'Median Return', value: fP(m.medianReturn), color: col(m.medianReturn) },
+                          { label: 'Mean Return', value: fP(m.meanReturn), color: col(m.meanReturn) },
+                          { label: 'Median Excess', value: fP(m.medianExcess), color: col(m.medianExcess) },
+                          { label: 'Median Sharpe', value: m.medianSharpe.toFixed(2), color: m.medianSharpe >= 1 ? 'var(--green)' : m.medianSharpe >= 0.5 ? 'var(--gold)' : 'var(--red)' },
+                          { label: 'Median DD', value: `-${m.medianDrawdown.toFixed(1)}%`, color: 'var(--red)' },
+                          { label: '10th %ile', value: fP(m.p10Return), color: col(m.p10Return) },
+                          { label: '90th %ile', value: fP(m.p90Return), color: col(m.p90Return) },
+                        ].map(({ label, value, color }) => (
+                          <div key={label} style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 12, padding: '.7rem .85rem' }}>
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.25rem' }}>{label.toUpperCase()}</div>
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.95rem', fontWeight: 800, color }}>{value}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Distribution chart — bar chart of returns */}
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.5rem' }}>
+                        RETURN DISTRIBUTION · {m.nTrials} WINDOWS · {mcWindow} DAYS EACH
+                      </div>
+                      <ResponsiveContainer width="100%" height={180}>
+                        <AreaChart data={
+                          (() => {
+                            // Build histogram from returns
+                            const returns = m.results.map(r => r.strategyReturn)
+                            const min = Math.floor(Math.min(...returns) / 5) * 5
+                            const max = Math.ceil(Math.max(...returns) / 5) * 5
+                            const bins: Array<{ range: string; count: number; pct: number }> = []
+                            for (let b = min; b < max; b += 5) {
+                              const count = returns.filter(r => r >= b && r < b + 5).length
+                              bins.push({ range: `${b}%`, count, pct: (count / returns.length) * 100 })
+                            }
+                            return bins
+                          })()
+                        } margin={{ top: 5, right: 10, bottom: 5, left: -10 }}>
+                          <defs>
+                            <linearGradient id="mcGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#9482ff" stopOpacity={0.4} />
+                              <stop offset="95%" stopColor="#9482ff" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <XAxis dataKey="range" tick={{ fill: 'rgba(238,242,255,.28)', fontSize: 9, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fill: 'rgba(238,242,255,.28)', fontSize: 9, fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
+                          <Tooltip contentStyle={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, fontFamily: 'var(--font-mono)', fontSize: 10 }} formatter={(v: unknown) => [`${Number(v).toFixed(1)}%`, 'of trials']} />
+                          <Area type="monotone" dataKey="pct" stroke="#9482ff" strokeWidth={2} fill="url(#mcGrad)" dot={false} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', marginTop: '.5rem' }}>
+                        Each window is a random slice of history — not a single cherry-picked period. This is a more honest test of whether the strategy works reliably.
+                      </div>
+                    </>
+                  )
+                })()}
+              </div>
             </div>
           )}
         </div>

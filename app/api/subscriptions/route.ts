@@ -45,16 +45,13 @@ export async function POST(req: Request) {
   if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
   if (agent.status !== 'active') return NextResponse.json({ error: 'Agent not currently accepting subscriptions' }, { status: 422 })
 
-  // Ensure profile exists first (wallet has FK → profiles)
+  // Ensure profile exists (subscriptions FK → auth.users, profile for display)
   await admin.from('profiles').upsert(
     { id: user.id, display_name: user.email?.split('@')[0] ?? 'user' },
     { onConflict: 'id' }
   )
-  // Then ensure wallet exists
-  await admin.from('wallets').upsert(
-    { user_id: user.id, balance_cents: 0 },
-    { onConflict: 'user_id' }
-  )
+  // Note: No fake "wallet balance" created. The Coinbase wallet connection
+  // is for identity + future on-chain settlement. No internal USD balance.
 
   // Upsert subscription with admin client — avoids RLS cookie propagation issues
   const { data, error } = await admin

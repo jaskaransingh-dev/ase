@@ -19,80 +19,10 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { runBacktest, runBuyAndHold, STRATEGIES, type OHLCV } from '@/lib/backtest'
+import { runBacktest, runBuyAndHold, STRATEGIES } from '@/lib/backtest'
+import { fetchYahooFinance } from '@/app/api/backtest/route'
 
 export const dynamic = 'force-dynamic'
-// Note: NOT edge runtime — needs full Node.js for fetch + crypto operations
-
-const PERIOD_DAYS = 730  // 2 years, same as app.py default
-
-type YahooChartResponse = {
-  chart: {
-    result?: Array<{
-      timestamp: number[]
-      indicators: {
-        quote: Array<{
-          open: number[]
-          high: number[]
-          low: number[]
-          close: number[]
-          volume: number[]
-        }>
-      }
-    }>
-    error?: { description: string }
-  }
-}
-
-async function fetchYahooFinance(symbol: string): Promise<OHLCV[]> {
-  const end = Math.floor(Date.now() / 1000)
-  const start = end - PERIOD_DAYS * 86400
-  const qs = `interval=1d&period1=${start}&period2=${end}&includePrePost=false&events=history`
-  const encoded = encodeURIComponent(symbol)
-
-  const urls = [
-    `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?${qs}`,
-    `https://query2.finance.yahoo.com/v8/finance/chart/${encoded}?${qs}`,
-  ]
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Origin': 'https://finance.yahoo.com',
-    'Referer': 'https://finance.yahoo.com/',
-  }
-
-  let lastError: Error = new Error(`Failed to fetch data for ${symbol}`)
-  for (const url of urls) {
-    try {
-      const res = await fetch(url, { headers })
-      if (!res.ok) { lastError = new Error(`Yahoo Finance ${res.status} for ${symbol}`); continue }
-      const json = await res.json() as YahooChartResponse
-      const chart = json.chart
-      if (chart.error) throw new Error(chart.error.description)
-      const result = chart.result?.[0]
-      if (!result) throw new Error(`No data returned for ${symbol}`)
-      const { timestamp, indicators } = result
-      const q = indicators.quote[0]
-      const bars: OHLCV[] = []
-      for (let i = 0; i < timestamp.length; i++) {
-        if (q.close[i] == null) continue
-        bars.push({
-          date: new Date(timestamp[i] * 1000).toISOString().slice(0, 10),
-          open: q.open[i] ?? q.close[i],
-          high: q.high[i] ?? q.close[i],
-          low: q.low[i] ?? q.close[i],
-          close: q.close[i],
-          volume: q.volume[i] ?? 0,
-        })
-      }
-      return bars
-    } catch (e) {
-      lastError = e instanceof Error ? e : new Error('Fetch failed')
-    }
-  }
-  throw lastError
-}
 
 async function runAgentBacktest(agent: {
   id: string
@@ -100,7 +30,7 @@ async function runAgentBacktest(agent: {
   primary_symbol: string
   backtest_strategy: string
 }) {
-  const bars = await fetchYahooFinance(agent.primary_symbol)
+  const bars = await fetchYahooFinance(agent.primary_symbol, '2y', '1d')
   if (bars.length < 60) throw new Error(`Not enough data for ${agent.primary_symbol} (${bars.length} bars)`)
 
   const meta = STRATEGIES[agent.backtest_strategy]
