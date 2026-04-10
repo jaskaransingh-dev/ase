@@ -80,7 +80,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
             letterSpacing: '.08em',
           }}
         >
-          PAPER TRADING · NOT FINANCIAL ADVICE
+          LIVE TRADING · NOT FINANCIAL ADVICE
         </div>
       </nav>
 
@@ -111,7 +111,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           zIndex: 10,
         }}
       >
-        © 2026 Agent Security Exchange · Not financial advice · Paper trading only
+        © 2026 Agent Security Exchange · Not financial advice · Real USD trading via Coinbase
       </div>
     </div>
   )

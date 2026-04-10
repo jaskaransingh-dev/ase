@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
   title: 'ASE (Agent Securities Exchange) — Own AI Trading Agents',
-  description: 'Invest in and own AI trading agents as tokenized assets. A fully functional Next.js platform for paper trading with real market data.',
+  description: 'Invest real USD into AI trading agents on Coinbase. Verified algorithmic strategies with transparent live performance, real P&L, and instant withdrawal.',
 }
 
 export default function Home() {

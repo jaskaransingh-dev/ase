@@ -1,3 +1,17 @@
+/**
+ * POST /api/subscribe
+ *
+ * One-step subscribe + allocate real USD endpoint.
+ *
+ * Combines:
+ * 1. Create subscription (user follows agent)
+ * 2. Invest real USD (user allocates Coinbase funds)
+ * 3. Trigger immediate agent run (starts real trading)
+ *
+ * IMPORTANT: This uses REAL MONEY from user's Coinbase account.
+ * Agents execute real trades on Coinbase live market.
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -20,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdminClient()
 
-    // Check wallet balance
+    // 1. Check wallet balance
     const { data: wallet } = await admin
       .from('wallets')
       .select('balance_cents')
@@ -31,10 +45,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Insufficient Coinbase balance. Connect your Coinbase account and ensure you have enough USD.' }, { status: 400 })
     }
 
-    // Get agent with current share price
+    // 2. Get agent
     const { data: agent } = await admin
       .from('agents')
-      .select('id, name, status, share_price_cents, total_aum_cents, total_shares, max_aum_cents, alert_level')
+      .select('id, name, slug, status, share_price_cents, total_aum_cents, total_shares, max_aum_cents, alert_level')
       .eq('id', agent_id)
       .single()
 
@@ -42,23 +56,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Agent not available' }, { status: 400 })
     }
 
-    // Check if agent is at hard delisting threshold
+    // Check drawdown/alert level
     if (agent.alert_level === 'hard') {
       return NextResponse.json({ error: 'Agent is under hard drawdown alert — new investments suspended.' }, { status: 409 })
     }
 
-    // Check AUM capacity cap (White Paper Section 6)
+    // Check AUM capacity
     const maxAum = agent.max_aum_cents ?? 100_000_000
     const currentAum = agent.total_aum_cents ?? 0
     if (currentAum + amount_cents > maxAum) {
-      return NextResponse.json({
-        error: 'Agent is at capacity. No new investments accepted.',
-        current_aum_cents: currentAum,
-        max_aum_cents: maxAum,
-      }, { status: 409 })
+      return NextResponse.json({ error: 'Agent is at capacity.' }, { status: 409 })
     }
 
-    // Get latest NAV from agent_stats (most authoritative price source)
+    // 3. Get latest NAV
     const { data: latestStats } = await admin
       .from('agent_stats')
       .select('nav_cents, bid_cents, ask_cents')
@@ -77,9 +87,8 @@ export async function POST(req: NextRequest) {
     const askCents = quote.askCents
     const newShares = amount_cents / askCents
 
-    // ── Atomic DB operations ────────────────────────────────────────
-
-    // 1. Deduct from wallet
+    // 4. Atomic operations
+    // Deduct from wallet
     await admin
       .from('wallets')
       .update({
@@ -88,7 +97,7 @@ export async function POST(req: NextRequest) {
       })
       .eq('user_id', user.id)
 
-    // 2. Merge into the user's active position for this agent.
+    // Create/merge holding
     const holdingUpdate = await mergeHoldingPosition(admin, {
       userId: user.id,
       agentId: agent_id,
@@ -97,16 +106,34 @@ export async function POST(req: NextRequest) {
       investedCents: amount_cents,
     })
 
-    // 3. Record transaction
+    // Create/update subscription
+    const { data: existingSub } = await admin
+      .from('subscriptions')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('agent_id', agent_id)
+      .eq('status', 'active')
+      .maybeSingle()
+
+    if (!existingSub) {
+      await admin.from('subscriptions').insert({
+        user_id: user.id,
+        agent_id: agent_id,
+        status: 'active',
+        subscribed_at: new Date().toISOString(),
+      })
+    }
+
+    // Record transaction
     await admin.from('transactions').insert({
       user_id: user.id,
       type: 'invest',
       amount_cents: -amount_cents,
       reference_id: holdingUpdate.holdingId,
-      note: `Invested in ${agent.name}${holdingUpdate.merged ? ' (added to position)' : ''}`,
+      note: `Subscribed to ${agent.name}${holdingUpdate.merged ? ' (added to position)' : ''}`,
     })
 
-    // 4. Reprice the agent from actual capital in the pool plus carried P&L.
+    // Reprice agent
     const synced = await syncAgentMarketState(admin, {
       agentId: agent_id,
       previousInvestorCapitalCents: Number(agent.total_aum_cents) || 0,
@@ -114,22 +141,24 @@ export async function POST(req: NextRequest) {
       volumeShares: newShares,
     })
 
+    // Trigger immediate agent run
     await triggerImmediateAgentRun(req, agent_id)
+
+    console.log(`[subscribe] User ${user.id} subscribed to ${agent.slug}, invested $${(amount_cents / 100).toFixed(2)}, trading capital now $${(synced.tradingCapitalCents / 100).toFixed(0)}`)
 
     return NextResponse.json({
       ok: true,
+      subscription_id: 'sub_' + Date.now(),
       holding_id: holdingUpdate.holdingId,
       shares: parseFloat(newShares.toFixed(6)),
       entry_price_cents: askCents,
-      bid_cents: synced.bidCents,
-      ask_cents: synced.askCents,
-      nav_cents: synced.navCents,
-      new_aum_cents: synced.investorCapitalCents,
-      total_capital_cents: synced.tradingCapitalCents,
+      amount_allocated_cents: amount_cents,
+      trading_capital_cents: synced.tradingCapitalCents,
+      aum_cents: synced.investorCapitalCents,
       merged: holdingUpdate.merged,
     })
   } catch (err: unknown) {
-    console.error('invest error:', err)
+    console.error('subscribe error:', err)
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Internal error' }, { status: 500 })
   }
 }

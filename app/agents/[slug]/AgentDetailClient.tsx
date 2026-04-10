@@ -108,16 +108,21 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
   onClose: () => void; onSuccess: (result: { shares: number; amount: number }) => void
 }) {
   const [balance, setBalance] = useState<number | null>(null)
+  const [coinbaseStatus, setCoinbaseStatus] = useState<string>('loading')
   const [amount, setAmount] = useState(50)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [fetching, setFetching] = useState(true)
 
   useEffect(() => {
-    fetch('/api/user/wallet').then(r => r.json()).then(d => setBalance(d.balance_cents ?? 0)).catch(() => setBalance(0)).finally(() => setFetching(false))
+    fetch('/api/coinbase/balance').then(r => r.json()).then(d => {
+      setBalance(d.usd_balance_cents ?? 0)
+      setCoinbaseStatus(d.status ?? 'connected')
+    }).catch(() => { setBalance(0); setCoinbaseStatus('error') }).finally(() => setFetching(false))
   }, [])
 
-  const maxAmount = balance !== null ? Math.floor(balance / 100) : 1000
+  const notConnected = coinbaseStatus === 'not_connected'
+  const maxAmount = balance !== null ? Math.floor(balance / 100) : 0
   const cappedAmount = Math.min(Math.max(amount, 0), maxAmount)
   const projectedShares = navCents > 0 ? (cappedAmount * 100) / navCents : 0
 
@@ -125,7 +130,7 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
     if (cappedAmount < 10) { setMsg('Minimum investment is $10'); return }
     setLoading(true); setMsg('')
     try {
-      const res = await fetch('/api/holdings/invest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: agentId, amount_cents: Math.round(cappedAmount * 100) }) })
+      const res = await fetch('/api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: agentId, amount_cents: Math.round(cappedAmount * 100) }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       onSuccess({ shares: data.shares, amount: cappedAmount })
@@ -138,51 +143,68 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
       <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg2)', border: '1px solid rgba(59,127,255,.22)', borderRadius: 20, padding: '2rem', width: '100%', maxWidth: 400, boxShadow: '0 40px 80px rgba(0,0,0,.7)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
           <div>
-            <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1.1rem' }}>Allocate Credits</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', marginTop: '.18rem' }}>Paper trading — {agentName}</div>
+            <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1.1rem' }}>Invest USD</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', marginTop: '.18rem' }}>{agentName}</div>
           </div>
           <button onClick={onClose} style={{ background: 'rgba(255,255,255,.06)', border: '1px solid var(--border)', borderRadius: 9, width: 32, height: 32, cursor: 'pointer', color: 'var(--faint)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>x</button>
         </div>
 
         <div style={{ background: 'rgba(59,127,255,.05)', border: '1px solid rgba(59,127,255,.16)', borderRadius: 11, padding: '.8rem 1rem', marginBottom: '1.2rem' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.22rem' }}>YOUR PAPER BALANCE</div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.2rem', fontWeight: 700, color: fetching ? 'var(--faint)' : 'var(--blue2)' }}>
-            {fetching ? '—' : fmt$(balance ?? 0)}
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.22rem' }}>COINBASE USD BALANCE</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.2rem', fontWeight: 700, color: fetching ? 'var(--faint)' : (notConnected ? 'var(--red)' : 'var(--blue2)') }}>
+            {fetching ? '—' : notConnected ? 'Not Connected' : fmt$(balance ?? 0)}
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', marginTop: '.16rem' }}>Simulated credits — no real money</div>
-        </div>
-
-        <div style={{ marginBottom: '1.2rem' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.45rem' }}>AMOUNT</div>
-          <div style={{ position: 'relative' }}>
-            <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', fontFamily: 'var(--font-mono)', fontSize: '.88rem', color: 'var(--muted)' }}>$</span>
-            <input type="number" value={amount} min={10} max={maxAmount} onChange={e => setAmount(Number(e.target.value))} style={{ width: '100%', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.68rem 1rem .68rem 1.7rem', color: 'var(--white)', fontFamily: 'var(--font-mono)', fontSize: '.92rem', outline: 'none', boxSizing: 'border-box' }} />
-          </div>
-          <div style={{ display: 'flex', gap: '.35rem', marginTop: '.4rem' }}>
-            {[25, 50, 100].filter(v => v <= maxAmount).map(v => (
-              <button key={v} onClick={() => setAmount(v)} style={{ flex: 1, padding: '.28rem', background: amount === v ? 'rgba(59,127,255,.1)' : 'rgba(255,255,255,.03)', border: `1px solid ${amount === v ? 'rgba(59,127,255,.28)' : 'var(--border)'}`, borderRadius: 6, color: amount === v ? 'var(--blue2)' : 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.58rem', cursor: 'pointer', fontWeight: 600 }}>${v}</button>
-            ))}
-            <button onClick={() => setAmount(maxAmount)} style={{ flex: 1, padding: '.28rem', background: amount === maxAmount ? 'rgba(59,127,255,.1)' : 'rgba(255,255,255,.03)', border: `1px solid ${amount === maxAmount ? 'rgba(59,127,255,.28)' : 'var(--border)'}`, borderRadius: 6, color: amount === maxAmount ? 'var(--blue2)' : 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.58rem', cursor: 'pointer', fontWeight: 600 }}>MAX</button>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', marginTop: '.16rem' }}>
+            {notConnected ? 'Connect your Coinbase account to invest' : 'Real USD from your Coinbase account'}
           </div>
         </div>
 
-        <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.7rem 1rem', marginBottom: '1.2rem' }}>
-          {[['Projected shares', projectedShares.toFixed(4)], ['NAV per share', fmt$(navCents)]].map(([k, v]) => (
-            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: k === 'Projected shares' ? '.35rem' : 0 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.07em' }}>{k}</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.8rem', fontWeight: 700 }}>{v}</span>
+        {notConnected ? (
+          <div style={{ textAlign: 'center', padding: '1rem 0' }}>
+            <p style={{ color: 'var(--muted)', fontSize: '.82rem', marginBottom: '1rem', lineHeight: 1.6 }}>
+              You need to connect your Coinbase account to invest real USD into this agent.
+            </p>
+            <a href="/dashboard" style={{ display: 'inline-block', padding: '.65rem 1.5rem', borderRadius: 10, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, textDecoration: 'none' }}>
+              Connect Coinbase →
+            </a>
+          </div>
+        ) : (
+          <>
+            <div style={{ marginBottom: '1.2rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.45rem' }}>AMOUNT</div>
+              <div style={{ position: 'relative' }}>
+                <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', fontFamily: 'var(--font-mono)', fontSize: '.88rem', color: 'var(--muted)' }}>$</span>
+                <input type="number" value={amount} min={10} max={maxAmount} onChange={e => setAmount(Number(e.target.value))} style={{ width: '100%', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.68rem 1rem .68rem 1.7rem', color: 'var(--white)', fontFamily: 'var(--font-mono)', fontSize: '.92rem', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ display: 'flex', gap: '.35rem', marginTop: '.4rem' }}>
+                {[25, 50, 100].filter(v => v <= maxAmount).map(v => (
+                  <button key={v} onClick={() => setAmount(v)} style={{ flex: 1, padding: '.28rem', background: amount === v ? 'rgba(59,127,255,.1)' : 'rgba(255,255,255,.03)', border: `1px solid ${amount === v ? 'rgba(59,127,255,.28)' : 'var(--border)'}`, borderRadius: 6, color: amount === v ? 'var(--blue2)' : 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.58rem', cursor: 'pointer', fontWeight: 600 }}>${v}</button>
+                ))}
+                {maxAmount >= 10 && (
+                  <button onClick={() => setAmount(maxAmount)} style={{ flex: 1, padding: '.28rem', background: amount === maxAmount ? 'rgba(59,127,255,.1)' : 'rgba(255,255,255,.03)', border: `1px solid ${amount === maxAmount ? 'rgba(59,127,255,.28)' : 'var(--border)'}`, borderRadius: 6, color: amount === maxAmount ? 'var(--blue2)' : 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.58rem', cursor: 'pointer', fontWeight: 600 }}>MAX</button>
+                )}
+              </div>
             </div>
-          ))}
-        </div>
 
-        {msg && <div style={{ marginBottom: '.9rem', padding: '.65rem .9rem', background: 'rgba(242,54,69,.07)', border: '1px solid rgba(242,54,69,.18)', borderRadius: 9, fontFamily: 'var(--font-mono)', fontSize: '.68rem', color: 'var(--red)' }}>{msg}</div>}
+            <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.7rem 1rem', marginBottom: '1.2rem' }}>
+              {[['Projected shares', projectedShares.toFixed(4)], ['NAV per share', fmt$(navCents)]].map(([k, v]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: k === 'Projected shares' ? '.35rem' : 0 }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.07em' }}>{k}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.8rem', fontWeight: 700 }}>{v}</span>
+                </div>
+              ))}
+            </div>
 
-        <button onClick={handleInvest} disabled={loading || fetching || cappedAmount < 10} style={{ width: '100%', padding: '.75rem', borderRadius: 10, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, cursor: loading || fetching || cappedAmount < 10 ? 'not-allowed' : 'pointer', opacity: loading || fetching || cappedAmount < 10 ? .5 : 1, letterSpacing: '-.01em' }}>
-          {loading ? 'Processing...' : `Invest $${Math.max(0, cappedAmount)}`}
-        </button>
-        <div style={{ marginTop: '.85rem', fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', lineHeight: 1.65, textAlign: 'center' }}>
-          Paper trading only — simulated credits, not real money.<br />Trades execute on Coinbase at real market prices.
-        </div>
+            {msg && <div style={{ marginBottom: '.9rem', padding: '.65rem .9rem', background: 'rgba(242,54,69,.07)', border: '1px solid rgba(242,54,69,.18)', borderRadius: 9, fontFamily: 'var(--font-mono)', fontSize: '.68rem', color: 'var(--red)' }}>{msg}</div>}
+
+            <button onClick={handleInvest} disabled={loading || fetching || cappedAmount < 10} style={{ width: '100%', padding: '.75rem', borderRadius: 10, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, cursor: loading || fetching || cappedAmount < 10 ? 'not-allowed' : 'pointer', opacity: loading || fetching || cappedAmount < 10 ? .5 : 1, letterSpacing: '-.01em' }}>
+              {loading ? 'Processing...' : `Invest $${Math.max(0, cappedAmount)}`}
+            </button>
+            <div style={{ marginTop: '.85rem', fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', lineHeight: 1.65, textAlign: 'center' }}>
+              Real USD investment. Algorithmic trading involves substantial risk of loss.
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
@@ -245,7 +267,7 @@ function DeallocateModal({ holding, agentName, navCents, onClose, onSuccess }: {
 
         <div style={{ background: 'rgba(242,54,69,.04)', border: '1px solid rgba(242,54,69,.14)', borderRadius: 10, padding: '.7rem 1rem', marginBottom: '1.2rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.07em' }}>CREDITS RETURNED</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.07em' }}>USD RETURNED</span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.88rem', fontWeight: 700, color: 'var(--white)' }}>{fmt$(sellValue)}</span>
           </div>
         </div>
@@ -256,7 +278,7 @@ function DeallocateModal({ holding, agentName, navCents, onClose, onSuccess }: {
           {loading ? 'Processing...' : `Sell ${sharesToSell.toFixed(4)} shares`}
         </button>
         <div style={{ marginTop: '.85rem', fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', lineHeight: 1.65, textAlign: 'center' }}>
-          Credits returned to your paper balance instantly.
+          Proceeds returned to your Coinbase balance.
         </div>
       </div>
     </div>
@@ -481,7 +503,7 @@ export default function AgentDetailClient({
                 <span style={{ color: 'var(--border)', fontSize: '.5rem' }}>·</span>
                 {isLive
                   ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', padding: '.08rem .38rem', borderRadius: 4, background: 'rgba(22,199,132,.08)', border: '1px solid rgba(22,199,132,.2)', color: 'var(--green)', letterSpacing: '.06em' }}>LIVE</span>
-                  : <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', padding: '.08rem .38rem', borderRadius: 4, background: 'rgba(59,127,255,.07)', border: '1px solid rgba(59,127,255,.18)', color: 'var(--blue2)', letterSpacing: '.06em' }}>PAPER</span>
+                  : <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', padding: '.08rem .38rem', borderRadius: 4, background: 'rgba(59,127,255,.07)', border: '1px solid rgba(59,127,255,.18)', color: 'var(--blue2)', letterSpacing: '.06em' }}>BACKTEST</span>
                 }
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', padding: '.08rem .38rem', borderRadius: 4, background: 'rgba(110,231,183,.07)', border: '1px solid rgba(110,231,183,.18)', color: '#6EE7B7', letterSpacing: '.06em' }}>VERIFIED</span>
               </div>
@@ -554,7 +576,7 @@ export default function AgentDetailClient({
                       { title: 'Strategy Logic', body: strategyDescriptions[agent.strategy_type] || 'Systematic algorithmic strategy with defined entry and exit signals based on technical indicators.' },
                       { title: 'Verification', body: 'Methodology disclosure submitted, ledger format validated, out-of-sample test passed. Real-time execution via Coinbase Exchange.' },
                       { title: 'Execution', body: 'Trades execute on Coinbase at real market prices. Positions tracked per subscriber account for accurate P&L attribution.' },
-                      { title: 'Paper Trading', body: monthlyFee === 0 ? 'Subscribe free during beta. Allocate paper credits to activate live trading. Cancel anytime — no real funds at risk.' : `$${(monthlyFee / 100).toFixed(2)}/month. Paper credits fund the agent. No real capital required.` },
+                      { title: 'Investment', body: monthlyFee === 0 ? 'Subscribe free during beta. Invest real USD from your Coinbase account to activate live trading. Cancel anytime.' : `$${(monthlyFee / 100).toFixed(2)}/month. Invest real USD via Coinbase to fund the agent.` },
                     ].map(({ title, body }) => (
                       <div key={title} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '1rem 1.1rem' }}>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--blue2)', marginBottom: '.45rem', textTransform: 'uppercase' }}>{title}</div>
@@ -567,7 +589,7 @@ export default function AgentDetailClient({
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem' }} className="how-grid">
                       {[
                         { n: '01', title: 'Subscribe', desc: 'Subscribe to the agent for free. No payment required during beta.' },
-                        { n: '02', title: 'Allocate Credits', desc: 'Add paper credits from your balance (new accounts get $100 free) to activate trading.' },
+                        { n: '02', title: 'Invest USD', desc: 'Allocate real USD from your Coinbase account to activate live trading.' },
                         { n: '03', title: 'Agent Trades', desc: 'The algorithm trades on Coinbase at real prices. Track P&L in real-time.' },
                       ].map(({ n, title, desc }) => (
                         <div key={n}>
@@ -896,12 +918,12 @@ export default function AgentDetailClient({
                   </div>
                 ) : (
                   <div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.45rem' }}>PAPER TRADING</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.45rem' }}>LIVE TRADING</div>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: 'var(--muted)', lineHeight: 1.62, marginBottom: '.65rem' }}>
-                      Allocate simulated credits to activate live trading on Coinbase.
+                      Invest real USD from your Coinbase account to activate live trading.
                     </div>
                     <button onClick={() => setShowInvestModal(true)} disabled={agent.alert_level === 'hard'} style={{ width: '100%', padding: '.62rem', borderRadius: 8, border: 0, background: 'linear-gradient(135deg, #3b7eff 0%, #7c5cff 100%)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.84rem', fontWeight: 700, cursor: agent.alert_level === 'hard' ? 'not-allowed' : 'pointer', letterSpacing: '-.01em', opacity: agent.alert_level === 'hard' ? .4 : 1 }}>
-                      Allocate Credits
+                      Invest USD
                     </button>
                   </div>
                 )}

@@ -66,14 +66,15 @@ export async function sendWelcomeEmail(email: string, name: string) {
         <p>Your account has been created successfully. You're ready to start trading with AI agents on the ASE marketplace.</p>
 
         <div class="box box-green">
-          <p class="box-content accent-green">✓ $100 in paper credits have been added to your account</p>
+          <p class="box-content accent-green">✓ Account created — connect your Coinbase account to start trading</p>
         </div>
 
         <p>You can now:</p>
         <p style="margin-left: 16px;">
-          • Explore our <a href="${appUrl}/dashboard/exchange" class="link">marketplace of AI agents</a><br>
-          • Start building your portfolio<br>
-          • Track your performance in real-time
+          • Connect your Coinbase account to sync your USD balance<br>
+          • Explore our <a href="${appUrl}/agents" class="link">marketplace of AI agents</a><br>
+          • Invest real USD into algorithmic trading strategies<br>
+          • Track your live P&amp;L in real-time
         </p>
 
         <div class="button-wrapper">
@@ -81,7 +82,7 @@ export async function sendWelcomeEmail(email: string, name: string) {
         </div>
 
         <div class="footer">
-          <p>This is an automated message from ASE. We use simulated paper trading — no real funds are at risk. Past performance is not indicative of future results. Not financial advice.</p>
+          <p>This is an automated message from ASE. Real USD from your Coinbase account is used for trading. Algorithmic trading involves substantial risk of loss. Past performance is not indicative of future results. Not financial advice.</p>
         </div>
       `)
     })
@@ -167,15 +168,15 @@ export async function sendDepositConfirmation(email: string, amountCents: number
       to: email,
       subject: `ASE — $${amount} credits added`,
       html: emailBase(`
-        <h2>Credits Added</h2>
-        <p>Your deposit of <span class="accent">$${amount}</span> has been added as ASE Credits.</p>
+        <h2>Balance Updated</h2>
+        <p>Your Coinbase USD balance of <span class="accent">$${amount}</span> has been synced to ASE.</p>
 
         <div class="box">
-          <p class="box-content">These credits can be used to invest in verified AI trading agents on the ASE platform.</p>
+          <p class="box-content">This balance can be used to invest real USD in verified AI trading agents on the ASE platform.</p>
         </div>
 
         <div class="footer">
-          <p>ASE uses simulated paper trading. No real funds are used for trading. Past performance is not indicative of future results.</p>
+          <p>Real USD from your Coinbase account is used for trading. Algorithmic trading involves substantial risk of loss. Past performance is not indicative of future results.</p>
         </div>
       `)
     })
@@ -199,12 +200,12 @@ export async function sendSellConfirmation(email: string, agentName: string, ret
 
         <div class="box ${positive ? 'box-green' : 'box-red'}">
           <p class="box-content" style="color: ${positive ? '#0EAD6E' : '#E84040'}; margin: 0;">
-            Credits returned: <strong>$${amount}</strong>
+            USD returned: <strong>$${amount}</strong>
           </p>
         </div>
 
         <div class="footer">
-          <p>ASE uses simulated paper trading. No real funds are used for trading.</p>
+          <p>Real USD from your Coinbase account is used for trading. Algorithmic trading involves substantial risk of loss.</p>
         </div>
       `)
     })

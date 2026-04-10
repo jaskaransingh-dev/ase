@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
@@ -37,6 +37,31 @@ export default function DashboardShell({ user, children }: Props) {
 
   const [mobileOpen, setMobileOpen] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
+
+  const [coinbaseBalance, setCoinbaseBalance] = useState<number | null>(null)
+
+  useEffect(() => {
+    fetch('/api/coinbase/balance')
+      .then(r => r.json())
+      .then(d => {
+        if (d.usd_balance_cents !== undefined && d.status !== 'not_connected') {
+          setCoinbaseBalance(d.usd_balance_cents)
+        }
+      })
+      .catch(() => null)
+    // Refresh every 60 seconds
+    const interval = setInterval(() => {
+      fetch('/api/coinbase/balance')
+        .then(r => r.json())
+        .then(d => {
+          if (d.usd_balance_cents !== undefined && d.status !== 'not_connected') {
+            setCoinbaseBalance(d.usd_balance_cents)
+          }
+        })
+        .catch(() => null)
+    }, 60000)
+    return () => clearInterval(interval)
+  }, [])
 
   async function handleSignOut() {
     await supabase.auth.signOut()
@@ -83,6 +108,29 @@ export default function DashboardShell({ user, children }: Props) {
               </Link>
             ))}
           </div>
+
+          {/* Coinbase Balance */}
+          {coinbaseBalance !== null && (
+            <div
+              className="desktop-only"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '.4rem',
+                background: 'rgba(59,127,255,.08)',
+                border: '1px solid rgba(59,127,255,.2)',
+                borderRadius: 8,
+                padding: '.3rem .75rem',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '.72rem',
+                color: 'var(--blue2)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <span style={{ color: 'var(--faint)', fontSize: '.6rem' }}>COINBASE USD</span>
+              <strong>${(coinbaseBalance / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+            </div>
+          )}
 
           {/* Wallet Connect */}
           {wallet.connected ? (

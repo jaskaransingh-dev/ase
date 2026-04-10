@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -13,9 +13,37 @@ interface AgentPreview {
   subscriber_count: number
 }
 
+function useInView(threshold = 0.15) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const obs = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) { setVisible(true); obs.disconnect() }
+    }, { threshold })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [threshold])
+  return { ref, visible }
+}
+
+const GradientText = ({ children }: { children: React.ReactNode }) => (
+  <span style={{ background: 'linear-gradient(135deg, #3b7eff 0%, #7c5cff 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+    {children}
+  </span>
+)
+
 export default function LandingPage() {
   const [agents, setAgents] = useState<AgentPreview[]>([])
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 40)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   useEffect(() => {
     const supabase = createClient()
@@ -25,8 +53,9 @@ export default function LandingPage() {
       .eq('status', 'active')
       .limit(6)
       .then(({ data }) => {
-        if (!data) return;
-        setAgents(data.map((a) => {
+        if (!data) return
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setAgents(data.map((a: any) => {
           const statsArr = Array.isArray(a.agent_stats) ? a.agent_stats : (a.agent_stats ? [a.agent_stats] : [])
           const latestStats = statsArr.length > 0 ? statsArr[statsArr.length - 1] : null
           const bt = a.backtest_stats?.stats
@@ -52,45 +81,50 @@ export default function LandingPage() {
     crypto_mean_reversion: '#06b6d4',
   }
 
-  return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--white)', fontFamily: 'var(--font-head)' }}>
+  const statsSection = useInView()
+  const agentsSection = useInView()
+  const valueSection = useInView()
+  const buildersSection = useInView()
 
-      {/* ── Navigation ── */}
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--white)', fontFamily: 'var(--font-head)', overflowX: 'hidden' }}>
+
+      {/* ── Fixed Navigation ── */}
       <nav style={{
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
         height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '0 2rem',
-        background: 'rgba(6,8,15,.92)',
-        borderBottom: '1px solid var(--border)',
-        backdropFilter: 'blur(24px)',
+        background: scrolled ? 'rgba(6,8,15,.95)' : 'transparent',
+        borderBottom: scrolled ? '1px solid var(--border)' : 'none',
+        backdropFilter: scrolled ? 'blur(24px)' : 'none',
+        transition: 'all .3s ease',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
-          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '.65rem' }}>
-            <Image src="/logo.png" alt="ASE" width={28} height={28} style={{ borderRadius: 6 }} />
-            <span style={{ fontWeight: 700, fontSize: '.95rem', letterSpacing: '-.02em' }}>ASE</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '2.5rem' }}>
+          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+            <Image src="/logo.png" alt="ASE" width={28} height={28} style={{ borderRadius: 5 }} />
+            <span style={{ fontWeight: 800, fontSize: '.95rem', letterSpacing: '-.02em' }}>ASE</span>
           </Link>
-          <div style={{ display: 'flex', gap: '.15rem' }} className="desktop-only">
+          <div style={{ display: 'flex', gap: '1.5rem' }} className="desktop-only">
             {[
               { href: '/agents', label: 'Agents' },
-              { href: '/dashboard/backtest', label: 'Algo Lab' },
+              { href: '/dashboard/backtest', label: 'Lab' },
               { href: '/builders', label: 'Builders' },
             ].map(item => (
               <Link key={item.href} href={item.href} style={{
-                padding: '.35rem .7rem', borderRadius: 7,
                 fontSize: '.82rem', fontWeight: 500, color: 'var(--muted)',
-                transition: 'all .16s',
+                transition: 'color .2s',
               }}
-              onMouseEnter={e => { (e.target as HTMLElement).style.color = 'var(--white)'; (e.target as HTMLElement).style.background = 'rgba(59,127,255,.07)'; }}
-              onMouseLeave={e => { (e.target as HTMLElement).style.color = 'var(--muted)'; (e.target as HTMLElement).style.background = 'transparent'; }}
+              onMouseEnter={e => { (e.target as HTMLElement).style.color = 'var(--white)' }}
+              onMouseLeave={e => { (e.target as HTMLElement).style.color = 'var(--muted)' }}
               >{item.label}</Link>
             ))}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem' }}>
-          <Link href="/login" style={{ fontSize: '.82rem', color: 'var(--muted)', fontWeight: 500, padding: '.35rem .75rem' }} className="desktop-only">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <Link href="/login" style={{ fontSize: '.82rem', color: 'var(--muted)', fontWeight: 500 }} className="desktop-only">
             Sign in
           </Link>
-          <Link href="/signup" className="btn-primary" style={{ fontSize: '.82rem', padding: '.45rem 1.1rem' }}>
+          <Link href="/signup" className="btn-primary" style={{ fontSize: '.82rem', padding: '.5rem 1.2rem', borderRadius: 9 }}>
             Get Started
           </Link>
           <button
@@ -98,9 +132,9 @@ export default function LandingPage() {
             onClick={() => setMobileMenuOpen(prev => !prev)}
             style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 7, padding: '.4rem .5rem', display: 'flex', flexDirection: 'column', gap: 4 }}
           >
-            <span style={{ width: 16, height: 1.5, background: 'var(--muted)', display: 'block', borderRadius: 2 }} />
-            <span style={{ width: 16, height: 1.5, background: 'var(--muted)', display: 'block', borderRadius: 2 }} />
-            <span style={{ width: 16, height: 1.5, background: 'var(--muted)', display: 'block', borderRadius: 2 }} />
+            {[...Array(3)].map((_, i) => (
+              <span key={i} style={{ width: 16, height: 1.5, background: 'var(--muted)', display: 'block', borderRadius: 2 }} />
+            ))}
           </button>
         </div>
       </nav>
@@ -110,309 +144,441 @@ export default function LandingPage() {
         <div style={{
           position: 'fixed', top: 56, left: 0, right: 0, zIndex: 99,
           background: 'rgba(6,8,15,.98)', borderBottom: '1px solid var(--border)',
-          padding: '.75rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '.15rem',
+          padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '.25rem',
         }}>
           {[
             { href: '/agents', label: 'Agents' },
-            { href: '/dashboard/backtest', label: 'Algo Lab' },
+            { href: '/dashboard/backtest', label: 'Lab' },
             { href: '/builders', label: 'Builders' },
             { href: '/login', label: 'Sign In' },
           ].map(item => (
             <Link key={item.href} href={item.href} onClick={() => setMobileMenuOpen(false)} style={{
-              padding: '.65rem .85rem', borderRadius: 9, fontSize: '.9rem',
-              color: 'var(--muted)', display: 'block',
+              padding: '.65rem .85rem', borderRadius: 9, fontSize: '.9rem', color: 'var(--muted)', display: 'block',
             }}>{item.label}</Link>
           ))}
         </div>
       )}
 
-      {/* ── Hero ── */}
-      <section style={{ paddingTop: '8rem', paddingBottom: '5rem', position: 'relative', overflow: 'hidden' }}>
-        <div className="hero-grid-bg" />
-        <div className="hero-glow" />
+      {/* ── Hero Section (Full Viewport) ── */}
+      <section style={{
+        minHeight: '100vh', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        padding: '120px 2rem 80px', position: 'relative', overflow: 'hidden',
+      }}>
+        {/* Animated background grid */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          backgroundImage: 'linear-gradient(90deg, rgba(59,127,255,.03) 1px, transparent 1px), linear-gradient(rgba(59,127,255,.03) 1px, transparent 1px)',
+          backgroundSize: '80px 80px',
+          opacity: 0.5,
+          pointerEvents: 'none',
+        }} />
 
-        {/* Glow orbs */}
-        <div style={{ position: 'absolute', top: '15%', left: '10%', width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(59,127,255,.06) 0%, transparent 70%)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', top: '20%', right: '8%', width: 320, height: 320, borderRadius: '50%', background: 'radial-gradient(circle, rgba(124,92,255,.05) 0%, transparent 70%)', pointerEvents: 'none' }} />
+        {/* Gradient orbs */}
+        <div style={{ position: 'absolute', top: '10%', left: '5%', width: 600, height: 600, borderRadius: '50%', background: 'radial-gradient(circle, rgba(59,127,255,.08) 0%, transparent 70%)', pointerEvents: 'none', filter: 'blur(40px)' }} />
+        <div style={{ position: 'absolute', bottom: '5%', right: '8%', width: 500, height: 500, borderRadius: '50%', background: 'radial-gradient(circle, rgba(124,92,255,.07) 0%, transparent 70%)', pointerEvents: 'none', filter: 'blur(40px)' }} />
 
-        <div style={{ maxWidth: 900, margin: '0 auto', padding: '0 2rem', textAlign: 'center', position: 'relative', zIndex: 1 }}>
-
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem', background: 'rgba(59,127,255,.08)', border: '1px solid rgba(59,127,255,.2)', borderRadius: 999, padding: '.28rem .85rem', marginBottom: '2rem' }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--blue)', display: 'inline-block' }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', letterSpacing: '.1em', color: 'var(--blue2)', fontWeight: 600 }}>NOW IN OPEN BETA</span>
+        <div style={{ position: 'relative', zIndex: 1, maxWidth: 900, textAlign: 'center' }}>
+          {/* Badge */}
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: '.5rem',
+            background: 'rgba(59,127,255,.08)', border: '1px solid rgba(59,127,255,.25)',
+            borderRadius: 999, padding: '.35rem 1.1rem', marginBottom: '2rem',
+          }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#3b7eff', display: 'inline-block', boxShadow: '0 0 12px rgba(59,127,255,.8)', animation: 'pulse 2s infinite' }} />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', letterSpacing: '.12em', color: '#7aacff', fontWeight: 700 }}>BETA — FREE TO USE</span>
           </div>
 
-          <h1 style={{ fontSize: 'clamp(2.2rem, 6vw, 4rem)', fontWeight: 800, lineHeight: 1.08, letterSpacing: '-.04em', marginBottom: '1.5rem' }}>
-            Algorithmic Trading,{' '}
-            <span style={{ background: 'linear-gradient(135deg, #3b7eff, #7c5cff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
-              Transparent Performance
-            </span>
+          {/* Main headline */}
+          <h1 style={{
+            fontSize: 'clamp(3rem, 8vw, 5.5rem)', fontWeight: 900,
+            lineHeight: 1.05, letterSpacing: '-.05em', marginBottom: '1.5rem',
+            color: 'var(--white)',
+          }}>
+            Trade Like<br />
+            <GradientText>the Algorithms</GradientText>
           </h1>
 
-          <p style={{ fontSize: '1.05rem', color: 'var(--muted)', lineHeight: 1.65, maxWidth: 620, margin: '0 auto 2.5rem', fontWeight: 400 }}>
-            Subscribe to verified AI trading agents — every strategy backtested on 5 years of real market data. No black boxes, no guesswork.
+          {/* Subheading */}
+          <p style={{
+            fontSize: 'clamp(1.05rem, 2vw, 1.25rem)', color: 'var(--muted)',
+            lineHeight: 1.7, maxWidth: 620, margin: '0 auto 3rem',
+            fontWeight: 400,
+          }}>
+            Subscribe to AI-powered trading agents. Every strategy backtested rigorously. Every trade transparent. Zero black boxes.
           </p>
 
-          <div style={{ display: 'flex', gap: '.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link href="/agents" className="btn-primary" style={{ fontSize: '.92rem', padding: '.75rem 1.6rem' }}>
+          {/* CTA Buttons */}
+          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Link href="/agents" className="btn-primary" style={{
+              fontSize: '1.05rem', padding: '1rem 2.25rem', borderRadius: 12,
+              fontWeight: 600,
+            }}>
               Browse Agents
             </Link>
-            <Link href="/signup" className="btn-secondary" style={{ fontSize: '.92rem', padding: '.75rem 1.6rem' }}>
+            <Link href="/signup" style={{
+              fontSize: '1.05rem', padding: '1rem 2.25rem', borderRadius: 12,
+              background: 'transparent', border: '1.5px solid rgba(59,127,255,.4)',
+              color: 'var(--white)', fontWeight: 600, display: 'inline-flex', alignItems: 'center',
+              transition: 'all .3s',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(59,127,255,.8)'; (e.currentTarget as HTMLElement).style.background = 'rgba(59,127,255,.1)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(59,127,255,.4)'; (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+            >
               Create Account
             </Link>
+          </div>
+
+          {/* Scroll indicator */}
+          <div style={{ marginTop: '6rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.5rem', opacity: 0.4 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', letterSpacing: '.12em', color: 'var(--muted)', textTransform: 'uppercase' }}>Scroll to explore</span>
+            <svg width="20" height="32" viewBox="0 0 20 32" fill="none" style={{ animation: 'bounce 2s infinite' }}>
+              <path d="M10 4V24M4 18L10 24L16 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" color="var(--muted)" />
+            </svg>
           </div>
         </div>
       </section>
 
-      {/* ── Platform Stats ── */}
-      <section style={{ borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', background: 'var(--bg2)' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 2rem', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)' }} className="stats-grid-section">
+      {/* ── Spacer ── */}
+      <div style={{ height: '8vh' }} />
+
+      {/* ── Trust Metrics ── */}
+      <section ref={statsSection.ref} style={{
+        padding: '0 2rem', maxWidth: 1200, margin: '0 auto 12vh',
+        opacity: statsSection.visible ? 1 : 0,
+        transform: statsSection.visible ? 'translateY(0)' : 'translateY(40px)',
+        transition: 'opacity 1s, transform 1s',
+      }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '3rem' }} className="stats-grid">
           {[
-            { label: 'Live Strategies', value: '10', sub: 'verified & active' },
-            { label: 'Avg 5Y Backtest', value: '+124%', sub: 'across all agents', color: 'var(--green)' },
-            { label: 'Data Depth', value: '5 Years', sub: 'daily OHLCV' },
-            { label: 'Subscription Cost', value: 'Free Beta', sub: 'no credit card needed', color: 'var(--blue2)' },
+            { num: '10', label: 'Live Strategies', sub: 'Actively trading' },
+            { num: '+124%', label: '5-Year Average', sub: 'Backtested return', color: 'var(--green)' },
+            { num: '5Y', label: 'Data Depth', sub: 'Daily OHLCV' },
+            { num: 'Free', label: 'Beta Access', sub: 'No credit card', color: '#7aacff' },
           ].map((stat, i) => (
             <div key={i} style={{
-              padding: '1.5rem 1.25rem',
-              borderRight: i < 3 ? '1px solid var(--border)' : 'none',
+              padding: '2.5rem 0',
+              borderBottom: `2px solid rgba(59,127,255,${statsSection.visible ? '.15' : '0'})`,
+              transition: 'border-color 1s',
             }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: '.4rem' }}>{stat.label}</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.35rem', fontWeight: 700, color: stat.color ?? 'var(--white)', letterSpacing: '-.02em', marginBottom: '.15rem' }}>{stat.value}</div>
-              <div style={{ fontSize: '.72rem', color: 'var(--faint)' }}>{stat.sub}</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '3rem', fontWeight: 900, color: stat.color ?? 'var(--white)', marginBottom: '.75rem', letterSpacing: '-.03em' }}>
+                {stat.num}
+              </div>
+              <div style={{ fontSize: '.95rem', fontWeight: 700, marginBottom: '.25rem' }}>{stat.label}</div>
+              <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>{stat.sub}</div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* ── Agent Preview Table ── */}
-      <section style={{ padding: '4rem 2rem', maxWidth: 1100, margin: '0 auto' }}>
-        <div style={{ marginBottom: '1.75rem', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: '.3rem' }}>Live Agents</div>
-            <h2 style={{ fontSize: '1.35rem', fontWeight: 700, letterSpacing: '-.025em' }}>Strategies Running Now</h2>
-            <p style={{ color: 'var(--muted)', fontSize: '.85rem', marginTop: '.25rem' }}>Each agent runs a specific strategy, backtested on 5 years of data</p>
-          </div>
-          <Link href="/agents" className="btn-secondary" style={{ fontSize: '.8rem' }}>
-            View All Agents
-          </Link>
-        </div>
+      {/* ── Spacer ── */}
+      <div style={{ height: '10vh' }} />
 
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden' }}>
-          {agents.length === 0 ? (
-            /* Skeleton loader */
-            <div style={{ padding: '1rem' }}>
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="skeleton" style={{ height: 52, marginBottom: 4, borderRadius: 8 }} />
-              ))}
+      {/* ── Agents Showcase ── */}
+      <section ref={agentsSection.ref} style={{ padding: '0 2rem 12vh' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+          <div style={{
+            opacity: agentsSection.visible ? 1 : 0,
+            transform: agentsSection.visible ? 'translateY(0)' : 'translateY(60px)',
+            transition: 'opacity 1s, transform 1s',
+          }}>
+            {/* Section header */}
+            <div style={{ marginBottom: '4rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', letterSpacing: '.12em', color: '#3b7eff', fontWeight: 700, textTransform: 'uppercase', marginBottom: '.75rem' }}>
+                Strategies
+              </div>
+              <h2 style={{ fontSize: 'clamp(2rem, 4vw, 2.8rem)', fontWeight: 900, letterSpacing: '-.04em', marginBottom: '.75rem' }}>
+                Available Agents
+              </h2>
+              <p style={{ fontSize: '1rem', color: 'var(--muted)', lineHeight: 1.7, maxWidth: 600 }}>
+                Choose from a curated selection of live trading agents. All strategies are rigorously backtested and transparently tracked.
+              </p>
             </div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
-              <thead>
-                <tr>
-                  {['Agent', 'Market', 'Return', 'Sharpe', 'Subscribers', ''].map((h, i) => (
-                    <th key={h} style={{
-                      padding: '.6rem .9rem',
-                      fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 600,
-                      letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--faint)',
-                      borderBottom: '1px solid var(--border)', textAlign: i > 1 ? 'right' : 'left',
-                      paddingLeft: i === 0 ? '1.25rem' : '.9rem',
-                      paddingRight: i === 5 ? '1.25rem' : '.9rem',
-                    }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
+
+            {/* Agent cards grid */}
+            {agents.length === 0 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '2rem' }}>
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="skeleton" style={{ height: 280, borderRadius: 16 }} />
+                ))}
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '2rem' }} className="agents-grid">
                 {agents.map((agent, i) => {
-                  const pos = (agent.ret ?? 0) >= 0
                   const sColor = strategyColor[agent.strategy_type] ?? 'var(--muted)'
+                  const isPos = (agent.ret ?? 0) >= 0
                   return (
-                    <tr key={i} style={{ borderBottom: i < agents.length - 1 ? '1px solid rgba(30,55,100,.18)' : 'none' }}>
-                      <td style={{ padding: '.75rem .9rem .75rem 1.25rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem' }}>
-                          <div style={{ width: 30, height: 30, borderRadius: 7, background: `${sColor}14`, border: `1px solid ${sColor}28`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', fontWeight: 700, color: sColor }}>
+                    <Link key={i} href={`/agents/${agent.primary_symbol.toLowerCase()}-momentum`} style={{
+                      display: 'block', textDecoration: 'none',
+                      padding: '2rem', borderRadius: 16,
+                      background: 'var(--bg2)', border: '1px solid var(--border)',
+                      cursor: 'pointer', transition: 'all .3s',
+                    }}
+                    onMouseEnter={e => {
+                      (e.currentTarget as HTMLElement).style.borderColor = sColor;
+                      (e.currentTarget as HTMLElement).style.background = `${sColor}08`;
+                      (e.currentTarget as HTMLElement).style.transform = 'translateY(-6px)';
+                    }}
+                    onMouseLeave={e => {
+                      (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)';
+                      (e.currentTarget as HTMLElement).style.background = 'var(--bg2)';
+                      (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
+                    }}
+                    >
+                      {/* Card header */}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+                        <div>
+                          <div style={{ width: 48, height: 48, borderRadius: 12, background: `${sColor}15`, border: `1px solid ${sColor}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '.75rem' }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', fontWeight: 800, color: sColor }}>
                               {agent.primary_symbol.split('-')[0].slice(0,3)}
                             </span>
                           </div>
-                          <span style={{ fontWeight: 600, fontSize: '.88rem' }}>{agent.name}</span>
+                          <h3 style={{ fontSize: '.95rem', fontWeight: 700, marginBottom: '.25rem' }}>{agent.name}</h3>
+                          <p style={{ fontSize: '.75rem', color: 'var(--muted)' }}>{agent.strategy_type.replace('_', ' ')}</p>
                         </div>
-                      </td>
-                      <td style={{ padding: '.75rem .9rem' }}>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--muted)' }}>
-                          {agent.primary_symbol}
-                        </span>
-                      </td>
-                      <td style={{ padding: '.75rem .9rem', textAlign: 'right' }}>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', fontWeight: 700, color: pos ? 'var(--green)' : 'var(--red)' }}>
-                          {agent.ret !== null ? fmtPct(agent.ret) : '—'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '.75rem .9rem', textAlign: 'right' }}>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.8rem', color: 'var(--muted)' }}>
-                          {agent.sharpe !== null ? agent.sharpe.toFixed(2) : '—'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '.75rem .9rem', textAlign: 'right' }}>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--faint)' }}>
-                          {agent.subscriber_count}
-                        </span>
-                      </td>
-                      <td style={{ padding: '.75rem 1.25rem .75rem .9rem', textAlign: 'right' }}>
                         <span style={{
-                          display: 'inline-flex', alignItems: 'center',
-                          fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 600, letterSpacing: '.06em',
-                          padding: '.18rem .55rem', borderRadius: 5,
+                          fontFamily: 'var(--font-mono)', fontSize: '.65rem', fontWeight: 700,
+                          padding: '.35rem .7rem', borderRadius: 6,
                           background: 'var(--green-dim)', color: 'var(--green)',
                           border: '1px solid var(--green-border)',
                         }}>LIVE</span>
-                      </td>
-                    </tr>
+                      </div>
+
+                      {/* Stats */}
+                      <div style={{ display: 'flex', gap: '1rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
+                        <div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginBottom: '.3rem' }}>RETURN</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.95rem', fontWeight: 700, color: isPos ? 'var(--green)' : 'var(--red)' }}>
+                            {agent.ret !== null ? fmtPct(agent.ret) : '—'}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginBottom: '.3rem' }}>SHARPE</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.95rem', fontWeight: 700 }}>
+                            {agent.sharpe !== null ? agent.sharpe.toFixed(2) : '—'}
+                          </div>
+                        </div>
+                        <div style={{ marginLeft: 'auto' }}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginBottom: '.3rem' }}>SUBS</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.95rem', fontWeight: 700 }}>
+                            {agent.subscriber_count}
+                          </div>
+                        </div>
+                      </div>
+                    </Link>
                   )
                 })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </section>
-
-      {/* ── Features ── */}
-      <section style={{ padding: '4rem 2rem', borderTop: '1px solid var(--border)', background: 'var(--bg2)' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-            <div className="eyebrow" style={{ marginBottom: '.4rem' }}>Why ASE</div>
-            <h2 style={{ fontSize: '1.45rem', fontWeight: 700, letterSpacing: '-.025em' }}>Built Different</h2>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem' }} className="why-grid">
-            {[
-              {
-                title: 'Verified Backtests',
-                desc: '5 years of daily OHLCV data. Every strategy runs through the same rigorous engine before going live. No cherry-picked windows.',
-                accent: 'var(--blue)',
-                icon: 'BT',
-              },
-              {
-                title: 'Transparent Performance',
-                desc: 'Every trade logged. Every return calculated the same way. Sharpe, drawdown, win rate — all visible before you subscribe.',
-                accent: 'var(--green)',
-                icon: 'TX',
-              },
-              {
-                title: 'Open to Builders',
-                desc: 'Have a profitable strategy? Submit it. We handle infrastructure, execution, and subscriber management.',
-                accent: 'var(--purple)',
-                icon: 'BD',
-              },
-            ].map(feat => (
-              <div key={feat.title} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.5rem' }}>
-                <div style={{ width: 38, height: 38, borderRadius: 9, background: `${feat.accent}12`, border: `1px solid ${feat.accent}28`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, color: feat.accent }}>{feat.icon}</span>
-                </div>
-                <h3 style={{ fontSize: '.95rem', fontWeight: 600, marginBottom: '.5rem' }}>{feat.title}</h3>
-                <p style={{ fontSize: '.82rem', color: 'var(--muted)', lineHeight: 1.6 }}>{feat.desc}</p>
               </div>
-            ))}
+            )}
+
+            {/* CTA */}
+            <div style={{ textAlign: 'center', marginTop: '4rem' }}>
+              <Link href="/agents" className="btn-secondary" style={{ fontSize: '.95rem', padding: '.75rem 2rem', display: 'inline-block' }}>
+                View All Agents
+              </Link>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ── How It Works ── */}
-      <section style={{ padding: '4rem 2rem' }}>
-        <div style={{ maxWidth: 900, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-            <div className="eyebrow" style={{ marginBottom: '.4rem' }}>Process</div>
-            <h2 style={{ fontSize: '1.45rem', fontWeight: 700, letterSpacing: '-.025em' }}>How It Works</h2>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {[
-              { n: '01', title: 'Browse Agents', desc: 'Review verified strategies with full 5-year backtest data — returns, risk metrics, trade history.' },
-              { n: '02', title: 'Subscribe', desc: 'Subscribe to any agent in one click. No credit card required during beta. Connect your wallet for future settlement.' },
-              { n: '03', title: 'Track Performance', desc: 'Monitor live trades and performance from your dashboard. Unsubscribe anytime.' },
-            ].map((step, i) => (
-              <div key={step.n} style={{ display: 'flex', gap: '1.5rem', padding: '1.5rem 0', borderBottom: i < 2 ? '1px solid var(--border)' : 'none' }}>
-                <div style={{ width: 42, height: 42, borderRadius: 10, border: '1px solid var(--border2)', background: 'var(--bg2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', fontWeight: 700, color: 'var(--blue2)' }}>{step.n}</span>
-                </div>
-                <div>
-                  <h3 style={{ fontSize: '.95rem', fontWeight: 600, marginBottom: '.35rem' }}>{step.title}</h3>
-                  <p style={{ fontSize: '.85rem', color: 'var(--muted)', lineHeight: 1.6 }}>{step.desc}</p>
-                </div>
+      {/* ── Spacer ── */}
+      <div style={{ height: '10vh' }} />
+
+      {/* ── Value Proposition ── */}
+      <section ref={valueSection.ref} style={{
+        padding: '0 2rem 12vh',
+        background: 'linear-gradient(180deg, rgba(59,127,255,.03) 0%, transparent 100%)',
+        borderTop: '1px solid var(--border)',
+      }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+          <div style={{
+            opacity: valueSection.visible ? 1 : 0,
+            transform: valueSection.visible ? 'translateY(0)' : 'translateY(60px)',
+            transition: 'opacity 1s, transform 1s',
+          }}>
+            <div style={{ marginBottom: '4rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', letterSpacing: '.12em', color: '#7c5cff', fontWeight: 700, textTransform: 'uppercase', marginBottom: '.75rem' }}>
+                Why ASE
               </div>
-            ))}
+              <h2 style={{ fontSize: 'clamp(2rem, 4vw, 2.8rem)', fontWeight: 900, letterSpacing: '-.04em', marginBottom: '1rem' }}>
+                Built for Transparency
+              </h2>
+              <p style={{ fontSize: '1rem', color: 'var(--muted)', lineHeight: 1.7, maxWidth: 700 }}>
+                No opaque algorithms. No hidden fees. Just pure, verifiable trading strategies backtested on 5 years of real market data.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: '4rem' }} className="value-grid">
+              {[
+                {
+                  title: 'Rigorous Backtesting',
+                  desc: '5 years of daily market data. Every strategy runs through our backtesting engine with identical methodology. No survivorship bias.',
+                  icon: 'BT',
+                  color: '#3b7eff',
+                },
+                {
+                  title: 'Full Trade Transparency',
+                  desc: 'Every order logged. Every entry and exit visible. Sharpe ratios, drawdowns, win rates — all computed the same way.',
+                  icon: 'TX',
+                  color: '#16c784',
+                },
+                {
+                  title: 'Fund Pooling at Scale',
+                  desc: 'When subscribers invest, capital pools together. More AUM = larger positions = bigger returns, proportionally distributed.',
+                  icon: 'FP',
+                  color: '#7c5cff',
+                },
+                {
+                  title: 'Open to Builders',
+                  desc: 'Have a winning strategy? Submit it. We handle the infrastructure, execution, and subscriber management. You earn from adoption.',
+                  icon: 'BD',
+                  color: '#f59e0b',
+                },
+              ].map((item, i) => (
+                <div key={item.title} style={{
+                  padding: '2.5rem', borderRadius: 16,
+                  background: 'var(--bg2)', border: '1px solid var(--border)',
+                  transition: 'all .3s',
+                  opacity: valueSection.visible ? 1 : 0,
+                  transform: valueSection.visible ? 'translateY(0)' : `translateY(${40 + i * 10}px)`,
+                  transitionDelay: `${i * 0.1}s`,
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLElement).style.borderColor = item.color;
+                  (e.currentTarget as HTMLElement).style.boxShadow = `0 0 20px ${item.color}20`;
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)';
+                  (e.currentTarget as HTMLElement).style.boxShadow = 'none';
+                }}
+                >
+                  <div style={{ width: 52, height: 52, borderRadius: 14, background: `${item.color}15`, border: `1px solid ${item.color}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.5rem' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', fontWeight: 900, color: item.color }}>
+                      {item.icon}
+                    </span>
+                  </div>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '.75rem' }}>{item.title}</h3>
+                  <p style={{ fontSize: '.9rem', color: 'var(--muted)', lineHeight: 1.7 }}>{item.desc}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ── For Builders ── */}
-      <section style={{ padding: '4rem 2rem', borderTop: '1px solid var(--border)', background: 'var(--bg2)' }}>
-        <div style={{ maxWidth: 800, margin: '0 auto', textAlign: 'center' }}>
-          <div className="eyebrow" style={{ marginBottom: '.4rem' }}>For Builders</div>
-          <h2 style={{ fontSize: '1.45rem', fontWeight: 700, letterSpacing: '-.025em', marginBottom: '1rem' }}>
-            Submit Your Strategy
-          </h2>
-          <p style={{ fontSize: '.9rem', color: 'var(--muted)', lineHeight: 1.65, maxWidth: 560, margin: '0 auto 2rem' }}>
-            Have an edge? Submit your algorithm. We run it through our backtesting engine, and if it qualifies, it goes live on the marketplace.
-          </p>
-          <div style={{ display: 'flex', gap: '.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link href="/builders" className="btn-primary" style={{ fontSize: '.88rem' }}>
-              Builder Program
-            </Link>
-            <Link href="/builders/submit" className="btn-secondary" style={{ fontSize: '.88rem' }}>
-              Submit Agent
-            </Link>
+      {/* ── Spacer ── */}
+      <div style={{ height: '10vh' }} />
+
+      {/* ── Builders CTA ── */}
+      <section ref={buildersSection.ref} style={{
+        padding: '8rem 2rem',
+        background: 'linear-gradient(135deg, rgba(59,127,255,.08) 0%, rgba(124,92,255,.08) 100%)',
+        border: '1px solid rgba(59,127,255,.15)',
+      }}>
+        <div style={{ maxWidth: 1000, margin: '0 auto', textAlign: 'center' }}>
+          <div style={{
+            opacity: buildersSection.visible ? 1 : 0,
+            transform: buildersSection.visible ? 'translateY(0)' : 'translateY(60px)',
+            transition: 'opacity 1s, transform 1s',
+          }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', letterSpacing: '.12em', color: '#7c5cff', fontWeight: 700, textTransform: 'uppercase', marginBottom: '1rem' }}>
+              For Builders
+            </div>
+            <h2 style={{ fontSize: 'clamp(2rem, 4vw, 2.8rem)', fontWeight: 900, letterSpacing: '-.04em', marginBottom: '1rem' }}>
+              Have an Edge?
+            </h2>
+            <p style={{ fontSize: '1.05rem', color: 'var(--muted)', lineHeight: 1.8, maxWidth: 600, margin: '0 auto 2.5rem' }}>
+              Submit your trading algorithm. We run it through rigorous backtesting. If it qualifies, it goes live on the marketplace and you earn from every subscriber.
+            </p>
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <Link href="/builders" className="btn-primary" style={{ fontSize: '.95rem', padding: '.8rem 2rem', borderRadius: 12 }}>
+                Builder Program
+              </Link>
+              <Link href="/builders/submit" className="btn-secondary" style={{ fontSize: '.95rem', padding: '.8rem 2rem', borderRadius: 12 }}>
+                Submit Strategy
+              </Link>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ── CTA ── */}
-      <section style={{ padding: '5rem 2rem', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 60% 50% at 50% 50%, rgba(59,127,255,.05) 0%, transparent 70%)', pointerEvents: 'none' }} />
-        <div style={{ position: 'relative', zIndex: 1 }}>
-          <h2 style={{ fontSize: 'clamp(1.5rem, 4vw, 2.2rem)', fontWeight: 800, letterSpacing: '-.03em', marginBottom: '1rem' }}>
-            Start Trading Smarter
+      {/* ── Spacer ── */}
+      <div style={{ height: '8vh' }} />
+
+      {/* ── Final CTA ── */}
+      <section style={{
+        padding: '8rem 2rem', textAlign: 'center',
+        background: 'linear-gradient(180deg, transparent 0%, rgba(59,127,255,.04) 100%)',
+      }}>
+        <div style={{ maxWidth: 800, margin: '0 auto' }}>
+          <h2 style={{ fontSize: 'clamp(2.2rem, 5vw, 3.5rem)', fontWeight: 900, letterSpacing: '-.05em', marginBottom: '1.25rem', lineHeight: 1.1 }}>
+            Ready to trade<br />
+            <GradientText>smarter?</GradientText>
           </h2>
-          <p style={{ fontSize: '.95rem', color: 'var(--muted)', marginBottom: '2rem', maxWidth: 480, margin: '0 auto 2rem' }}>
-            Free during beta. No fees, no minimums. Just transparent algorithmic performance.
+          <p style={{ fontSize: '1.05rem', color: 'var(--muted)', marginBottom: '2.5rem', lineHeight: 1.7 }}>
+            Free during beta. Connect your Coinbase account and start investing real USD into AI agents.
           </p>
-          <Link href="/signup" className="btn-primary" style={{ fontSize: '.95rem', padding: '.8rem 2rem' }}>
-            Create Free Account
+          <Link href="/signup" className="btn-primary" style={{ fontSize: '1rem', padding: '.9rem 2.5rem', borderRadius: 12, display: 'inline-block' }}>
+            Create Your Free Account
           </Link>
         </div>
       </section>
 
       {/* ── Footer ── */}
-      <footer style={{ borderTop: '1px solid var(--border)', padding: '2rem', background: 'var(--bg2)' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-            <Image src="/logo.png" alt="ASE" width={22} height={22} style={{ borderRadius: 5, opacity: .8 }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', letterSpacing: '.06em' }}>ASE — Algorithmic Strategy Exchange</span>
+      <footer style={{ borderTop: '1px solid var(--border)', padding: '3rem 2rem 2rem', background: 'var(--bg2)' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '2rem', marginBottom: '2rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem' }}>
+              <Image src="/logo.png" alt="ASE" width={24} height={24} style={{ borderRadius: 5 }} />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: 'var(--faint)', letterSpacing: '.06em', textTransform: 'uppercase' }}>ASE</span>
+            </div>
+            <div style={{ display: 'flex', gap: '2.5rem', flexWrap: 'wrap' }}>
+              {[
+                { href: '/agents', label: 'Agents' },
+                { href: '/builders', label: 'Builders' },
+                { href: '/legal/terms', label: 'Terms' },
+                { href: '/legal/privacy', label: 'Privacy' },
+                { href: '/legal/securities', label: 'Disclosures' },
+              ].map(link => (
+                <Link key={link.href} href={link.href} style={{ fontSize: '.8rem', color: 'var(--faint)', transition: 'color .2s' }}
+                onMouseEnter={e => { (e.target as HTMLElement).style.color = 'var(--muted)' }}
+                onMouseLeave={e => { (e.target as HTMLElement).style.color = 'var(--faint)' }}
+                >{link.label}</Link>
+              ))}
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: '1.5rem' }}>
-            {[
-              { href: '/agents', label: 'Agents' },
-              { href: '/builders', label: 'Builders' },
-              { href: '/legal/terms', label: 'Terms' },
-              { href: '/legal/privacy', label: 'Privacy' },
-              { href: '/legal/securities', label: 'Disclosures' },
-            ].map(link => (
-              <Link key={link.href} href={link.href} style={{ fontSize: '.72rem', color: 'var(--faint)', transition: 'color .15s' }}>{link.label}</Link>
-            ))}
+          <div style={{ borderTop: '1px solid rgba(100,100,200,.1)', paddingTop: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+            <p style={{ fontSize: '.75rem', color: 'var(--faint)', lineHeight: 1.7, maxWidth: 500 }}>
+              Past backtest performance does not guarantee future results. Algorithmic trading involves substantial risk of loss. Not financial advice. Paper credits have no monetary value.
+            </p>
+            <div style={{ fontSize: '.75rem', color: 'var(--faint)' }}>© 2026 ASE</div>
           </div>
-        </div>
-        <div style={{ maxWidth: 1100, margin: '.75rem auto 0', paddingTop: '.75rem', borderTop: '1px solid rgba(30,55,100,.25)' }}>
-          <p style={{ fontSize: '.65rem', color: 'var(--faint)', lineHeight: 1.6 }}>
-            Past backtest performance does not guarantee future results. Algorithmic trading involves substantial risk of loss. Not financial advice. For informational purposes only.
-          </p>
         </div>
       </footer>
 
       <style>{`
-        @media (max-width: 760px) {
-          .stats-grid-section { grid-template-columns: repeat(2,1fr) !important; }
-          .stats-grid-section > div { border-right: none !important; border-bottom: 1px solid var(--border); }
+        @keyframes pulse {
+          0%, 100% { box-shadow: 0 0 12px rgba(59,127,255,.8); opacity: 1; }
+          50% { box-shadow: 0 0 20px rgba(59,127,255,.5); opacity: 0.7; }
         }
-        @media (max-width: 480px) {
-          .stats-grid-section { grid-template-columns: 1fr !important; }
+        @keyframes bounce {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(8px); }
+        }
+        .btn-primary, .btn-secondary { display: inline-block; text-decoration: none; font-weight: 600; border-radius: 10px; transition: all 0.3s; }
+        .btn-primary { background: linear-gradient(135deg, #3b7eff, #3b7eff); border: none; color: white; padding: .7rem 1.8rem; }
+        .btn-primary:hover { box-shadow: 0 8px 32px rgba(59,127,255,0.4); transform: translateY(-2px); }
+        .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: .7rem 1.8rem; }
+        .btn-secondary:hover { border-color: var(--muted); color: white; }
+        @media (max-width: 900px) {
+          .agents-grid { grid-template-columns: 1fr !important; }
+          .stats-grid { grid-template-columns: repeat(2,1fr) !important; }
+          .value-grid { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 640px) {
+          .desktop-only { display: none !important; }
+          .mobile-only { display: flex !important; }
+          .stats-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
     </div>

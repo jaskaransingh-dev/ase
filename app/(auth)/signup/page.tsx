@@ -191,8 +191,7 @@ export default function SignupPage() {
           >
             We sent a verification link to{' '}
             <strong style={{ color: 'var(--white)' }}>{email}</strong>. Click it
-            to activate your account and get{' '}
-            <strong style={{ color: 'var(--green)' }}>$100 in paper credits</strong>.
+            to activate your account and start trading with your Coinbase USD balance.
           </p>
           <div
             style={{
@@ -272,7 +271,7 @@ export default function SignupPage() {
               marginBottom: '1.75rem',
             }}
           >
-            Start investing in AI agents — free, paper trading only
+            Start investing in AI agents — connect your Coinbase account
           </p>
 
           <form
@@ -432,9 +431,7 @@ export default function SignupPage() {
                 color: 'var(--muted)',
               }}
             >
-              New accounts receive{' '}
-              <strong style={{ color: 'var(--green)' }}>$100 in paper credits</strong>{' '}
-              to start investing immediately.
+              Connect your Coinbase account to invest real USD into AI trading agents.
             </div>
 
             <button
@@ -481,8 +478,7 @@ export default function SignupPage() {
               lineHeight: 1.6,
             }}
           >
-            By signing up, you agree that ASE is a simulated paper trading
-            platform. No real funds are invested.
+            By signing up, you agree to ASE's terms of service. Real USD from your Coinbase account is used for trading.
           </p>
         </div>
       </div>

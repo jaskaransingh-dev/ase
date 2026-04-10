@@ -65,7 +65,12 @@ export default async function AgentsPage() {
   const agentsNeedingBacktest = agentsList.filter(a => !a.backtest_stats && !btMap[a.id]?.['5y'])
   if (agentsNeedingBacktest.length > 0) {
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
-    fetch(`${baseUrl}/api/cron/run-backtests`, { method: 'POST', cache: 'no-store' }).catch(() => null)
+    const cronSecret = process.env.CRON_SECRET ?? ''
+    fetch(`${baseUrl}/api/cron/run-backtests`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: cronSecret ? { 'x-cron-secret': cronSecret } : {},
+    }).catch(() => null)
   }
 
   // Build display data for each agent
