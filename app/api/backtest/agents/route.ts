@@ -3,12 +3,12 @@
  *
  * Returns the list of ASE agents with their mapped backtest strategy + symbol,
  * so the frontend can let users backtest any of the 10 live agents.
- * No edge-incompatible imports — fully static config.
+ * Uses force-dynamic to ensure fresh data on each request.
  */
 
 import { NextResponse } from 'next/server'
 
-export const runtime = 'edge'
+export const dynamic = 'force-dynamic'
 
 const AGENTS = [
   { id: 'btc-momentum',    slug: 'btc-momentum',    ticker: '$BTCM', name: 'BTC Momentum',       description: 'Dual-EMA crossover with RSI confirmation on Bitcoin',            symbol: 'BTC-USD',  strategy: 'momentum_crossover',  params: { fast_window: 8,  slow_window: 21, rsi_window: 14 } },

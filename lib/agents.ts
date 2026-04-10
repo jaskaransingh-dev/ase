@@ -577,7 +577,7 @@ async function executeBuy(
       side: 'buy',
       qty: filledQty,
       fillPrice,
-      filledAt: filled.filled_at || new Date().toISOString(),
+      filledAt: new Date().toISOString(),
     })
 
     console.log(`✅ BUY ${symbol} $${notional} @ ${fillPrice} qty=${filledQty} (agent: ${agentId})`)
@@ -646,7 +646,7 @@ async function executeSell(
       side: 'sell',
       qty: actualSellQty,
       fillPrice,
-      filledAt: filled.filled_at || new Date().toISOString(),
+      filledAt: new Date().toISOString(),
       pnlCents,
     })
 
@@ -1242,7 +1242,7 @@ export async function runSolBreakout(
             side: 'sell',
             qty: halfQty,
             fillPrice,
-            filledAt: filled.filled_at || new Date().toISOString(),
+            filledAt: new Date().toISOString(),
             pnlCents,
           })
           

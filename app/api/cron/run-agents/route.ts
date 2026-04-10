@@ -131,7 +131,10 @@ export async function POST(req: NextRequest) {
     const runner = STRATEGY_MAP[agent.slug]
     if (!runner) {
       results[agent.slug] = { agent_slug: agent.slug, error: 'No strategy runner configured' }
-      await admin.from('agents').update({ last_error: 'No strategy runner configured' }).eq('id', agent.id).catch(() => {})
+      const { error: updateError } = await admin.from('agents').update({ last_error: 'No strategy runner configured' }).eq('id', agent.id);
+      if (updateError) {
+        console.error(`[run-agents] Failed to update agent ${agent.slug} with 'no runner' error:`, updateError.message);
+      }
       continue
     }
 
@@ -152,12 +155,15 @@ export async function POST(req: NextRequest) {
       results[agent.slug] = result
 
       // Persist signal state
-      await admin.from('agents').update({
+      const { error: updateSignalError } = await admin.from('agents').update({
         signal_summary: result.signal_summary || 'SCANNING',
         portfolio_json: JSON.stringify(result.portfolio),
         last_run_at: ran_at,
         last_error: null,
-      }).eq('id', agent.id).catch(e => console.warn(`signal_summary update failed for ${agent.slug}:`, e))
+      }).eq('id', agent.id);
+      if (updateSignalError) {
+        console.warn(`[run-agents] signal_summary update failed for ${agent.slug}:`, updateSignalError.message);
+      }
 
       const tradeCount = result.actions.filter(a => a.action === 'BUY' || a.action === 'SELL').length
       totalTrades += tradeCount
@@ -166,7 +172,10 @@ export async function POST(req: NextRequest) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
       console.error(`[run-agents] ${agent.slug} failed:`, msg)
       results[agent.slug] = { agent_slug: agent.slug, error: msg }
-      await admin.from('agents').update({ last_error: msg }).eq('id', agent.id).catch(() => {})
+      const { error: updateError } = await admin.from('agents').update({ last_error: msg }).eq('id', agent.id);
+      if (updateError) {
+        console.error(`[run-agents] Failed to update agent ${agent.slug} with error message:`, updateError.message);
+      }
     }
   }
 
