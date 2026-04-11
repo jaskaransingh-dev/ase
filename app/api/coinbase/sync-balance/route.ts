@@ -6,8 +6,9 @@
  * This endpoint:
  * 1. Gets user's stored Coinbase API credentials
  * 2. Calls Coinbase API to get account balance
- * 3. Updates wallet.balance_cents with current balance
- * 4. Returns synced balance
+ * 3. Creates wallet if it doesn't exist
+ * 4. Updates wallet.balance_cents with current balance
+ * 5. Returns synced balance
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -51,14 +52,30 @@ export async function POST(req: NextRequest) {
       passphrase,
     })
 
-    // Update wallet
-    await admin
+    // Ensure wallet exists
+    const { data: existingWallet } = await admin
       .from('wallets')
-      .update({
+      .select('id, balance_cents')
+      .eq('user_id', user.id)
+      .single()
+
+    if (!existingWallet) {
+      // Create wallet with Coinbase balance
+      await admin.from('wallets').insert({
+        user_id: user.id,
         balance_cents: balanceCents,
         last_synced_at: new Date().toISOString(),
       })
-      .eq('user_id', user.id)
+    } else {
+      // Update existing wallet with new balance
+      await admin
+        .from('wallets')
+        .update({
+          balance_cents: balanceCents,
+          last_synced_at: new Date().toISOString(),
+        })
+        .eq('user_id', user.id)
+    }
 
     console.log(`[sync-balance] User ${user.id}: $${(balanceCents / 100).toFixed(2)}`)
 

@@ -3,8 +3,8 @@ import './globals.css'
 import { WalletProvider } from '@/components/WalletProvider'
 
 export const metadata: Metadata = {
-  title: 'ASE — Subscribe to Proven Trading Bots',
-  description: 'Connect your wallet and subscribe to verified AI trading bots. Real crypto execution, real-time performance, full transparency.',
+  title: 'ASE — Allocate Funds to Proven Trading Bots',
+  description: 'Connect your wallet and allocate funds to verified AI trading bots. Real crypto execution, real-time performance, full transparency.',
   icons: { icon: '/logo.png', apple: '/logo.png' },
 }
 

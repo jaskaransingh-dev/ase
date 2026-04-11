@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts'
 import { createClient } from '@/lib/supabase/client'
 import { useWallet } from '@/components/WalletProvider'
 import { fmtPct, fmtDateTime } from '@/lib/utils'
@@ -52,11 +52,24 @@ function getRelativeTime(dateStr: string): string {
 }
 
 function statusColor(s: AgentActivity['status']) {
-  return s === 'BUYING' ? '#6EE7B7' : s === 'SELLING' ? '#FB7185' : s === 'SCANNING' ? '#FDBA74' : '#6B7280'
+  return s === 'BUYING' ? '#00E599' : s === 'SELLING' ? '#FF5A5F' : s === 'SCANNING' ? '#8E8E93' : '#5A5A5F'
 }
 
-function triggerHaptic(ms = 8) {
-  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(ms)
+function StatusPulse({ status }: { status: AgentActivity['status'] }) {
+  const pulseClass = status === 'BUYING' || status === 'SELLING' ? 'agent-pulse' : status === 'OFFLINE' ? 'agent-pulse error' : 'agent-pulse idle'
+  return <span className={pulseClass} style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor(status), display: 'inline-block' }} />
+}
+
+function generateEquityCurve() {
+  const data = []
+  let value = 10000
+  for (let i = 30; i >= 0; i--) {
+    const date = new Date()
+    date.setDate(date.getDate() - i)
+    value = value * (1 + (Math.random() - 0.48) * 0.04)
+    data.push({ date: date.toISOString().split('T')[0], value })
+  }
+  return data
 }
 
 export default function DashboardPage() {
@@ -68,6 +81,7 @@ export default function DashboardPage() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
   const [trades, setTrades] = useState<Trade[]>([])
   const [agentActivity, setAgentActivity] = useState<AgentActivity[]>([])
+  const [equityData] = useState(generateEquityCurve)
 
   useEffect(() => {
     async function load() {
@@ -90,20 +104,17 @@ export default function DashboardPage() {
           .from('agents')
           .select('id, name, slug, signal_summary, status')
           .eq('status', 'active'),
-        // Fetch agent_stats separately to avoid FK join issues
         supabase
           .from('agent_stats')
           .select('agent_id, total_return_pct, sharpe_ratio, max_drawdown_pct, win_rate_pct, nav_cents, snapshot_at')
           .order('snapshot_at', { ascending: false }),
       ])
 
-      // Build stats lookup map keyed by agent_id (one row per agent, most recent)
       const statsMap: Record<string, { total_return_pct: number; sharpe_ratio: number; max_drawdown_pct: number; win_rate_pct: number; nav_cents: number; snapshot_at: string }> = {}
       for (const s of (statsRes.data ?? [])) {
         if (!statsMap[s.agent_id]) statsMap[s.agent_id] = s
       }
 
-      // Merge stats into subscriptions
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const subsWithStats = ((subsRes.data ?? []) as any[]).map((sub: any) => ({
         ...sub,
@@ -172,40 +183,39 @@ export default function DashboardPage() {
   }
 
   return (
-    <div style={{ padding: '2rem 2.5rem', maxWidth: 1440, margin: '0 auto' }}>
-
+    <div style={{ maxWidth: 1400, margin: '0 auto' }}>
       {/* Top strip */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '1.75rem', flexWrap: 'wrap', gap: '1rem' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <div className="eyebrow" style={{ marginBottom: '.3rem' }}>OVERVIEW</div>
-          <h1 style={{ fontFamily: 'var(--font-head)', fontSize: '1.7rem', fontWeight: 800 }}>Your Dashboard</h1>
+          <div className="eyebrow" style={{ marginBottom: '.3rem' }}>COMMAND CENTER</div>
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '2rem', fontWeight: 700, letterSpacing: '-0.02em' }}>Your Portfolio</h1>
         </div>
-        <Link href="/agents" className="btn-primary" style={{ fontSize: '.82rem', padding: '.55rem 1.1rem' }} onClick={() => triggerHaptic()}>
+        <Link href="/agents" className="btn-primary" style={{ fontSize: '.82rem', padding: '.6rem 1.4rem', borderRadius: 100 }}>
           Browse Agents →
         </Link>
       </div>
 
       {/* Wallet banner */}
       {!wallet.connected && (
-        <div style={{ background: 'rgba(155,140,255,.06)', border: '1px solid rgba(155,140,255,.2)', borderRadius: 14, padding: '1rem 1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+        <div style={{ background: 'rgba(244,239,230,.06)', border: '1px solid var(--ivory-glow)', borderRadius: 16, padding: '1rem 1.5rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
-            <div style={{ fontWeight: 700, fontSize: '.9rem', marginBottom: '.2rem' }}>Connect your wallet (optional)</div>
-            <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>Wallet connection is used for future on-chain settlement. You can subscribe to agents without one.</div>
+            <div style={{ fontWeight: 600, fontSize: '.9rem', marginBottom: '.2rem' }}>Connect wallet (optional)</div>
+            <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>Enable on-chain settlements and full transparency.</div>
           </div>
-          <button onClick={openModal} className="btn-secondary" style={{ fontSize: '.8rem', padding: '.5rem 1rem' }}>
+          <button onClick={openModal} className="btn-secondary" style={{ fontSize: '.8rem', padding: '.5rem 1rem', borderRadius: 100 }}>
             Connect Wallet →
           </button>
         </div>
       )}
 
       {wallet.connected && (
-        <div style={{ background: 'rgba(110,231,183,.05)', border: '1px solid rgba(110,231,183,.15)', borderRadius: 14, padding: '.75rem 1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '.75rem' }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#6EE7B7', display: 'inline-block', flexShrink: 0 }} />
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: '#6EE7B7' }}>
-            {wallet.type === 'coinbase' ? 'Coinbase Wallet' : wallet.type === 'metamask' ? 'MetaMask' : 'Wallet'}: {shortAddress}
+        <div style={{ background: 'rgba(0,229,153,.05)', border: '1px solid var(--mint-border)', borderRadius: 16, padding: '.75rem 1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '.75rem' }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--mint)', display: 'inline-block', flexShrink: 0, boxShadow: '0 0 8px var(--mint)' }} />
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--mint)' }}>
+            {wallet.type === 'coinbase' ? 'Coinbase' : wallet.type === 'metamask' ? 'MetaMask' : 'Wallet'}: {shortAddress}
           </span>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginLeft: 'auto' }}>
-            {network ?? 'Unknown network'}
+            {network ?? 'Unknown'}
           </span>
           <button onClick={disconnect} style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 .25rem' }}>
             Disconnect
@@ -213,138 +223,176 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* North Star Chart - Total Equity */}
+      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.5rem', marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+          <div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--muted)', letterSpacing: '.1em', marginBottom: '.25rem' }}>TOTAL EQUITY</div>
+            {wallet.connected ? (
+              <>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.75rem', fontWeight: 700, color: 'var(--white)' }}>$—</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginTop: '.25rem' }}>Syncing from Coinbase...</div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.75rem', fontWeight: 700, color: 'var(--faint)' }}>—</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginTop: '.25rem' }}>Connect Coinbase to view equity</div>
+              </>
+            )}
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.75rem', color: 'var(--muted)', fontWeight: 600 }}>—</div>
+        </div>
+        <div style={{ height: 200 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={equityData}>
+              <defs>
+                <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#00E599" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="#00E599" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    return (
+                      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '0.5rem 0.75rem' }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: 'var(--muted)' }}>{payload[0].payload.date}</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.9rem', fontWeight: 700, color: 'var(--mint)' }}>${Number(payload[0].value).toFixed(2)}</div>
+                      </div>
+                    )
+                  }
+                  return null
+                }}
+              />
+              <Area
+                type="monotone"
+                dataKey="value"
+                stroke="#00E599"
+                strokeWidth={2}
+                fill="url(#equityGradient)"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
       {/* Stats row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '.7rem', marginBottom: '1.75rem' }} className="dash-stats-strip">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1rem', marginBottom: '2rem' }} className="dash-stats-strip">
         {[
           { label: 'Subscriptions', value: subscriptions.length.toString(), color: 'var(--white)' },
-          { label: 'Avg Return', value: fmtPct(totalReturnAvg, 1), color: totalReturnAvg >= 0 ? 'var(--green)' : 'var(--red)' },
-          { label: 'Active Agents', value: `${subscribedActivity.filter(a => a.status !== 'OFFLINE').length}/${subscribedActivity.length}`, color: '#8BE9FF' },
-          { label: 'Recent Trades', value: recentTrades.length.toString(), color: 'var(--gold)' },
+          { label: 'Avg Return', value: fmtPct(totalReturnAvg, 1), color: totalReturnAvg >= 0 ? 'var(--mint)' : 'var(--red)' },
+          { label: 'Active Agents', value: `${subscribedActivity.filter(a => a.status !== 'OFFLINE').length}/${subscribedActivity.length}`, color: 'var(--ivory)' },
+          { label: 'Recent Trades', value: recentTrades.length.toString(), color: 'var(--ivory)' },
         ].map(item => (
-          <div key={item.label} style={{ borderRadius: 12, border: '1px solid rgba(148,163,184,.2)', background: 'rgba(9,14,28,.72)', padding: '.8rem 1rem' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: '#8CA0C4', letterSpacing: '.08em', marginBottom: '.25rem' }}>{item.label.toUpperCase()}</div>
-            <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1.3rem', color: item.color }}>{item.value}</div>
+          <div key={item.label} className="glass-card-v2" style={{ borderRadius: 12, padding: '1rem 1.25rem' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--muted)', letterSpacing: '.1em', marginBottom: '.35rem' }}>{item.label.toUpperCase()}</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.4rem', color: item.color }}>{item.value}</div>
           </div>
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1.25rem', alignItems: 'start' }} className="dash-main-grid">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '1.5rem', alignItems: 'start' }} className="dash-main-grid">
 
-        {/* Left: subscriptions */}
+        {/* Left: Subscription Health Grid - Pulse Cards */}
         <div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.75rem' }}>
-            ACTIVE SUBSCRIPTIONS
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--muted)', letterSpacing: '.1em', marginBottom: '1rem' }}>
+            SUBSCRIPTION HEALTH
           </div>
 
           {subscriptions.length === 0 ? (
             <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '3rem 2rem', textAlign: 'center' }}>
-              <div style={{ fontSize: '1.5rem', marginBottom: '.75rem' }}>⬡</div>
-              <div style={{ fontFamily: 'var(--font-head)', fontSize: '1rem', fontWeight: 800, marginBottom: '.4rem' }}>No subscriptions yet</div>
-              <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>Browse verified agents and subscribe to start tracking their trades.</div>
-              <Link href="/agents" className="btn-primary" style={{ fontSize: '.82rem' }}>Browse Agents →</Link>
+              <div style={{ fontSize: '2rem', marginBottom: '.75rem' }}>◇</div>
+              <div style={{ fontFamily: 'var(--font-serif)', fontSize: '1.1rem', fontWeight: 600, marginBottom: '.4rem' }}>No allocations yet</div>
+              <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>Browse verified agents and allocate funds to start trading.</div>
+              <Link href="/agents" className="btn-primary" style={{ fontSize: '.82rem', borderRadius: 100 }}>Browse Agents →</Link>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '.75rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: '1rem' }}>
               {subscriptions.map(sub => {
                 const stats = Array.isArray(sub.agents?.agent_stats) ? sub.agents.agent_stats[0] : null
                 const ret = stats?.total_return_pct ?? 0
                 const sharpe = stats?.sharpe_ratio ?? 0
-                const winRate = stats?.win_rate_pct ?? 0
                 const pos = ret >= 0
                 const activity = agentActivity.find(a => a.agent_id === sub.agent_id)
 
                 return (
-                  <div key={sub.id} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.2rem 1.4rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', marginBottom: '.75rem' }}>
-                      <div>
-                        <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1rem', marginBottom: '.15rem' }}>
-                          {sub.agents?.name}
-                        </div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)' }}>
-                          {sub.agents?.primary_symbol ?? 'MULTI'} · subscribed {getRelativeTime(sub.created_at)}
+                  <Link 
+                    key={sub.id} 
+                    href={`/agents/${sub.agents?.slug}`}
+                    className="glass-card-v2"
+                    style={{ 
+                      padding: '1.25rem', 
+                      borderRadius: 16, 
+                      textDecoration: 'none',
+                      display: 'flex', 
+                      flexDirection: 'column',
+                      gap: '0.75rem'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <StatusPulse status={activity?.status ?? 'SCANNING'} />
+                        <div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--muted)' }}>{sub.agents?.primary_symbol ?? 'MULTI'}</div>
+                          <div style={{ fontWeight: 600, fontSize: '.9rem', color: 'var(--white)' }}>{sub.agents?.name}</div>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
-                        {activity && (
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', fontWeight: 700, padding: '.2rem .55rem', borderRadius: 6, background: `${statusColor(activity.status)}18`, border: `1px solid ${statusColor(activity.status)}30`, color: statusColor(activity.status) }}>
-                            {activity.status}
-                          </span>
-                        )}
-                        <Link href={`/agents/${sub.agents?.slug}`} style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--gold)', textDecoration: 'none' }}>
-                          View →
-                        </Link>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', fontWeight: 700, color: pos ? 'var(--mint)' : 'var(--red)' }}>
+                        {fmtPct(ret)}
                       </div>
                     </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '.4rem' }}>
-                      {[
-                        { k: 'RETURN', v: fmtPct(ret), c: pos ? 'var(--green)' : 'var(--red)' },
-                        { k: 'SHARPE', v: sharpe.toFixed(2), c: 'var(--white)' },
-                        { k: 'WIN %', v: winRate.toFixed(0) + '%', c: 'var(--white)' },
-                        { k: 'SIGNAL', v: activity?.symbol !== '--' ? activity?.symbol ?? '—' : 'IDLE', c: 'var(--faint)' },
-                      ].map(({ k, v, c }) => (
-                        <div key={k} style={{ background: 'rgba(255,255,255,.03)', border: '1px solid var(--border)', borderRadius: 9, padding: '.4rem .55rem' }}>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.08em' }}>{k}</div>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.75rem', fontWeight: 800, color: c, marginTop: '.1rem' }}>{v}</div>
-                        </div>
-                      ))}
+                    <div style={{ display: 'flex', gap: '1rem', fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)' }}>
+                      <span>Sharpe: {sharpe.toFixed(2)}</span>
+                      <span>{activity?.symbol !== '--' ? activity?.symbol : 'IDLE'}</span>
                     </div>
-
-                    {activity?.signal_summary && (
-                      <div style={{ marginTop: '.7rem', fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--muted)', borderTop: '1px solid var(--border)', paddingTop: '.6rem' }}>
-                        {activity.signal_summary}
-                      </div>
-                    )}
-                  </div>
+                  </Link>
                 )
               })}
             </div>
           )}
 
-          {/* Recent trades from subscribed agents */}
+          {/* Recent Trades Table */}
           {recentTrades.length > 0 && (
-            <div style={{ marginTop: '1.5rem' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.75rem' }}>
-                RECENT TRADES (YOUR AGENTS)
+            <div style={{ marginTop: '2rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--muted)', letterSpacing: '.1em', marginBottom: '1rem' }}>
+                RECENT TRADES
               </div>
               <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden' }}>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '.7rem' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                        {['Agent', 'Symbol', 'Side', 'Qty', 'Fill', 'P&L', 'Time'].map(h => (
-                          <th key={h} style={{ padding: '.55rem .75rem', textAlign: 'left', color: 'var(--faint)', fontWeight: 600, fontSize: '.58rem', letterSpacing: '.06em', whiteSpace: 'nowrap' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {recentTrades.map(t => {
-                        const pnl = t.pnl_cents ?? 0
-                        return (
-                          <tr key={t.id} style={{ borderBottom: '1px solid rgba(255,255,255,.04)' }}>
-                            <td style={{ padding: '.4rem .75rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>{t.agents?.name ?? '—'}</td>
-                            <td style={{ padding: '.4rem .75rem', fontWeight: 700 }}>{t.symbol}</td>
-                            <td style={{ padding: '.4rem .75rem', color: t.side === 'buy' ? '#6EE7B7' : '#FB7185', textTransform: 'uppercase', fontWeight: 700 }}>{t.side}</td>
-                            <td style={{ padding: '.4rem .75rem', color: 'var(--muted)' }}>{t.qty}</td>
-                            <td style={{ padding: '.4rem .75rem', color: 'var(--muted)' }}>${t.fill_price.toFixed(2)}</td>
-                            <td style={{ padding: '.4rem .75rem', color: pnl > 0 ? '#6EE7B7' : pnl < 0 ? '#FB7185' : 'var(--faint)' }}>
-                              {pnl !== 0 ? `${pnl > 0 ? '+' : ''}$${(pnl / 100).toFixed(2)}` : '—'}
-                            </td>
-                            <td style={{ padding: '.4rem .75rem', color: 'var(--faint)', whiteSpace: 'nowrap' }}>{getRelativeTime(t.filled_at)}</td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '.68rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                      {['Agent', 'Symbol', 'Side', 'Qty', 'Fill', 'P&L', 'Time'].map(h => (
+                        <th key={h} style={{ padding: '.6rem .75rem', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: '.55rem', letterSpacing: '.08em', whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentTrades.map(t => {
+                      const pnl = t.pnl_cents ?? 0
+                      return (
+                        <tr key={t.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '.5rem .75rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>{t.agents?.name ?? '—'}</td>
+                          <td style={{ padding: '.5rem .75rem', fontWeight: 600 }}>{t.symbol}</td>
+                          <td style={{ padding: '.5rem .75rem', color: t.side === 'buy' ? 'var(--mint)' : 'var(--red)', textTransform: 'uppercase', fontWeight: 700 }}>{t.side}</td>
+                          <td style={{ padding: '.5rem .75rem', color: 'var(--muted)' }}>{t.qty}</td>
+                          <td style={{ padding: '.5rem .75rem', color: 'var(--muted)' }}>${t.fill_price.toFixed(2)}</td>
+                          <td style={{ padding: '.5rem .75rem', color: pnl > 0 ? 'var(--mint)' : pnl < 0 ? 'var(--red)' : 'var(--faint)' }}>
+                            {pnl !== 0 ? `${pnl > 0 ? '+' : ''}$${(pnl / 100).toFixed(2)}` : '—'}
+                          </td>
+                          <td style={{ padding: '.5rem .75rem', color: 'var(--faint)', whiteSpace: 'nowrap' }}>{getRelativeTime(t.filled_at)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
         </div>
 
-        {/* Right: agent activity sidebar */}
+        {/* Right: All Agent Activity */}
         <div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.75rem' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--muted)', letterSpacing: '.1em', marginBottom: '1rem' }}>
             ALL AGENT ACTIVITY
           </div>
           <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden' }}>
@@ -355,40 +403,21 @@ export default function DashboardPage() {
                 const subscribed = subscribedAgentIds.has(a.agent_id)
                 return (
                   <div key={a.agent_id} style={{ padding: '.85rem 1rem', borderBottom: i < agentActivity.length - 1 ? '1px solid var(--border)' : 'none', display: 'flex', alignItems: 'flex-start', gap: '.75rem' }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor(a.status), flexShrink: 0, marginTop: '.2rem', boxShadow: a.status !== 'OFFLINE' ? `0 0 6px ${statusColor(a.status)}80` : 'none' }} />
+                    <StatusPulse status={a.status} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', marginBottom: '.1rem' }}>
-                        <span style={{ fontFamily: 'var(--font-head)', fontWeight: 700, fontSize: '.78rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.agent_name}</span>
-                        {subscribed && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: '#6EE7B7', background: 'rgba(110,231,183,.1)', border: '1px solid rgba(110,231,183,.2)', borderRadius: 4, padding: '.1rem .3rem', flexShrink: 0 }}>MINE</span>}
+                        <span style={{ fontFamily: 'var(--font-body)', fontWeight: 600, fontSize: '.8rem', color: 'var(--white)' }}>{a.agent_name}</span>
+                        {subscribed && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.45rem', color: 'var(--mint)', background: 'var(--mint-dim)', border: '1px solid var(--mint-border)', borderRadius: 4, padding: '.1rem .3rem', flexShrink: 0 }}>MINE</span>}
                       </div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)' }}>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)' }}>
                         {a.symbol !== '--' ? a.symbol : 'idle'} · {a.last_trade_at ? getRelativeTime(a.last_trade_at) : 'no trades'}
                       </div>
                     </div>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', fontWeight: 700, color: statusColor(a.status), flexShrink: 0 }}>{a.status}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, color: statusColor(a.status), flexShrink: 0 }}>{a.status}</span>
                   </div>
                 )
               })
             )}
-          </div>
-
-          {/* Quick actions */}
-          <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
-            <Link href="/agents" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '.75rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--white)', textDecoration: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'border-color .14s' }}
-              onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'rgba(155,140,255,.4)'}
-              onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}>
-              Browse All Agents <span style={{ color: 'var(--gold)' }}>→</span>
-            </Link>
-            <Link href="/dashboard/backtest" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '.75rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--white)', textDecoration: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'border-color .14s' }}
-              onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'rgba(155,140,255,.4)'}
-              onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}>
-              Algo Lab / Backtest <span style={{ color: 'var(--gold)' }}>→</span>
-            </Link>
-            <Link href="/builders/submit" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '.75rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--white)', textDecoration: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'border-color .14s' }}
-              onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'rgba(155,140,255,.4)'}
-              onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}>
-              Submit Your Agent <span style={{ color: 'var(--gold)' }}>→</span>
-            </Link>
           </div>
         </div>
       </div>

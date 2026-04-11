@@ -4,8 +4,14 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
   const clientId = process.env.COINBASE_CLIENT_ID
-  if (!clientId) {
-    return NextResponse.redirect(new URL('/login?error=oauth_not_configured', request.url))
+  const clientSecret = process.env.COINBASE_CLIENT_SECRET
+
+  // If OAuth not configured, fail gracefully
+  if (!clientId || !clientSecret) {
+    return NextResponse.json(
+      { error: 'Coinbase OAuth not configured. Please contact support.' },
+      { status: 503 }
+    )
   }
 
   const url = new URL(request.url)

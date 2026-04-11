@@ -27,7 +27,6 @@ export default function WalletDashboard() {
 
   useEffect(() => {
     fetchBalance()
-    // Refresh balance every 30 seconds
     const interval = setInterval(fetchBalance, 30000)
     return () => clearInterval(interval)
   }, [])

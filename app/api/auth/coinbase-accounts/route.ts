@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { encryptAES } from '@/lib/crypto/encryption'
-import { validateCoinbaseCredentials } from '@/lib/coinbase/api'
+import { validateCoinbaseCredentials, fetchCoinbaseUSDBalance } from '@/lib/coinbase/api'
 
 export const dynamic = 'force-dynamic'
 
@@ -90,19 +90,42 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Fetch and sync balance
-    const balanceRes = await fetch('/api/coinbase/sync-balance', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: user.id }),
+    // Fetch Coinbase balance and sync to wallet
+    const balanceCents = await fetchCoinbaseUSDBalance({
+      key: api_key,
+      secret: api_secret,
+      passphrase: api_passphrase,
     })
 
-    const balanceData = await balanceRes.json()
+    // Ensure wallet exists and update balance
+    const { data: existingWallet } = await admin
+      .from('wallets')
+      .select('id, balance_cents')
+      .eq('user_id', user.id)
+      .single()
+
+    if (!existingWallet) {
+      // Create wallet with Coinbase balance
+      await admin.from('wallets').insert({
+        user_id: user.id,
+        balance_cents: balanceCents,
+        last_synced_at: new Date().toISOString(),
+      })
+    } else {
+      // Update existing wallet with Coinbase balance
+      await admin
+        .from('wallets')
+        .update({
+          balance_cents: balanceCents,
+          last_synced_at: new Date().toISOString(),
+        })
+        .eq('user_id', user.id)
+    }
 
     return NextResponse.json({
       ok: true,
-      message: 'Coinbase account connected',
-      usd_balance_cents: balanceData.usd_balance_cents,
+      message: 'Coinbase account connected successfully',
+      usd_balance_cents: balanceCents,
     })
   } catch (err: unknown) {
     console.error('coinbase-accounts error:', err)

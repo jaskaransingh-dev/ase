@@ -32,7 +32,7 @@ export async function GET() {
       .single()
 
     if (!connection) {
-      // No Coinbase account connected - return $0
+      // No Coinbase account connected
       return NextResponse.json({
         usd_balance_cents: 0,
         status: 'not_connected',
@@ -55,7 +55,7 @@ export async function GET() {
       })
     }
 
-    // No wallet found - shouldn't happen but return 0
+    // No wallet found - return 0
     return NextResponse.json({
       usd_balance_cents: 0,
       status: 'no_wallet'

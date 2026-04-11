@@ -14,6 +14,8 @@ export default function CoinbaseConnectModal({ onClose, onSuccess }: Props) {
   const [apiPassphrase, setApiPassphrase] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [success, setSuccess] = useState(false)
+  const [syncedBalance, setSyncedBalance] = useState<number | null>(null)
 
   async function handleConnect() {
     if (!apiKey || !apiSecret || !apiPassphrase) {
@@ -41,10 +43,33 @@ export default function CoinbaseConnectModal({ onClose, onSuccess }: Props) {
         throw new Error(data.error || 'Failed to connect account')
       }
 
-      onSuccess?.()
-      onClose()
+      setSuccess(true)
+      setSyncedBalance(data.usd_balance_cents)
+      
+      // Refresh the page after a short delay to update UI
+      setTimeout(() => {
+        window.location.reload()
+      }, 2000)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Connection failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleSyncBalance() {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/coinbase/sync-balance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Sync failed')
+      setSyncedBalance(data.usd_balance_cents)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Sync failed')
     } finally {
       setLoading(false)
     }
@@ -231,6 +256,24 @@ export default function CoinbaseConnectModal({ onClose, onSuccess }: Props) {
           </div>
         </div>
 
+        {/* Success */}
+        {success && (
+          <div
+            style={{
+              background: 'rgba(110,231,183,.1)',
+              border: '1px solid rgba(110,231,183,.3)',
+              borderRadius: 10,
+              padding: '.75rem 1rem',
+              marginBottom: '1rem',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '.8rem',
+              color: '#6EE7B7',
+            }}
+          >
+            Coinbase connected! Synced balance: ${((syncedBalance ?? 0) / 100).toFixed(2)}. Reloading...
+          </div>
+        )}
+
         {/* Error */}
         {error && (
           <div
@@ -252,14 +295,14 @@ export default function CoinbaseConnectModal({ onClose, onSuccess }: Props) {
         {/* Submit Button */}
         <button
           onClick={handleConnect}
-          disabled={loading || !apiKey || !apiSecret || !apiPassphrase}
+          disabled={loading || success || !apiKey || !apiSecret || !apiPassphrase}
           style={{
             width: '100%',
             padding: '1rem',
             borderRadius: 12,
             border: 'none',
             background:
-              !loading && apiKey && apiSecret && apiPassphrase
+              !loading && !success && apiKey && apiSecret && apiPassphrase
                 ? 'linear-gradient(135deg, #3b7eff, #3b7eff)'
                 : 'rgba(59,127,255,.3)',
             color: 'white',
@@ -267,14 +310,14 @@ export default function CoinbaseConnectModal({ onClose, onSuccess }: Props) {
             fontWeight: 700,
             fontSize: '1rem',
             cursor:
-              loading || !apiKey || !apiSecret || !apiPassphrase
+              loading || success || !apiKey || !apiSecret || !apiPassphrase
                 ? 'not-allowed'
                 : 'pointer',
             opacity:
-              loading || !apiKey || !apiSecret || !apiPassphrase ? 0.6 : 1,
+              loading || success || !apiKey || !apiSecret || !apiPassphrase ? 0.6 : 1,
           }}
           onMouseEnter={e => {
-            if (!loading && apiKey && apiSecret && apiPassphrase) {
+            if (!loading && !success && apiKey && apiSecret && apiPassphrase) {
               (e.currentTarget as HTMLElement).style.boxShadow =
                 '0 12px 32px rgba(59,127,255,.4)'
             }
@@ -283,8 +326,32 @@ export default function CoinbaseConnectModal({ onClose, onSuccess }: Props) {
             (e.currentTarget as HTMLElement).style.boxShadow = 'none'
           }}
         >
-          {loading ? 'Connecting...' : 'Connect Account'}
+          {loading ? 'Connecting & Syncing...' : success ? 'Connected!' : 'Connect Account'}
         </button>
+
+        {/* Sync Balance Button */}
+        {!success && (
+          <button
+            onClick={handleSyncBalance}
+            disabled={loading}
+            style={{
+              width: '100%',
+              padding: '.75rem',
+              borderRadius: 12,
+              border: '1px solid rgba(110,231,183,.3)',
+              background: 'transparent',
+              color: '#6EE7B7',
+              fontFamily: 'var(--font-head)',
+              fontWeight: 600,
+              fontSize: '.85rem',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.6 : 1,
+              marginTop: '.75rem',
+            }}
+          >
+            {loading ? 'Syncing...' : 'Sync Balance from Coinbase'}
+          </button>
+        )}
 
         <p style={{ fontSize: '.75rem', color: 'var(--faint)', textAlign: 'center', marginTop: '1rem', margin: 0 }}>
           Your credentials are encrypted and stored securely.

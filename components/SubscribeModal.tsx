@@ -19,20 +19,24 @@ export default function SubscribeModal({ agentId, agentName, onClose, onSuccess 
   const [fetching, setFetching] = useState(true)
   const [agreed, setAgreed] = useState(false)
 
+  const [coinbaseStatus, setCoinbaseStatus] = useState<string>('cached')
+
   useEffect(() => {
-    // Fetch actual Coinbase balance (will be implemented via API)
     fetch('/api/coinbase/balance')
       .then(r => r.json())
       .then(d => {
         if (d.usd_balance_cents) {
           setBalance(d.usd_balance_cents)
+          setCoinbaseStatus(d.status || 'cached')
         } else {
           setBalance(0)
+          setCoinbaseStatus(d.status || 'not_connected')
         }
       })
       .catch(() => {
         console.warn('Could not fetch Coinbase balance')
         setBalance(0)
+        setCoinbaseStatus('error')
       })
       .finally(() => setFetching(false))
   }, [])
@@ -174,7 +178,7 @@ export default function SubscribeModal({ agentId, agentName, onClose, onSuccess 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem' }}>
           <div>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, marginBottom: '.25rem' }}>Invest in Agent</h2>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, marginBottom: '.25rem' }}>Allocate Funds</h2>
             <p style={{ fontSize: '.85rem', color: 'var(--muted)', margin: 0 }}>{agentName}</p>
           </div>
           <button

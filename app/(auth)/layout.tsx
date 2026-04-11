@@ -1,50 +1,35 @@
 'use client'
 import Link from 'next/link'
+import Image from 'next/image'
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-      {/* Grid background pattern */}
+      {/* Background effects */}
       <div
         style={{
           position: 'fixed',
           inset: 0,
           backgroundImage:
-            'linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px)',
+            'linear-gradient(rgba(79,124,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(79,124,255,.025) 1px,transparent 1px)',
           backgroundSize: '60px 60px',
-          opacity: 0.35,
+          opacity: 0.4,
           pointerEvents: 'none',
-          animation: 'fadeInGrid 0.8s ease-out',
         }}
       />
-
-      {/* Radial gold gradient glow */}
       <div
         style={{
           position: 'fixed',
           inset: 0,
-          background: 'radial-gradient(ellipse 60% 50% at 50% 0%,rgba(232,172,32,.06) 0%,transparent 70%)',
+          background: 'radial-gradient(ellipse 50% 40% at 50% 0%,rgba(255,107,53,.08) 0%,transparent 60%)',
           pointerEvents: 'none',
-          animation: 'fadeInGlow 1.2s ease-out',
         }}
       />
-
-      {/* Subtle animated background */}
-      <style>{`
-        @keyframes fadeInGrid {
-          from { opacity: 0; }
-          to { opacity: 0.35; }
-        }
-        @keyframes fadeInGlow {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-      `}</style>
 
       {/* Nav */}
       <nav
         style={{
-          padding: '1.25rem 1.5rem',
+          padding: '1.25rem 1.75rem',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -55,29 +40,36 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <Link
           href="/"
           style={{
-            fontFamily: 'var(--font-head)',
-            fontWeight: 800,
-            fontSize: '1.1rem',
-            letterSpacing: '-.02em',
-            transition: 'transform 0.2s ease',
-          }}
-          onMouseEnter={(e) => {
-            const el = e.currentTarget
-            el.style.transform = 'scale(1.05)'
-          }}
-          onMouseLeave={(e) => {
-            const el = e.currentTarget
-            el.style.transform = 'scale(1)'
+            display: 'flex',
+            alignItems: 'center',
+            gap: '.6rem',
+            textDecoration: 'none',
           }}
         >
-          AS<span style={{ color: 'var(--gold)' }}>E</span>
+          <div style={{
+            width: 32, height: 32, borderRadius: 8,
+            background: 'linear-gradient(135deg, var(--orange), var(--orange2))',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 6,
+          }}>
+            <Image src="/logo.png" alt="ASE" width={20} height={20} style={{ filter: 'brightness(0) invert(1)' }} />
+          </div>
+          <span style={{
+            fontFamily: 'var(--font-display)',
+            fontWeight: 700,
+            fontSize: '1.1rem',
+            letterSpacing: '-.02em',
+            color: 'var(--white)',
+          }}>
+            ASE
+          </span>
         </Link>
         <div
           style={{
             fontFamily: 'var(--font-mono)',
-            fontSize: '.65rem',
+            fontSize: '.58rem',
             color: 'var(--faint)',
-            letterSpacing: '.08em',
+            letterSpacing: '.1em',
           }}
         >
           LIVE TRADING · NOT FINANCIAL ADVICE
@@ -105,13 +97,13 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           padding: '1rem 1.5rem',
           textAlign: 'center',
           fontFamily: 'var(--font-mono)',
-          fontSize: '.6rem',
+          fontSize: '.58rem',
           color: 'var(--faint)',
           position: 'relative',
           zIndex: 10,
         }}
       >
-        © 2026 Agent Security Exchange · Not financial advice · Real USD trading via Coinbase
+        Agent Security Exchange · Not financial advice · Real USD trading via Coinbase
       </div>
     </div>
   )

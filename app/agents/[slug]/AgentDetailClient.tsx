@@ -576,7 +576,7 @@ export default function AgentDetailClient({
                       { title: 'Strategy Logic', body: strategyDescriptions[agent.strategy_type] || 'Systematic algorithmic strategy with defined entry and exit signals based on technical indicators.' },
                       { title: 'Verification', body: 'Methodology disclosure submitted, ledger format validated, out-of-sample test passed. Real-time execution via Coinbase Exchange.' },
                       { title: 'Execution', body: 'Trades execute on Coinbase at real market prices. Positions tracked per subscriber account for accurate P&L attribution.' },
-                      { title: 'Investment', body: monthlyFee === 0 ? 'Subscribe free during beta. Invest real USD from your Coinbase account to activate live trading. Cancel anytime.' : `$${(monthlyFee / 100).toFixed(2)}/month. Invest real USD via Coinbase to fund the agent.` },
+                      { title: 'Investment', body: 'Allocate real USD from your Coinbase account to fund the agent. Cancel anytime.' },
                     ].map(({ title, body }) => (
                       <div key={title} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '1rem 1.1rem' }}>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--blue2)', marginBottom: '.45rem', textTransform: 'uppercase' }}>{title}</div>
@@ -587,11 +587,11 @@ export default function AgentDetailClient({
                   <div style={{ background: 'rgba(59,127,255,.04)', border: '1px solid rgba(59,127,255,.12)', borderRadius: 10, padding: '1rem 1.1rem' }}>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--blue2)', marginBottom: '.6rem' }}>HOW IT WORKS</div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem' }} className="how-grid">
-                      {[
-                        { n: '01', title: 'Subscribe', desc: 'Subscribe to the agent for free. No payment required during beta.' },
-                        { n: '02', title: 'Invest USD', desc: 'Allocate real USD from your Coinbase account to activate live trading.' },
-                        { n: '03', title: 'Agent Trades', desc: 'The algorithm trades on Coinbase at real prices. Track P&L in real-time.' },
-                      ].map(({ n, title, desc }) => (
+                    {[
+                      { n: '01', title: 'Allocate Funds', desc: 'Connect your Coinbase account and allocate USD to fund the agent.' },
+                      { n: '02', title: 'Agent Trades', desc: 'The algorithm trades on Coinbase at real prices. Track P&L in real-time.' },
+                      { n: '03', title: 'Track Returns', desc: 'View your holdings and performance in your dashboard anytime.' },
+                    ].map(({ n, title, desc }) => (
                         <div key={n}>
                           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 800, color: 'rgba(59,127,255,.28)', marginBottom: '.3rem' }}>{n}</div>
                           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.64rem', fontWeight: 700, color: 'var(--white)', marginBottom: '.22rem' }}>{title}</div>
@@ -858,29 +858,29 @@ export default function AgentDetailClient({
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '.45rem', background: 'rgba(22,199,132,.06)', border: '1px solid rgba(22,199,132,.16)', borderRadius: 8, padding: '.45rem .7rem', marginBottom: '.55rem' }}>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', display: 'inline-block', flexShrink: 0 }} />
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--green)', fontWeight: 700, letterSpacing: '.06em', flex: 1 }}>SUBSCRIBED</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)' }}>{subscribers} subs</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--green)', fontWeight: 700, letterSpacing: '.06em', flex: 1 }}>ACTIVE</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)' }}>{subscribers} investors</span>
                 </div>
                 <button onClick={handleUnsubscribe} disabled={loading} style={{ width: '100%', padding: '.45rem', borderRadius: 7, border: '1px solid rgba(242,54,69,.18)', background: 'transparent', color: 'rgba(242,54,69,.6)', fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: '.04em' }}>
-                  {loading ? 'Processing...' : 'Unsubscribe'}
+                  {loading ? 'Processing...' : 'Deallocate'}
                 </button>
               </div>
             ) : (
               <div>
                 {!isLoggedIn && (
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.56rem', color: 'var(--faint)', textAlign: 'center', marginBottom: '.55rem' }}>
-                    <Link href={`/login?redirect=/agents/${agent.slug}`} style={{ color: 'var(--blue2)', textDecoration: 'none' }}>Sign in</Link> to subscribe
+                    <Link href={`/login?redirect=/agents/${agent.slug}`} style={{ color: 'var(--blue2)', textDecoration: 'none' }}>Sign in</Link> to allocate funds
                   </div>
                 )}
                 <button onClick={handleSubscribe} disabled={loading || agent.alert_level === 'hard'} style={{ width: '100%', padding: '.72rem', borderRadius: 9, border: 0, background: agent.alert_level === 'hard' ? 'var(--bg3)' : 'var(--blue)', color: agent.alert_level === 'hard' ? 'var(--faint)' : '#fff', fontFamily: 'var(--font-head)', fontSize: '.86rem', fontWeight: 700, cursor: loading || agent.alert_level === 'hard' ? 'not-allowed' : 'pointer', letterSpacing: '-.01em', transition: 'background .15s' }}
                   onMouseEnter={e => { if (!loading && agent.alert_level !== 'hard') (e.currentTarget as HTMLButtonElement).style.background = 'var(--blue2)' }}
                   onMouseLeave={e => { if (agent.alert_level !== 'hard') (e.currentTarget as HTMLButtonElement).style.background = 'var(--blue)' }}
                 >
-                  {loading ? 'Processing...' : monthlyFee === 0 ? 'Subscribe Free' : `Subscribe — $${(monthlyFee / 100).toFixed(0)}/mo`}
+                  {loading ? 'Processing...' : 'Allocate Funds'}
                 </button>
                 {subscribers > 0 && (
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)', textAlign: 'center', marginTop: '.4rem' }}>
-                    {subscribers} subscriber{subscribers !== 1 ? 's' : ''} · {monthlyFee === 0 ? 'Free beta' : `$${(monthlyFee / 100).toFixed(0)}/mo`}
+                    {subscribers} investor{subscribers !== 1 ? 's' : ''}
                   </div>
                 )}
               </div>
