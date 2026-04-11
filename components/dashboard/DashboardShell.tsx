@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { Logo } from '@/components/ui/Logo'
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Overview', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
@@ -12,14 +13,6 @@ const NAV_ITEMS = [
   { href: '/builders/submit', label: 'Submit Agent', icon: 'M12 4v16m8-8H4' },
 ]
 
-function SparkNode({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ivory)" strokeWidth="1.5">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-    </svg>
-  )
-}
 
 export default function DashboardShell({ user, children }: { user: { id: string; email: string; name: string }; children: React.ReactNode }) {
   const pathname = usePathname()
@@ -83,11 +76,8 @@ export default function DashboardShell({ user, children }: { user: { id: string;
       {/* Sidebar */}
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-brand">
-          <Link href="/" onClick={() => setSidebarOpen(false)}>
-            <SparkNode />
-          </Link>
-          <Link href="/" style={{ fontFamily: 'var(--font-serif)', fontSize: '1.1rem', fontWeight: 700, color: 'var(--white)', textDecoration: 'none' }}>
-            ASE
+          <Link href="/" onClick={() => setSidebarOpen(false)} style={{ textDecoration: 'none' }}>
+            <Logo size="medium" variant="full" />
           </Link>
         </div>
 
@@ -163,7 +153,7 @@ export default function DashboardShell({ user, children }: { user: { id: string;
         <header className="quant-header">
           <div className="quant-breadcrumbs">
             <Link href="/dashboard">Home</Link>
-            {getBreadcrumbs().map((crumb, i) => (
+            {getBreadcrumbs().map((crumb) => (
               <span key={crumb.href} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span style={{ color: 'var(--faint)' }}>/</span>
                 {crumb.isLast ? (

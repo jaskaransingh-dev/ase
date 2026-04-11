@@ -77,8 +77,8 @@
 
   /* ── Fonts ── */
   --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
-  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-serif: 'Playfair Display', Georgia, serif;
+  --font-body: 'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-serif: 'Satoshi', -apple-system, BlinkMacSystemFont, Georgia, serif;
 
   /* ── Shape ── */
   --radius:    16px;
@@ -115,7 +115,7 @@ input, select, textarea { font-family: inherit; }
 
 /* ── Typography ── */
 h1, h2, h3, h4 { font-family: var(--font-body); line-height: 1.1; letter-spacing: -.025em; font-weight: 700; }
-h1, h2, h3 { font-family: var(--font-serif); }
+h1, h2, h3 { font-family: var(--font-body); }
 
 .eyebrow {
   font-family: var(--font-mono); font-size: .62rem; letter-spacing: .14em;

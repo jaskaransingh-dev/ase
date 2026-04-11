@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useWallet } from '@/components/WalletProvider'
+import { Logo } from '@/components/ui/Logo'
 
 export default function AgentsPublicLayout({ children }: { children: React.ReactNode }) {
   const { wallet, shortAddress, openModal, disconnect } = useWallet()
@@ -9,8 +10,8 @@ export default function AgentsPublicLayout({ children }: { children: React.React
   return (
     <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '0 1.5rem', height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: 'rgba(8,6,18,.9)', backdropFilter: 'blur(20px) saturate(180%)', zIndex: 100 }}>
-        <Link href="/" style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1.1rem', textDecoration: 'none', color: 'var(--white)' }}>
-          AS<span style={{ color: 'var(--gold)' }}>E</span>
+        <Link href="/" style={{ textDecoration: 'none' }}>
+          <Logo size="medium" variant="full" />
         </Link>
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
           {wallet.connected ? (

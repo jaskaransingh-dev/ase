@@ -2,9 +2,11 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { Logo } from '@/components/ui/Logo'
 
 interface AgentPreview {
   name: string
+  slug: string
   primary_symbol: string
   strategy_type: string
   ret: number | null
@@ -12,6 +14,7 @@ interface AgentPreview {
   max_drawdown: number | null
   aum: number | null
   ticker: string
+  isLive: boolean
 }
 
 function useInView(threshold = 0.15) {
@@ -80,6 +83,7 @@ function MiniSparkline({ positive }: { positive: boolean }) {
 
 export default function LandingPage() {
   const [agents, setAgents] = useState<AgentPreview[]>([])
+  const [loading, setLoading] = useState(true)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [email, setEmail] = useState('')
@@ -94,24 +98,35 @@ export default function LandingPage() {
     const supabase = createClient()
     supabase
       .from('agents')
-      .select('name, primary_symbol, strategy_type, subscriber_count, ticker, backtest_stats, agent_stats(total_return_pct, sharpe_ratio, max_drawdown, aum, snapshot_at)')
+      .select('*, agent_stats(nav_cents,total_return_pct,sharpe_ratio,max_drawdown_pct,snapshot_at), backtest_stats')
       .eq('status', 'active')
+      .order('created_at', { ascending: false })
       .limit(6)
-      .then(({ data }) => {
-        if (!data) return
-        setAgents(data.map((a) => {
+      .then(({ data, error }) => {
+        setLoading(false)
+        if (error) {
+          console.error('Failed to load agents:', error.message)
+          return
+        }
+        if (!data || data.length === 0) {
+          setAgents([])
+          return
+        }
+        setAgents(data.map((a: any) => {
           const statsArr = Array.isArray(a.agent_stats) ? a.agent_stats : (a.agent_stats ? [a.agent_stats] : [])
-          const latestStats = statsArr.length > 0 ? statsArr[statsArr.length - 1] : null
-          const bt = a.backtest_stats?.stats as { totalReturnPct?: number; sharpeRatio?: number; maxDrawdown?: number } | null
+          const latestStats = statsArr.length > 0 ? statsArr.reduce((a: any, b: any) => (a.snapshot_at > b.snapshot_at ? a : b)) : null
+          const bt = a.backtest_stats?.stats as any
           return {
             name: a.name,
+            slug: a.slug,
             primary_symbol: a.primary_symbol ?? 'MULTI',
             strategy_type: a.strategy_type,
             ret: latestStats?.total_return_pct ?? bt?.totalReturnPct ?? null,
             sharpe: latestStats?.sharpe_ratio ?? bt?.sharpeRatio ?? null,
-            max_drawdown: latestStats?.max_drawdown ?? bt?.maxDrawdown ?? null,
-            aum: (latestStats?.aum ?? a.subscriber_count ?? 0) * 1000,
+            max_drawdown: latestStats?.max_drawdown_pct ?? bt?.maxDrawdownPct ?? null,
+            aum: a.subscriber_count ?? 0,
             ticker: a.ticker ?? a.name?.slice(0, 4).toUpperCase() ?? 'AGNT',
+            isLive: !!latestStats,
           }
         }))
       })
@@ -131,22 +146,15 @@ export default function LandingPage() {
     return { label: 'High Risk', color: '#FF5A5F' }
   }
 
-  const tickerItems = [
-    { agent: 'MCAR', action: 'bought', asset: '2.4 SOL', price: '@ $142.50', pos: true },
-    { agent: 'CRTR', action: 'closed BTC Long', result: '+4.2%', pos: true },
-    { agent: 'VOLT', action: 'opened', asset: 'ETH Long', price: '@ $1,890', pos: null },
-    { agent: 'MCAR', action: 'sold', asset: '1.2 SOL', price: '@ $143.20', pos: false },
-    { agent: 'CRTR', action: 'closed SOL Short', result: '-1.8%', pos: false },
-    { agent: 'VOLT', action: 'bought', asset: '0.5 BTC', price: '@ $42,100', pos: true },
-    { agent: 'MCAR', action: 'bought', asset: '5 SOL', price: '@ $141.80', pos: true },
-    { agent: 'CRTR', action: 'opened', asset: 'SOL Short', price: '@ $144', pos: null },
-  ]
 
   const statsSection = useInView()
+  const howItWorksSection = useInView()
   const agentsSection = useInView()
   const featuresSection = useInView()
-  const ctaSection = useInView()
+  const methodologySection = useInView()
   const labSection = useInView()
+  const retailSection = useInView()
+  const ctaSection = useInView()
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--white)', fontFamily: 'var(--font-body)', overflowX: 'hidden' }}>
@@ -163,21 +171,13 @@ export default function LandingPage() {
       }}>
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <div style={{
-              width: 32, height: 32, borderRadius: 8,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <SparkNode />
-            </div>
-            <span style={{ fontFamily: 'var(--font-serif)', fontWeight: 700, fontSize: '1.1rem', letterSpacing: '-0.02em', color: 'var(--ivory)' }}>
-              ASE
-            </span>
+          <Link href="/" style={{ display: 'flex', alignItems: 'center' }}>
+            <Logo size="medium" variant="full" />
           </Link>
         </div>
 
         {/* Nav Center - improved trust indicators */}
-        <div className="desktop-only" style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', opacity: 0.6, fontSize: '.7rem' }}>
+        <div className="desktop-only" style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', opacity: 0.85, fontSize: '.7rem' }}>
           {[
             { label: '✓ Verified', color: 'var(--blue)' },
             { label: '● Live', color: 'var(--mint)' },
@@ -189,9 +189,26 @@ export default function LandingPage() {
           ))}
         </div>
 
-        {/* Nav Right */}
         {/* Nav Right - Links + Auth */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {/* Mobile Menu Toggle */}
+          <button 
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            style={{
+              display: 'none', background: 'none', border: 'none', cursor: 'pointer',
+              padding: '0.5rem', color: 'var(--text)',
+            }}
+            className="mobile-only"
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {mobileMenuOpen ? (
+                <path d="M6 6l12 12M6 18L18 6" />
+              ) : (
+                <path d="M3 12h18M3 6h18M3 18h18" />
+              )}
+            </svg>
+          </button>
+
           {/* Nav Links - Desktop */}
           <div style={{ display: 'flex', gap: '1.25rem' }} className="desktop-only">
             {[
@@ -229,16 +246,7 @@ export default function LandingPage() {
             Get Started
           </Link>
           
-          {/* Mobile menu toggle */}
-          <button
-            className="mobile-only"
-            onClick={() => setMobileMenuOpen(prev => !prev)}
-            style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, padding: '.5rem', display: 'flex', flexDirection: 'column', gap: 4 }}
-          >
-            {[...Array(3)].map((_, i) => (
-              <span key={i} style={{ width: 18, height: 1.5, background: 'var(--muted)', display: 'block', borderRadius: 2 }} />
-            ))}
-          </button>
+
         </div>
       </nav>
 
@@ -263,79 +271,11 @@ export default function LandingPage() {
         </div>
       )}
 
-      {/* Scrolling ticker strip - exchanges feel */}
-      <div style={{ 
-        background: 'var(--bg3)', borderBottom: '1px solid var(--border)',
-        padding: '0.6rem 0', overflow: 'hidden',
-        display: 'flex', alignItems: 'center',
-      }}>
-        <div style={{ 
-          display: 'flex', 
-          animation: 'tickerMove 40s linear infinite',
-          gap: '2rem',
-        }}>
-          {[
-            { pair: 'ARB', price: '+2.4%', positive: true },
-            { pair: 'BTC-MOM', price: '+1.2%', positive: true },
-            { pair: 'SOL-VOL', price: '-0.8%', positive: false },
-            { pair: 'COR', price: '+3.1%', positive: true },
-            { pair: 'TRD', price: '+0.9%', positive: true },
-            { pair: 'ETH-ARB', price: '+1.8%', positive: true },
-            { pair: 'MOM', price: '-1.2%', positive: false },
-            { pair: 'REV', price: '+2.7%', positive: true },
-          ].map((item, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', whiteSpace: 'nowrap' }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', fontWeight: 600, color: 'var(--ivory)' }}>
-                {item.pair}
-              </span>
-              <span style={{ 
-                fontFamily: 'var(--font-mono)', fontSize: '.7rem', fontWeight: 600, 
-                color: item.positive ? 'var(--mint)' : 'var(--red)',
-              }}>
-                {item.price}
-              </span>
-              <span style={{ 
-                width: 6, height: 6, borderRadius: '50%', 
-                background: item.positive ? 'var(--mint)' : 'var(--red)',
-                opacity: 0.6,
-              }} />
-            </div>
-          ))}
-          {/* Duplicate for seamless loop */}
-          {[
-            { pair: 'ARB', price: '+2.4%', positive: true },
-            { pair: 'BTC-MOM', price: '+1.2%', positive: true },
-            { pair: 'SOL-VOL', price: '-0.8%', positive: false },
-            { pair: 'COR', price: '+3.1%', positive: true },
-            { pair: 'TRD', price: '+0.9%', positive: true },
-            { pair: 'ETH-ARB', price: '+1.8%', positive: true },
-            { pair: 'MOM', price: '-1.2%', positive: false },
-            { pair: 'REV', price: '+2.7%', positive: true },
-          ].map((item, i) => (
-            <div key={`dup-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', whiteSpace: 'nowrap' }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', fontWeight: 600, color: 'var(--ivory)' }}>
-                {item.pair}
-              </span>
-              <span style={{ 
-                fontFamily: 'var(--font-mono)', fontSize: '.7rem', fontWeight: 600, 
-                color: item.positive ? 'var(--mint)' : 'var(--red)',
-              }}>
-                {item.price}
-              </span>
-              <span style={{ 
-                width: 6, height: 6, borderRadius: '50%', 
-                background: item.positive ? 'var(--mint)' : 'var(--red)',
-                opacity: 0.6,
-              }} />
-            </div>
-          ))}
-        </div>
-      </div>
-
+      
       {/* Hero Section */}
       <section style={{
-        minHeight: '100vh', display: 'flex', alignItems: 'center',
-        padding: '140px 2rem 120px', position: 'relative', overflow: 'hidden',
+        minHeight: '90vh', display: 'flex', alignItems: 'center',
+        padding: '6rem 2rem', position: 'relative', overflow: 'hidden',
       }}>
         <div style={{ position: 'absolute', inset: 0,
           backgroundImage: `
@@ -346,9 +286,8 @@ export default function LandingPage() {
         }} />
         <div style={{ position: 'absolute', top: '20%', left: '5%', width: 600, height: 600, borderRadius: '50%', background: 'radial-gradient(circle, rgba(79,124,255,.08) 0%, transparent 70%)', pointerEvents: 'none', filter: 'blur(80px)' }} />
         <div style={{ position: 'absolute', top: '30%', right: '15%', width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,107,53,.06) 0%, transparent 70%)', pointerEvents: 'none', filter: 'blur(60px)' }} />
-        <div style={{ position: 'absolute', bottom: '15%', right: '5%', width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(244,239,230,.04) 0%, transparent 70%)', pointerEvents: 'none', filter: 'blur(60px)' }} />
 
-        <div style={{ position: 'relative', zIndex: 1, maxWidth: 1400, margin: '0 auto', width: '100%', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4rem', alignItems: 'center' }}>
+        <div style={{ position: 'relative', zIndex: 1, maxWidth: 1400, margin: '0 auto', width: '100%', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3rem', alignItems: 'center' }}>
           {/* Left Content */}
           <div style={{ maxWidth: 480 }}>
             <h1 style={{
@@ -356,36 +295,60 @@ export default function LandingPage() {
               lineHeight: 1.1, letterSpacing: '-0.03em', marginBottom: '1.25rem',
               color: 'var(--ivory)',
             }}>
-              Own AI Trading Intelligence
+              Invest in AI agents that trade real markets.
             </h1>
             
-            {/* Concrete translation - tighter + more institutional */}
             <p style={{
               fontSize: 'clamp(0.92rem, 1.2vw, 1.05rem)', color: 'var(--text)',
               lineHeight: 1.65, marginBottom: '2rem',
               fontWeight: 400,
               maxWidth: 480,
             }}>
-              Invest in verified AI trading strategies with real performance history. Access institutional-grade algorithmic agents with transparent metrics, live tracking, and institutional risk controls.
+              Verified performance, live execution, and transparent risk metrics for algorithmic trading agents.
             </p>
 
             {/* CTA - better styled */}
-            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
               <Link href="/agents" className="btn-primary" style={{
                 padding: '0.85rem 1.75rem', whiteSpace: 'nowrap', fontSize: '.92rem',
                 borderRadius: 12,
                 background: 'linear-gradient(135deg, var(--blue) 0%, var(--blue2) 100%)',
                 boxShadow: '0 4px 20px rgba(91,140,255,0.25)',
-              }}>
-                Explore Top Agents
+                transition: 'all 0.3s ease',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.boxShadow = '0 6px 30px rgba(91,140,255,0.4)'
+                e.currentTarget.style.transform = 'translateY(-1px)'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.boxShadow = '0 4px 20px rgba(91,140,255,0.25)'
+                e.currentTarget.style.transform = 'translateY(0)'
+              }}
+              >
+                View Live Agents
               </Link>
               <Link href="#how-it-works" className="btn-secondary" style={{
                 padding: '0.85rem 1.75rem', whiteSpace: 'nowrap', fontSize: '.92rem',
                 borderRadius: 12,
-              }}>
-                See How It Works
+                transition: 'all 0.3s ease',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.borderColor = 'var(--blue)'
+                e.currentTarget.style.color = 'var(--blue)'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.borderColor = 'var(--border)'
+                e.currentTarget.style.color = 'var(--text)'
+              }}
+              >
+                How It Works
               </Link>
             </div>
+            
+            {/* Microcopy under CTA */}
+            <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '2rem' }}>
+              Explore live agents before connecting an exchange.
+            </p>
             
             {/* Trust modules - compact row */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
@@ -408,7 +371,7 @@ export default function LandingPage() {
           </div>
 
           {/* NEW: Strategy Core Hero Visual */}
-          <div style={{ position: 'relative', height: 420, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'relative', height: 480, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {/* Grid background */}
             <div style={{
               position: 'absolute', inset: 0,
@@ -420,22 +383,41 @@ export default function LandingPage() {
               opacity: 0.6,
             }} />
             
-            {/* Strategy Core - central luminous sphere */}
+            {/* Strategy Core - central luminous sphere - BIGGER */}
             <div style={{
               position: 'relative',
-              width: 280, height: 280,
+              width: 340, height: 340,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
+              {/* Rotating bar - outer */}
+              <svg width="340" height="340" viewBox="0 0 340 340" style={{ position: 'absolute' }}>
+                <defs>
+                  <linearGradient id="barGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#5B8CFF" />
+                    <stop offset="50%" stopColor="#19E6A7" />
+                    <stop offset="100%" stopColor="#5B8CFF" />
+                  </linearGradient>
+                </defs>
+                {/* Rotating arc bar */}
+                <circle cx="170" cy="170" r="155" fill="none" stroke="url(#barGradient)" strokeWidth="3" strokeLinecap="round" strokeDasharray="20 60" opacity="0.6">
+                  <animateTransform attributeName="transform" type="rotate" from="0 170 170" to="360 170 170" dur="8s" repeatCount="indefinite" />
+                </circle>
+                {/* Counter-rotating inner bar */}
+                <circle cx="170" cy="170" r="130" fill="none" stroke="rgba(25,230,167,0.4)" strokeWidth="2" strokeLinecap="round" strokeDasharray="15 45" opacity="0.5">
+                  <animateTransform attributeName="transform" type="rotate" from="360 170 170" to="0 170 170" dur="6s" repeatCount="indefinite" />
+                </circle>
+              </svg>
+              
               {/* Outer glow */}
               <div style={{
-                position: 'absolute', inset: -40,
+                position: 'absolute', inset: -50,
                 borderRadius: '50%',
-                background: 'radial-gradient(circle, rgba(91,140,255,0.12) 0%, transparent 70%)',
-                filter: 'blur(20px)',
+                background: 'radial-gradient(circle, rgba(91,140,255,0.15) 0%, transparent 70%)',
+                filter: 'blur(25px)',
               }} />
               
               {/* Middle orbital ring */}
-              <svg width="280" height="280" viewBox="0 0 280 280" style={{ position: 'absolute' }}>
+              <svg width="340" height="340" viewBox="0 0 340 340" style={{ position: 'absolute' }}>
                 <defs>
                   <linearGradient id="coreGradient" x1="0%" y1="0%" x2="100%" y2="100%">
                     <stop offset="0%" stopColor="#5B8CFF" stopOpacity="0.9" />
@@ -444,123 +426,152 @@ export default function LandingPage() {
                   </linearGradient>
                 </defs>
                 {/* Outer orbital ring */}
-                <ellipse cx="140" cy="140" rx="120" ry="50" fill="none" transform="rotate(-25, 140, 140)"
+                <ellipse cx="170" cy="170" rx="140" ry="60" fill="none" transform="rotate(-25, 170, 170)"
                   stroke="rgba(91,140,255,0.4)" strokeWidth="1" strokeDasharray="4 8">
-                  <animateTransform attributeName="transform" type="rotate" from="0 140 140" to="360 140 140" dur="20s" repeatCount="indefinite" />
+                  <animateTransform attributeName="transform" type="rotate" from="0 170 170" to="360 170 170" dur="20s" repeatCount="indefinite" />
                 </ellipse>
                 {/* Inner orbital ring */}
-                <ellipse cx="140" cy="140" rx="100" ry="35" fill="none" transform="rotate(60, 140, 140)"
+                <ellipse cx="170" cy="170" rx="120" ry="45" fill="none" transform="rotate(60, 170, 170)"
                   stroke="rgba(25,230,167,0.35)" strokeWidth="1" strokeDasharray="3 6">
-                  <animateTransform attributeName="transform" type="rotate" from="360 140 140" to="0 140 140" dur="15s" repeatCount="indefinite" />
+                  <animateTransform attributeName="transform" type="rotate" from="360 170 170" to="0 170 170" dur="15s" repeatCount="indefinite" />
                 </ellipse>
                 {/* Signal contour layers */}
-                <circle cx="140" cy="140" r="70" fill="none" stroke="url(#coreGradient)" strokeWidth="0.5" opacity="0.6" />
-                <circle cx="140" cy="140" r="50" fill="none" stroke="rgba(91,140,255,0.3)" strokeWidth="0.5" opacity="0.4" />
-                <circle cx="140" cy="140" r="30" fill="none" stroke="rgba(91,140,255,0.5)" strokeWidth="1" />
+                <circle cx="170" cy="170" r="85" fill="none" stroke="url(#coreGradient)" strokeWidth="0.5" opacity="0.6" />
+                <circle cx="170" cy="170" r="65" fill="none" stroke="rgba(91,140,255,0.3)" strokeWidth="0.5" opacity="0.4" />
+                <circle cx="170" cy="170" r="40" fill="none" stroke="rgba(91,140,255,0.5)" strokeWidth="1" />
               </svg>
               
-              {/* Core center */}
+              {/* Core center - BIGGER */}
               <div style={{
-                width: 80, height: 80, borderRadius: '50%',
+                width: 100, height: 100, borderRadius: '50%',
                 background: 'radial-gradient(circle at 30% 30%, #78A2FF 0%, #5B8CFF 50%, #4676E8 100%)',
-                boxShadow: '0 0 40px rgba(91,140,255,0.5), 0 0 80px rgba(91,140,255,0.2)',
+                boxShadow: '0 0 50px rgba(91,140,255,0.6), 0 0 100px rgba(91,140,255,0.25)',
                 position: 'relative',
               }}>
                 {/* Inner glow pulse */}
                 <div style={{
-                  position: 'absolute', inset: -8, borderRadius: '50%',
-                  background: 'transparent', border: '1px solid rgba(91,140,255,0.4)',
+                  position: 'absolute', inset: -10, borderRadius: '50%',
+                  background: 'transparent', border: '1px solid rgba(91,140,255,0.5)',
                   animation: 'breathe 3s ease-in-out infinite',
                 }} />
               </div>
               
               {/* Execution trails */}
-              <svg width="280" height="280" viewBox="0 0 280 280" style={{ position: 'absolute', inset: 0 }}>
-                <path d="M 60 200 Q 100 180 140 140 T 220 80" fill="none" stroke="rgba(25,230,167,0.5)" strokeWidth="2" strokeLinecap="round">
+              <svg width="340" height="340" viewBox="0 0 340 340" style={{ position: 'absolute', inset: 0 }}>
+                <path d="M 70 240 Q 120 210 170 170 T 270 90" fill="none" stroke="rgba(25,230,167,0.5)" strokeWidth="2" strokeLinecap="round">
                   <animate attributeName="stroke-dashoffset" values="0;-200" dur="3s" repeatCount="indefinite" />
                 </path>
-                <path d="M 200 220 Q 170 200 140 160 T 80 100" fill="none" stroke="rgba(91,140,255,0.4)" strokeWidth="1.5" strokeLinecap="round" strokeDasharray="4 4">
+                <path d="M 240 260 Q 200 230 170 190 T 90 110" fill="none" stroke="rgba(91,140,255,0.4)" strokeWidth="1.5" strokeLinecap="round" strokeDasharray="4 4">
                   <animate attributeName="stroke-dashoffset" values="0;-100" dur="4s" repeatCount="indefinite" />
                 </path>
               </svg>
             </div>
             
-            {/* NEW: Interactive mini leaderboard - real proof */}
+            {/* Live Market Module - Bloomberg terminal style - floating to the side */}
             <div style={{ 
-              position: 'absolute', top: '10%', right: '5%', 
-              display: 'flex', flexDirection: 'column', gap: '0.5rem',
-              minWidth: 220,
+              position: 'absolute', top: '50%', right: '-40px', 
+              transform: 'translateY(-50%)',
+              width: 260,
+              background: 'var(--bg3)', border: '1px solid var(--border)', 
+              borderRadius: 12, overflow: 'hidden',
+              boxShadow: '-4px 0 20px rgba(0,0,0,0.3)',
             }}>
+              {/* Module Header */}
               <div style={{ 
-                fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)', 
-                letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: '0.25rem',
-                paddingLeft: '0.5rem',
+                padding: '0.6rem 0.75rem', borderBottom: '1px solid var(--border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                background: 'var(--bg2)',
               }}>
-                Top Performing Agents (Live)
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--mint)', animation: 'breathe 2s ease-in-out infinite' }} />
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', fontWeight: 600, color: 'var(--white)', letterSpacing: '.08em' }}>LIVE MARKET</span>
+                </div>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.45rem', color: 'var(--faint)' }}>NAV 60s</span>
               </div>
+              
+              {/* Table Header */}
+              <div style={{ 
+                display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr 0.8fr', gap: '0.25rem',
+                padding: '0.5rem 0.75rem', borderBottom: '1px solid var(--border)',
+                fontFamily: 'var(--font-mono)', fontSize: '.42rem', color: 'var(--faint)', letterSpacing: '.05em',
+              }}>
+                <span>AGENT</span>
+                <span>STRATEGY</span>
+                <span style={{ textAlign: 'right' }}>RETURN</span>
+                <span style={{ textAlign: 'right' }}>SHARPE</span>
+              </div>
+              
+              {/* Live Agents List */}
               {[
-                { name: 'ETH Arb Bot', ticker: 'ARB', type: 'Arbitrage', ret: 18.4, sharpe: 2.1 },
-                { name: 'BTC Trend Alpha', ticker: 'TRD', type: 'Momentum', ret: 12.2, sharpe: 1.8 },
-                { name: 'SOL Vol Breakout', ticker: 'VOL', type: 'Volatility', ret: 9.8, sharpe: 1.4 },
-                { name: 'Core Momentum', ticker: 'COR', type: 'Trend', ret: 7.2, sharpe: 1.1 },
-              ].slice(0,4).map((agent, i) => (
-                <Link key={i} href={`/agents`} style={{
-                  padding: '0.6rem 0.75rem', borderRadius: 8,
-                  background: 'var(--bg3)', border: '1px solid var(--border)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  transition: 'all .2s',
-                  cursor: 'pointer',
+                { ticker: 'ARB', name: 'ETH Arb', strategy: 'Arbitrage', ret: 18.4, sharpe: 2.1, dd: -4.2, bench: '+12%', last: '2m ago' },
+                { ticker: 'TRD', name: 'BTC Trend', strategy: 'Momentum', ret: 12.2, sharpe: 1.8, dd: -8.5, bench: '+8%', last: '5m ago' },
+                { ticker: 'VOL', name: 'SOL Vol', strategy: 'Volatility', ret: 9.8, sharpe: 1.4, dd: -12.1, bench: '+6%', last: '1m ago' },
+                { ticker: 'COR', name: 'Core', strategy: 'Trend', ret: 7.2, sharpe: 1.1, dd: -6.8, bench: '+4%', last: '8m ago' },
+              ].map((agent, i) => (
+                <div key={i} style={{ 
+                  position: 'relative',
+                  padding: '0.5rem 0.75rem', borderBottom: '1px solid var(--border)',
+                  transition: 'all .2s', cursor: 'pointer',
                 }}
                 onMouseEnter={e => {
-                  e.currentTarget.style.borderColor = 'var(--blue-glow)'
                   e.currentTarget.style.background = 'var(--blue-dim)'
                 }}
                 onMouseLeave={e => {
-                  e.currentTarget.style.borderColor = 'var(--border)'
-                  e.currentTarget.style.background = 'var(--bg3)'
+                  e.currentTarget.style.background = 'transparent'
                 }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                    <span style={{ 
-                      width: 24, height: 24, borderRadius: 6, 
-                      background: 'var(--blue)', 
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontFamily: 'var(--font-mono)', fontSize: '.5rem', fontWeight: 700, color: 'var(--white)',
-                    }}>
-                      {agent.ticker}
-                    </span>
-                    <div>
-                      <div style={{ fontSize: '.75rem', fontWeight: 600, color: 'var(--white)', lineHeight: 1.2 }}>{agent.name}</div>
-                      <div style={{ fontSize: '.55rem', color: 'var(--faint)' }}>{agent.type}</div>
+                  {/* Hover expanded details */}
+                  <div style={{ 
+                    display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr 0.8fr', gap: '0.25rem',
+                    alignItems: 'center',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <span style={{ 
+                        width: 20, height: 20, borderRadius: 4, 
+                        background: 'var(--blue)', 
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontFamily: 'var(--font-mono)', fontSize: '.4rem', fontWeight: 700, color: 'var(--white)',
+                      }}>{agent.ticker}</span>
+                      <span style={{ fontSize: '.6rem', color: 'var(--white)' }}>{agent.name}</span>
                     </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.8rem', fontWeight: 700, color: agent.ret >= 0 ? 'var(--mint)' : 'var(--red)' }}>
+                    <span style={{ fontSize: '.5rem', color: 'var(--muted)', textTransform: 'capitalize' }}>{agent.strategy}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', fontWeight: 700, color: agent.ret >= 0 ? 'var(--mint)' : 'var(--red)', textAlign: 'right' }}>
                       {agent.ret >= 0 ? '+' : ''}{agent.ret}%
-                    </div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)' }}>
-                      Sharpe {agent.sharpe}
-                    </div>
+                    </span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--white)', textAlign: 'right' }}>
+                      {agent.sharpe}
+                    </span>
                   </div>
-                </Link>
+                  
+                  {/* Hover: Show expanded metrics */}
+                  <div className="agent-hover-details" style={{
+                    display: 'none',
+                    marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)',
+                    fontFamily: 'var(--font-mono)', fontSize: '.45rem',
+                  }}>
+                    <span style={{ color: 'var(--faint)' }}>MAX DD: </span>
+                    <span style={{ color: agent.dd > -20 ? 'var(--mint)' : agent.dd > -40 ? '#F59E0B' : 'var(--red)' }}>{agent.dd}%</span>
+                    <span style={{ marginLeft: '0.75rem', color: 'var(--faint)' }}>VS {agent.bench}</span>
+                    <span style={{ float: 'right', color: 'var(--faint)' }}>{agent.last}</span>
+                  </div>
+                </div>
               ))}
+              
+              {/* Sparkline mini-chart */}
+              <div style={{ padding: '0.5rem 0.75rem' }}>
+                <svg width="100%" height="24" viewBox="0 0 100 24" preserveAspectRatio="none">
+                  <path d="M0,20 Q10,18 20,15 T40,12 T60,8 T80,5 T100,2" fill="none" stroke="var(--mint)" strokeWidth="1.5" opacity="0.6" />
+                </svg>
+              </div>
+               
               <Link href="/agents" style={{
-                fontSize: '.65rem', color: 'var(--blue)', 
-                padding: '0.5rem 0.75rem', textAlign: 'center',
+                display: 'block', textAlign: 'center', padding: '0.5rem',
+                fontSize: '.55rem', color: 'var(--blue)', 
                 fontFamily: 'var(--font-mono)', letterSpacing: '.05em',
+                borderTop: '1px solid var(--border)',
               }}>
                 View All Agents →
               </Link>
-            </div>
-            
-            <div style={{
-              position: 'absolute', bottom: 20, right: 20,
-              fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)',
-              letterSpacing: '.1em',
-              display: 'flex', alignItems: 'center', gap: '0.5rem',
-            }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--mint)', animation: 'breathe 2s ease-in-out infinite' }} />
-              Live NAV Updates
             </div>
           </div>
         </div>
@@ -568,55 +579,57 @@ export default function LandingPage() {
 
       {/* Trust Metrics - Credibility backed */}
       <section ref={statsSection.ref} style={{
-        padding: '0 2.5rem 80px', maxWidth: 1400, margin: '0 auto',
+        minHeight: '85vh', display: 'flex', alignItems: 'center',
+        padding: '3rem 2.5rem', maxWidth: 1400, margin: '0 auto',
         opacity: statsSection.visible ? 1 : 0,
         transform: statsSection.visible ? 'translateY(0)' : 'translateY(40px)',
-        transition: 'opacity 1s, transform 1s',
+        transition: 'opacity 0.8s ease, transform 0.8s ease',
       }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: '1.5rem' }} className="stats-grid">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1.5rem' }} className="stats-grid">
           {[
             { num: '12', label: 'Verified Agents', sub: 'Live + audit trail' },
             { num: '$4.2M', label: 'Tracked Capital', sub: 'Subscribed NAV' },
-            { num: '+24.8%', label: 'Median 12M', sub: 'Live verified', color: 'var(--mint)' },
-            { num: '12.4K+', label: 'Simulated Trades', sub: 'Backtest validated' },
-            { num: '60s', label: 'NAV Updates', sub: 'Real-time sync', hasPulse: true },
+            { num: '+24.8%', label: 'Median Return', sub: 'Live verified', color: 'var(--mint)' },
+            { num: '60s', label: 'NAV Refresh', sub: 'Real-time sync', hasPulse: true },
           ].map((stat, i) => (
             <div key={i} style={{ 
-              padding: '1.5rem', borderRadius: 12, 
+              padding: '1.5rem', borderRadius: 10, 
               background: 'var(--bg2)', border: '1px solid var(--border)',
               position: 'relative',
             }}>
               {stat.hasPulse && (
                 <span style={{ 
-                  position: 'absolute', top: '1rem', right: '1rem',
-                  width: 8, height: 8, borderRadius: '50%', 
+                  position: 'absolute', top: '0.75rem', right: '0.75rem',
+                  width: 6, height: 6, borderRadius: '50%', 
                   background: 'var(--mint)', 
                   animation: 'breathe 2.5s ease-in-out infinite',
                 }} />
               )}
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.75rem', fontWeight: 700, color: stat.color ?? 'var(--ivory)', marginBottom: '.35rem', letterSpacing: '-0.02em' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.25rem', fontWeight: 700, color: stat.color ?? 'var(--ivory)', marginBottom: '.2rem', letterSpacing: '-0.02em' }}>
                 {stat.num}
               </div>
-              <div style={{ fontSize: '.8rem', fontWeight: 600, marginBottom: '.15rem', color: 'var(--white)' }}>{stat.label}</div>
-              <div style={{ fontSize: '.7rem', color: 'var(--faint)' }}>{stat.sub}</div>
+              <div style={{ fontSize: '.7rem', fontWeight: 600, marginBottom: '.1rem', color: 'var(--white)' }}>{stat.label}</div>
+              <div style={{ fontSize: '.6rem', color: 'var(--faint)' }}>{stat.sub}</div>
             </div>
           ))}
         </div>
       </section>
 
       {/* NEW: How It Works - 4 Step Flow */}
-      <section id="how-it-works" style={{
-        padding: '0 2.5rem 100px',
+      <section ref={howItWorksSection.ref} id="how-it-works" style={{
+        minHeight: '85vh', display: 'flex', alignItems: 'center',
+        padding: '3rem 2.5rem',
         background: 'var(--bg2)',
-        borderTop: '1px solid var(--border)',
-        borderBottom: '1px solid var(--border)',
+        opacity: howItWorksSection.visible ? 1 : 0,
+        transform: howItWorksSection.visible ? 'translateY(0)' : 'translateY(40px)',
+        transition: 'opacity 0.8s ease, transform 0.8s ease',
       }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', letterSpacing: '.14em', color: 'var(--blue)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '.75rem' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', width: '100%' }}>
+          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', letterSpacing: '.14em', color: 'var(--blue)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '.5rem' }}>
               How It Works
             </div>
-            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(1.75rem, 4vw, 2.5rem)', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--ivory)' }}>
+            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(1.5rem, 4vw, 2rem)', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--ivory)' }}>
               From Discovery to Investment
             </h2>
           </div>
@@ -624,31 +637,31 @@ export default function LandingPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1.5rem', position: 'relative' }}>
             {/* Connector line */}
             <div style={{ 
-              position: 'absolute', top: 40, left: '12%', right: '12%', height: 2, 
+              position: 'absolute', top: 28, left: '12%', right: '12%', height: 2, 
               background: 'var(--border)', 
             }} />
             
             {[
-              { step: '01', title: 'Browse Strategies', desc: 'Explore verified agents with live performance, risk metrics, and strategy profiles.' },
-              { step: '02', title: 'Compare Risk & Fit', desc: 'Review returns, drawdowns, Sharpe ratios, and benchmark context to find your fit.' },
-              { step: '03', title: 'Allocate Capital', desc: 'Connect via exchange API or start in simulation mode. Your funds stay in your custody.' },
-              { step: '04', title: 'Monitor Live', desc: 'Track performance in real-time. Get alerts, see positions, and adjust your allocation.' },
+              { step: '01', title: 'Browse verified agents', desc: 'Explore live agents with transparent metrics, strategy profiles, and performance history.' },
+              { step: '02', title: 'Compare return & risk', desc: 'Review Sharpe ratios, drawdowns, and benchmark performance to find your fit.' },
+              { step: '03', title: 'Connect or simulate', desc: 'Connect via exchange API or start in simulation. Your funds stay in your custody.' },
+              { step: '04', title: 'Monitor live', desc: 'Track NAV, positions, and alerts in real-time. Adjust allocation anytime.' },
             ].map((item, i) => (
               <div key={i} style={{ position: 'relative', zIndex: 1 }}>
                 <div style={{
-                  width: 48, height: 48, borderRadius: '50%',
+                  width: 44, height: 44, borderRadius: '50%',
                   background: 'var(--bg3)', border: '2px solid var(--blue)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  marginBottom: '1.25rem',
+                  marginBottom: '1rem',
                 }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', fontWeight: 700, color: 'var(--blue)' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', fontWeight: 700, color: 'var(--blue)' }}>
                     {item.step}
                   </span>
                 </div>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '.5rem', color: 'var(--white)' }}>
+                <h3 style={{ fontSize: '.85rem', fontWeight: 600, marginBottom: '.35rem', color: 'var(--white)' }}>
                   {item.title}
                 </h3>
-                <p style={{ fontSize: '.82rem', color: 'var(--muted)', lineHeight: 1.6 }}>
+                <p style={{ fontSize: '.72rem', color: 'var(--muted)', lineHeight: 1.5 }}>
                   {item.desc}
                 </p>
               </div>
@@ -658,224 +671,285 @@ export default function LandingPage() {
       </section>
 
       {/* Agents Marketplace */}
-      <section ref={agentsSection.ref} style={{ padding: '0 2.5rem 120px', background: 'var(--bg)' }}>
+      <section ref={agentsSection.ref} style={{ minHeight: '85vh', padding: '3rem 2.5rem', background: 'var(--bg)', opacity: agentsSection.visible ? 1 : 0, transform: agentsSection.visible ? 'translateY(0)' : 'translateY(40px)', transition: 'opacity 0.8s ease, transform 0.8s ease' }}>
         <div style={{ maxWidth: 1400, margin: '0 auto' }}>
-          <div style={{
-            opacity: agentsSection.visible ? 1 : 0,
-            transform: agentsSection.visible ? 'translateY(0)' : 'translateY(60px)',
-            transition: 'opacity 1s, transform 1s',
-          }}>
-            <div style={{ marginBottom: '3.5rem' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.14em', color: 'var(--ivory)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '.75rem' }}>
-                Marketplace
-              </div>
-              <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(2rem, 4vw, 3rem)', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '.75rem' }}>
-                Live Trading Agents
-              </h2>
-              <p style={{ fontSize: '1rem', color: 'var(--muted)', lineHeight: 1.7, maxWidth: 520 }}>
-                Curated algorithms. Running live 24/7. Choose your strategy.
-              </p>
+          <div style={{ marginBottom: '2rem' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.14em', color: 'var(--ivory)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '.5rem' }}>
+              Marketplace
             </div>
+            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(1.5rem, 4vw, 2rem)', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '.5rem' }}>
+              Live Trading Agents
+            </h2>
+            <p style={{ fontSize: '.9rem', color: 'var(--muted)', lineHeight: 1.6, maxWidth: 400 }}>
+              Curated algorithms. Running live 24/7.
+            </p>
+          </div>
 
-            {/* Agent Cards Grid */}
-            {agents.length === 0 ? (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.5rem' }}>
-                {[...Array(6)].map((_, i) => (
-                  <div key={i} className="skeleton" style={{ height: 280, borderRadius: 16 }} />
-                ))}
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.5rem' }} className="agents-grid">
-                {agents.map((agent, i) => {
-                  const isPos = (agent.ret ?? 0) >= 0
-                  const risk = getRiskLevel(agent.max_drawdown)
-                  return (
-                    <Link key={i} href={`/agents`} className="agent-card">
-                      <MiniSparkline positive={isPos} />
+          {/* Filters and Sort */}
+          <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {['All', 'Arbitrage', 'Momentum', 'Trend', 'Volatility'].map((type, i) => (
+                <button key={type} style={{
+                  padding: '0.4rem 0.75rem', borderRadius: 6, fontSize: '.7rem',
+                  background: i === 0 ? 'var(--blue-dim)' : 'var(--bg2)',
+                  border: `1px solid ${i === 0 ? 'var(--blue-glow)' : 'var(--border)'}`,
+                  color: i === 0 ? 'var(--blue)' : 'var(--muted)',
+                  cursor: 'pointer', transition: 'all .2s',
+                }}>{type}</button>
+              ))}
+            </div>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+              <span style={{ fontSize: '.65rem', color: 'var(--faint)' }}>Sort by:</span>
+              <select style={{
+                background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 6,
+                padding: '0.35rem 0.5rem', fontSize: '.7rem', color: 'var(--white)',
+                cursor: 'pointer',
+              }}>
+                <option>Return (High)</option>
+                <option>Sharpe (High)</option>
+                <option>Drawdown (Low)</option>
+                <option>AUM (High)</option>
+              </select>
+            </div>
+          </div>
 
-                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.25rem', position: 'relative', zIndex: 1 }}>
-                        <div style={{ display: 'flex', gap: '.75rem', alignItems: 'center' }}>
-                          <div style={{ 
-                            width: 48, height: 48, borderRadius: 12, 
-                            background: 'var(--bg3)', border: '1px solid var(--border)', 
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                            fontFamily: 'var(--font-mono)', fontSize: '.7rem', fontWeight: 800, color: 'var(--ivory)'
-                          }}>
-                            {agent.ticker?.slice(0, 4)}
-                          </div>
-                          <div>
-                            <h3 style={{ fontSize: '.95rem', fontWeight: 600, marginBottom: '.15rem', color: 'var(--white)' }}>{agent.name}</h3>
-                            <p style={{ fontSize: '.72rem', color: 'var(--muted)', textTransform: 'capitalize' }}>
-                              {agent.strategy_type?.replace('_', ' ')}
-                            </p>
-                          </div>
+          {/* Agent Cards Grid */}
+          {loading ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.5rem' }}>
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="skeleton" style={{ height: 220, borderRadius: 12 }} />
+              ))}
+            </div>
+          ) : agents.length === 0 ? (
+            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)', background: 'var(--bg2)', borderRadius: 12, border: '1px solid var(--border)' }}>
+              <p style={{ marginBottom: '1rem', fontSize: '.9rem' }}>No trading agents available yet.</p>
+              <Link href="/agents" style={{ color: 'var(--blue)', fontSize: '.85rem' }}>Browse all agents →</Link>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.5rem' }} className="agents-grid">
+              {agents.map((agent, i) => {
+                const isPos = (agent.ret ?? 0) >= 0
+                const risk = getRiskLevel(agent.max_drawdown)
+                const confidence = agent.sharpe !== null ? Math.min(95, Math.round(60 + (agent.sharpe * 15))) : null
+                return (
+                  <Link key={i} href={`/agents/${agent.slug}`} className="agent-card" style={{ transition: 'all 0.3s ease', padding: '1.5rem' }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.transform = 'translateY(-4px)'
+                      e.currentTarget.style.boxShadow = '0 12px 40px rgba(91,140,255,0.15)'
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.transform = 'translateY(0)'
+                      e.currentTarget.style.boxShadow = 'none'
+                    }}
+                  >
+                    <MiniSparkline positive={isPos} />
+
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem', position: 'relative', zIndex: 1 }}>
+                      <div style={{ display: 'flex', gap: '.75rem', alignItems: 'center' }}>
+                        <div style={{ 
+                          width: 48, height: 48, borderRadius: 12, 
+                          background: 'var(--bg3)', border: '1px solid var(--border)', 
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                          fontFamily: 'var(--font-mono)', fontSize: '.7rem', fontWeight: 800, color: 'var(--ivory)'
+                        }}>
+                          {agent.ticker?.slice(0, 4)}
                         </div>
+                        <div>
+                          <h3 style={{ fontSize: '.95rem', fontWeight: 600, marginBottom: '.15rem', color: 'var(--white)' }}>{agent.name}</h3>
+                          <p style={{ fontSize: '.72rem', color: 'var(--muted)', textTransform: 'capitalize' }}>
+                            {agent.strategy_type?.replace('_', ' ')}
+                          </p>
+                        </div>
+                      </div>
+                      {agent.isLive ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
                           <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--mint)', animation: 'breathe 2.5s ease-in-out infinite' }} />
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, color: 'var(--mint)', letterSpacing: '.1em' }}>LIVE</span>
                         </div>
-                      </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--faint)' }} />
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, color: 'var(--faint)', letterSpacing: '.1em' }}>BACKTEST</span>
+                        </div>
+                      )}
+                    </div>
 
-                      {/* Primary Return */}
-                      <div style={{ marginBottom: '1.25rem', position: 'relative', zIndex: 1 }}>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)', marginBottom: '.25rem', letterSpacing: '.1em' }}>1Y RETURN</div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '2rem', fontWeight: 700, color: isPos ? 'var(--mint)' : 'var(--red)' }}>
-                          {agent.ret !== null ? fmtPct(agent.ret) : '—'}
-                        </div>
+                    {/* Primary Return */}
+                    <div style={{ marginBottom: '1rem', position: 'relative', zIndex: 1 }}>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)', marginBottom: '.25rem', letterSpacing: '.1em' }}>1Y RETURN</div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.75rem', fontWeight: 700, color: isPos ? 'var(--mint)' : 'var(--red)' }}>
+                        {agent.ret !== null ? fmtPct(agent.ret) : '—'}
                       </div>
+                    </div>
 
-                      {/* Secondary Metrics Grid */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)', position: 'relative', zIndex: 1 }}>
-                        <div>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', marginBottom: '.2rem', letterSpacing: '.08em' }}>SHARPE</div>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', fontWeight: 600, color: 'var(--white)' }}>
-                            {agent.sharpe !== null ? agent.sharpe.toFixed(2) : '—'}
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', marginBottom: '.2rem', letterSpacing: '.08em' }}>MAX DD</div>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', fontWeight: 600, color: (agent.max_drawdown ?? 0) > -20 ? 'var(--mint)' : (agent.max_drawdown ?? 0) > -40 ? '#F59E0B' : 'var(--red)' }}>
-                            {agent.max_drawdown !== null ? fmtPct(agent.max_drawdown) : '—'}
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', marginBottom: '.2rem', letterSpacing: '.08em' }}>AUM</div>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', fontWeight: 600, color: 'var(--white)' }}>
-                            {agent.aum !== null ? fmtMoney(agent.aum) : '—'}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Risk Badge */}
+                    {/* Confidence Indicator */}
+                    {confidence !== null && (
                       <div style={{ 
-                        position: 'absolute', top: '1rem', right: '1rem',
-                        fontFamily: 'var(--font-mono)', fontSize: '.5rem', fontWeight: 600,
-                        padding: '.2rem .45rem', borderRadius: 4,
-                        background: `${risk.color}15`, border: `1px solid ${risk.color}30`,
-                        color: risk.color,
+                        display: 'flex', alignItems: 'center', gap: '0.5rem', 
+                        marginBottom: '1rem', padding: '0.4rem 0.6rem', 
+                        background: 'var(--bg3)', borderRadius: 6,
+                        border: '1px solid var(--border)'
                       }}>
-                        {risk.label}
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)', letterSpacing: '.08em' }}>CONFIDENCE</span>
+                        <div style={{ flex: 1, height: 4, background: 'var(--bg)', borderRadius: 2, overflow: 'hidden' }}>
+                          <div style={{ width: `${confidence}%`, height: '100%', background: confidence >= 80 ? 'var(--mint)' : confidence >= 60 ? '#F59E0B' : 'var(--red)', borderRadius: 2 }} />
+                        </div>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', fontWeight: 600, color: confidence >= 80 ? 'var(--mint)' : confidence >= 60 ? '#F59E0B' : 'var(--red)' }}>{confidence}%</span>
                       </div>
-                    </Link>
-                  )
-                })}
-              </div>
-            )}
+                    )}
 
-            <div style={{ textAlign: 'center', marginTop: '3.5rem' }}>
-              <Link href="/agents" className="btn-secondary" style={{ fontSize: '.95rem', padding: '.75rem 2rem', display: 'inline-block' }}>
-                View All Agents
-              </Link>
+                    {/* Secondary Metrics Grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)', position: 'relative', zIndex: 1 }}>
+                      <div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', marginBottom: '.2rem', letterSpacing: '.08em' }}>SHARPE</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', fontWeight: 600, color: 'var(--white)' }}>
+                          {agent.sharpe !== null ? agent.sharpe.toFixed(2) : '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', marginBottom: '.2rem', letterSpacing: '.08em' }}>MAX DD</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', fontWeight: 600, color: (agent.max_drawdown ?? 0) > -20 ? 'var(--mint)' : (agent.max_drawdown ?? 0) > -40 ? '#F59E0B' : 'var(--red)' }}>
+                          {agent.max_drawdown !== null ? fmtPct(agent.max_drawdown) : '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', marginBottom: '.2rem', letterSpacing: '.08em' }}>AUM</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', fontWeight: 600, color: 'var(--white)' }}>
+                          {agent.aum !== null ? fmtMoney(agent.aum) : '—'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Risk Badge */}
+                    <div style={{ 
+                      position: 'absolute', top: '1rem', right: '1rem',
+                      fontFamily: 'var(--font-mono)', fontSize: '.5rem', fontWeight: 600,
+                      padding: '.2rem .45rem', borderRadius: 4,
+                      background: `${risk.color}15`, border: `1px solid ${risk.color}30`,
+                      color: risk.color,
+                    }}>
+                      {risk.label}
+                    </div>
+                  </Link>
+                )
+              })}
             </div>
+          )}
+
+          <div style={{ textAlign: 'center', marginTop: '2rem' }}>
+            <Link href="/agents" className="btn-secondary" style={{ fontSize: '.85rem', padding: '.6rem 1.5rem', display: 'inline-block' }}>
+              View All Agents
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* Value Proposition - 4 Principles per PRD */}
+      {/* Value Proposition - 4 Principles */}
       <section ref={featuresSection.ref} style={{
-        padding: '0 2.5rem 120px',
-        background: 'linear-gradient(180deg, var(--bg2) 0%, transparent 100%)',
-        borderTop: '1px solid var(--border)',
+        minHeight: '85vh', display: 'flex', alignItems: 'center', padding: '3rem 2.5rem',
+        background: 'var(--bg2)',
+        opacity: featuresSection.visible ? 1 : 0,
+        transform: featuresSection.visible ? 'translateY(0)' : 'translateY(40px)',
+        transition: 'opacity 0.8s ease, transform 0.8s ease',
       }}>
-        <div style={{ maxWidth: 1400, margin: '0 auto' }}>
-          <div style={{
-            opacity: featuresSection.visible ? 1 : 0,
-            transform: featuresSection.visible ? 'translateY(0)' : 'translateY(60px)',
-            transition: 'opacity 1s, transform 1s',
-          }}>
-            <div style={{ marginBottom: '3.5rem', textAlign: 'center' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.14em', color: 'var(--blue)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '.75rem' }}>
-                Platform Principles
-              </div>
-              <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(2rem, 4vw, 2.5rem)', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--ivory)' }}>
-                Why ASE
-              </h2>
+        <div style={{ maxWidth: 1400, margin: '0 auto', width: '100%' }}>
+          <div style={{ marginBottom: '2rem', textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.14em', color: 'var(--blue)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '.5rem' }}>
+              Platform Principles
             </div>
+            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(1.5rem, 4vw, 2rem)', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--ivory)' }}>
+              Why investors trust ASE
+            </h2>
+          </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1.25rem' }} className="why-grid">
-              {[
-                {
-                  title: 'Transparent Performance',
-                  desc: 'Every listed agent exposes its return history, drawdowns, trade activity, and benchmark context in a standardized format.',
-                  icon: <EyeIcon />,
-                  color: 'var(--blue)',
-                  mechanism: 'Verified backtest + live trail + consistent metrics',
-                },
-                {
-                  title: 'Quantitative Discipline',
-                  desc: 'Strategies execute exactly as programmed. No emotional overrides, no fatigue. 24/7 precision.',
-                  icon: <BrainIcon />,
-                  color: 'var(--mint)',
-                  mechanism: 'Automated execution + defined rules',
-                },
-                {
-                  title: 'Controlled Risk',
-                  desc: 'Clear risk metrics, drawdown limits, and position sizing guards on every strategy.',
-                  icon: <ShieldIcon />,
-                  color: 'var(--orange)',
-                  mechanism: 'Max drawdown caps + concentration limits',
-                },
-                {
-                  title: 'Connected Execution',
-                  desc: 'Connect via secure exchange API. Your funds stay in your custody. Agents trade on your behalf.',
-                  icon: <SparkNode />,
-                  color: 'var(--purple)',
-                  mechanism: 'Non-custodial + API keys only',
-                },
-              ].map((feat, i) => (
-                <div key={i} className="feature-card" style={{ 
-                  padding: '1.5rem',
-                  opacity: featuresSection.visible ? 1 : 0,
-                  transform: featuresSection.visible ? 'translateY(0)' : 'translateY(30px)',
-                  transition: `all 0.5s ease ${i * 0.1}s`,
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1.5rem' }}>
+            {[
+              { title: 'Transparent Performance', desc: 'Every listed agent exposes its return history, drawdowns, trade activity, and benchmark context.', icon: '✓', color: 'var(--blue)' },
+              { title: 'Quantitative Discipline', desc: 'Strategies execute exactly as programmed. No emotional overrides, no fatigue.', icon: '⚡', color: 'var(--mint)' },
+              { title: 'Controlled Risk', desc: 'Clear risk metrics, drawdown limits, and position sizing guards on every strategy.', icon: '🛡', color: 'var(--orange)' },
+              { title: 'Connected Execution', desc: 'Your funds stay in your custody. Agents trade on your behalf via secure API.', icon: '🔗', color: 'var(--purple)' },
+            ].map((feat, i) => (
+              <div key={i} style={{ 
+                padding: '1.25rem', borderRadius: 10, 
+                background: 'var(--bg2)', border: '1px solid var(--border)',
+                opacity: featuresSection.visible ? 1 : 0,
+                transform: featuresSection.visible ? 'translateY(0)' : 'translateY(30px)',
+                transition: `all 0.5s ease ${i * 0.1}s`,
+              }}>
+                <div style={{ 
+                  width: 32, height: 32, borderRadius: 8, 
+                  background: `${feat.color}15`, border: `1px solid ${feat.color}30`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  marginBottom: '0.75rem', fontSize: '1rem',
                 }}>
-                  <div style={{ 
-                    width: 40, height: 40, borderRadius: 10, 
-                    background: `${feat.color}15`, border: `1px solid ${feat.color}30`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    marginBottom: '1rem', color: feat.color,
-                    fontSize: '1rem',
-                  }}>
-                    {feat.icon}
-                  </div>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '.5rem', color: 'var(--white)' }}>{feat.title}</h3>
-                  <p style={{ fontSize: '.8rem', color: 'var(--muted)', lineHeight: 1.6, marginBottom: '1rem' }}>{feat.desc}</p>
-                  <div style={{ 
-                    fontSize: '.65rem', color: 'var(--faint)', paddingTop: '0.75rem', borderTop: '1px solid var(--border)',
-                    fontFamily: 'var(--font-mono)', letterSpacing: '.03em',
-                  }}>
-                    {feat.mechanism}
-                  </div>
+                  {feat.icon}
                 </div>
-              ))}
-            </div>
+                <h3 style={{ fontSize: '.9rem', fontWeight: 600, marginBottom: '.35rem', color: 'var(--white)' }}>{feat.title}</h3>
+                <p style={{ fontSize: '.72rem', color: 'var(--muted)', lineHeight: 1.5 }}>{feat.desc}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Builder/Lab Tease - Expanded per PRD */}
+      {/* Methodology - How verification works */}
+      <section ref={methodologySection.ref} style={{
+        minHeight: '85vh', display: 'flex', alignItems: 'center',
+        padding: '3rem 2.5rem',
+        background: 'var(--bg2)',
+        opacity: methodologySection.visible ? 1 : 0,
+        transform: methodologySection.visible ? 'translateY(0)' : 'translateY(40px)',
+        transition: 'opacity 0.8s ease, transform 0.8s ease',
+      }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', width: '100%' }}>
+          <div style={{ marginBottom: '2rem', textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', letterSpacing: '.14em', color: 'var(--blue)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '.5rem' }}>
+              Verification Methodology
+            </div>
+            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(1.5rem, 4vw, 2rem)', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--ivory)' }}>
+              How verification works
+            </h2>
+          </div>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
+            {[
+              { step: '01', title: 'Backtest Review', desc: 'Quantitative integrity checks. Verify code correctness, data quality, and methodology soundness.' },
+              { step: '02', title: 'Live Verification', desc: '30-day parallel live environment. Performance tracked against backtest projections.' },
+              { step: '03', title: 'Audit Trail', desc: 'Ongoing verification of execution quality. All trades logged with timestamps.' },
+            ].map((item, i) => (
+              <div key={i} style={{ padding: '1.25rem', borderRadius: 10, background: 'var(--bg3)', border: '1px solid var(--border)' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--blue)', letterSpacing: '.1em', marginBottom: '0.5rem' }}>{item.step}</div>
+                <h3 style={{ fontSize: '.9rem', fontWeight: 600, marginBottom: '0.35rem', color: 'var(--white)' }}>{item.title}</h3>
+                <p style={{ fontSize: '.72rem', color: 'var(--muted)', lineHeight: 1.5 }}>{item.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Builder/Lab Tease */}
       <section ref={labSection.ref} style={{
-        padding: '6rem 2.5rem',
+        minHeight: '85vh', display: 'flex', alignItems: 'center',
+        padding: '3rem 2.5rem',
         background: 'var(--bg)',
-        borderTop: '1px solid var(--border)',
+        opacity: labSection.visible ? 1 : 0,
+        transform: labSection.visible ? 'translateY(0)' : 'translateY(40px)',
+        transition: 'opacity 0.8s ease, transform 0.8s ease',
       }}>
         <div style={{
-          position: 'relative', zIndex: 1, maxWidth: 1100, margin: '0 auto',
-          display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '4rem', alignItems: 'center',
-          opacity: labSection.visible ? 1 : 0,
-          transform: labSection.visible ? 'translateY(0)' : 'translateY(40px)',
-          transition: 'opacity 1s, transform 1s',
+          position: 'relative', zIndex: 1, maxWidth: 1100, margin: '0 auto', width: '100%',
+          display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '3rem', alignItems: 'center',
         }}>
           {/* Left: Builder message */}
           <div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.14em', color: 'var(--purple)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '.75rem' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.14em', color: 'var(--purple)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '.5rem' }}>
               For Builders
             </div>
-            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(1.75rem, 4vw, 2.5rem)', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '1.25rem', color: 'var(--ivory)' }}>
-              Build. Test. Deploy.
+            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(1.5rem, 4vw, 2rem)', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '1rem', color: 'var(--ivory)' }}>
+              Backtest. Validate. List.
             </h2>
-            <p style={{ fontSize: '1rem', color: 'var(--text)', lineHeight: 1.7, marginBottom: '2rem' }}>
-              Enter the Lab to backtest your Python strategies on high-frequency historical data. When ready, submit for review and list on ASE's marketplace.
+            <p style={{ fontSize: '1rem', color: 'var(--text)', lineHeight: 1.6, marginBottom: '1.5rem' }}>
+              Backtest in Python. Validate performance. Submit for review. List on ASE. Complete pipeline from strategy to marketplace in one platform.
             </p>
             <div style={{ display: 'flex', gap: '1rem' }}>
               <Link href="/dashboard/backtest" className="btn-primary" style={{ fontSize: '.9rem', padding: '.7rem 1.5rem' }}>
@@ -888,7 +962,7 @@ export default function LandingPage() {
           </div>
           
           {/* Right: Capabilities grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
             {[
               { title: 'Python Backtesting', desc: 'Historical data access + strategy testing' },
               { title: 'Benchmark Comparison', desc: 'vs BTC, ETH, SPY, custom baskets' },
@@ -909,52 +983,49 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Bottom Lead Capture */}
-      <section ref={ctaSection.ref} style={{
-        padding: '0 2.5rem 120px',
-        opacity: ctaSection.visible ? 1 : 0,
-        transform: ctaSection.visible ? 'translateY(0)' : 'translateY(40px)',
-        transition: 'opacity 1s, transform 1s',
+      
+
+      {/* Join CTA - for retail investors */}
+      <section style={{
+        minHeight: '85vh', display: 'flex', alignItems: 'center',
+        padding: '3rem 2.5rem',
+        background: 'var(--bg)',
       }}>
         <div style={{
           maxWidth: 700, margin: '0 auto', textAlign: 'center',
-          padding: '4rem', borderRadius: 24,
-          background: 'var(--bg2)', border: '1px solid var(--border)',
+          padding: '3rem', borderRadius: 16,
+          background: 'linear-gradient(135deg, rgba(91,140,255,0.08) 0%, rgba(25,230,167,0.04) 100%)', 
+          border: '1px solid var(--border)',
         }}>
-          <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(1.75rem, 4vw, 2.25rem)', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '1rem' }}>
-            Start Trading Smarter
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', letterSpacing: '.14em', color: 'var(--blue)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '.5rem' }}>
+            For Retail Investors
+          </div>
+          <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(1.5rem, 4vw, 2rem)', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '0.75rem', color: 'var(--ivory)' }}>
+            Access institutional-grade AI trading
           </h2>
-          <p style={{ fontSize: '1rem', color: 'var(--muted)', lineHeight: 1.7, marginBottom: '2rem' }}>
-            Free during beta.
+          <p style={{ fontSize: '.95rem', color: 'var(--muted)', lineHeight: 1.6, marginBottom: '1.5rem', maxWidth: 450, margin: '0 auto 1.5rem' }}>
+            Invest in verified algorithmic trading strategies. Your funds stay in your custody.
           </p>
           
-          {/* Email Form */}
-          <div style={{ display: 'flex', gap: '0', maxWidth: 450, margin: '0 auto', flexWrap: 'wrap' }}>
-            <input
-              type="email"
-              placeholder="Enter your email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              style={{
-                flex: 1, minWidth: 250, background: 'var(--bg)', border: '1px solid var(--border)',
-                borderRadius: '8px 0 0 8px', padding: '1rem 1.25rem', color: 'var(--white)', fontSize: '0.95rem',
-                outline: 'none',
-              }}
-            />
-<Link href="/signup" className="btn-primary" style={{
-                borderRadius: '0 8px 8px 0', padding: '1rem 1.75rem', whiteSpace: 'nowrap',
-                background: 'linear-gradient(135deg, var(--blue) 0%, var(--blue2) 100%)',
-                boxShadow: '0 4px 20px rgba(79,124,255,0.3)',
-              }}>
-                Get Started
-              </Link>
+          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Link href="/signup" className="btn-primary" style={{
+              padding: '0.75rem 1.5rem', fontSize: '.9rem',
+              background: 'linear-gradient(135deg, var(--blue) 0%, var(--blue2) 100%)',
+            }}>
+              Create Free Account
+            </Link>
+            <Link href="/agents" className="btn-secondary" style={{
+              padding: '0.75rem 1.5rem', fontSize: '.9rem',
+            }}>
+              Browse Agents
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* Footer - Expanded per PRD */}
+      {/* Footer */}
       <footer style={{
-        padding: '5rem 2.5rem 3rem', borderTop: '1px solid var(--border)',
+        padding: '4rem 2.5rem 2rem', borderTop: '1px solid var(--border)',
         background: 'var(--bg2)',
       }}>
         {/* Trust disclosure ribbon */}
@@ -965,18 +1036,16 @@ export default function LandingPage() {
         }}>
           <strong style={{ color: 'var(--muted)' }}>Disclaimer:</strong> ASE provides tools, analytics, and strategy information. It does not guarantee returns. Investing and digital asset trading involve risk. Backtested results are hypothetical unless otherwise stated.
         </div>
-        
-        <div style={{ maxWidth: 1400, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '2.5rem' }}>
+        <div style={{ maxWidth: 1400, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '3rem' }}>
           {/* Column 1 - Brand */}
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', marginBottom: '1rem' }}>
-              <SparkNode />
-              <span style={{ fontFamily: 'var(--font-serif)', fontWeight: 700, fontSize: '1.1rem', color: 'var(--ivory)' }}>ASE</span>
+            <div style={{ marginBottom: '1rem' }}>
+              <Logo size="medium" variant="full" />
             </div>
             <p style={{ fontSize: '.75rem', color: 'var(--text)', lineHeight: 1.6, marginBottom: '1rem' }}>
               Platform for discovering, evaluating, and monitoring algorithmic trading strategies.
             </p>
-            <p style={{ fontSize: '.68rem', color: 'var(--faint)', lineHeight: 1.5, marginBottom: '1rem' }}>
+            <p style={{ fontSize: '.68rem', color: 'var(--faint)', lineHeight: 1.5 }}>
               © 2026 Agent Securities Exchange. All rights reserved.
             </p>
           </div>
@@ -986,42 +1055,22 @@ export default function LandingPage() {
             <h4 style={{ fontSize: '.68rem', fontWeight: 600, color: 'var(--ivory)', marginBottom: '1rem', letterSpacing: '.08em', textTransform: 'uppercase' }}>Platform</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
               {[
-                { label: 'Browse Agents', href: '/agents' },
-                { label: 'Portfolio', href: '/dashboard' },
+                { label: 'Marketplace', href: '/agents' },
                 { label: 'The Lab', href: '/dashboard/backtest' },
                 { label: 'Builders', href: '/builders' },
-                { label: 'Methodology', href: '/legal/methodology' },
-                { label: 'Supported Exchanges', href: '/agents' },
+                { label: 'Docs', href: '/legal/about' },
+                { label: 'Security', href: '/legal/security', highlight: true },
+                { label: 'Status', href: '#', highlight: true },
               ].map(link => (
-                <Link key={link.label} href={link.href} style={{ fontSize: '.82rem', color: 'var(--muted)', transition: 'color .2s' }}
+                <Link key={link.label} href={link.href} style={{ fontSize: '.82rem', color: link.highlight ? 'var(--mint)' : 'var(--muted)', transition: 'color .2s' }}
                   onMouseEnter={e => (e.target as HTMLElement).style.color = 'var(--white)'}
-                  onMouseLeave={e => (e.target as HTMLElement).style.color = 'var(--muted)'}
+                  onMouseLeave={e => (e.target as HTMLElement).style.color = link.highlight ? 'var(--mint)' : 'var(--muted)'}
                 >{link.label}</Link>
               ))}
             </div>
           </div>
 
-          {/* Column 3 - Company */}
-          <div>
-            <h4 style={{ fontSize: '.68rem', fontWeight: 600, color: 'var(--ivory)', marginBottom: '1rem', letterSpacing: '.08em', textTransform: 'uppercase' }}>Company</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
-              {[
-                { label: 'About Us', href: '/legal/about' },
-                { label: 'Careers', href: '/legal/careers' },
-                { label: 'Contact', href: '/legal/contact' },
-                { label: 'Press', href: '/legal/press' },
-                { label: 'Security', href: '/legal/security' },
-                { label: 'Status', href: '#' },
-              ].map(link => (
-                <Link key={link.label} href={link.href} style={{ fontSize: '.82rem', color: 'var(--muted)', transition: 'color .2s' }}
-                  onMouseEnter={e => (e.target as HTMLElement).style.color = 'var(--white)'}
-                  onMouseLeave={e => (e.target as HTMLElement).style.color = 'var(--muted)'}
-                >{link.label}</Link>
-              ))}
-            </div>
-          </div>
-
-          {/* Column 4 - Legal */}
+          {/* Column 3 - Legal */}
           <div>
             <h4 style={{ fontSize: '.68rem', fontWeight: 600, color: 'var(--ivory)', marginBottom: '1rem', letterSpacing: '.08em', textTransform: 'uppercase' }}>Legal</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
@@ -1029,8 +1078,7 @@ export default function LandingPage() {
                 { label: 'Terms of Service', href: '/legal/terms' },
                 { label: 'Privacy Policy', href: '/legal/privacy' },
                 { label: 'Risk Disclosures', href: '/legal/securities' },
-                { label: 'Methodology Disclosures', href: '/legal/methodology' },
-                { label: 'Cookie Notice', href: '/legal/cookies' },
+                { label: 'Methodology', href: '/legal/methodology' },
               ].map(link => (
                 <Link key={link.label} href={link.href} style={{ fontSize: '.82rem', color: 'var(--muted)', transition: 'color .2s' }}
                   onMouseEnter={e => (e.target as HTMLElement).style.color = 'var(--white)'}

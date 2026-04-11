@@ -11,7 +11,6 @@ import {
   Zap, 
   Lock, 
   Users,
-  ChevronRight,
   LineChart,
   Calculator
 } from 'lucide-react';
@@ -82,8 +81,10 @@ const PARTNERS = [
  */
 const Hero = () => {
   const [textIndex, setTextIndex] = useState(0);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [isHovering, setIsHovering] = useState(false);
+  const [activeAgent, setActiveAgent] = useState(0);
   const words = ["Algorithm", "Future", "Alpha"];
-  const [tickData, setTickData] = useState<number[]>([3124.12, 3125.84, 3123.41, 3127.02, 3126.55, 3128.19]);
 
   React.useEffect(() => {
     const interval = setInterval(() => {
@@ -93,22 +94,31 @@ const Hero = () => {
   }, []);
 
   React.useEffect(() => {
-    const tickInterval = setInterval(() => {
-      setTickData(prev => {
-        const last = prev[prev.length - 1];
-        const change = (Math.random() - 0.5) * 2;
-        return [...prev.slice(1), +(last + change).toFixed(2)];
-      });
-    }, 800);
-    return () => clearInterval(tickInterval);
+    const agentInterval = setInterval(() => {
+      setActiveAgent(prev => (prev + 1) % AGENTS.length);
+    }, 2500);
+    return () => clearInterval(agentInterval);
   }, []);
 
+  const handleMouseMove = (e: React.MouseEvent) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width - 0.5) * 2;
+    const y = ((e.clientY - rect.top) / rect.height - 0.5) * 2;
+    setMousePos({ x, y });
+  };
+
   const AGENT_DATA = [
-    { label: 'BUY', symbol: 'ETH', qty: '0.42', price: '3124.12', signal: 'Volatility Breakout' },
-    { label: 'SELL', symbol: 'SOL', qty: '12.5', price: '98.42', signal: 'RSI Oversold' },
-    { label: 'BUY', symbol: 'BTC', qty: '0.08', price: '67432.50', signal: 'EMA Crossover' },
-    { label: 'HOLD', symbol: 'AVAX', qty: '2.1', price: '35.18', signal: 'Range Bound' },
+    { label: 'BUY', symbol: 'ETH', qty: '0.42', price: '3124.12', signal: 'Volatility Breakout', returns: '+24.5%' },
+    { label: 'SELL', symbol: 'SOL', qty: '12.5', price: '98.42', signal: 'RSI Oversold', returns: '+18.2%' },
+    { label: 'BUY', symbol: 'BTC', qty: '0.08', price: '67432.50', signal: 'EMA Crossover', returns: '+42.1%' },
+    { label: 'HOLD', symbol: 'AVAX', qty: '2.1', price: '35.18', signal: 'Range Bound', returns: '+8.4%' },
   ];
+
+  const currentAgent = AGENT_DATA[activeAgent];
+  const intensity = isHovering ? 1.5 : 1;
+  const glowScale = 1 + (Math.abs(mousePos.x) + Math.abs(mousePos.y)) * 0.15;
+  const pullX = mousePos.x * 20;
+  const pullY = mousePos.y * 20;
 
   const BG_DATA = Array.from({ length: 20 }, (_, i) => ({
     time: `T-${20 - i}`,
@@ -116,100 +126,164 @@ const Hero = () => {
   }));
 
   return (
-    <section className="relative min-h-[95vh] flex items-center justify-center overflow-hidden pt-20">
-      {/* Vignette Edge Treatment */}
+    <section 
+      className="relative min-h-screen flex items-center justify-center overflow-hidden"
+      onMouseMove={handleMouseMove}
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => { setIsHovering(false); setMousePos({ x: 0, y: 0 }); }}
+    >
+      <div className="absolute inset-0 overflow-hidden">
+
+      {/* Vignette */}
       <div className="absolute inset-0 pointer-events-none z-50" 
-        style={{ background: 'radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.4) 100%)' }} 
+        style={{ background: 'radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.5) 100%)' }} 
+      />
+      
+      {/* Noise texture */}
+      <div className="absolute inset-0 pointer-events-none z-40 opacity-[0.03]"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
+        }}
       />
 
-      {/* Layer 1: Background - Very blurred, slow drift */}
-      <div className="absolute inset-0 z-0 opacity-10 pointer-events-none overflow-hidden">
-        <div className="absolute inset-0 animate-[drift_60s_linear_infinite]">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={BG_DATA}>
-              <defs>
-                <linearGradient id="bgGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#00E5FF" stopOpacity={0.15}/>
-                  <stop offset="100%" stopColor="#00E5FF" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <Area type="monotone" dataKey="value" stroke="#00E5FF" fill="url(#bgGradient)" strokeWidth={1} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+      {/* Background layer with pull effect */}
+      <motion.div 
+        className="absolute inset-0 z-0 opacity-10 pointer-events-none"
+        animate={{ x: pullX, y: pullY }}
+        transition={{ type: "spring", stiffness: 100, damping: 30 }}
+      >
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={BG_DATA}>
+            <defs>
+              <linearGradient id="bgGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#00E5FF" stopOpacity={0.15}/>
+                <stop offset="100%" stopColor="#00E5FF" stopOpacity={0}/>
+              </linearGradient>
+            </defs>
+            <Area type="monotone" dataKey="value" stroke="#00E5FF" fill="url(#bgGradient)" strokeWidth={1} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </motion.div>
 
-      {/* Layer 2: Mid - Semi-readable data, parallax */}
-      <div className="absolute inset-0 z-10 opacity-30 pointer-events-none">
-        <div className="flex flex-col gap-2 mt-32 ml-8">
-          {AGENT_DATA.map((d, i) => (
-            <div key={i} className="flex items-center gap-3 font-mono text-xs" style={{ 
-              color: d.label === 'BUY' ? '#00E5FF' : d.label === 'SELL' ? '#FF5A5F' : '#8E8E93',
-              transform: `translateX(${i % 2 === 0 ? -20 : 20}px)`,
-              opacity: 0.4,
-            }}>
-              <span className="font-bold">{d.label}</span>
-              <span>{d.symbol}</span>
-              <span className="text-zinc-500">{d.qty}</span>
-              <span className="text-zinc-600">@ {d.price}</span>
-              <span className="text-zinc-700">// {d.signal}</span>
-            </div>
-          ))}
-        </div>
-        <div className="flex gap-4 mt-8 ml-8 font-mono text-xs text-zinc-700">
-          <span>Sharpe: 2.31</span>
-          <span>Drawdown: -4.2%</span>
-          <span>Win Rate: 68%</span>
-        </div>
-      </div>
-
-      {/* Signal Emerging Effect - Connecting lines from chaos */}
-      <div className="absolute inset-0 z-20 opacity-20 pointer-events-none">
+      {/* Signal lines with pull effect */}
+      <motion.div 
+        className="absolute inset-0 z-20 opacity-15 pointer-events-none"
+        animate={{ x: pullX * 0.5, y: pullY * 0.5 }}
+        transition={{ type: "spring", stiffness: 150, damping: 25 }}
+      >
         <svg className="w-full h-full">
-          <defs>
-            <linearGradient id="signalLine" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#00E5FF" stopOpacity={0}/>
-              <stop offset="50%" stopColor="#00E5FF" stopOpacity={0.6}/>
-              <stop offset="100%" stopColor="#00E5FF" stopOpacity={0}/>
-            </linearGradient>
-          </defs>
-          {[40, 60, 80, 40, 60].map((y, i) => (
+          {[30, 50, 70, 40, 60].map((y, i) => (
             <line 
               key={i}
-              x1="0%" y1={`${y}%`} x2="100%" y2={`${y + 20}%`}
-              stroke="url(#signalLine)"
-              strokeWidth={1}
-              strokeDasharray="4 8"
-              className="animate-pulse"
+              x1="0%" y1={`${y}%`} x2="100%" y2={`${y + 15}%`}
+              stroke="#00E5FF"
+              strokeWidth={0.5}
+              strokeDasharray="6 12"
+              opacity={0.3}
             />
           ))}
         </svg>
-      </div>
+      </motion.div>
 
-      {/* Layer 3: Center Focal Point - Glowing Core */}
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none">
-        <div className="relative">
-          {/* Pulsing glow */}
-          <div className="absolute inset-0 w-64 h-64 -translate-x-1/2 -translate-y-1/2 left-32 top-32">
-            <div className="w-full h-full rounded-full animate-[pulse_3s_ease-in-out_infinite]" 
-              style={{ background: 'radial-gradient(circle, rgba(0,229,153,0.15) 0%, transparent 70%)' }} 
+      {/* Interactive Core - Agent Intelligence Core */}
+      <motion.div 
+        className="absolute left-1/2 top-1/2 z-30 pointer-events-none"
+        animate={{ 
+          x: mousePos.x * 50,
+          y: mousePos.y * 50,
+        }}
+        transition={{ type: "spring", stiffness: 120, damping: 18 }}
+      >
+        <motion.div
+          animate={{ 
+            scale: glowScale * intensity,
+          }}
+          transition={{ type: "spring", stiffness: 150, damping: 15 }}
+        >
+          {/* Orbit rings */}
+          {[0.7, 1, 1.3].map((scale, i) => (
+            <motion.div
+              key={i}
+              className="absolute inset-0 rounded-full border"
+              style={{ 
+                borderColor: i === 0 ? 'rgba(0,229,153,0.15)' : 'rgba(0,229,153,0.08)',
+                borderWidth: 1,
+                transform: `scale(${scale})`,
+              }}
+              animate={{ rotate: 360 }}
+              transition={{ duration: 20 + i * 10, repeat: Infinity, ease: "linear" }}
             />
-          </div>
-          {/* Core node cluster */}
-          <div className="w-32 h-32 rounded-full flex items-center justify-center"
+          ))}
+          
+          {/* Core glow */}
+          <div 
+            className="absolute inset-0 rounded-full"
             style={{ 
-              background: 'radial-gradient(circle at 30% 30%, rgba(0,229,153,0.4), rgba(0,229,153,0.1) 60%, transparent)',
-              boxShadow: '0 0 60px rgba(0,229,153,0.3), inset 0 0 30px rgba(0,229,153,0.2)',
+              background: 'radial-gradient(circle, rgba(0,229,153,0.2) 0%, rgba(0,229,153,0.05) 40%, transparent 70%)',
+              boxShadow: isHovering ? '0 0 100px rgba(0,229,153,0.5)' : '0 0 60px rgba(0,229,153,0.3)',
             }}
-          >
-            <div className="w-16 h-16 rounded-full bg-cyan-500/20 backdrop-blur-sm" 
-              style={{ boxShadow: '0 0 20px rgba(0,229,153,0.4)' }} 
-            />
+          />
+          
+          {/* Inner core */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <motion.div
+              animate={{ scale: [1, 1.15, 1] }}
+              transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <div 
+                className="w-20 h-20 rounded-full"
+                style={{ 
+                  background: 'radial-gradient(circle at 35% 35%, rgba(0,229,153,0.9), rgba(0,229,153,0.4) 50%, rgba(0,229,153,0.1))',
+                  boxShadow: '0 0 50px rgba(0,229,153,0.7), 0 0 100px rgba(0,229,153,0.3)',
+                }}
+              />
+            </motion.div>
           </div>
-          {/* Inner bright core */}
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-cyan-400 animate-pulse" />
+          
+          {/* Trade execution pulses */}
+          {[0, 120, 240].map((deg, i) => (
+            <motion.div
+              key={i}
+              className="absolute w-2 h-2 rounded-full"
+              style={{
+                background: '#00E5FF',
+                top: '50%',
+                left: '50%',
+                boxShadow: '0 0 8px #00E5FF',
+              }}
+              animate={{
+                x: [0, Math.cos(deg * Math.PI / 180) * 80],
+                y: [0, Math.sin(deg * Math.PI / 180) * 80],
+                opacity: [1, 0],
+                scale: [1, 0.3],
+              }}
+              transition={{
+                duration: 3,
+                repeat: Infinity,
+                delay: i * 1,
+                ease: "easeOut",
+              }}
+            />
+          ))}
+        </motion.div>
+      </motion.div>
+
+      {/* Agent signal overlay */}
+      <motion.div 
+        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-40 pointer-events-none"
+        animate={{ 
+          x: mousePos.x * 40,
+          y: mousePos.y * 40,
+          opacity: isHovering ? 1 : 0
+        }}
+        transition={{ type: "spring", stiffness: 150, damping: 20 }}
+      >
+        <div className="text-center">
+          <div className="font-mono text-lg text-cyan-400 font-semibold">{currentAgent.symbol}</div>
+          <div className="font-mono text-2xl text-white font-bold">{currentAgent.returns}</div>
+          <div className="font-mono text-xs text-zinc-500 mt-1">{currentAgent.signal}</div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Main Content */}
       <div className="container relative z-40 mx-auto px-6 text-center">
@@ -218,9 +292,9 @@ const Hero = () => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8 }}
         >
-          <h1 className="text-5xl md:text-8xl font-bold tracking-tighter text-white mb-6">
+          <h1 className="text-6xl md:text-9xl font-semibold tracking-tight text-white mb-8" style={{ fontFamily: 'var(--font-body)' }}>
             Own the{' '}
-            <span className="relative inline-block min-w-[280px] text-left">
+            <span className="relative inline-block min-w-[320px] text-left">
               <AnimatePresence mode="wait">
                 <motion.span
                   key={words[textIndex]}
@@ -234,41 +308,92 @@ const Hero = () => {
               </AnimatePresence>
             </span>
           </h1>
-          <p className="text-xl text-zinc-400 max-w-2xl mx-auto mb-10">
+          <p className="text-xl md:text-2xl text-zinc-400 max-w-2xl mx-auto mb-12 leading-relaxed">
             The world's first exchange for tokenized AI trading strategies.{' '}
             Invest in verified, autonomous agents trading 24/7 on real market data.
           </p>
+          
+          {/* Trust layer */}
+          <div className="flex flex-wrap items-center justify-center gap-6 mb-12">
+            {[
+              { label: '$2.4M', sub: 'Simulated Volume' },
+              { label: '48', sub: 'Verified Agents' },
+              { label: '99.9%', sub: 'Uptime' },
+            ].map((stat, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="text-lg font-semibold text-white">{stat.label}</span>
+                <span className="text-xs text-zinc-500 uppercase tracking-wide">{stat.sub}</span>
+                {i < 2 && <span className="w-px h-4 bg-zinc-700" />}
+              </div>
+            ))}
+          </div>
+          
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/signup" className="px-8 py-4 bg-cyan-500 hover:bg-cyan-400 text-black font-bold rounded-lg transition-all flex items-center justify-center gap-2">
-              Start Trading <ArrowRight size={20} />
-            </Link>
-            <Link href="/exchange" className="px-8 py-4 bg-zinc-900 border border-zinc-800 text-white font-bold rounded-lg hover:bg-zinc-800 transition-all">
-              View Marketplace
-            </Link>
+            <motion.div
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.98 }}
+              transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            >
+              <Link href="/signup" 
+                className="px-10 py-5 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-black font-semibold rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/25"
+              >
+                Start Trading <ArrowRight size={20} />
+              </Link>
+            </motion.div>
+            <motion.div
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <Link href="/exchange" className="px-10 py-5 bg-zinc-900/80 border border-zinc-700/50 text-white font-semibold rounded-xl hover:bg-zinc-800 hover:border-zinc-600 transition-all backdrop-blur-sm">
+                View Live Agents
+              </Link>
+            </motion.div>
           </div>
         </motion.div>
 
-        {/* Live Data Stats - With flickering numbers */}
-        <div className="mt-40 grid grid-cols-2 md:grid-cols-4 gap-12 border-y border-zinc-800/50 py-16">
+        {/* Stats Bar */}
+        <div className="mt-24 grid grid-cols-2 md:grid-cols-4 gap-8 border-y border-zinc-800/30 py-10">
           {[
-            { label: 'Total AUM', value: '$12.4M', icon: TrendingUp },
-            { label: 'Active Agents', value: '142', icon: Cpu },
-            { label: 'Avg. APY', value: '28.4%', icon: Zap },
-            { label: 'Trades/Min', value: '1,204', icon: BarChart3 },
+            { label: 'Total AUM', value: '$12.4M' },
+            { label: 'Active Agents', value: '142' },
+            { label: 'Avg. APY', value: '28.4%' },
+            { label: 'Win Rate', value: '68%' },
           ].map((stat, i) => (
             <div key={i} className="flex flex-col items-center">
-              <stat.icon className="text-cyan-400 mb-2" size={24} />
-              <motion.span 
-                className="text-3xl font-bold text-white font-mono"
-                animate={{ opacity: [1, 0.7, 1] }}
-                transition={{ duration: 0.1, repeat: i === 3 ? Infinity : 0, repeatDelay: 2 }}
-              >
-                {i === 3 ? tickData[tickData.length - 1].toFixed(0) : stat.value}
-              </motion.span>
-              <span className="text-xs uppercase tracking-widest text-zinc-500">{stat.label}</span>
+              <span className="text-2xl font-semibold text-white font-mono">{stat.value}</span>
+              <span className="text-xs uppercase tracking-widest text-zinc-500 mt-1">{stat.label}</span>
             </div>
           ))}
         </div>
+        
+        {/* Agent Activity Feed - Bottom right */}
+        <motion.div 
+          className="absolute bottom-8 right-8 z-40 pointer-events-none"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 1 }}
+        >
+          <div className="flex flex-col gap-2">
+            {[
+              { agent: 'ETH Momentum', action: 'executed trade', side: 'buy', color: '#00E5FF' },
+              { agent: 'SOL Vol', action: 'rebalanced', side: '', color: '#00E5FF' },
+              { agent: 'BTC Alpha', action: 'hit threshold', side: '', color: '#00E5FF' },
+            ].map((item, i) => (
+              <motion.div
+                key={i}
+                className="flex items-center gap-2 text-xs font-mono"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 1.5 + i * 0.3 }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: item.color, boxShadow: `0 0 6px ${item.color}` }} />
+                <span className="text-zinc-400">{item.agent}</span>
+                <span className="text-zinc-600">{item.action}</span>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+      </div>
       </div>
     </section>
   );
@@ -509,11 +634,14 @@ export default function LandingPage() {
       {/* Navigation */}
       <nav className="fixed top-0 w-full z-50 bg-black/50 backdrop-blur-xl border-b border-zinc-800/50">
         <div className="container mx-auto px-6 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
-              <LineChart className="text-black" size={20} />
-            </div>
-            <span className="text-xl font-bold text-white tracking-tighter">ASE</span>
+          <div className="flex items-center gap-3">
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none" className="shrink-0">
+              <circle cx="14" cy="14" r="12" stroke="#00E5FF" strokeWidth="1.5" fill="none" opacity="0.8" />
+              <circle cx="14" cy="14" r="4" fill="#00E5FF" />
+              <circle cx="14" cy="14" r="8" stroke="#00E5FF" strokeWidth="0.5" fill="none" opacity="0.4" />
+              <path d="M14 2v3M14 23v3M2 14h3M23 14h3" stroke="#00E5FF" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+            <span className="text-lg font-semibold text-white tracking-tight" style={{ fontFamily: 'var(--font-body)' }}>ASE</span>
           </div>
           
           <div className="hidden md:flex items-center gap-8">
