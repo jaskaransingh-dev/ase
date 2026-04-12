@@ -134,9 +134,8 @@ export async function getLatestCryptoPrice(symbol: string): Promise<number | nul
   return bars.length > 0 ? bars[bars.length - 1].c : null
 }
 
-// ─── Order Compatibility Shims ─────────────────────────────────────────────────
-// These wrap coinbase-trade so that agents.ts can do a single import swap
-// without changing any call sites.
+// ─── Order Functions ─────────────────────────────────────────────────
+// These use Alpaca for order execution.
 
 export async function submitOrder(
   params: {
@@ -147,37 +146,32 @@ export async function submitOrder(
     type?: string
     time_in_force?: string
   },
-  _key?: string,    // unused — Coinbase reads from env vars
-  _secret?: string  // unused
+  apiKey?: string,
+  secretKey?: string
 ): Promise<AlpacaOrder> {
-  const { submitCoinbaseOrder } = await import('./coinbase-trade')
-  const result = await submitCoinbaseOrder({
-    symbol:   params.symbol,
-    side:     params.side,
-    notional: params.notional,
-    qty:      params.qty,
-  })
+  const { submitOrder: alpacaSubmitOrder } = await import('./alpaca')
+  const result = await alpacaSubmitOrder(params, apiKey, secretKey)
   return {
     id:               result.id,
     status:           result.status,
-    filled_qty:       result.filled_qty.toFixed(8),
-    filled_avg_price: result.fill_price > 0 ? result.fill_price.toFixed(6) : null,
+    filled_qty:       result.filled_qty,
+    filled_avg_price: result.filled_avg_price,
   }
 }
 
 export async function waitForFill(
   orderId: string,
-  _key?: string,
-  _secret?: string,
-  _maxWaitMs = 15_000
+  apiKey?: string,
+  secretKey?: string,
+  maxWaitMs = 15_000
 ): Promise<AlpacaOrder> {
-  const { waitForCoinbaseFill } = await import('./coinbase-trade')
-  const result = await waitForCoinbaseFill(orderId)
+  const { waitForFill: alpacaWaitForFill } = await import('./alpaca')
+  const result = await alpacaWaitForFill(orderId, apiKey, secretKey, maxWaitMs)
   return {
-    id:               orderId,
+    id:               result.id,
     status:           result.status,
-    filled_qty:       result.filled_qty.toFixed(8),
-    filled_avg_price: result.fill_price > 0 ? result.fill_price.toFixed(6) : null,
+    filled_qty:       result.filled_qty,
+    filled_avg_price: result.filled_avg_price,
   }
 }
 

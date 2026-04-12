@@ -108,20 +108,20 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
   onClose: () => void; onSuccess: (result: { shares: number; amount: number }) => void
 }) {
   const [balance, setBalance] = useState<number | null>(null)
-  const [coinbaseStatus, setCoinbaseStatus] = useState<string>('loading')
+  const [accountStatus, setAccountStatus] = useState<string>('loading')
   const [amount, setAmount] = useState(50)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [fetching, setFetching] = useState(true)
 
   useEffect(() => {
-    fetch('/api/coinbase/balance').then(r => r.json()).then(d => {
-      setBalance(d.usd_balance_cents ?? 0)
-      setCoinbaseStatus(d.status ?? 'connected')
-    }).catch(() => { setBalance(0); setCoinbaseStatus('error') }).finally(() => setFetching(false))
+    fetch('/api/account/balance').then(r => r.json()).then(d => {
+      setBalance(d.equity_cents ?? 0)
+      setAccountStatus(d.status ?? 'connected')
+    }).catch(() => { setBalance(0); setAccountStatus('error') }).finally(() => setFetching(false))
   }, [])
 
-  const notConnected = coinbaseStatus === 'not_connected'
+  const notConnected = accountStatus === 'not_connected'
   const maxAmount = balance !== null ? Math.floor(balance / 100) : 0
   const cappedAmount = Math.min(Math.max(amount, 0), maxAmount)
   const projectedShares = navCents > 0 ? (cappedAmount * 100) / navCents : 0
@@ -150,28 +150,28 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
         </div>
 
         <div style={{ background: 'rgba(59,127,255,.05)', border: '1px solid rgba(59,127,255,.16)', borderRadius: 11, padding: '.8rem 1rem', marginBottom: '1.2rem' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.22rem' }}>COINBASE USD BALANCE</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.22rem' }}>TRADING ACCOUNT BALANCE</div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.2rem', fontWeight: 700, color: fetching ? 'var(--faint)' : (notConnected ? 'var(--red)' : 'var(--blue2)') }}>
             {fetching ? '—' : notConnected ? 'Not Connected' : fmt$(balance ?? 0)}
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', marginTop: '.16rem' }}>
-            {notConnected ? 'Connect your Coinbase account to invest' : 'Real USD from your Coinbase account'}
+            {notConnected ? 'Connect your Alpaca account to invest' : 'Real USD from your Alpaca account'}
           </div>
         </div>
 
         {notConnected ? (
           <div style={{ textAlign: 'center', padding: '1rem 0' }}>
             <p style={{ color: 'var(--muted)', fontSize: '.82rem', marginBottom: '1rem', lineHeight: 1.6 }}>
-              You need to connect your Coinbase account to invest real USD into this agent.
+              You need to connect your Alpaca account to invest real USD into this agent.
             </p>
             <a href="/dashboard" style={{ display: 'inline-block', padding: '.65rem 1.5rem', borderRadius: 10, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, textDecoration: 'none' }}>
-              Connect Coinbase →
+              Connect Alpaca →
             </a>
           </div>
         ) : (
           <>
             <div style={{ marginBottom: '1.2rem' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.45rem' }}>AMOUNT</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.45rem' }}>USD AMOUNT</div>
               <div style={{ position: 'relative' }}>
                 <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', fontFamily: 'var(--font-mono)', fontSize: '.88rem', color: 'var(--muted)' }}>$</span>
                 <input type="number" value={amount} min={10} max={maxAmount} onChange={e => setAmount(Number(e.target.value))} style={{ width: '100%', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.68rem 1rem .68rem 1.7rem', color: 'var(--white)', fontFamily: 'var(--font-mono)', fontSize: '.92rem', outline: 'none', boxSizing: 'border-box' }} />
@@ -183,6 +183,11 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
                 {maxAmount >= 10 && (
                   <button onClick={() => setAmount(maxAmount)} style={{ flex: 1, padding: '.28rem', background: amount === maxAmount ? 'rgba(59,127,255,.1)' : 'rgba(255,255,255,.03)', border: `1px solid ${amount === maxAmount ? 'rgba(59,127,255,.28)' : 'var(--border)'}`, borderRadius: 6, color: amount === maxAmount ? 'var(--blue2)' : 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.58rem', cursor: 'pointer', fontWeight: 600 }}>MAX</button>
                 )}
+              </div>
+              <div style={{ display: 'flex', gap: '.35rem', marginTop: '.35rem' }}>
+                {[10, 25, 50].map(pct => (
+                  <button key={pct} onClick={() => setAmount(Math.floor(maxAmount * pct / 100))} disabled={maxAmount < 100} style={{ flex: 1, padding: '.22rem', background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.52rem', cursor: maxAmount < 100 ? 'not-allowed' : 'pointer', opacity: maxAmount < 100 ? 0.4 : 1 }}>{pct}% of balance</button>
+                ))}
               </div>
             </div>
 
@@ -198,7 +203,7 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
             {msg && <div style={{ marginBottom: '.9rem', padding: '.65rem .9rem', background: 'rgba(242,54,69,.07)', border: '1px solid rgba(242,54,69,.18)', borderRadius: 9, fontFamily: 'var(--font-mono)', fontSize: '.68rem', color: 'var(--red)' }}>{msg}</div>}
 
             <button onClick={handleInvest} disabled={loading || fetching || cappedAmount < 10} style={{ width: '100%', padding: '.75rem', borderRadius: 10, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, cursor: loading || fetching || cappedAmount < 10 ? 'not-allowed' : 'pointer', opacity: loading || fetching || cappedAmount < 10 ? .5 : 1, letterSpacing: '-.01em' }}>
-              {loading ? 'Processing...' : `Invest $${Math.max(0, cappedAmount)}`}
+              {loading ? 'Processing...' : `Buy $${Math.max(0, cappedAmount)} →`}
             </button>
             <div style={{ marginTop: '.85rem', fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', lineHeight: 1.65, textAlign: 'center' }}>
               Real USD investment. Algorithmic trading involves substantial risk of loss.
@@ -240,7 +245,7 @@ function DeallocateModal({ holding, agentName, navCents, onClose, onSuccess }: {
       <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg2)', border: '1px solid rgba(242,54,69,.2)', borderRadius: 20, padding: '2rem', width: '100%', maxWidth: 400, boxShadow: '0 40px 80px rgba(0,0,0,.7)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
           <div>
-            <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1.1rem' }}>Deallocate Funds</div>
+            <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1.1rem' }}>Sell Position</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', marginTop: '.18rem' }}>{agentName}</div>
           </div>
           <button onClick={onClose} style={{ background: 'rgba(255,255,255,.06)', border: '1px solid var(--border)', borderRadius: 9, width: 32, height: 32, cursor: 'pointer', color: 'var(--faint)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>x</button>
@@ -275,10 +280,10 @@ function DeallocateModal({ holding, agentName, navCents, onClose, onSuccess }: {
         {msg && <div style={{ marginBottom: '.9rem', padding: '.65rem .9rem', background: 'rgba(242,54,69,.07)', border: '1px solid rgba(242,54,69,.18)', borderRadius: 9, fontFamily: 'var(--font-mono)', fontSize: '.68rem', color: 'var(--red)' }}>{msg}</div>}
 
         <button onClick={handleSell} disabled={loading || sharesToSell <= 0} style={{ width: '100%', padding: '.75rem', borderRadius: 10, border: 0, background: 'rgba(242,54,69,.9)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, cursor: loading || sharesToSell <= 0 ? 'not-allowed' : 'pointer', opacity: loading || sharesToSell <= 0 ? .5 : 1, letterSpacing: '-.01em' }}>
-          {loading ? 'Processing...' : `Sell ${sharesToSell.toFixed(4)} shares`}
+          {loading ? 'Processing...' : `Sell $${(sellValue / 100).toFixed(2)} →`}
         </button>
         <div style={{ marginTop: '.85rem', fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', lineHeight: 1.65, textAlign: 'center' }}>
-          Proceeds returned to your Coinbase balance.
+          Proceeds returned to your Alpaca trading account.
         </div>
       </div>
     </div>
@@ -302,6 +307,7 @@ export default function AgentDetailClient({
   const [showDeallocateModal, setShowDeallocateModal] = useState(false)
   const [holding, setHolding] = useState<UserHolding | null>(initialHolding ?? null)
   const [statusMsg, setStatusMsg] = useState('')
+  const [isWatched, setIsWatched] = useState(false)
 
   // Backtest
   const [btResult, setBtResult] = useState<BacktestResult | null>(() => {
@@ -334,6 +340,24 @@ export default function AgentDetailClient({
   }, [isLoggedIn, agent.id])
 
   useEffect(() => { if (isSubscribed) refreshHolding() }, [isSubscribed, refreshHolding])
+
+  // Check if in watchlist
+  useEffect(() => {
+    if (!isLoggedIn || isSubscribed) return
+    fetch('/api/watchlist').then(r => r.json()).then(d => {
+      const watched = d.watchlist?.some((w: {agent_id: string}) => w.agent_id === agent.id)
+      setIsWatched(watched)
+    }).catch(() => {})
+  }, [isLoggedIn, isSubscribed, agent.id])
+
+  async function toggleWatchlist() {
+    if (!isLoggedIn) { router.push(`/login?redirect=/agents/${agent.slug}`); return }
+    try {
+      const method = isWatched ? 'DELETE' : 'POST'
+      await fetch('/api/watchlist', { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ agent_id: agent.id }) })
+      setIsWatched(!isWatched)
+    } catch {}
+  }
 
   const loadLivePerf = useCallback(async (period: string) => {
     setLivePerfLoading(p => ({ ...p, [period]: true }))
@@ -574,9 +598,9 @@ export default function AgentDetailClient({
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.7rem', marginBottom: '.7rem' }} className="tab-grid">
                     {[
                       { title: 'Strategy Logic', body: strategyDescriptions[agent.strategy_type] || 'Systematic algorithmic strategy with defined entry and exit signals based on technical indicators.' },
-                      { title: 'Verification', body: 'Methodology disclosure submitted, ledger format validated, out-of-sample test passed. Real-time execution via Coinbase Exchange.' },
-                      { title: 'Execution', body: 'Trades execute on Coinbase at real market prices. Positions tracked per subscriber account for accurate P&L attribution.' },
-                      { title: 'Investment', body: 'Allocate real USD from your Coinbase account to fund the agent. Cancel anytime.' },
+                      { title: 'Verification', body: 'Methodology disclosure submitted, ledger format validated, out-of-sample test passed. Real-time execution via Alpaca.' },
+                      { title: 'Execution', body: 'Trades execute on Alpaca at real market prices. Positions tracked per subscriber account for accurate P&L attribution.' },
+                      { title: 'Investment', body: 'Allocate real USD from your Alpaca account to fund the agent. Cancel anytime.' },
                     ].map(({ title, body }) => (
                       <div key={title} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '1rem 1.1rem' }}>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--blue2)', marginBottom: '.45rem', textTransform: 'uppercase' }}>{title}</div>
@@ -588,8 +612,8 @@ export default function AgentDetailClient({
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--blue2)', marginBottom: '.6rem' }}>HOW IT WORKS</div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem' }} className="how-grid">
                     {[
-                      { n: '01', title: 'Allocate Funds', desc: 'Connect your Coinbase account and allocate USD to fund the agent.' },
-                      { n: '02', title: 'Agent Trades', desc: 'The algorithm trades on Coinbase at real prices. Track P&L in real-time.' },
+                      { n: '01', title: 'Allocate Funds', desc: 'Connect your Alpaca account and allocate USD to fund the agent.' },
+                      { n: '02', title: 'Agent Trades', desc: 'The algorithm trades on Alpaca at real prices. Track P&L in real-time.' },
                       { n: '03', title: 'Track Returns', desc: 'View your holdings and performance in your dashboard anytime.' },
                     ].map(({ n, title, desc }) => (
                         <div key={n}>
@@ -694,7 +718,7 @@ export default function AgentDetailClient({
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.7rem' }} className="tab-grid">
                   {[
                     { title: 'Logic', body: strategyDescriptions[agent.strategy_type] || 'Systematic strategy with defined entry and exit signals based on technical indicators.' },
-                    { title: 'Infrastructure', body: 'Executes via Coinbase Exchange at real market prices. Market data sourced from Yahoo Finance. Positions tracked per subscriber account.' },
+                    { title: 'Infrastructure', body: 'Executes via Alpaca at real market prices. Market data sourced from Alpaca. Positions tracked per subscriber account.' },
                     { title: 'Risk Management', body: 'Hard circuit breaker at 40% max drawdown — agent paused automatically. Position sizing enforced per signal. Verified via out-of-sample testing and Deflated Sharpe Ratio analysis.' },
                     { title: 'On-Chain Settlement (Planned)', body: 'ERC-3643 tokenized shares, Chainlink price feeds, and on-chain settlement planned for Phase 2. Current subscriptions tracked off-chain.' },
                   ].map(({ title, body }) => (
@@ -920,11 +944,16 @@ export default function AgentDetailClient({
                   <div>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.45rem' }}>LIVE TRADING</div>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: 'var(--muted)', lineHeight: 1.62, marginBottom: '.65rem' }}>
-                      Invest real USD from your Coinbase account to activate live trading.
+                      Invest real USD from your Alpaca account to activate live trading.
                     </div>
                     <button onClick={() => setShowInvestModal(true)} disabled={agent.alert_level === 'hard'} style={{ width: '100%', padding: '.62rem', borderRadius: 8, border: 0, background: 'linear-gradient(135deg, #3b7eff 0%, #7c5cff 100%)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.84rem', fontWeight: 700, cursor: agent.alert_level === 'hard' ? 'not-allowed' : 'pointer', letterSpacing: '-.01em', opacity: agent.alert_level === 'hard' ? .4 : 1 }}>
                       Invest USD
                     </button>
+                    {!isSubscribed && (
+                      <button onClick={toggleWatchlist} style={{ marginTop: '.5rem', width: '100%', padding: '.45rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: isWatched ? 'var(--muted)' : 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.7rem', cursor: 'pointer' }}>
+                        {isWatched ? '★ Remove from watchlist' : '☆ Add to watchlist'}
+                      </button>
+                    )}
                   </div>
                 )}
 

@@ -7,6 +7,7 @@ import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts'
 import { createClient } from '@/lib/supabase/client'
 import { useWallet } from '@/components/WalletProvider'
 import { fmtPct, fmtDateTime } from '@/lib/utils'
+import FundingModal from '@/components/FundingModal'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,6 +39,15 @@ type AgentActivity = {
   symbol: string
   last_trade_at: string
   signal_summary?: string
+}
+
+type AlpacaAccount = {
+  equity_cents: number
+  cash_cents: number
+  buying_power_cents: number
+  status: 'connected' | 'not_connected' | 'error'
+  account_id: string | null
+  message?: string
 }
 
 function getRelativeTime(dateStr: string): string {
@@ -81,14 +91,18 @@ export default function DashboardPage() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
   const [trades, setTrades] = useState<Trade[]>([])
   const [agentActivity, setAgentActivity] = useState<AgentActivity[]>([])
+  const [alpacaAccount, setAlpacaAccount] = useState<AlpacaAccount | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [showFunding, setShowFunding] = useState(false)
   const [equityData] = useState(generateEquityCurve)
+  const [watchlist, setWatchlist] = useState<{id: string; agent_id: string; agents: {id: string; name: string; slug: string; primary_symbol: string}}[]>([])
 
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
 
-      const [subsRes, tradesRes, agentsRes, statsRes] = await Promise.all([
+      const [subsRes, tradesRes, agentsRes, statsRes, accountRes] = await Promise.all([
         supabase
           .from('subscriptions')
           .select('id, agent_id, created_at, agents(id, name, slug, signal_summary, primary_symbol, strategy_type)')
@@ -108,7 +122,19 @@ export default function DashboardPage() {
           .from('agent_stats')
           .select('agent_id, total_return_pct, sharpe_ratio, max_drawdown_pct, win_rate_pct, nav_cents, snapshot_at')
           .order('snapshot_at', { ascending: false }),
+        fetch('/api/account/balance').then(r => r.json()).catch(() => null),
       ])
+
+      if (accountRes) {
+        setAlpacaAccount(accountRes as AlpacaAccount)
+      }
+
+      // Load watchlist
+      const watchlistRes = await fetch('/api/watchlist').catch(() => null)
+      if (watchlistRes) {
+        const data = await watchlistRes.json()
+        setWatchlist(data.watchlist || [])
+      }
 
       const statsMap: Record<string, { total_return_pct: number; sharpe_ratio: number; max_drawdown_pct: number; win_rate_pct: number; nav_cents: number; snapshot_at: string }> = {}
       for (const s of (statsRes.data ?? [])) {
@@ -212,7 +238,7 @@ export default function DashboardPage() {
         <div style={{ background: 'rgba(0,229,153,.05)', border: '1px solid var(--mint-border)', borderRadius: 16, padding: '.75rem 1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '.75rem' }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--mint)', display: 'inline-block', flexShrink: 0, boxShadow: '0 0 8px var(--mint)' }} />
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--mint)' }}>
-            {wallet.type === 'coinbase' ? 'Coinbase' : wallet.type === 'metamask' ? 'MetaMask' : 'Wallet'}: {shortAddress}
+            {wallet.type === 'coinbase' ? 'Coinbase Wallet' : wallet.type === 'metamask' ? 'MetaMask' : 'Wallet'}: {shortAddress}
           </span>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginLeft: 'auto' }}>
             {network ?? 'Unknown'}
@@ -227,20 +253,78 @@ export default function DashboardPage() {
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.5rem', marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
           <div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--muted)', letterSpacing: '.1em', marginBottom: '.25rem' }}>TOTAL EQUITY</div>
-            {wallet.connected ? (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--muted)', letterSpacing: '.1em', marginBottom: '.25rem' }}>TRADING ACCOUNT</div>
+            {alpacaAccount?.status === 'connected' ? (
               <>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.75rem', fontWeight: 700, color: 'var(--white)' }}>$—</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginTop: '.25rem' }}>Syncing from Coinbase...</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.75rem', fontWeight: 700, color: 'var(--white)' }}>${((alpacaAccount.equity_cents ?? alpacaAccount.cash_cents ?? 0) / 100).toFixed(2)}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginTop: '.25rem' }}>
+                  Cash: ${(alpacaAccount.cash_cents / 100).toFixed(2)} · Buying power: ${(alpacaAccount.buying_power_cents / 100).toFixed(2)}
+                </div>
               </>
             ) : (
-              <>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.75rem', fontWeight: 700, color: 'var(--faint)' }}>—</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginTop: '.25rem' }}>Connect Coinbase to view equity</div>
-              </>
+              <div style={{ padding: '1rem', background: 'rgba(59,127,255,0.08)', border: '1px dashed rgba(59,127,255,0.3)', borderRadius: 12 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: 'var(--blue2)', marginBottom: '0.5rem' }}>Get Started</div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '1rem', lineHeight: 1.5 }}>
+                  Connect your Alpaca trading account to invest in AI agents.
+                </div>
+                <button 
+                  onClick={() => window.location.href = '/api/auth/alpaca/connect'}
+                  style={{ display: 'inline-block', padding: '0.6rem 1.2rem', borderRadius: 8, border: 'none', background: 'var(--blue)', color: 'white', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Connect Alpaca Account →
+                </button>
+                <div style={{ fontSize: '0.7rem', color: 'var(--faint)', marginTop: '0.75rem' }}>
+                  Don't have Alpaca? <a href="https://app.alpaca.markets/" target="_blank" style={{ color: 'var(--blue2)' }}>Sign up free →</a>
+                </div>
+              </div>
             )}
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.75rem', color: 'var(--muted)', fontWeight: 600 }}>—</div>
+          <div style={{ display: 'flex', gap: '.5rem' }}>
+            {alpacaAccount?.status === 'connected' && (
+              <>
+                <button 
+                  onClick={() => window.open('https://dashboard.alpaca.markets/funding', '_blank')}
+                  style={{ padding: '.5rem 1rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '.7rem', cursor: 'pointer' }}
+                >
+                  Deposit →
+                </button>
+                <button 
+                  onClick={() => setShowFunding(true)}
+                  style={{ padding: '.5rem 1rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '.7rem', cursor: 'pointer' }}
+                >
+                  Deposit →
+                </button>
+                <button 
+                  onClick={() => window.open('https://dashboard.alpaca.markets/funding', '_blank')}
+                  style={{ padding: '.5rem 1rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '.7rem', cursor: 'pointer' }}
+                >
+                  Withdraw →
+                </button>
+                <button 
+                  onClick={async () => {
+                    setSyncing(true)
+                    await fetch('/api/account/sync', { method: 'POST' })
+                    const res = await fetch('/api/account/balance')
+                    const data = await res.json()
+                    setAlpacaAccount(data)
+                    setSyncing(false)
+                  }}
+                  disabled={syncing}
+                  style={{ padding: '.5rem 1rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '.7rem', cursor: syncing ? 'not-allowed' : 'pointer', opacity: syncing ? 0.5 : 1 }}
+                >
+                  {syncing ? 'Syncing...' : 'Sync'}
+                </button>
+              </>
+            )}
+            {alpacaAccount?.status !== 'connected' && (
+              <button 
+                onClick={() => window.location.href = '/api/auth/alpaca/connect'}
+                style={{ padding: '.5rem 1rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '.7rem', cursor: 'pointer' }}
+              >
+                Connect Alpaca →
+              </button>
+            )}
+          </div>
         </div>
         <div style={{ height: 200 }}>
           <ResponsiveContainer width="100%" height="100%">
@@ -351,6 +435,53 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* Watchlist */}
+          {watchlist.length > 0 && (
+            <div style={{ marginTop: '2rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--muted)', letterSpacing: '.1em', marginBottom: '1rem' }}>
+                WATCHLIST
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '.75rem' }}>
+                {watchlist.map(w => (
+                  <Link 
+                    key={w.id} 
+                    href={`/agents/${w.agents?.slug}`}
+                    style={{ 
+                      padding: '1rem', 
+                      borderRadius: 12, 
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg2)',
+                      textDecoration: 'none',
+                      display: 'flex', 
+                      flexDirection: 'column',
+                      gap: '0.25rem'
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, fontSize: '.85rem', color: 'var(--white)' }}>{w.agents?.name}</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)' }}>{w.agents?.primary_symbol}</div>
+                  </Link>
+                ))}
+                <Link 
+                  href="/agents"
+                  style={{ 
+                    padding: '1rem', 
+                    borderRadius: 12, 
+                    border: '1px dashed var(--border)',
+                    background: 'transparent',
+                    textDecoration: 'none',
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    color: 'var(--faint)',
+                    fontSize: '.85rem'
+                  }}
+                >
+                  + Add agent
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* Recent Trades Table */}
           {recentTrades.length > 0 && (
             <div style={{ marginTop: '2rem' }}>
@@ -426,6 +557,8 @@ export default function DashboardPage() {
         @media(max-width:1024px){.dash-main-grid{grid-template-columns:1fr!important}}
         @media(max-width:700px){.dash-stats-strip{grid-template-columns:repeat(2,1fr)!important}}
       `}</style>
+
+      {showFunding && <FundingModal onClose={() => setShowFunding(false)} onFunded={() => { setShowFunding(false); router.refresh() }} />}
     </div>
   )
 }

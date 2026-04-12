@@ -1,23 +1,31 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import CoinbaseConnectModal from './CoinbaseConnectModal'
+import AccountConnectModal from './AccountConnectModal'
 
 export default function WalletDashboard() {
-  const [balance, setBalance] = useState<number | null>(null)
+  const [balance, setBalance] = useState<{
+    equity_cents: number
+    cash_cents: number
+    buying_power_cents: number
+  } | null>(null)
   const [status, setStatus] = useState<'loading' | 'connected' | 'not_connected'>('loading')
   const [showConnect, setShowConnect] = useState(false)
   const [lastSynced, setLastSynced] = useState<string | null>(null)
 
   async function fetchBalance() {
     try {
-      const res = await fetch('/api/coinbase/balance')
+      const res = await fetch('/api/account/balance')
       const data = await res.json()
 
-      setBalance(data.usd_balance_cents)
-      setStatus(data.status)
-      if (data.last_synced_at) {
-        setLastSynced(new Date(data.last_synced_at).toLocaleTimeString())
+      setBalance({
+        equity_cents: data.equity_cents ?? 0,
+        cash_cents: data.cash_cents ?? 0,
+        buying_power_cents: data.buying_power_cents ?? 0,
+      })
+      setStatus(data.status === 'connected' ? 'connected' : 'not_connected')
+      if (data.updated_at) {
+        setLastSynced(new Date(data.updated_at).toLocaleTimeString())
       }
     } catch (error) {
       console.error('Failed to fetch balance:', error)
@@ -31,8 +39,9 @@ export default function WalletDashboard() {
     return () => clearInterval(interval)
   }, [])
 
-  const balanceDisplay =
-    balance !== null ? `$${(balance / 100).toFixed(2)}` : '—'
+  const equityDisplay = balance?.equity_cents != null ? `$${(balance.equity_cents / 100).toFixed(2)}` : '—'
+  const cashDisplay = balance?.cash_cents != null ? `$${(balance.cash_cents / 100).toFixed(2)}` : '—'
+  const buyingPowerDisplay = balance?.buying_power_cents != null ? `$${(balance.buying_power_cents / 100).toFixed(2)}` : '—'
 
   return (
     <>
@@ -45,7 +54,6 @@ export default function WalletDashboard() {
           marginBottom: '2rem',
         }}
       >
-        {/* Header */}
         <div
           style={{
             display: 'flex',
@@ -66,7 +74,7 @@ export default function WalletDashboard() {
                 letterSpacing: '.05em',
               }}
             >
-              Coinbase USD Balance
+              Trading Account Balance
             </h3>
             <div
               style={{
@@ -77,7 +85,7 @@ export default function WalletDashboard() {
                 fontFamily: 'var(--font-mono)',
               }}
             >
-              {balanceDisplay}
+              {equityDisplay}
             </div>
           </div>
 
@@ -135,7 +143,23 @@ export default function WalletDashboard() {
           )}
         </div>
 
-        {/* Info */}
+        {status === 'connected' && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
+            <div style={{ background: 'rgba(255,255,255,.03)', borderRadius: 10, padding: '.75rem 1rem' }}>
+              <div style={{ fontSize: '.65rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '.25rem' }}>Cash</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{cashDisplay}</div>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,.03)', borderRadius: 10, padding: '.75rem 1rem' }}>
+              <div style={{ fontSize: '.65rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '.25rem' }}>Buying Power</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{buyingPowerDisplay}</div>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,.03)', borderRadius: 10, padding: '.75rem 1rem' }}>
+              <div style={{ fontSize: '.65rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '.25rem' }}>Total Equity</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{equityDisplay}</div>
+            </div>
+          </div>
+        )}
+
         <div
           style={{
             background: 'rgba(59,127,255,.06)',
@@ -149,20 +173,20 @@ export default function WalletDashboard() {
         >
           {status === 'connected' ? (
             <>
-              This is your real Coinbase USD balance. When you invest in agents, this
-              amount is deducted and used for live trading.
+              This is your Alpaca trading account balance. Your funds remain in your brokerage.
+              When you invest in agents, they trade on your behalf using this capital.
             </>
           ) : (
             <>
-              Connect your Coinbase account to see your USD balance and invest in
-              trading agents.
+              Connect your trading account to see your balance and invest in trading agents.
+              Your capital stays in your brokerage — ASE only executes trades.
             </>
           )}
         </div>
       </div>
 
       {showConnect && (
-        <CoinbaseConnectModal
+        <AccountConnectModal
           onClose={() => setShowConnect(false)}
           onSuccess={() => {
             fetchBalance()

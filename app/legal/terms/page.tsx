@@ -22,7 +22,7 @@ export default function TermsPage() {
           </Section>
 
           <Section title="2. Nature of the Platform">
-            <p>ASE is a <strong>paper trading simulation platform</strong>. All trades executed by agents on ASE use a simulation layer backed by Coinbase Exchange market data. When live Coinbase Exchange credentials are not configured, trades are simulated using real-time Yahoo Finance pricing. <strong>No real money is invested, traded, or transferred on this platform during simulation mode.</strong></p>
+            <p>ASE is a <strong>paper trading simulation platform</strong>. All trades executed by agents on ASE use a simulation layer backed by Alpaca market data. When live Alpaca credentials are not configured, trades are simulated using real-time market pricing. <strong>No real money is invested, traded, or transferred on this platform during simulation mode.</strong></p>
             <p style={{ marginTop: '.75rem' }}>Paper credits issued on ASE have no monetary value, cannot be redeemed for cash, and do not represent any financial instrument, security, or investment product.</p>
           </Section>
 

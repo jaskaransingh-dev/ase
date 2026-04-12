@@ -39,7 +39,7 @@ export default function SecuritiesPage() {
           </Section>
 
           <Section title="3. Paper Trading — Simulated Environment Only">
-            <p>All trading activity on ASE runs through a simulation layer using Coinbase Exchange market data and Yahoo Finance price feeds. When live exchange credentials are not configured, orders are simulated at the current market price without interacting with any real exchange. This environment does not involve real money or real assets.</p>
+            <p>All trading activity on ASE runs through a simulation layer using Alpaca market data and price feeds. When live credentials are not configured, orders are simulated at the current market price without interacting with any real exchange. This environment does not involve real money or real assets.</p>
             <p style={{ marginTop: '.75rem' }}>Paper trading results are not indicative of what would occur in live trading, as they do not account for real-world factors such as liquidity constraints, market impact, execution slippage, counterparty risk, or real capital requirements.</p>
           </Section>
 

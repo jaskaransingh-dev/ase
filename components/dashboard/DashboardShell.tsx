@@ -18,19 +18,19 @@ export default function DashboardShell({ user, children }: { user: { id: string;
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
-  const [coinbaseConnected, setCoinbaseConnected] = useState(false)
+  const [accountConnected, setAccountConnected] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
-    fetch('/api/coinbase/balance')
+    fetch('/api/account/balance')
       .then(r => r.json())
-      .then(d => setCoinbaseConnected(d.status !== 'not_connected'))
+      .then(d => setAccountConnected(d.status !== 'not_connected'))
       .catch(() => null)
     
     const interval = setInterval(() => {
-      fetch('/api/coinbase/balance')
+      fetch('/api/account/balance')
         .then(r => r.json())
-        .then(d => setCoinbaseConnected(d.status !== 'not_connected'))
+        .then(d => setAccountConnected(d.status !== 'not_connected'))
         .catch(() => null)
     }, 30000)
     return () => clearInterval(interval)
@@ -77,7 +77,7 @@ export default function DashboardShell({ user, children }: { user: { id: string;
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-brand">
           <Link href="/" onClick={() => setSidebarOpen(false)} style={{ textDecoration: 'none' }}>
-            <Logo size="medium" variant="full" />
+            <Logo size="medium" variant="full" showLink={false} />
           </Link>
         </div>
 
@@ -110,7 +110,7 @@ export default function DashboardShell({ user, children }: { user: { id: string;
                 <div className="sidebar-user-name">{user.name || 'User'}</div>
                 <div className="sidebar-user-email">{user.email}</div>
               </div>
-              <div className={`sidebar-status-dot ${coinbaseConnected ? 'connected' : 'disconnected'}`} />
+              <div className={`sidebar-status-dot ${accountConnected ? 'connected' : 'disconnected'}`} />
             </Link>
             <button 
               onClick={handleSignOut}

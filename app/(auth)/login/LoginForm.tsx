@@ -149,35 +149,7 @@ export default function LoginForm() {
             Sign in to your ASE account
           </p>
 
-          {/* Coinbase OAuth */}
-          <div style={{ marginBottom: '1.5rem' }}>
-            <button
-              type="button"
-              onClick={() => {
-                const dest = redirect !== '/dashboard' ? `?redirect=${encodeURIComponent(redirect)}` : ''
-                window.location.href = `/api/auth/coinbase${dest}`
-              }}
-              style={{
-                width: '100%', padding: '.75rem 1rem', borderRadius: 12,
-                background: 'rgba(0,82,255,.08)', border: '1px solid rgba(0,82,255,.25)',
-                color: '#5b8eff', fontWeight: 700, fontSize: '.88rem',
-                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.65rem',
-                transition: 'all .2s',
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="12" fill="#0052FF"/>
-                <path d="M12 3.5A8.5 8.5 0 1 1 3.5 12 8.5 8.5 0 0 1 12 3.5zm0 3.5a5 5 0 1 0 5 5 5 5 0 0 0-5-5zm0 2a3 3 0 1 1-3 3 3 3 0 0 1 3-3z" fill="white"/>
-              </svg>
-              Continue with Coinbase
-            </button>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', margin: '1.25rem 0 0' }}>
-              <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-              <span style={{ fontSize: '.72rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', letterSpacing: '.06em' }}>OR</span>
-              <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-            </div>
-          </div>
+          
 
           <form
             onSubmit={handleLogin}

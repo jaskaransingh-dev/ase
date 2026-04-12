@@ -19,24 +19,24 @@ export default function SubscribeModal({ agentId, agentName, onClose, onSuccess 
   const [fetching, setFetching] = useState(true)
   const [agreed, setAgreed] = useState(false)
 
-  const [coinbaseStatus, setCoinbaseStatus] = useState<string>('cached')
+  const [accountStatus, setAccountStatus] = useState<string>('cached')
 
   useEffect(() => {
-    fetch('/api/coinbase/balance')
+    fetch('/api/account/balance')
       .then(r => r.json())
       .then(d => {
-        if (d.usd_balance_cents) {
-          setBalance(d.usd_balance_cents)
-          setCoinbaseStatus(d.status || 'cached')
+        if (d.equity_cents) {
+          setBalance(d.equity_cents)
+          setAccountStatus(d.status || 'cached')
         } else {
           setBalance(0)
-          setCoinbaseStatus(d.status || 'not_connected')
+          setAccountStatus(d.status || 'not_connected')
         }
       })
       .catch(() => {
-        console.warn('Could not fetch Coinbase balance')
+        console.warn('Could not fetch account balance')
         setBalance(0)
-        setCoinbaseStatus('error')
+        setAccountStatus('error')
       })
       .finally(() => setFetching(false))
   }, [])
@@ -124,10 +124,10 @@ export default function SubscribeModal({ agentId, agentName, onClose, onSuccess 
         >
           <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '1rem' }}>No USD Available</h2>
           <p style={{ color: 'var(--muted)', marginBottom: '1.5rem' }}>
-            You need USD in your Coinbase account to invest in trading agents.
+            You need USD in your Alpaca account to invest in trading agents.
           </p>
           <p style={{ fontSize: '.85rem', color: 'var(--faint)', marginBottom: '2rem' }}>
-            Go to Coinbase.com to deposit USD, then come back here to subscribe.
+            Go to Alpaca.markets to add funds, then come back here to subscribe.
           </p>
           <button
             onClick={onClose}
@@ -201,16 +201,16 @@ export default function SubscribeModal({ agentId, agentName, onClose, onSuccess 
           </button>
         </div>
 
-        {/* Coinbase Balance */}
+        {/* Alpaca Balance */}
         <div style={{ background: 'rgba(59,127,255,.06)', border: '1px solid rgba(59,127,255,.15)', borderRadius: 14, padding: '1rem', marginBottom: '1.5rem' }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.4rem', textTransform: 'uppercase' }}>
-            Coinbase USD Balance
+            Alpaca Trading Balance
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '2rem', fontWeight: 900, color: '#7aacff', marginBottom: '.25rem' }}>
             ${(maxAmount).toFixed(0)}
           </div>
           <div style={{ fontSize: '.7rem', color: 'var(--muted)' }}>
-            Real USD in your Coinbase account
+            Available cash in your Alpaca account
           </div>
         </div>
 
@@ -299,7 +299,7 @@ export default function SubscribeModal({ agentId, agentName, onClose, onSuccess 
             <div>
               <div style={{ fontWeight: 700, fontSize: '.9rem', marginBottom: '.3rem', color: '#fb7185' }}>Real USD Risk Acknowledgment</div>
               <div style={{ fontSize: '.78rem', color: 'var(--muted)', lineHeight: 1.65 }}>
-                I understand this is real money from my Coinbase account. Algorithmic trading involves substantial risk of loss. I may lose my entire investment. Past performance does not guarantee future results.
+                I understand this is real money from my Alpaca account. Algorithmic trading involves substantial risk of loss. I may lose my entire investment. Past performance does not guarantee future results.
               </div>
             </div>
           </label>

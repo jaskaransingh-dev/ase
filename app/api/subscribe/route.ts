@@ -5,11 +5,11 @@
  *
  * Combines:
  * 1. Create subscription (user follows agent)
- * 2. Invest real USD (user allocates Coinbase funds)
+ * 2. Invest real USD (user allocates Alpaca trading funds)
  * 3. Trigger immediate agent run (starts real trading)
  *
- * IMPORTANT: This uses REAL MONEY from user's Coinbase account.
- * Agents execute real trades on Coinbase live market.
+ * IMPORTANT: This uses REAL MONEY from user's Alpaca account.
+ * Agents execute real trades on Alpaca.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -34,15 +34,28 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdminClient()
 
-    // 1. Check wallet balance
-    const { data: wallet } = await admin
-      .from('wallets')
-      .select('balance_cents')
+    // 1. Check Alpaca account cash balance
+    const { data: connection } = await admin
+      .from('connected_accounts')
+      .select('id, status, api_key, api_secret, access_token')
       .eq('user_id', user.id)
+      .eq('provider', 'alpaca')
       .single()
 
-    if (!wallet || wallet.balance_cents < amount_cents) {
-      return NextResponse.json({ error: 'Insufficient Coinbase balance. Connect your Coinbase account and ensure you have enough USD.' }, { status: 400 })
+    if (!connection || connection.status !== 'active') {
+      return NextResponse.json({ error: 'No Alpaca account connected. Please connect your Alpaca account first.' }, { status: 400 })
+    }
+
+    // Get cash balance from account_balances table (synced from Alpaca)
+    const { data: balance } = await admin
+      .from('account_balances')
+      .select('cash_cents')
+      .eq('user_id', user.id)
+      .eq('provider', 'alpaca')
+      .single()
+
+    if (!balance || balance.cash_cents < amount_cents) {
+      return NextResponse.json({ error: 'Insufficient Alpaca cash balance. Add funds to your Alpaca account at alpaca.markets.' }, { status: 400 })
     }
 
     // 2. Get agent
@@ -88,14 +101,10 @@ export async function POST(req: NextRequest) {
     const newShares = amount_cents / askCents
 
     // 4. Atomic operations
-    // Deduct from wallet
-    await admin
-      .from('wallets')
-      .update({
-        balance_cents: wallet.balance_cents - amount_cents,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', user.id)
+    // Note: We're NOT deducting from any wallet. The investment represents
+    // capital allocation from the user's existing Alpaca trading balance.
+    // The user has already deposited USD to Alpaca - this subscription
+    // represents their commitment of capital to this agent's strategy.
 
     // Create/merge holding
     const holdingUpdate = await mergeHoldingPosition(admin, {

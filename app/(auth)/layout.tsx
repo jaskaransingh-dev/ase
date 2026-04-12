@@ -46,7 +46,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
             textDecoration: 'none',
           }}
         >
-          <Logo size="medium" />
+          <Logo size="medium" showLink={false} />
         </Link>
         <div
           style={{
@@ -87,7 +87,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           zIndex: 10,
         }}
       >
-        Agent Security Exchange · Not financial advice · Real USD trading via Coinbase
+        Agent Security Exchange · Not financial advice · Real USD trading via Alpaca
       </div>
     </div>
   )

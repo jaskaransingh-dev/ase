@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (!wallet || wallet.balance_cents < amount_cents) {
-      return NextResponse.json({ error: 'Insufficient Coinbase balance. Connect your Coinbase account and ensure you have enough USD.' }, { status: 400 })
+      return NextResponse.json({ error: 'Insufficient balance. Please sync your account or add funds.' }, { status: 400 })
     }
 
     // Get agent with current share price

@@ -3,48 +3,45 @@ import { NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
-  const clientId = process.env.COINBASE_CLIENT_ID
-  const clientSecret = process.env.COINBASE_CLIENT_SECRET
+  const clientId = process.env.ALPACA_CLIENT_ID
+  const clientSecret = process.env.ALPACA_CLIENT_SECRET
 
-  // If OAuth not configured, fail gracefully
   if (!clientId || !clientSecret) {
     return NextResponse.json(
-      { error: 'Coinbase OAuth not configured. Please contact support.' },
+      { error: 'Alpaca OAuth not configured. Please contact support.' },
       { status: 503 }
     )
   }
 
   const url = new URL(request.url)
-  // Preserve the redirect destination through the OAuth round-trip
   const redirectAfter = url.searchParams.get('redirect') ?? '/dashboard'
   const safeRedirect = redirectAfter.startsWith('/') && !redirectAfter.startsWith('//') ? redirectAfter : '/dashboard'
 
   const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || url.origin).replace(/\/+$/, '')
-  const redirectUri = `${baseUrl}/api/auth/coinbase/callback`
+  const redirectUri = `${baseUrl}/api/auth/alpaca/callback`
 
   const state = crypto.randomUUID()
 
-  const authUrl = new URL('https://login.coinbase.com/oauth2/auth')
+  const authUrl = new URL(process.env.ALPACA_OAUTH_URL || 'https://app.alpaca.markets/oauth/authorize')
   authUrl.searchParams.set('client_id', clientId)
   authUrl.searchParams.set('redirect_uri', redirectUri)
   authUrl.searchParams.set('response_type', 'code')
-  authUrl.searchParams.set('scope', 'wallet:user:read wallet:user:email')
+  authUrl.searchParams.set('scope', 'account:write trading:read')
   authUrl.searchParams.set('state', state)
 
   const response = NextResponse.redirect(authUrl.toString())
-  response.cookies.set('coinbase_oauth_state', state, {
+  response.cookies.set('alpaca_oauth_state', state, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    maxAge: 300,
+    maxAge: 600,
     path: '/',
   })
-  // Preserve post-login redirect destination
-  response.cookies.set('coinbase_oauth_redirect', safeRedirect, {
+  response.cookies.set('alpaca_oauth_redirect', safeRedirect, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    maxAge: 300,
+    maxAge: 600,
     path: '/',
   })
   return response
