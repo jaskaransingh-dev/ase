@@ -1,88 +1,54 @@
 import React from 'react'
+import Link from 'next/link'
 
 interface LogoProps {
   size?: 'small' | 'medium' | 'large'
   variant?: 'full' | 'icon'
   className?: string
   style?: React.CSSProperties
+  showLink?: boolean
 }
 
 export const Logo: React.FC<LogoProps> = ({ 
   size = 'medium', 
-  variant = 'full', 
+  variant = 'full',
   className = '',
-  style = {}
+  style = {},
+  showLink = true
 }) => {
   const sizeConfig = {
-    small: { fontSize: '1rem', letterSpacing: '0.1em' },
-    medium: { fontSize: '1.5rem', letterSpacing: '0.12em' },
-    large: { fontSize: '2rem', letterSpacing: '0.15em' }
+    small: { fontSize: '1rem' },
+    medium: { fontSize: '1.5rem' },
+    large: { fontSize: '2rem' }
   }
 
   const config = sizeConfig[size]
 
-  if (variant === 'icon') {
-    return (
-      <div 
-        className={className}
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontWeight: 700,
-          color: 'var(--ivory)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          ...config,
-          ...style
-        }}
-      >
-        <div style={{
-          width: size === 'small' ? '24px' : size === 'medium' ? '32px' : '40px',
-          height: size === 'small' ? '24px' : size === 'medium' ? '32px' : '40px',
-          background: 'linear-gradient(135deg, var(--blue) 0%, var(--purple) 100%)',
-          borderRadius: '8px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: size === 'small' ? '14px' : size === 'medium' ? '18px' : '24px',
-          color: 'white',
-          fontWeight: 800,
-        }}>
-          ASE
-        </div>
-      </div>
-    )
-  }
-
-  return (
+  const LogoContent = (
     <div 
       className={className}
       style={{
-        fontFamily: 'var(--font-mono)',
+        fontFamily: 'var(--font-serif)',
         fontWeight: 700,
-        color: 'var(--ivory)',
+        color: 'var(--white)',
         display: 'flex',
         alignItems: 'center',
-        gap: '0.5rem',
+        letterSpacing: '-0.04em',
         ...config,
         ...style
       }}
     >
-      <div style={{
-        width: size === 'small' ? '20px' : size === 'medium' ? '28px' : '36px',
-        height: size === 'small' ? '20px' : size === 'medium' ? '28px' : '36px',
-        background: 'linear-gradient(135deg, var(--blue) 0%, var(--purple) 100%)',
-        borderRadius: '6px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: size === 'small' ? '10px' : size === 'medium' ? '14px' : '18px',
-        color: 'white',
-        fontWeight: 800,
-      }}>
-        A
-      </div>
-      <span>ASE</span>
+      ase
     </div>
   )
+
+  if (showLink) {
+    return (
+      <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
+        {LogoContent}
+      </Link>
+    )
+  }
+
+  return LogoContent
 }

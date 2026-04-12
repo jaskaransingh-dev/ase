@@ -92,7 +92,7 @@ function LegalFooter() {
       <Link href="/legal/terms" style={{ color: 'var(--faint)' }}>Terms</Link>
       <Link href="/legal/privacy" style={{ color: 'var(--faint)' }}>Privacy</Link>
       <Link href="/legal/securities" style={{ color: 'var(--faint)' }}>Securities Disclaimer</Link>
-      <span>© 2026 Agent Securities Exchange</span>
+      <span>© 2026 ase</span>
     </footer>
   )
 }

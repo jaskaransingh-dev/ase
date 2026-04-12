@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link'
-import Image from 'next/image'
+import { Logo } from '@/components/ui/Logo'
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -46,23 +46,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
             textDecoration: 'none',
           }}
         >
-          <div style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: 'linear-gradient(135deg, var(--orange), var(--orange2))',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: 6,
-          }}>
-            <Image src="/logo.png" alt="ASE" width={20} height={20} style={{ filter: 'brightness(0) invert(1)' }} />
-          </div>
-          <span style={{
-            fontFamily: 'var(--font-display)',
-            fontWeight: 700,
-            fontSize: '1.1rem',
-            letterSpacing: '-.02em',
-            color: 'var(--white)',
-          }}>
-            ASE
-          </span>
+          <Logo size="medium" />
         </Link>
         <div
           style={{

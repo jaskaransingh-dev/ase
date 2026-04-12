@@ -15,6 +15,23 @@ interface AgentPreview {
   aum: number | null
   ticker: string
   isLive: boolean
+  agent_stats?: AgentStats[]
+  backtest_stats?: { stats?: BacktestStats }
+  subscriber_count?: number
+}
+
+interface AgentStats {
+  nav_cents: number
+  total_return_pct: number
+  sharpe_ratio: number
+  max_drawdown_pct: number
+  snapshot_at: string
+}
+
+interface BacktestStats {
+  totalReturnPct: number
+  sharpeRatio: number
+  maxDrawdownPct: number
 }
 
 function useInView(threshold = 0.15) {
@@ -32,44 +49,11 @@ function useInView(threshold = 0.15) {
   return { ref: ref as React.RefObject<HTMLDivElement>, visible }
 }
 
-const SparkNode = ({ className }: { className?: string }) => (
-  <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#F4EFE6" strokeWidth="1.5">
-    <circle cx="12" cy="12" r="3" />
-    <path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-  </svg>
-)
-
-const EyeIcon = ({ className }: { className?: string }) => (
-  <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-)
-
-const ShieldIcon = ({ className }: { className?: string }) => (
-  <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    <path d="M9 12l2 2 4-4" />
-  </svg>
-)
-
-const SparkleIcon = ({ className }: { className?: string }) => (
-  <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-    <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
-  </svg>
-)
-
-const BrainIcon = ({ className }: { className?: string }) => (
-  <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-    <circle cx="12" cy="12" r="9" />
-    <path d="M9 12a3 3 0 0 0 6 0M7 8a7 7 0 0 0 10 0M7 16a7 7 0 0 0 10 0" />
-  </svg>
-)
 
 function MiniSparkline({ positive }: { positive: boolean }) {
   const points = Array.from({ length: 20 }, (_, i) => {
     const base = 50
-    const variance = Math.sin(i * 0.5) * 20 + (Math.random() - 0.5) * 15
+    const variance = Math.sin(i * 0.5) * 20 + (Math.sin(i * 1.5) - 0.5) * 15
     const trend = positive ? i * 1.5 : -i * 0.8
     return `${i * 5},${base + variance + trend}`
   }).join(' ')
@@ -86,7 +70,6 @@ export default function LandingPage() {
   const [loading, setLoading] = useState(true)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
-  const [email, setEmail] = useState('')
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40)
@@ -112,10 +95,10 @@ export default function LandingPage() {
           setAgents([])
           return
         }
-        setAgents(data.map((a: any) => {
+        setAgents(data.map((a: AgentPreview) => {
           const statsArr = Array.isArray(a.agent_stats) ? a.agent_stats : (a.agent_stats ? [a.agent_stats] : [])
-          const latestStats = statsArr.length > 0 ? statsArr.reduce((a: any, b: any) => (a.snapshot_at > b.snapshot_at ? a : b)) : null
-          const bt = a.backtest_stats?.stats as any
+          const latestStats = statsArr.length > 0 ? statsArr.reduce((a: AgentStats, b: AgentStats) => (a.snapshot_at > b.snapshot_at ? a : b)) : null
+          const bt = a.backtest_stats?.stats
           return {
             name: a.name,
             slug: a.slug,
@@ -147,17 +130,17 @@ export default function LandingPage() {
   }
 
 
-  const statsSection = useInView()
-  const howItWorksSection = useInView()
-  const agentsSection = useInView()
-  const featuresSection = useInView()
-  const methodologySection = useInView()
-  const labSection = useInView()
-  const retailSection = useInView()
-  const ctaSection = useInView()
+  const liveTradingSection = useInView()
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--white)', fontFamily: 'var(--font-body)', overflowX: 'hidden' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--white)', fontFamily: 'var(--font-body)', overflowX: 'hidden', position: 'relative' }}>
+      {/* Global Background Effects */}
+      <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0,
+        backgroundImage: `linear-gradient(rgba(91,140,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(91,140,255,0.03) 1px, transparent 1px)`,
+        backgroundSize: '56px 56px', opacity: 0.5,
+      }} />
+      <div style={{ position: 'fixed', top: '10%', left: '-10%', width: 800, height: 800, borderRadius: '50%', background: 'radial-gradient(circle, rgba(79,124,255,.06) 0%, transparent 70%)', pointerEvents: 'none', filter: 'blur(100px)' }} />
+      <div style={{ position: 'fixed', bottom: '20%', right: '-5%', width: 600, height: 600, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,107,53,.04) 0%, transparent 70%)', pointerEvents: 'none', filter: 'blur(80px)' }} />
 
       {/* Fixed Navigation */}
       <nav style={{
@@ -171,18 +154,16 @@ export default function LandingPage() {
       }}>
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <Link href="/" style={{ display: 'flex', alignItems: 'center' }}>
-            <Logo size="medium" variant="full" />
-          </Link>
+          <Logo size="medium" showLink={false} />
         </div>
 
         {/* Nav Center - improved trust indicators */}
         <div className="desktop-only" style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', opacity: 0.85, fontSize: '.7rem' }}>
-          {[
-            { label: '✓ Verified', color: 'var(--blue)' },
-            { label: '● Live', color: 'var(--mint)' },
-            { label: '⛓ Audited', color: 'var(--text)' },
-          ].map((item, i) => (
+            {[
+              { label: 'VERIFIED', color: 'var(--blue)' },
+              { label: 'LIVE', color: 'var(--mint)' },
+              { label: 'AUDITED', color: 'var(--text)' },
+            ].map((item, i) => (
             <span key={i} style={{ color: item.color, fontFamily: 'var(--font-mono)', letterSpacing: '.04em' }}>
               {item.label}
             </span>
@@ -274,8 +255,8 @@ export default function LandingPage() {
       
       {/* Hero Section */}
       <section style={{
-        minHeight: '90vh', display: 'flex', alignItems: 'center',
-        padding: '6rem 2rem', position: 'relative', overflow: 'hidden',
+        minHeight: '100vh', display: 'flex', alignItems: 'center',
+        padding: '4rem 2rem 3rem', position: 'relative', overflow: 'hidden',
       }}>
         <div style={{ position: 'absolute', inset: 0,
           backgroundImage: `
@@ -287,28 +268,28 @@ export default function LandingPage() {
         <div style={{ position: 'absolute', top: '20%', left: '5%', width: 600, height: 600, borderRadius: '50%', background: 'radial-gradient(circle, rgba(79,124,255,.08) 0%, transparent 70%)', pointerEvents: 'none', filter: 'blur(80px)' }} />
         <div style={{ position: 'absolute', top: '30%', right: '15%', width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,107,53,.06) 0%, transparent 70%)', pointerEvents: 'none', filter: 'blur(60px)' }} />
 
-        <div style={{ position: 'relative', zIndex: 1, maxWidth: 1400, margin: '0 auto', width: '100%', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3rem', alignItems: 'center' }}>
+        <div style={{ position: 'relative', zIndex: 1, maxWidth: 1200, margin: '0 auto', width: '100%', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', alignItems: 'center' }}>
           {/* Left Content */}
-          <div style={{ maxWidth: 480 }}>
+          <div style={{ maxWidth: 420 }}>
             <h1 style={{
-              fontFamily: 'var(--font-serif)', fontSize: 'clamp(2.25rem, 5vw, 3.5rem)', fontWeight: 700,
-              lineHeight: 1.1, letterSpacing: '-0.03em', marginBottom: '1.25rem',
+              fontFamily: 'var(--font-serif)', fontSize: 'clamp(2rem, 4.5vw, 3rem)', fontWeight: 700,
+              lineHeight: 1.1, letterSpacing: '-0.03em', marginBottom: '1rem',
               color: 'var(--ivory)',
             }}>
-              Invest in AI agents that trade real markets.
+              Agent Securities Exchange
             </h1>
             
             <p style={{
-              fontSize: 'clamp(0.92rem, 1.2vw, 1.05rem)', color: 'var(--text)',
-              lineHeight: 1.65, marginBottom: '2rem',
+              fontSize: 'clamp(0.85rem, 1.1vw, 1rem)', color: 'var(--text)',
+              lineHeight: 1.6, marginBottom: '1.5rem',
               fontWeight: 400,
-              maxWidth: 480,
+              maxWidth: 420,
             }}>
               Verified performance, live execution, and transparent risk metrics for algorithmic trading agents.
             </p>
 
             {/* CTA - better styled */}
-            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
               <Link href="/agents" className="btn-primary" style={{
                 padding: '0.85rem 1.75rem', whiteSpace: 'nowrap', fontSize: '.92rem',
                 borderRadius: 12,
@@ -327,7 +308,7 @@ export default function LandingPage() {
               >
                 View Live Agents
               </Link>
-              <Link href="#how-it-works" className="btn-secondary" style={{
+              <Link href="#verified-agents" className="btn-secondary" style={{
                 padding: '0.85rem 1.75rem', whiteSpace: 'nowrap', fontSize: '.92rem',
                 borderRadius: 12,
                 transition: 'all 0.3s ease',
@@ -341,29 +322,29 @@ export default function LandingPage() {
                 e.currentTarget.style.color = 'var(--text)'
               }}
               >
-                How It Works
+                Verified Agents
               </Link>
             </div>
             
             {/* Microcopy under CTA */}
-            <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '2rem' }}>
+            <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '1.5rem' }}>
               Explore live agents before connecting an exchange.
             </p>
             
             {/* Trust modules - compact row */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
               {[
-                { label: 'Verified Performance', icon: '✓' },
-                { label: 'Live Agent Monitoring', icon: '●' },
-                { label: 'Transparent Risk Metrics', icon: '◆' },
+                { label: 'Verified Performance', symbol: 'V' },
+                { label: 'Live Agent Monitoring', symbol: 'L' },
+                { label: 'Transparent Risk Metrics', symbol: 'R' },
               ].map((item, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <span style={{ 
                     width: 16, height: 16, borderRadius: 4, 
                     background: 'var(--blue-dim)', border: '1px solid var(--blue-glow)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '.55rem', color: 'var(--blue)', 
-                  }}>{item.icon}</span>
+                    fontSize: '.55rem', color: 'var(--blue)', fontWeight: 700,
+                  }}>{item.symbol}</span>
                   <span style={{ fontSize: '.75rem', color: 'var(--muted)' }}>{item.label}</span>
                 </div>
               ))}
@@ -371,7 +352,7 @@ export default function LandingPage() {
           </div>
 
           {/* NEW: Strategy Core Hero Visual */}
-          <div style={{ position: 'relative', height: 480, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'relative', height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {/* Grid background */}
             <div style={{
               position: 'absolute', inset: 0,
@@ -528,7 +509,7 @@ export default function LandingPage() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                       <span style={{ 
                         width: 20, height: 20, borderRadius: 4, 
-                        background: 'var(--blue)', 
+                        background: 'var(--bg2)', border: '1px solid var(--border)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontFamily: 'var(--font-mono)', fontSize: '.4rem', fontWeight: 700, color: 'var(--white)',
                       }}>{agent.ticker}</span>
@@ -577,25 +558,35 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Trust Metrics - Credibility backed */}
-      <section ref={statsSection.ref} style={{
-        minHeight: '85vh', display: 'flex', alignItems: 'center',
-        padding: '3rem 2.5rem', maxWidth: 1400, margin: '0 auto',
-        opacity: statsSection.visible ? 1 : 0,
-        transform: statsSection.visible ? 'translateY(0)' : 'translateY(40px)',
-        transition: 'opacity 0.8s ease, transform 0.8s ease',
+      {/* Platform Stats + How It Works - Combined */}
+      <section style={{
+        minHeight: '100vh', padding: '4rem 2.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center',
+        background: 'var(--bg)',
       }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1.5rem' }} className="stats-grid">
+        {/* Main Header */}
+        <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
+          <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(2rem, 4vw, 3rem)', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--ivory)', marginBottom: '1rem' }}>
+            Platform Stats
+          </h2>
+          <p style={{ fontSize: '1rem', color: 'var(--muted)', maxWidth: 600, margin: '0 auto' }}>
+            Real-time metrics from our live trading agents
+          </p>
+        </div>
+
+        {/* Stats - Horizontal Timeline Style */}
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'stretch', gap: '1.5rem', marginBottom: '5rem', flexWrap: 'wrap' }}>
           {[
-            { num: '12', label: 'Verified Agents', sub: 'Live + audit trail' },
-            { num: '$4.2M', label: 'Tracked Capital', sub: 'Subscribed NAV' },
-            { num: '+24.8%', label: 'Median Return', sub: 'Live verified', color: 'var(--mint)' },
-            { num: '60s', label: 'NAV Refresh', sub: 'Real-time sync', hasPulse: true },
+            { num: '12', label: 'Verified Agents', sub: 'Live + audit trail', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
+            { num: '$4.2M', label: 'Tracked Capital', sub: 'Subscribed NAV', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M5 18H3a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2M5 18v-2a2 2 0 00-2-2h10a2 2 0 002 2v2', color: 'var(--mint)' },
+            { num: '+24.8%', label: 'Median Return', sub: 'Live verified', icon: 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6', color: 'var(--mint)' },
+            { num: '60s', label: 'NAV Refresh', sub: 'Real-time sync', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', hasPulse: true },
           ].map((stat, i) => (
             <div key={i} style={{ 
-              padding: '1.5rem', borderRadius: 10, 
-              background: 'var(--bg2)', border: '1px solid var(--border)',
+              padding: '1.5rem 2rem', borderRadius: 16, 
+              background: 'var(--bg3)', border: '1px solid var(--border)',
               position: 'relative',
+              minWidth: 180,
+              textAlign: 'center',
             }}>
               {stat.hasPulse && (
                 <span style={{ 
@@ -605,75 +596,66 @@ export default function LandingPage() {
                   animation: 'breathe 2.5s ease-in-out infinite',
                 }} />
               )}
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.25rem', fontWeight: 700, color: stat.color ?? 'var(--ivory)', marginBottom: '.2rem', letterSpacing: '-0.02em' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={stat.color || 'var(--blue)'} strokeWidth="1.5" style={{ marginBottom: '0.75rem', opacity: 0.7 }}>
+                <path d={stat.icon} strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.5rem', fontWeight: 700, color: stat.color ?? 'var(--ivory)', marginBottom: '.2rem', letterSpacing: '-0.02em' }}>
                 {stat.num}
               </div>
-              <div style={{ fontSize: '.7rem', fontWeight: 600, marginBottom: '.1rem', color: 'var(--white)' }}>{stat.label}</div>
-              <div style={{ fontSize: '.6rem', color: 'var(--faint)' }}>{stat.sub}</div>
+              <div style={{ fontSize: '.8rem', fontWeight: 600, marginBottom: '.1rem', color: 'var(--white)' }}>{stat.label}</div>
+              <div style={{ fontSize: '.65rem', color: 'var(--faint)' }}>{stat.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* How It Works - Connected Flow */}
+        <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
+          <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(2rem, 4vw, 2.5rem)', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--ivory)' }}>
+            How It Works
+          </h2>
+        </div>
+        
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', gap: '1rem', maxWidth: 1100, margin: '0 auto' }}>
+          {[
+            { step: '01', title: 'Browse Agents', desc: 'Explore verified trading strategies with transparent performance metrics.', icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z' },
+            { step: '02', title: 'Connect Exchange', desc: 'Link your exchange API. Your funds stay in your custody.', icon: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1' },
+            { step: '03', title: 'Agents Trade', desc: 'AI agents execute trades 24/7. Monitor performance in real-time.', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
+          ].map((item, i) => (
+            <div key={i} style={{ 
+              padding: '2rem', borderRadius: 16, 
+              background: 'var(--bg2)', border: '1px solid var(--border)',
+              flex: 1,
+              position: 'relative',
+            }}>
+              {i < 2 && (
+                <div style={{ position: 'absolute', top: '50%', right: '-1rem', transform: 'translateY(-50%)', zIndex: 1, color: 'var(--border)' }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+              )}
+              <div style={{ 
+                width: 48, height: 48, borderRadius: 12, 
+                background: 'var(--blue-dim)', border: '1px solid var(--blue-glow)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                marginBottom: '1rem',
+              }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d={item.icon} />
+                </svg>
+              </div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--blue)', letterSpacing: '.12em', marginBottom: '0.5rem' }}>{item.step}</div>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--white)' }}>{item.title}</h3>
+              <p style={{ fontSize: '.8rem', color: 'var(--muted)', lineHeight: 1.5 }}>{item.desc}</p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* NEW: How It Works - 4 Step Flow */}
-      <section ref={howItWorksSection.ref} id="how-it-works" style={{
-        minHeight: '85vh', display: 'flex', alignItems: 'center',
-        padding: '3rem 2.5rem',
-        background: 'var(--bg2)',
-        opacity: howItWorksSection.visible ? 1 : 0,
-        transform: howItWorksSection.visible ? 'translateY(0)' : 'translateY(40px)',
-        transition: 'opacity 0.8s ease, transform 0.8s ease',
-      }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto', width: '100%' }}>
-          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', letterSpacing: '.14em', color: 'var(--blue)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '.5rem' }}>
-              How It Works
-            </div>
-            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(1.5rem, 4vw, 2rem)', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--ivory)' }}>
-              From Discovery to Investment
-            </h2>
-          </div>
-          
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1.5rem', position: 'relative' }}>
-            {/* Connector line */}
-            <div style={{ 
-              position: 'absolute', top: 28, left: '12%', right: '12%', height: 2, 
-              background: 'var(--border)', 
-            }} />
-            
-            {[
-              { step: '01', title: 'Browse verified agents', desc: 'Explore live agents with transparent metrics, strategy profiles, and performance history.' },
-              { step: '02', title: 'Compare return & risk', desc: 'Review Sharpe ratios, drawdowns, and benchmark performance to find your fit.' },
-              { step: '03', title: 'Connect or simulate', desc: 'Connect via exchange API or start in simulation. Your funds stay in your custody.' },
-              { step: '04', title: 'Monitor live', desc: 'Track NAV, positions, and alerts in real-time. Adjust allocation anytime.' },
-            ].map((item, i) => (
-              <div key={i} style={{ position: 'relative', zIndex: 1 }}>
-                <div style={{
-                  width: 44, height: 44, borderRadius: '50%',
-                  background: 'var(--bg3)', border: '2px solid var(--blue)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  marginBottom: '1rem',
-                }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', fontWeight: 700, color: 'var(--blue)' }}>
-                    {item.step}
-                  </span>
-                </div>
-                <h3 style={{ fontSize: '.85rem', fontWeight: 600, marginBottom: '.35rem', color: 'var(--white)' }}>
-                  {item.title}
-                </h3>
-                <p style={{ fontSize: '.72rem', color: 'var(--muted)', lineHeight: 1.5 }}>
-                  {item.desc}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Agents Marketplace */}
-      <section ref={agentsSection.ref} style={{ minHeight: '85vh', padding: '3rem 2.5rem', background: 'var(--bg)', opacity: agentsSection.visible ? 1 : 0, transform: agentsSection.visible ? 'translateY(0)' : 'translateY(40px)', transition: 'opacity 0.8s ease, transform 0.8s ease' }}>
+      {/* Live Trading Agents */}
+      <section ref={liveTradingSection.ref} style={{ minHeight: '100vh', padding: '4rem 2.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center', background: 'var(--bg)', opacity: liveTradingSection.visible ? 1 : 0, transform: liveTradingSection.visible ? 'translateY(0)' : 'translateY(40px)', transition: 'opacity 0.8s ease, transform 0.8s ease' }}>
         <div style={{ maxWidth: 1400, margin: '0 auto' }}>
-          <div style={{ marginBottom: '2rem' }}>
+          <div style={{ marginBottom: '1.5rem' }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.14em', color: 'var(--ivory)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '.5rem' }}>
               Marketplace
             </div>
@@ -686,7 +668,7 @@ export default function LandingPage() {
           </div>
 
           {/* Filters and Sort */}
-          <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               {['All', 'Arbitrage', 'Momentum', 'Trend', 'Volatility'].map((type, i) => (
                 <button key={type} style={{
@@ -715,7 +697,7 @@ export default function LandingPage() {
 
           {/* Agent Cards Grid */}
           {loading ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.25rem' }}>
               {[...Array(3)].map((_, i) => (
                 <div key={i} className="skeleton" style={{ height: 220, borderRadius: 12 }} />
               ))}
@@ -726,13 +708,13 @@ export default function LandingPage() {
               <Link href="/agents" style={{ color: 'var(--blue)', fontSize: '.85rem' }}>Browse all agents →</Link>
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.5rem' }} className="agents-grid">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.25rem' }} className="agents-grid">
               {agents.map((agent, i) => {
                 const isPos = (agent.ret ?? 0) >= 0
                 const risk = getRiskLevel(agent.max_drawdown)
                 const confidence = agent.sharpe !== null ? Math.min(95, Math.round(60 + (agent.sharpe * 15))) : null
                 return (
-                  <Link key={i} href={`/agents/${agent.slug}`} className="agent-card" style={{ transition: 'all 0.3s ease', padding: '1.5rem' }}
+                  <Link key={i} href={`/agents/${agent.slug}`} className="agent-card" style={{ transition: 'all 0.3s ease', padding: '1.25rem' }}
                     onMouseEnter={e => {
                       e.currentTarget.style.transform = 'translateY(-4px)'
                       e.currentTarget.style.boxShadow = '0 12px 40px rgba(91,140,255,0.15)'
@@ -744,7 +726,7 @@ export default function LandingPage() {
                   >
                     <MiniSparkline positive={isPos} />
 
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem', position: 'relative', zIndex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.25rem', position: 'relative', zIndex: 1 }}>
                       <div style={{ display: 'flex', gap: '.75rem', alignItems: 'center' }}>
                         <div style={{ 
                           width: 48, height: 48, borderRadius: 12, 
@@ -775,7 +757,7 @@ export default function LandingPage() {
                     </div>
 
                     {/* Primary Return */}
-                    <div style={{ marginBottom: '1rem', position: 'relative', zIndex: 1 }}>
+                    <div style={{ marginBottom: '0.75rem', position: 'relative', zIndex: 1 }}>
                       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)', marginBottom: '.25rem', letterSpacing: '.1em' }}>1Y RETURN</div>
                       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.75rem', fontWeight: 700, color: isPos ? 'var(--mint)' : 'var(--red)' }}>
                         {agent.ret !== null ? fmtPct(agent.ret) : '—'}
@@ -786,7 +768,7 @@ export default function LandingPage() {
                     {confidence !== null && (
                       <div style={{ 
                         display: 'flex', alignItems: 'center', gap: '0.5rem', 
-                        marginBottom: '1rem', padding: '0.4rem 0.6rem', 
+                        marginBottom: '0.75rem', padding: '0.4rem 0.6rem', 
                         background: 'var(--bg3)', borderRadius: 6,
                         border: '1px solid var(--border)'
                       }}>
@@ -799,7 +781,7 @@ export default function LandingPage() {
                     )}
 
                     {/* Secondary Metrics Grid */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)', position: 'relative', zIndex: 1 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.875rem', paddingTop: '0.875rem', borderTop: '1px solid var(--border)', position: 'relative', zIndex: 1 }}>
                       <div>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', marginBottom: '.2rem', letterSpacing: '.08em' }}>SHARPE</div>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', fontWeight: 600, color: 'var(--white)' }}>
@@ -836,7 +818,7 @@ export default function LandingPage() {
             </div>
           )}
 
-          <div style={{ textAlign: 'center', marginTop: '2rem' }}>
+          <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
             <Link href="/agents" className="btn-secondary" style={{ fontSize: '.85rem', padding: '.6rem 1.5rem', display: 'inline-block' }}>
               View All Agents
             </Link>
@@ -844,180 +826,200 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Value Proposition - 4 Principles */}
-      <section ref={featuresSection.ref} style={{
-        minHeight: '85vh', display: 'flex', alignItems: 'center', padding: '3rem 2.5rem',
-        background: 'var(--bg2)',
-        opacity: featuresSection.visible ? 1 : 0,
-        transform: featuresSection.visible ? 'translateY(0)' : 'translateY(40px)',
-        transition: 'opacity 0.8s ease, transform 0.8s ease',
+      {/* Why Investors Trust - Full Page */}
+      <section style={{
+        minHeight: '100vh', padding: '6rem 2.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center',
+        background: 'var(--bg)',
       }}>
         <div style={{ maxWidth: 1400, margin: '0 auto', width: '100%' }}>
-          <div style={{ marginBottom: '2rem', textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.14em', color: 'var(--blue)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '.5rem' }}>
-              Platform Principles
-            </div>
-            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(1.5rem, 4vw, 2rem)', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--ivory)' }}>
-              Why investors trust ASE
+          <div style={{ marginBottom: '4rem', textAlign: 'center' }}>
+            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(2rem, 4vw, 3rem)', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--ivory)' }}>
+              Why Investors Trust
             </h2>
+            <p style={{ fontSize: '1rem', color: 'var(--muted)', marginTop: '1rem', maxWidth: 600, margin: '1rem auto 0' }}>
+              Every agent is verified, monitored, and transparent. Here's how we ensure integrity.
+            </p>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1.5rem' }}>
-            {[
-              { title: 'Transparent Performance', desc: 'Every listed agent exposes its return history, drawdowns, trade activity, and benchmark context.', icon: '✓', color: 'var(--blue)' },
-              { title: 'Quantitative Discipline', desc: 'Strategies execute exactly as programmed. No emotional overrides, no fatigue.', icon: '⚡', color: 'var(--mint)' },
-              { title: 'Controlled Risk', desc: 'Clear risk metrics, drawdown limits, and position sizing guards on every strategy.', icon: '🛡', color: 'var(--orange)' },
-              { title: 'Connected Execution', desc: 'Your funds stay in your custody. Agents trade on your behalf via secure API.', icon: '🔗', color: 'var(--purple)' },
-            ].map((feat, i) => (
+              {[
+                { title: 'Transparent Performance', desc: 'Every agent exposes complete return history, drawdowns, trade activity, and benchmark context.', color: 'var(--blue)', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
+                { title: 'Quantitative Discipline', desc: 'Strategies execute exactly as programmed. No emotional overrides, no fatigue, just pure logic.', color: 'var(--mint)', icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
+                { title: 'Controlled Risk', desc: 'Clear risk metrics, drawdown limits, and position sizing guards protect your capital on every trade.', color: 'var(--orange)', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
+                { title: 'Self-Custody', desc: 'Your funds stay in your exchange. Agents trade on your behalf via secure API keys you control.', color: 'var(--purple)', icon: 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z' },
+              ].map((feat, i) => (
               <div key={i} style={{ 
-                padding: '1.25rem', borderRadius: 10, 
+                padding: '2rem', borderRadius: 16, 
                 background: 'var(--bg2)', border: '1px solid var(--border)',
-                opacity: featuresSection.visible ? 1 : 0,
-                transform: featuresSection.visible ? 'translateY(0)' : 'translateY(30px)',
-                transition: `all 0.5s ease ${i * 0.1}s`,
+                transition: 'all 0.3s ease',
               }}>
                 <div style={{ 
-                  width: 32, height: 32, borderRadius: 8, 
+                  width: 56, height: 56, borderRadius: 12, 
                   background: `${feat.color}15`, border: `1px solid ${feat.color}30`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  marginBottom: '0.75rem', fontSize: '1rem',
+                  marginBottom: '1.25rem',
                 }}>
-                  {feat.icon}
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={feat.color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d={feat.icon} />
+                  </svg>
                 </div>
-                <h3 style={{ fontSize: '.9rem', fontWeight: 600, marginBottom: '.35rem', color: 'var(--white)' }}>{feat.title}</h3>
-                <p style={{ fontSize: '.72rem', color: 'var(--muted)', lineHeight: 1.5 }}>{feat.desc}</p>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '0.75rem', color: 'var(--white)' }}>{feat.title}</h3>
+                <p style={{ fontSize: '.85rem', color: 'var(--muted)', lineHeight: 1.6 }}>{feat.desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Methodology - How verification works */}
-      <section ref={methodologySection.ref} style={{
-        minHeight: '85vh', display: 'flex', alignItems: 'center',
-        padding: '3rem 2.5rem',
+      {/* How Verification Works - Full Page */}
+      <section style={{
+        minHeight: '100vh', padding: '6rem 2.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center',
         background: 'var(--bg2)',
-        opacity: methodologySection.visible ? 1 : 0,
-        transform: methodologySection.visible ? 'translateY(0)' : 'translateY(40px)',
-        transition: 'opacity 0.8s ease, transform 0.8s ease',
       }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', width: '100%' }}>
-          <div style={{ marginBottom: '2rem', textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', letterSpacing: '.14em', color: 'var(--blue)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '.5rem' }}>
-              Verification Methodology
-            </div>
-            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(1.5rem, 4vw, 2rem)', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--ivory)' }}>
-              How verification works
+          <div style={{ marginBottom: '4rem', textAlign: 'center' }}>
+            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(2rem, 4vw, 3rem)', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--ivory)' }}>
+              How Verification Works
             </h2>
-          </div>
-          
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
-            {[
-              { step: '01', title: 'Backtest Review', desc: 'Quantitative integrity checks. Verify code correctness, data quality, and methodology soundness.' },
-              { step: '02', title: 'Live Verification', desc: '30-day parallel live environment. Performance tracked against backtest projections.' },
-              { step: '03', title: 'Audit Trail', desc: 'Ongoing verification of execution quality. All trades logged with timestamps.' },
-            ].map((item, i) => (
-              <div key={i} style={{ padding: '1.25rem', borderRadius: 10, background: 'var(--bg3)', border: '1px solid var(--border)' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--blue)', letterSpacing: '.1em', marginBottom: '0.5rem' }}>{item.step}</div>
-                <h3 style={{ fontSize: '.9rem', fontWeight: 600, marginBottom: '0.35rem', color: 'var(--white)' }}>{item.title}</h3>
-                <p style={{ fontSize: '.72rem', color: 'var(--muted)', lineHeight: 1.5 }}>{item.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Builder/Lab Tease */}
-      <section ref={labSection.ref} style={{
-        minHeight: '85vh', display: 'flex', alignItems: 'center',
-        padding: '3rem 2.5rem',
-        background: 'var(--bg)',
-        opacity: labSection.visible ? 1 : 0,
-        transform: labSection.visible ? 'translateY(0)' : 'translateY(40px)',
-        transition: 'opacity 0.8s ease, transform 0.8s ease',
-      }}>
-        <div style={{
-          position: 'relative', zIndex: 1, maxWidth: 1100, margin: '0 auto', width: '100%',
-          display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '3rem', alignItems: 'center',
-        }}>
-          {/* Left: Builder message */}
-          <div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.14em', color: 'var(--purple)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '.5rem' }}>
-              For Builders
-            </div>
-            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(1.5rem, 4vw, 2rem)', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '1rem', color: 'var(--ivory)' }}>
-              Backtest. Validate. List.
-            </h2>
-            <p style={{ fontSize: '1rem', color: 'var(--text)', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-              Backtest in Python. Validate performance. Submit for review. List on ASE. Complete pipeline from strategy to marketplace in one platform.
+            <p style={{ fontSize: '1rem', color: 'var(--muted)', marginTop: '1rem', maxWidth: 600, margin: '1rem auto 0' }}>
+              Every agent passes through our rigorous verification pipeline before listing.
             </p>
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <Link href="/dashboard/backtest" className="btn-primary" style={{ fontSize: '.9rem', padding: '.7rem 1.5rem' }}>
-                Enter the Lab
-              </Link>
-              <Link href="/builders/submit" className="btn-secondary" style={{ fontSize: '.9rem', padding: '.7rem 1.5rem' }}>
-                Submit Strategy
-              </Link>
-            </div>
           </div>
           
-          {/* Right: Capabilities grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2rem' }}>
             {[
-              { title: 'Python Backtesting', desc: 'Historical data access + strategy testing' },
-              { title: 'Benchmark Comparison', desc: 'vs BTC, ETH, SPY, custom baskets' },
-              { title: 'Automated Review', desc: 'Quantitative integrity checks' },
-              { title: 'Submission Pipeline', desc: 'End-to-end listing workflow' },
-              { title: 'Profile Generation', desc: 'Auto-generated strategy profiles' },
-              { title: 'API Access', desc: 'Programmatic execution controls' },
-            ].map((cap, i) => (
-              <div key={i} style={{
-                padding: '1.25rem', borderRadius: 10,
-                background: 'var(--bg2)', border: '1px solid var(--border)',
+              { step: '01', title: 'Backtest Review', desc: 'Quantitative integrity checks. We verify code correctness, data quality, and methodology soundness through automated analysis.', color: 'var(--blue)', timeline: 'Week 1-2' },
+              { step: '02', title: 'Live Simulation', desc: '30-day parallel live environment. Performance is tracked against backtest projections to ensure consistency.', color: 'var(--mint)', timeline: 'Week 3-4' },
+              { step: '03', title: 'Audit Trail', desc: 'Ongoing verification of execution quality. All trades are logged with timestamps, prices, and full transparency.', color: 'var(--purple)', timeline: 'Ongoing' },
+            ].map((item, i) => (
+              <div key={i} style={{ 
+                padding: '2.5rem', borderRadius: 16, 
+                background: 'var(--bg3)', border: '1px solid var(--border)',
+                position: 'relative',
+                overflow: 'hidden',
               }}>
-                <div style={{ fontSize: '.85rem', fontWeight: 600, marginBottom: '.35rem', color: 'var(--white)' }}>{cap.title}</div>
-                <div style={{ fontSize: '.7rem', color: 'var(--muted)' }}>{cap.desc}</div>
+                <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 4, background: item.color }} />
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: item.color, letterSpacing: '.15em', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <span style={{ padding: '0.25rem 0.5rem', borderRadius: 4, background: `${item.color}15`, border: `1px solid ${item.color}30` }}>{item.step}</span>
+                  <span style={{ color: 'var(--faint)' }}>{item.timeline}</span>
+                </div>
+                <h3 style={{ fontSize: '1.3rem', fontWeight: 600, marginBottom: '0.75rem', color: 'var(--white)' }}>{item.title}</h3>
+                <p style={{ fontSize: '.9rem', color: 'var(--muted)', lineHeight: 1.6 }}>{item.desc}</p>
+                
+                {i < 2 && (
+                  <div style={{ position: 'absolute', top: '50%', right: '-1rem', transform: 'translateY(-50%)', color: 'var(--border)' }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                )}
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      
-
-      {/* Join CTA - for retail investors */}
+      {/* For Builders - Full Page */}
       <section style={{
-        minHeight: '85vh', display: 'flex', alignItems: 'center',
-        padding: '3rem 2.5rem',
+        minHeight: '100vh', padding: '6rem 2.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center',
+        background: 'var(--bg2)',
+      }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', width: '100%' }}>
+          <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
+            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(2rem, 4vw, 3rem)', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--ivory)' }}>
+              For Builders
+            </h2>
+            <p style={{ fontSize: '1rem', color: 'var(--muted)', marginTop: '1rem', maxWidth: 600, margin: '1rem auto 0' }}>
+              Turn your trading strategies into an asset. Build once, list globally, earn from performance.
+            </p>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '2rem', marginBottom: '3rem' }}>
+            {[
+              { title: 'Backtest Lab', desc: 'Test your strategies against historical data with professional-grade tooling.', icon: 'M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', color: 'var(--blue)' },
+              { title: 'Validation Pipeline', desc: 'Automated verification ensures your strategy meets performance standards before listing.', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'var(--mint)' },
+              { title: 'Global Marketplace', desc: 'Reach thousands of investors. Earn performance fees from day one.', icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z', color: 'var(--purple)' },
+            ].map((item, i) => (
+              <div key={i} style={{ 
+                padding: '2rem', borderRadius: 16, 
+                background: 'var(--bg3)', border: '1px solid var(--border)',
+                textAlign: 'center',
+              }}>
+                <div style={{ 
+                  width: 64, height: 64, borderRadius: 16, 
+                  background: `${item.color}15`, border: `1px solid ${item.color}30`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0 auto 1.25rem',
+                }}>
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={item.color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d={item.icon} />
+                  </svg>
+                </div>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--white)' }}>{item.title}</h3>
+                <p style={{ fontSize: '.85rem', color: 'var(--muted)', lineHeight: 1.5 }}>{item.desc}</p>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ textAlign: 'center', display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Link href="/dashboard/backtest" className="btn-primary" style={{ fontSize: '1rem', padding: '0.9rem 2rem' }}>
+              Access The Lab
+            </Link>
+            <Link href="/signup" className="btn-secondary" style={{ fontSize: '1rem', padding: '0.9rem 2rem' }}>
+              Create Account
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* For Investors - Full Page */}
+      <section style={{
+        minHeight: '100vh', padding: '6rem 2.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center',
         background: 'var(--bg)',
       }}>
-        <div style={{
-          maxWidth: 700, margin: '0 auto', textAlign: 'center',
-          padding: '3rem', borderRadius: 16,
-          background: 'linear-gradient(135deg, rgba(91,140,255,0.08) 0%, rgba(25,230,167,0.04) 100%)', 
-          border: '1px solid var(--border)',
-        }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', letterSpacing: '.14em', color: 'var(--blue)', fontWeight: 600, textTransform: 'uppercase', marginBottom: '.5rem' }}>
-            For Retail Investors
+        <div style={{ maxWidth: 1200, margin: '0 auto', width: '100%' }}>
+          <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
+            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(2rem, 4vw, 3rem)', fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--ivory)' }}>
+              For Investors
+            </h2>
+            <p style={{ fontSize: '1rem', color: 'var(--muted)', marginTop: '1rem', maxWidth: 600, margin: '1rem auto 0' }}>
+              Access strategies previously locked inside hedge funds. No $250K minimum. Full transparency.
+            </p>
           </div>
-          <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'clamp(1.5rem, 4vw, 2rem)', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '0.75rem', color: 'var(--ivory)' }}>
-            Access institutional-grade AI trading
-          </h2>
-          <p style={{ fontSize: '.95rem', color: 'var(--muted)', lineHeight: 1.6, marginBottom: '1.5rem', maxWidth: 450, margin: '0 auto 1.5rem' }}>
-            Invest in verified algorithmic trading strategies. Your funds stay in your custody.
-          </p>
-          
-          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link href="/signup" className="btn-primary" style={{
-              padding: '0.75rem 1.5rem', fontSize: '.9rem',
-              background: 'linear-gradient(135deg, var(--blue) 0%, var(--blue2) 100%)',
-            }}>
-              Create Free Account
-            </Link>
-            <Link href="/agents" className="btn-secondary" style={{
-              padding: '0.75rem 1.5rem', fontSize: '.9rem',
-            }}>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '2rem', marginBottom: '3rem' }}>
+            {[
+              { title: 'Verified Performance', desc: 'Every strategy is audited. Live returns, real Sharpe ratios, transparent drawdowns.', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z', color: 'var(--mint)' },
+              { title: 'Self-Custody', desc: 'Your funds stay on your exchange. We never hold your assets. You control everything.', icon: 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z', color: 'var(--blue)' },
+              { title: 'Institutional Grade', desc: 'Access AI trading strategies that outperform most hedge funds. Simple onboarding.', icon: 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6', color: 'var(--orange)' },
+            ].map((item, i) => (
+              <div key={i} style={{ 
+                padding: '2rem', borderRadius: 16, 
+                background: 'var(--bg2)', border: '1px solid var(--border)',
+                textAlign: 'center',
+              }}>
+                <div style={{ 
+                  width: 64, height: 64, borderRadius: 16, 
+                  background: `${item.color}15`, border: `1px solid ${item.color}30`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  margin: '0 auto 1.25rem',
+                }}>
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={item.color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d={item.icon} />
+                  </svg>
+                </div>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--white)' }}>{item.title}</h3>
+                <p style={{ fontSize: '.85rem', color: 'var(--muted)', lineHeight: 1.5 }}>{item.desc}</p>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ textAlign: 'center', display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Link href="/agents" className="btn-primary" style={{ fontSize: '1rem', padding: '0.9rem 2rem' }}>
               Browse Agents
+            </Link>
+            <Link href="/signup" className="btn-secondary" style={{ fontSize: '1rem', padding: '0.9rem 2rem' }}>
+              Create Account
             </Link>
           </div>
         </div>
@@ -1025,28 +1027,28 @@ export default function LandingPage() {
 
       {/* Footer */}
       <footer style={{
-        padding: '4rem 2.5rem 2rem', borderTop: '1px solid var(--border)',
+        padding: '1.5rem 2rem 1rem', borderTop: '1px solid var(--border)',
         background: 'var(--bg2)',
       }}>
         {/* Trust disclosure ribbon */}
         <div style={{ 
-          maxWidth: 1400, margin: '0 auto 3rem', padding: '1rem 1.5rem', 
+          maxWidth: 1400, margin: '0 auto 1rem', padding: '0.75rem 1rem', 
           borderRadius: 10, background: 'var(--bg3)', border: '1px solid var(--border)',
           fontSize: '.7rem', color: 'var(--faint)', lineHeight: 1.6,
         }}>
           <strong style={{ color: 'var(--muted)' }}>Disclaimer:</strong> ASE provides tools, analytics, and strategy information. It does not guarantee returns. Investing and digital asset trading involve risk. Backtested results are hypothetical unless otherwise stated.
         </div>
-        <div style={{ maxWidth: 1400, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '3rem' }}>
+        <div style={{ maxWidth: 1400, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2rem' }}>
           {/* Column 1 - Brand */}
           <div>
             <div style={{ marginBottom: '1rem' }}>
-              <Logo size="medium" variant="full" />
+              <Logo size="small" showLink={false} />
             </div>
             <p style={{ fontSize: '.75rem', color: 'var(--text)', lineHeight: 1.6, marginBottom: '1rem' }}>
               Platform for discovering, evaluating, and monitoring algorithmic trading strategies.
             </p>
-            <p style={{ fontSize: '.68rem', color: 'var(--faint)', lineHeight: 1.5 }}>
-              © 2026 Agent Securities Exchange. All rights reserved.
+            <p style={{ fontSize: '.68rem', color: 'var(--faint)' }}>
+              &copy; 2026 Agent Securities Exchange. All rights reserved.
             </p>
           </div>
 
@@ -1091,7 +1093,7 @@ export default function LandingPage() {
         
         {/* Bottom bar */}
         <div style={{ 
-          maxWidth: 1400, margin: '3rem auto 0', paddingTop: '1.5rem', 
+          maxWidth: 1400, margin: '2rem auto 0', paddingTop: '1.5rem', 
           borderTop: '1px solid var(--border)',
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           flexWrap: 'wrap', gap: '1rem',

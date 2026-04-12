@@ -70,7 +70,7 @@ export default function JoinPage() {
       <div style={{ maxWidth: 520, width: '100%', marginTop: '3rem' }}>
         {status === 'success' ? (
           <div style={{ textAlign: 'center', padding: '3rem 2rem', background: 'var(--bg2)', border: '1px solid rgba(255,107,0,.15)', borderRadius: 20 }}>
-            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎉</div>
+            <div style={{ fontSize: '3rem', marginBottom: '1rem', color: 'var(--mint)' }}>+</div>
             <h2 style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1.6rem', marginBottom: '.75rem' }}>You&apos;re on the list</h2>
             <p style={{ color: 'var(--muted)', lineHeight: 1.7, marginBottom: '2rem' }}>
               We&apos;ll reach out with cohort access details and strategy performance updates. First cohort is limited — early spots fill fast.
