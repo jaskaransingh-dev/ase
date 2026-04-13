@@ -127,22 +127,43 @@ export default function AccountConnectModal({ onClose, onSuccess }: Props) {
               }}
             >
               <strong style={{ color: 'inherit', display: 'block', marginBottom: '.5rem' }}>
-                Two ways to connect:
+                How to connect:
               </strong>
-              <ol style={{ margin: 0, paddingLeft: '1.2rem' }}>
-                <li style={{ marginBottom: '0.5rem' }}>
-                  <strong>Option 1:</strong> Use Alpaca OAuth (recommended)<br/>
-                  <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>We'll redirect you to Alpaca to authorize</span>
-                </li>
+              <ol style={{ margin: 0, paddingLeft: '1.2rem', lineHeight: 1.8 }}>
                 <li>
-                  <strong>Option 2:</strong> Enter API key directly<br/>
-                  <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>For developers: Get keys from Alpaca dashboard → API</span>
+                  <strong>Enter API key directly</strong><br/>
+                  <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>Get your API key from Alpaca dashboard → API tab</span>
                 </li>
               </ol>
             </div>
 
+            <a
+              href="https://app.alpaca.markets/dashboard/api"
+              target="_blank"
+              rel="noopener"
+              style={{
+                display: 'block',
+                width: '100%',
+                padding: '0.75rem',
+                borderRadius: 10,
+                border: '1px solid var(--border)',
+                background: 'transparent',
+                color: 'var(--blue)',
+                fontFamily: 'var(--font-head)',
+                fontWeight: 600,
+                fontSize: '0.85rem',
+                textAlign: 'center',
+                textDecoration: 'none',
+                marginBottom: '1rem',
+              }}
+            >
+              Open Alpaca API Page ↗
+            </a>
+
+            <div style={{ textAlign: 'center', marginBottom: '1rem', color: 'var(--faint)', fontSize: '0.8rem' }}>or enter your credentials below</div>
+
             <button
-              onClick={() => window.location.href = '/api/auth/alpaca/connect'}
+              onClick={() => window.open('https://app.alpaca.markets/dashboard', '_blank')}
               style={{
                 width: '100%',
                 padding: '1rem',
@@ -157,7 +178,7 @@ export default function AccountConnectModal({ onClose, onSuccess }: Props) {
                 marginBottom: '1.25rem',
               }}
             >
-              Connect with Alpaca OAuth →
+              Open Alpaca Dashboard →
             </button>
 
             <div style={{ textAlign: 'center', marginBottom: '1rem', color: 'var(--faint)', fontSize: '0.8rem' }}>or enter API credentials directly</div>

@@ -6,12 +6,16 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
-  const code       = requestUrl.searchParams.get('code')
-  const tokenHash  = requestUrl.searchParams.get('token_hash')
-  const type       = requestUrl.searchParams.get('type')
-  const next       = requestUrl.searchParams.get('next') || '/dashboard'
-
-  // Validate next to prevent open redirect
+  const params = requestUrl.searchParams
+  
+  const type = params.get('type')
+  let next = params.get('next') || '/dashboard'
+  
+  // For password recovery flow
+  if (type === 'recovery' || next?.includes('reset-password')) {
+    next = '/reset-password'
+  }
+  
   const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/dashboard'
 
   const cookieStore = await cookies()
@@ -27,35 +31,21 @@ export async function GET(request: NextRequest) {
               cookieStore.set(name, value, options)
             )
           } catch {
-            // Safe to ignore in middleware context
+            // Safe to ignore
           }
         },
       },
     }
   )
 
-  // ── PKCE flow (OAuth, magic-link with code_verifier) ─────────────────────
-  if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
-    if (!error) return NextResponse.redirect(new URL(safeNext, request.url))
-
-    const errorUrl = new URL('/login', request.url)
-    errorUrl.searchParams.set('error', 'Link expired or already used. Please try again.')
-    return NextResponse.redirect(errorUrl)
+  // Check for existing session - when user clicks email link, session is set
+  const { data: { session } } = await supabase.auth.getSession()
+  
+  if (session || type === 'recovery') {
+    console.log('[Auth Callback] Session OK, redirecting to:', safeNext)
+    return NextResponse.redirect(new URL(safeNext, request.url))
   }
 
-  // ── OTP / token_hash flow (email confirm, password recovery, magic-link) ──
-  if (tokenHash && type) {
-    const { error } = await supabase.auth.verifyOtp({
-      token_hash: tokenHash,
-      type: type as 'signup' | 'recovery' | 'email' | 'invite' | 'magiclink' | 'email_change',
-    })
-    if (!error) return NextResponse.redirect(new URL(safeNext, request.url))
-
-    const errorUrl = new URL('/login', request.url)
-    errorUrl.searchParams.set('error', 'Verification link expired or already used.')
-    return NextResponse.redirect(errorUrl)
-  }
-
-  return NextResponse.redirect(new URL('/login', request.url))
+  console.log('[Auth Callback] No session')
+  return NextResponse.redirect(new URL('/login?error=Link expired', request.url))
 }

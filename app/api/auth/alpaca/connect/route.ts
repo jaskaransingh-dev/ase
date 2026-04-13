@@ -3,12 +3,13 @@ import { NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
-  const clientId = process.env.ALPACA_CLIENT_ID
-  const clientSecret = process.env.ALPACA_CLIENT_SECRET
+  // Use trading API keys for OAuth in sandbox
+  const clientId = process.env.ALPACA_KEY_ID
+  const clientSecret = process.env.ALPACA_SECRET_KEY
 
   if (!clientId || !clientSecret) {
     return NextResponse.json(
-      { error: 'Alpaca OAuth not configured. Please contact support.' },
+      { error: 'Alpaca credentials not configured.' },
       { status: 503 }
     )
   }
@@ -22,11 +23,12 @@ export async function GET(request: Request) {
 
   const state = crypto.randomUUID()
 
-  const authUrl = new URL(process.env.ALPACA_OAUTH_URL || 'https://app.alpaca.markets/oauth/authorize')
+  // Use sandbox OAuth
+  const authUrl = new URL('https://app.alpaca.markets/oauth/authorize')
   authUrl.searchParams.set('client_id', clientId)
   authUrl.searchParams.set('redirect_uri', redirectUri)
   authUrl.searchParams.set('response_type', 'code')
-  authUrl.searchParams.set('scope', 'account:write trading:read')
+  authUrl.searchParams.set('scope', 'account:write trading:read trading:write')
   authUrl.searchParams.set('state', state)
 
   const response = NextResponse.redirect(authUrl.toString())

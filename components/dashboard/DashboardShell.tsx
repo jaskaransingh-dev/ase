@@ -7,10 +7,11 @@ import { createClient } from '@/lib/supabase/client'
 import { Logo } from '@/components/ui/Logo'
 
 const NAV_ITEMS = [
-  { href: '/dashboard', label: 'Overview', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
+  { href: '/dashboard', label: 'Home', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
   { href: '/agents', label: 'Exchange', icon: 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9' },
   { href: '/dashboard/backtest', label: 'Lab', icon: 'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
   { href: '/builders/submit', label: 'Submit Agent', icon: 'M12 4v16m8-8H4' },
+  { href: '/dashboard/settings', label: 'Settings', icon: 'M10.325 18.693l3.768-1.458.767 1.458 3.83.788-1.458 1.458-3.768.831 1.458 3.768-1.458.767-1.458-.831-3.768-.831zM12 12a4 4 0 110-8 4 4 0 010 8z' },
 ]
 
 
@@ -19,18 +20,28 @@ export default function DashboardShell({ user, children }: { user: { id: string;
   const router = useRouter()
   const supabase = createClient()
   const [accountConnected, setAccountConnected] = useState(false)
+  const [accountStatus, setAccountStatus] = useState<string | null>(null)
+  const [accountNumber, setAccountNumber] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
-    fetch('/api/account/balance')
+    fetch('/api/broker/create-account')
       .then(r => r.json())
-      .then(d => setAccountConnected(d.status !== 'not_connected'))
+      .then(d => {
+        setAccountConnected(d.has_account)
+        setAccountStatus(d.status || null)
+        setAccountNumber(d.account_number || null)
+      })
       .catch(() => null)
     
     const interval = setInterval(() => {
-      fetch('/api/account/balance')
+      fetch('/api/broker/create-account')
         .then(r => r.json())
-        .then(d => setAccountConnected(d.status !== 'not_connected'))
+        .then(d => {
+          setAccountConnected(d.has_account)
+          setAccountStatus(d.status || null)
+          setAccountNumber(d.account_number || null)
+        })
         .catch(() => null)
     }, 30000)
     return () => clearInterval(interval)
@@ -108,9 +119,23 @@ export default function DashboardShell({ user, children }: { user: { id: string;
               </div>
               <div className="sidebar-user-info">
                 <div className="sidebar-user-name">{user.name || 'User'}</div>
-                <div className="sidebar-user-email">{user.email}</div>
+                <div className="sidebar-user-email">
+                  {accountConnected && accountNumber 
+                    ? `••••${accountNumber?.slice(-4)}` 
+                    : user.email}
+                </div>
               </div>
-              <div className={`sidebar-status-dot ${accountConnected ? 'connected' : 'disconnected'}`} />
+              {accountConnected && (
+                <div style={{
+                  fontSize: '0.65rem',
+                  padding: '0.15rem 0.4rem',
+                  borderRadius: 4,
+                  background: accountStatus === 'ACTIVE' ? 'rgba(0,255,150,0.15)' : 'rgba(255,200,0,0.15)',
+                  color: accountStatus === 'ACTIVE' ? 'var(--mint)' : 'var(--yellow)',
+                }}>
+                  {accountStatus || 'N/A'}
+                </div>
+              )}
             </Link>
             <button 
               onClick={handleSignOut}

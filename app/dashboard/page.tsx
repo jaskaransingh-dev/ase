@@ -5,9 +5,10 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts'
 import { createClient } from '@/lib/supabase/client'
-import { useWallet } from '@/components/WalletProvider'
+
 import { fmtPct, fmtDateTime } from '@/lib/utils'
 import FundingModal from '@/components/FundingModal'
+import AccountModal from '@/components/AccountModal'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,13 +42,14 @@ type AgentActivity = {
   signal_summary?: string
 }
 
-type AlpacaAccount = {
-  equity_cents: number
-  cash_cents: number
-  buying_power_cents: number
-  status: 'connected' | 'not_connected' | 'error'
+type BrokerAccount = {
+  has_account: boolean
   account_id: string | null
-  message?: string
+  account_number: string | null
+  status: string | null
+  trading_enabled: boolean
+  cash?: string
+  portfolio_value?: string
 }
 
 function getRelativeTime(dateStr: string): string {
@@ -85,15 +87,15 @@ function generateEquityCurve() {
 export default function DashboardPage() {
   const supabase = createClient()
   const router = useRouter()
-  const { wallet, shortAddress, network, openModal, disconnect } = useWallet()
 
   const [loading, setLoading] = useState(true)
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
   const [trades, setTrades] = useState<Trade[]>([])
   const [agentActivity, setAgentActivity] = useState<AgentActivity[]>([])
-  const [alpacaAccount, setAlpacaAccount] = useState<AlpacaAccount | null>(null)
+  const [brokerAccount, setBrokerAccount] = useState<BrokerAccount | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [showFunding, setShowFunding] = useState(false)
+  const [showAccount, setShowAccount] = useState(false)
   const [equityData] = useState(generateEquityCurve)
   const [watchlist, setWatchlist] = useState<{id: string; agent_id: string; agents: {id: string; name: string; slug: string; primary_symbol: string}}[]>([])
 
@@ -102,7 +104,7 @@ export default function DashboardPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
 
-      const [subsRes, tradesRes, agentsRes, statsRes, accountRes] = await Promise.all([
+      const [subsRes, tradesRes, agentsRes, statsRes] = await Promise.all([
         supabase
           .from('subscriptions')
           .select('id, agent_id, created_at, agents(id, name, slug, signal_summary, primary_symbol, strategy_type)')
@@ -122,11 +124,12 @@ export default function DashboardPage() {
           .from('agent_stats')
           .select('agent_id, total_return_pct, sharpe_ratio, max_drawdown_pct, win_rate_pct, nav_cents, snapshot_at')
           .order('snapshot_at', { ascending: false }),
-        fetch('/api/account/balance').then(r => r.json()).catch(() => null),
       ])
 
+      // Check broker account status
+      const accountRes = await fetch('/api/broker/account').then(r => r.json()).catch(() => null)
       if (accountRes) {
-        setAlpacaAccount(accountRes as AlpacaAccount)
+        setBrokerAccount(accountRes as BrokerAccount)
       }
 
       // Load watchlist
@@ -152,6 +155,9 @@ export default function DashboardPage() {
 
       setSubscriptions(subsWithStats as Subscription[])
       setTrades((tradesRes.data ?? []) as Trade[])
+
+      const brokerRes = await fetch('/api/broker/create-account')
+      setBrokerAccount(await brokerRes.json())
 
       if (agentsRes.data && tradesRes.data) {
         const tenMinAgo = Date.now() - 10 * 60000
@@ -221,108 +227,63 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* Wallet banner */}
-      {!wallet.connected && (
-        <div style={{ background: 'rgba(244,239,230,.06)', border: '1px solid var(--ivory-glow)', borderRadius: 16, padding: '1rem 1.5rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-          <div>
-            <div style={{ fontWeight: 600, fontSize: '.9rem', marginBottom: '.2rem' }}>Connect wallet (optional)</div>
-            <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>Enable on-chain settlements and full transparency.</div>
-          </div>
-          <button onClick={openModal} className="btn-secondary" style={{ fontSize: '.8rem', padding: '.5rem 1rem', borderRadius: 100 }}>
-            Connect Wallet →
-          </button>
-        </div>
-      )}
-
-      {wallet.connected && (
-        <div style={{ background: 'rgba(0,229,153,.05)', border: '1px solid var(--mint-border)', borderRadius: 16, padding: '.75rem 1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '.75rem' }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--mint)', display: 'inline-block', flexShrink: 0, boxShadow: '0 0 8px var(--mint)' }} />
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--mint)' }}>
-            {wallet.type === 'coinbase' ? 'Coinbase Wallet' : wallet.type === 'metamask' ? 'MetaMask' : 'Wallet'}: {shortAddress}
-          </span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginLeft: 'auto' }}>
-            {network ?? 'Unknown'}
-          </span>
-          <button onClick={disconnect} style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 .25rem' }}>
-            Disconnect
-          </button>
-        </div>
-      )}
-
-      {/* North Star Chart - Total Equity */}
-      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.5rem', marginBottom: '1.5rem' }}>
+      {/* Brokerage Account */}
+      <div style={{ background: 'var(--bg2)', border: `1px solid ${brokerAccount?.has_account && (brokerAccount.status === 'ACTIVE' || brokerAccount.status === 'APPROVED') ? 'var(--mint)' : 'var(--border)'}`, borderRadius: 16, padding: '1.5rem', marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
           <div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--muted)', letterSpacing: '.1em', marginBottom: '.25rem' }}>TRADING ACCOUNT</div>
-            {alpacaAccount?.status === 'connected' ? (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--muted)', letterSpacing: '.1em', marginBottom: '.25rem' }}>BROKERAGE ACCOUNT</div>
+            {brokerAccount?.has_account ? (
               <>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.75rem', fontWeight: 700, color: 'var(--white)' }}>${((alpacaAccount.equity_cents ?? alpacaAccount.cash_cents ?? 0) / 100).toFixed(2)}</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginTop: '.25rem' }}>
-                  Cash: ${(alpacaAccount.cash_cents / 100).toFixed(2)} · Buying power: ${(alpacaAccount.buying_power_cents / 100).toFixed(2)}
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.75rem', fontWeight: 700, color: 'var(--white)' }}>
+                  ${(parseFloat(brokerAccount.cash || '0')).toFixed(2)}
                 </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginTop: '.25rem' }}>
+                  <span style={{ color: brokerAccount.status === 'ACTIVE' ? 'var(--mint)' : 'var(--yellow)' }}>●</span> ****{brokerAccount.account_number?.slice(-4)} · {brokerAccount.status}
+                </div>
+                {brokerAccount.portfolio_value && parseFloat(brokerAccount.portfolio_value) > 0 && (
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--muted)', marginTop: '.25rem' }}>
+                    Portfolio: ${(parseFloat(brokerAccount.portfolio_value)).toFixed(2)}
+                  </div>
+                )}
               </>
             ) : (
               <div style={{ padding: '1rem', background: 'rgba(59,127,255,0.08)', border: '1px dashed rgba(59,127,255,0.3)', borderRadius: 12 }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: 'var(--blue2)', marginBottom: '0.5rem' }}>Get Started</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: 'var(--blue2)', marginBottom: '0.5rem' }}>Brokerage Account</div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '1rem', lineHeight: 1.5 }}>
-                  Connect your Alpaca trading account to invest in AI agents.
+                  Create an Alpaca brokerage account to trade with real money
                 </div>
                 <button 
-                  onClick={() => window.location.href = '/api/auth/alpaca/connect'}
+                  onClick={() => setShowAccount(true)}
                   style={{ display: 'inline-block', padding: '0.6rem 1.2rem', borderRadius: 8, border: 'none', background: 'var(--blue)', color: 'white', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
                 >
-                  Connect Alpaca Account →
+                  Create Account →
                 </button>
-                <div style={{ fontSize: '0.7rem', color: 'var(--faint)', marginTop: '0.75rem' }}>
-                  Don't have Alpaca? <a href="https://app.alpaca.markets/" target="_blank" style={{ color: 'var(--blue2)' }}>Sign up free →</a>
-                </div>
               </div>
             )}
           </div>
           <div style={{ display: 'flex', gap: '.5rem' }}>
-            {alpacaAccount?.status === 'connected' && (
+            {brokerAccount?.has_account && (
               <>
-                <button 
-                  onClick={() => window.open('https://dashboard.alpaca.markets/funding', '_blank')}
-                  style={{ padding: '.5rem 1rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '.7rem', cursor: 'pointer' }}
-                >
-                  Deposit →
-                </button>
                 <button 
                   onClick={() => setShowFunding(true)}
                   style={{ padding: '.5rem 1rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '.7rem', cursor: 'pointer' }}
                 >
-                  Deposit →
-                </button>
-                <button 
-                  onClick={() => window.open('https://dashboard.alpaca.markets/funding', '_blank')}
-                  style={{ padding: '.5rem 1rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '.7rem', cursor: 'pointer' }}
-                >
-                  Withdraw →
+                  Add $ →
                 </button>
                 <button 
                   onClick={async () => {
                     setSyncing(true)
-                    await fetch('/api/account/sync', { method: 'POST' })
-                    const res = await fetch('/api/account/balance')
+                    const res = await fetch('/api/broker/account')
                     const data = await res.json()
-                    setAlpacaAccount(data)
+                    setBrokerAccount(data)
                     setSyncing(false)
                   }}
                   disabled={syncing}
                   style={{ padding: '.5rem 1rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '.7rem', cursor: syncing ? 'not-allowed' : 'pointer', opacity: syncing ? 0.5 : 1 }}
                 >
-                  {syncing ? 'Syncing...' : 'Sync'}
+                  {syncing ? '...' : '↻'}
                 </button>
               </>
-            )}
-            {alpacaAccount?.status !== 'connected' && (
-              <button 
-                onClick={() => window.location.href = '/api/auth/alpaca/connect'}
-                style={{ padding: '.5rem 1rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '.7rem', cursor: 'pointer' }}
-              >
-                Connect Alpaca →
-              </button>
             )}
           </div>
         </div>
@@ -558,7 +519,8 @@ export default function DashboardPage() {
         @media(max-width:700px){.dash-stats-strip{grid-template-columns:repeat(2,1fr)!important}}
       `}</style>
 
-      {showFunding && <FundingModal onClose={() => setShowFunding(false)} onFunded={() => { setShowFunding(false); router.refresh() }} />}
+      {showFunding && <FundingModal onClose={() => setShowFunding(false)} />}
+      {showAccount && <AccountModal onClose={() => setShowAccount(false)} onSuccess={() => { setShowAccount(false); router.refresh() }} />}
     </div>
   )
 }

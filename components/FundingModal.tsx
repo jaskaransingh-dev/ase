@@ -1,45 +1,50 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 
-interface Props {
+interface FundingModalProps {
   onClose: () => void
-  onFunded?: () => void
 }
 
-export default function FundingModal({ onClose, onFunded }: Props) {
-  const [loading, setLoading] = useState(true)
-  const [instructions, setInstructions] = useState<any>(null)
-  const [selectedMethod, setSelectedMethod] = useState<'ach' | 'wire'>('ach')
-  const [copied, setCopied] = useState(false)
+export default function FundingModal({ onClose }: FundingModalProps) {
+  const [amount, setAmount] = useState('10000')
+  const [loading, setLoading] = useState(false)
+  const [success, setSuccess] = useState(false)
+  const [error, setError] = useState('')
 
-  useEffect(() => {
-    fetch('/api/deposit/instructions')
-      .then(r => r.json())
-      .then(d => setInstructions(d))
-      .catch(() => setInstructions({ error: 'Failed to load instructions' }))
-      .finally(() => setLoading(false))
-  }, [])
+  async function handleAddFunds() {
+    const amountNum = parseInt(amount)
+    if (!amountNum || amountNum < 100) {
+      setError('Minimum $100')
+      return
+    }
 
-  function copyToClipboard(text: string) {
-    navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    setLoading(true)
+    setError('')
+
+    try {
+      // For paper trading, we simulate a deposit
+      // In real implementation, this would call Alpaca transfer API
+      const res = await fetch('/api/broker/fund-paper', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount_cents: amountNum }),
+      })
+
+      if (res.ok) {
+        setSuccess(true)
+      } else {
+        const data = await res.json()
+        setError(data.error || 'Failed to add funds')
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  if (loading) {
-    return (
-      <div style={{
-        position: 'fixed', inset: 0, zIndex: 9999,
-        background: 'rgba(4,3,12,.95)', backdropFilter: 'blur(20px)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center'
-      }}>
-        <div style={{ color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>Loading funding options...</div>
-      </div>
-    )
-  }
-
-  if (instructions?.needs_connection) {
+  if (success) {
     return (
       <div onClick={onClose} style={{
         position: 'fixed', inset: 0, zIndex: 9999,
@@ -48,28 +53,21 @@ export default function FundingModal({ onClose, onFunded }: Props) {
       }}>
         <div onClick={e => e.stopPropagation()} style={{
           background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 20,
-          padding: '2rem', width: '100%', maxWidth: 420
+          padding: '2rem', width: '100%', maxWidth: 380, textAlign: 'center'
         }}>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem' }}>
-            Connect Account First
-          </h2>
-          <p style={{ color: 'var(--muted)', marginBottom: '1.5rem' }}>
-            You need to connect your Alpaca account before adding funds.
+          <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>✓</div>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>Funds Added!</h2>
+          <p style={{ fontSize: '0.9rem', color: 'var(--muted)', marginBottom: '1.5rem' }}>
+            ${parseInt(amount).toLocaleString()} in virtual cash added to your paper account.
           </p>
           <button
-            onClick={() => window.location.href = '/api/auth/alpaca/connect'}
+            onClick={onClose}
             style={{
               width: '100%', padding: '1rem', borderRadius: 10, border: 'none',
               background: 'var(--blue)', color: 'white', fontWeight: 700, cursor: 'pointer'
             }}
           >
-            Connect Alpaca Account →
-          </button>
-          <button onClick={onClose} style={{
-            marginTop: '0.75rem', width: '100%', padding: '0.75rem', borderRadius: 10,
-            background: 'transparent', color: 'var(--muted)', cursor: 'pointer'
-          }}>
-            Cancel
+            Done
           </button>
         </div>
       </div>
@@ -84,100 +82,77 @@ export default function FundingModal({ onClose, onFunded }: Props) {
     }}>
       <div onClick={e => e.stopPropagation()} style={{
         background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 20,
-        padding: '2rem', width: '100%', maxWidth: 520, maxHeight: '90vh', overflowY: 'auto'
+        padding: '2rem', width: '100%', maxWidth: 380
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Add Funds to Your Account</h2>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: '1.5rem', cursor: 'pointer' }}>×</button>
-        </div>
-
-        <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '1.5rem', lineHeight: 1.6 }}>
-          Add funds to your Alpaca trading account to invest in AI agents. Funds are held by Alpaca Securities, member FINRA/SIPC.
+        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>Add Virtual Funds</h2>
+        <p style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '1.5rem' }}>
+          Add virtual cash to your paper trading account for testing.
         </p>
 
-        {/* Quick Start */}
-        {instructions?.quick_start && (
-          <div style={{ background: 'rgba(0,229,153,.08)', border: '1px solid rgba(0,229,153,.2)', borderRadius: 12, padding: '1rem', marginBottom: '1.5rem' }}>
-            <div style={{ fontWeight: 600, color: 'var(--mint)', marginBottom: '0.5rem', fontSize: '0.85rem' }}>⚡ Quickest Way (ACH)</div>
-            {instructions.quick_start.steps.map((step: string, i: number) => (
-              <div key={i} style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.25rem' }}>{step}</div>
-            ))}
-            <a href="https://app.alpaca.markets/dashboard/funding" target="_blank" style={{
-              display: 'block', marginTop: '0.75rem', padding: '0.5rem', borderRadius: 8, background: 'var(--mint)',
-              color: '#000', textAlign: 'center', fontWeight: 600, fontSize: '0.8rem', textDecoration: 'none'
-            }}>
-              Go to Alpaca Funding →
-            </a>
+        <div style={{ marginBottom: '1.5rem' }}>
+          <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--faint)', marginBottom: '0.5rem' }}>
+            AMOUNT (USD)
+          </label>
+          <div style={{ position: 'relative' }}>
+            <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }}>$</span>
+            <input
+              type="number"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              min={100}
+              max={100000}
+              style={{
+                width: '100%', padding: '0.75rem 0.75rem 0.75rem 1.5rem',
+                borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg3)',
+                color: 'white', fontSize: '1rem', fontFamily: 'var(--font-mono)'
+              }}
+            />
           </div>
-        )}
-
-        {/* Method Selector */}
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-          <button onClick={() => setSelectedMethod('ach')} style={{
-            flex: 1, padding: '0.75rem', borderRadius: 8, border: 'none',
-            background: selectedMethod === 'ach' ? 'var(--blue)' : 'var(--bg3)',
-            color: 'white', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer'
-          }}>
-            ACH Transfer
-          </button>
-          <button onClick={() => setSelectedMethod('wire')} style={{
-            flex: 1, padding: '0.75rem', borderRadius: 8, border: 'none',
-            background: selectedMethod === 'wire' ? 'var(--blue)' : 'var(--bg3)',
-            color: 'white', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer'
-          }}>
-            Wire Transfer
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+            {[5000, 10000, 25000, 50000].map(amt => (
+              <button
+                key={amt}
+                onClick={() => setAmount(String(amt))}
+                style={{
+                  flex: 1, padding: '0.4rem', borderRadius: 6, border: '1px solid var(--border)',
+                  background: amount === String(amt) ? 'var(--blue)' : 'transparent',
+                  color: amount === String(amt) ? 'white' : 'var(--muted)',
+                  fontSize: '0.7rem', cursor: 'pointer'
+                }}
+              >
+                ${amt.toLocaleString()}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {selectedMethod === 'ach' && (
-          <div style={{ background: 'var(--bg3)', borderRadius: 12, padding: '1rem' }}>
-            <h3 style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.5rem' }}>ACH Transfer (Recommended)</h3>
-            <ul style={{ fontSize: '0.75rem', color: 'var(--muted)', paddingLeft: '1rem', marginBottom: '0.75rem' }}>
-              <li>2-5 business days</li>
-              <li>Up to $50,000/day</li>
-              <li>Link bank once, transfers after</li>
-            </ul>
-            <a href="https://app.alpaca.markets/dashboard/funding" target="_blank" style={{
-              display: 'block', padding: '0.6rem', borderRadius: 8, border: '1px solid var(--border)',
-              color: 'var(--blue)', textAlign: 'center', fontSize: '0.8rem', textDecoration: 'none'
-            }}>
-              Open Alpaca Funding ↗
-            </a>
+        {error && (
+          <div style={{ marginBottom: '1rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,90,95,0.1)', color: 'var(--red)', fontSize: '0.8rem' }}>
+            {error}
           </div>
         )}
 
-        {selectedMethod === 'wire' && instructions?.funding_options?.length > 1 && (
-          <div style={{ background: 'var(--bg3)', borderRadius: 12, padding: '1rem' }}>
-            <h3 style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.5rem' }}>Wire Transfer</h3>
-            <ul style={{ fontSize: '0.75rem', color: 'var(--muted)', paddingLeft: '1rem', marginBottom: '0.75rem' }}>
-              <li>Same business day</li>
-              <li>No daily limit</li>
-              <li>Wire fee may apply ($10-25)</li>
-            </ul>
-            
-            {instructions.funding_options[1]?.wire_instructions && (
-              <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: 'var(--bg2)', borderRadius: 8 }}>
-                <div style={{ fontSize: '0.7rem', color: 'var(--faint)', marginBottom: '0.5rem' }}>WIRE INSTRUCTIONS</div>
-                <div style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', lineHeight: 1.8 }}>
-                  <div>Bank: {instructions.funding_options[1].wire_instructions.bank_name}</div>
-                  <div>Routing: {instructions.funding_options[1].wire_instructions.routing_number}</div>
-                  <div>Account#: {instructions.account_number}</div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        <button onClick={() => window.open('https://app.alpaca.markets/dashboard/funding', '_blank')} style={{
-          marginTop: '1.5rem', width: '100%', padding: '1rem', borderRadius: 10, border: 'none',
-          background: 'var(--blue)', color: 'white', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer'
-        }}>
-          Go to Alpaca Dashboard →
+        <button
+          onClick={handleAddFunds}
+          disabled={loading}
+          style={{
+            width: '100%', padding: '1rem', borderRadius: 10, border: 'none',
+            background: loading ? 'var(--border)' : 'var(--blue)', color: 'white',
+            fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer'
+          }}
+        >
+          {loading ? 'Adding...' : `Add $${parseInt(amount).toLocaleString()}`}
         </button>
 
-        <p style={{ fontSize: '0.7rem', color: 'var(--faint)', marginTop: '1rem', textAlign: 'center' }}>
-          Funds held by Alpaca Securities LLC, member FINRA/SIPC. 
-          <a href="https://alpaca.markets/disclosuresesg" target="_blank" style={{ color: 'var(--blue)' }}>Member SIPC</a>
+        <button onClick={onClose} style={{
+          marginTop: '0.75rem', width: '100%', padding: '0.75rem', borderRadius: 10,
+          background: 'transparent', color: 'var(--muted)', cursor: 'pointer'
+        }}>
+          Cancel
+        </button>
+
+        <p style={{ fontSize: '0.65rem', color: 'var(--faint)', marginTop: '1rem', textAlign: 'center' }}>
+          Paper trading - no real money
         </p>
       </div>
     </div>

@@ -15,27 +15,28 @@ export async function POST(req: Request) {
     const admin = createAdminClient()
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 
-    // Get user
-    const { data: users, error: listError } = await admin.auth.admin.listUsers()
+    // Generate a signup link via Supabase admin
+    const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+      type: 'signup',
+      email: email,
+      password: 'temp_password_FOR_VERIFICATION_ONLY_' + Date.now(),
+      options: {
+        redirectTo: `${appUrl}/dashboard`,
+      },
+    })
 
-    if (listError || !users) {
-      console.error('Error listing users:', listError)
+    if (linkError) {
+      console.error('Error generating verification link:', linkError)
       return NextResponse.json({ success: true })
     }
 
-    const user = users.users.find((u) => u.email?.toLowerCase() === email.toLowerCase())
-
-    if (!user) {
-      // Don't reveal if user exists for security
-      return NextResponse.json({ success: true })
+    // Send verification email with the generated link
+    if (linkData?.properties?.action_link) {
+      const userName = email.split('@')[0] || 'User'
+      await sendVerificationEmail(email, userName, linkData.properties.action_link)
     }
 
-    // Send verification email
-    const userName = (user.user_metadata?.display_name as string) || user.email || 'User'
-    const verificationLink = `${appUrl}/auth/verify-email`
-
-    await sendVerificationEmail(email, userName, verificationLink)
-
+    // Always return success for security (don't leak user existence)
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Resend verification error:', error)

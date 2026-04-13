@@ -11,11 +11,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Email is required' }, { status: 400 })
     }
 
+    console.log('[send-welcome] Sending to:', email)
     await sendWelcomeEmail(email, name || 'Trader')
+    console.log('[send-welcome] Sent successfully')
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Failed to send welcome email:', error)
+    console.error('[send-welcome] Failed:', error)
     return NextResponse.json({ error: 'Failed to send email' }, { status: 500 })
   }
 }
