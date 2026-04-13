@@ -76,8 +76,12 @@ export default function FundingModal({ onClose }: FundingModalProps) {
       })
 
       if (res.ok) {
+        const data = await res.json()
+        // Update the account cash with the new balance from the API
+        if (data.new_balance_cents !== undefined) {
+          setAccount(prev => prev ? { ...prev, cash: (data.new_balance_cents / 100).toString() } : null)
+        }
         setStep('success')
-        loadData()
       } else {
         const data = await res.json()
         setError(data.error || 'Failed to add funds')

@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createBrokerAPI } from '@/lib/broker'
+import { encryptAES } from '@/lib/crypto/encryption'
 
 export const dynamic = 'force-dynamic'
 
@@ -97,6 +98,23 @@ export async function POST(request: NextRequest) {
         trading_enabled: true,
       })
     }
+
+    // Also store in connected_accounts for other features
+    const encryptedAccessToken = encryptAES(apiSecret)
+    const encryptedApiSecret = encryptAES(apiSecret)
+    await admin.from('connected_accounts').upsert({
+      user_id: user.id,
+      provider: 'alpaca',
+      access_token: encryptedAccessToken,
+      refresh_token: null,
+      api_key: apiKey,
+      api_secret: encryptedApiSecret,
+      account_id: alpacaAccount.id,
+      account_number: alpacaAccount.account_number,
+      status: 'active',
+    }, {
+      onConflict: 'user_id,provider',
+    })
 
     console.log('[Broker Account] Connected:', alpacaAccount.id)
 
