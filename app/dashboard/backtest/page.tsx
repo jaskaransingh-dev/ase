@@ -319,7 +319,7 @@ export default function BacktestPage() {
           <div>
             {!simpleResult && !simpleLoading && !simpleError && (
               <div style={{ background: 'var(--bg2)', border: '1px dashed var(--border)', borderRadius: 16, padding: '3rem', textAlign: 'center' }}>
-                <div style={{ fontSize: '2rem', marginBottom: '0.5rem', opacity: 0.5 }}>📊</div>
+                <div style={{ fontSize: '2rem', marginBottom: '0.5rem', opacity: 0.5, color: 'var(--faint)' }}>[CHART]</div>
                 <div style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Select an asset and strategy, then run backtest</div>
               </div>
             )}

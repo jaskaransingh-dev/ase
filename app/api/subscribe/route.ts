@@ -18,6 +18,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateQuoteFromNav } from '@/lib/market'
 import { mergeHoldingPosition, syncAgentMarketState } from '@/lib/exchange'
 import { triggerImmediateAgentRun } from '@/lib/agent-cycle'
+import { createBrokerAPI } from '@/lib/broker'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,28 +35,29 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdminClient()
 
-    // 1. Check Alpaca account cash balance
-    const { data: connection } = await admin
-      .from('connected_accounts')
-      .select('id, status, api_key, api_secret, access_token')
+    // 1. Check Alpaca account balance from broker_accounts
+    const { data: brokerAccount } = await admin
+      .from('broker_accounts')
+      .select('alpaca_account_id, status')
       .eq('user_id', user.id)
-      .eq('provider', 'alpaca')
       .single()
 
-    if (!connection || connection.status !== 'active') {
+    if (!brokerAccount || brokerAccount.status !== 'ACTIVE') {
       return NextResponse.json({ error: 'No Alpaca account connected. Please connect your Alpaca account first.' }, { status: 400 })
     }
 
-    // Get cash balance from account_balances table (synced from Alpaca)
-    const { data: balance } = await admin
-      .from('account_balances')
-      .select('cash_cents')
-      .eq('user_id', user.id)
-      .eq('provider', 'alpaca')
-      .single()
+    // Get cash balance from Alpaca
+    let cashCents = 0
+    try {
+      const broker = createBrokerAPI()
+      const balances = await broker.getBalances(brokerAccount.alpaca_account_id)
+      cashCents = Math.round(parseFloat(balances.cash || '0') * 100)
+    } catch (e) {
+      console.log('[Subscribe] Could not get balance from Alpaca:', e)
+    }
 
-    if (!balance || balance.cash_cents < amount_cents) {
-      return NextResponse.json({ error: 'Insufficient Alpaca cash balance. Add funds to your Alpaca account at alpaca.markets.' }, { status: 400 })
+    if (cashCents < amount_cents) {
+      return NextResponse.json({ error: `Insufficient cash balance. You have $${(cashCents / 100).toFixed(2)} but need $${(amount_cents / 100).toFixed(2)}. Add funds to your Alpaca account.` }, { status: 400 })
     }
 
     // 2. Get agent

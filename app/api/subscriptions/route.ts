@@ -1,11 +1,11 @@
 /**
  * /api/subscriptions
  *
- * GET  — list current user's active subscriptions
- * POST — subscribe to an agent  { agent_id, wallet_address }
+ * GET  — list current user's active subscriptions with holdings
+ * POST — subscribe to an agent with investment { agent_id, amount_cents }
  * DELETE — cancel subscription  { agent_id }
  */
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -16,60 +16,51 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data, error } = await supabase
+  const admin = createAdminClient()
+  
+  // Get user's active subscriptions
+  const { data: subscriptions, error } = await admin
     .from('subscriptions')
-    .select('*, agents(id, name, slug, ticker, description, strategy_type, status, signal_summary, monthly_fee_cents, subscriber_count, primary_symbol)')
+    .select(`
+      *,
+      agents(id, name, slug, ticker, description, strategy_type, status, signal_summary, monthly_fee_cents, subscriber_count, primary_symbol)
+    `)
     .eq('user_id', user.id)
     .eq('status', 'active')
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ subscriptions: data ?? [] })
+  
+  // For each subscription, get the holding with current value
+  const subscriptionsWithHoldings = await Promise.all((subscriptions ?? []).map(async (sub) => {
+    const { data: holding } = await admin
+      .from('holdings')
+      .select('id, shares, invested_cents, current_value_cents, pnl_cents, status')
+      .eq('user_id', user.id)
+      .eq('agent_id', sub.agent_id)
+      .eq('status', 'active')
+      .maybeSingle()
+    
+    return {
+      ...sub,
+      holding: holding ? {
+        shares: holding.shares,
+        invested_cents: holding.invested_cents,
+        current_value_cents: holding.current_value_cents || 0,
+        pnl_cents: holding.pnl_cents || 0,
+      } : null,
+      has_investment: holding && holding.invested_cents > 0,
+    }
+  }))
+
+  return NextResponse.json({ subscriptions: subscriptionsWithHoldings })
 }
 
 export async function POST(req: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const body = await req.json() as { agent_id?: string; wallet_address?: string }
-  const { agent_id, wallet_address } = body
-
-  if (!agent_id) return NextResponse.json({ error: 'agent_id required' }, { status: 400 })
-
-  // Use admin client for all writes — bypasses RLS, avoids auth cookie issues in API routes
-  const admin = createAdminClient()
-  const { data: agent } = await admin
-    .from('agents').select('id, slug, status').eq('id', agent_id).single()
-
-  if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
-  if (agent.status !== 'active') return NextResponse.json({ error: 'Agent not currently accepting subscriptions' }, { status: 422 })
-
-  // Ensure profile exists (subscriptions FK → auth.users, profile for display)
-  await admin.from('profiles').upsert(
-    { id: user.id, display_name: user.email?.split('@')[0] ?? 'user' },
-    { onConflict: 'id' }
-  )
-  // Note: No fake "wallet balance" created. The Coinbase wallet connection
-  // is for identity + future on-chain settlement. No internal USD balance.
-
-  // Upsert subscription with admin client — avoids RLS cookie propagation issues
-  const { data, error } = await admin
-    .from('subscriptions')
-    .upsert({
-      user_id: user.id,
-      agent_id,
-      bot_slug: agent.slug,
-      wallet_address: wallet_address ?? null,
-      status: 'active',
-      plan: 'beta',
-    }, { onConflict: 'user_id,agent_id' })
-    .select()
-    .single()
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  return NextResponse.json({ subscription: data })
+  // This endpoint is deprecated - use /api/subscribe instead which handles both subscription and investment
+  return NextResponse.json({ 
+    error: 'Use /api/subscribe to invest in an agent. This endpoint creates free subscriptions which are no longer supported.' 
+  }, { status: 410 })
 }
 
 export async function DELETE(req: Request) {
@@ -82,6 +73,8 @@ export async function DELETE(req: Request) {
   if (!agent_id) return NextResponse.json({ error: 'agent_id required' }, { status: 400 })
 
   const admin = createAdminClient()
+  
+  // Cancel subscription
   const { error } = await admin
     .from('subscriptions')
     .update({ status: 'cancelled' })
@@ -89,5 +82,14 @@ export async function DELETE(req: Request) {
     .eq('agent_id', agent_id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  
+  // Also mark holding as exited (don't delete, just mark status)
+  await admin
+    .from('holdings')
+    .update({ status: 'exited' })
+    .eq('user_id', user.id)
+    .eq('agent_id', agent_id)
+    .eq('status', 'active')
+
   return NextResponse.json({ success: true })
 }

@@ -21,6 +21,13 @@ type Subscription = {
   agents: Agent & {
     agent_stats?: { total_return_pct: number; sharpe_ratio: number; max_drawdown_pct: number; win_rate_pct: number; nav_cents: number; snapshot_at: string }[]
   }
+  holding?: {
+    shares: number
+    invested_cents: number
+    current_value_cents: number
+    pnl_cents: number
+  } | null
+  has_investment: boolean
 }
 type Trade = {
   id: string
@@ -157,8 +164,10 @@ export default function DashboardPage() {
       setSubscriptions(subsWithStats as Subscription[])
       setTrades((tradesRes.data ?? []) as Trade[])
 
-      const brokerRes = await fetch('/api/broker/create-account')
-      setBrokerAccount(await brokerRes.json())
+      // Get broker account status with balance
+      const brokerRes = await fetch('/api/broker/account')
+      const brokerData = await brokerRes.json()
+      setBrokerAccount(brokerData as BrokerAccount)
 
       if (agentsRes.data && tradesRes.data) {
         const tenMinAgo = Date.now() - 10 * 60000
@@ -210,7 +219,7 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.75rem', letterSpacing: '.08em' }}>
-        Loading…
+        Loading...
       </div>
     )
   }
@@ -236,12 +245,17 @@ export default function DashboardPage() {
       />
 
       {/* Stats row */}
+      {(() => {
+        const totalInvested = subscriptions.reduce((sum, s) => sum + (s.holding?.invested_cents || 0), 0)
+        const totalValue = subscriptions.reduce((sum, s) => sum + (s.holding?.current_value_cents || 0), 0)
+        const totalPnL = totalValue - totalInvested
+        return (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1rem', marginBottom: '2rem' }} className="dash-stats-strip">
         {[
-          { label: 'Subscriptions', value: subscriptions.length.toString(), color: 'var(--white)' },
-          { label: 'Avg Return', value: fmtPct(totalReturnAvg, 1), color: totalReturnAvg >= 0 ? 'var(--mint)' : 'var(--red)' },
-          { label: 'Active Agents', value: `${subscribedActivity.filter(a => a.status !== 'OFFLINE').length}/${subscribedActivity.length}`, color: 'var(--ivory)' },
-          { label: 'Recent Trades', value: recentTrades.length.toString(), color: 'var(--ivory)' },
+          { label: 'Portfolio Value', value: `$${(totalValue/100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, color: totalValue > 0 ? 'var(--white)' : 'var(--faint)' },
+          { label: 'Total Invested', value: `$${(totalInvested/100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, color: 'var(--ivory)' },
+          { label: 'Total P&L', value: `${totalPnL >= 0 ? '+' : ''}$${(totalPnL/100).toFixed(2)}`, color: totalPnL >= 0 ? 'var(--mint)' : 'var(--red)' },
+          { label: 'Active Agents', value: `${subscriptions.filter(s => s.has_investment).length}/${subscriptions.length}`, color: 'var(--ivory)' },
         ].map(item => (
           <div key={item.label} className="glass-card-v2" style={{ borderRadius: 12, padding: '1rem 1.25rem' }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--muted)', letterSpacing: '.1em', marginBottom: '.35rem' }}>{item.label.toUpperCase()}</div>
@@ -249,6 +263,7 @@ export default function DashboardPage() {
           </div>
         ))}
       </div>
+      )})()}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '1.5rem', alignItems: 'start' }} className="dash-main-grid">
 
@@ -260,7 +275,7 @@ export default function DashboardPage() {
 
           {subscriptions.length === 0 ? (
             <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '3rem 2rem', textAlign: 'center' }}>
-              <div style={{ fontSize: '2rem', marginBottom: '.75rem' }}>◇</div>
+              <div style={{ fontSize: '2rem', marginBottom: '.75rem', color: 'var(--faint)' }}>-</div>
               <div style={{ fontFamily: 'var(--font-serif)', fontSize: '1.1rem', fontWeight: 600, marginBottom: '.4rem' }}>No allocations yet</div>
               <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>Browse verified agents and allocate funds to start trading.</div>
               <Link href="/agents" className="btn-primary" style={{ fontSize: '.82rem', borderRadius: 100 }}>Browse Agents →</Link>
@@ -273,6 +288,10 @@ export default function DashboardPage() {
                 const sharpe = stats?.sharpe_ratio ?? 0
                 const pos = ret >= 0
                 const activity = agentActivity.find(a => a.agent_id === sub.agent_id)
+                const hasInvestment = sub.has_investment
+                const invested = sub.holding?.invested_cents ?? 0
+                const currentValue = sub.holding?.current_value_cents ?? 0
+                const pnl = sub.holding?.pnl_cents ?? 0
 
                 return (
                   <Link 
@@ -285,7 +304,8 @@ export default function DashboardPage() {
                       textDecoration: 'none',
                       display: 'flex', 
                       flexDirection: 'column',
-                      gap: '0.75rem'
+                      gap: '0.75rem',
+                      border: hasInvestment ? '1px solid var(--mint)' : undefined
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -300,6 +320,14 @@ export default function DashboardPage() {
                         {fmtPct(ret)}
                       </div>
                     </div>
+                    {hasInvestment && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: '.65rem', padding: '0.5rem', background: 'var(--bg3)', borderRadius: 8 }}>
+                        <span style={{ color: 'var(--faint)' }}>Invested: ${(invested/100).toFixed(0)}</span>
+                        <span style={{ color: pnl >= 0 ? 'var(--mint)' : 'var(--red)' }}>
+                          {pnl >= 0 ? '+' : ''}${(pnl/100).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
                     <div style={{ display: 'flex', gap: '1rem', fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)' }}>
                       <span>Sharpe: {sharpe.toFixed(2)}</span>
                       <span>{activity?.symbol !== '--' ? activity?.symbol : 'IDLE'}</span>
