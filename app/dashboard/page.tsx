@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client'
 import { fmtPct, fmtDateTime } from '@/lib/utils'
 import FundingModal from '@/components/FundingModal'
 import AccountModal from '@/components/AccountModal'
+import AlpacaApplicationStatus from '@/components/AlpacaApplicationStatus'
 
 export const dynamic = 'force-dynamic'
 
@@ -227,99 +228,12 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* Brokerage Account */}
-      <div style={{ background: 'var(--bg2)', border: `1px solid ${brokerAccount?.has_account && (brokerAccount.status === 'ACTIVE' || brokerAccount.status === 'APPROVED') ? 'var(--mint)' : 'var(--border)'}`, borderRadius: 16, padding: '1.5rem', marginBottom: '1.5rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-          <div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--muted)', letterSpacing: '.1em', marginBottom: '.25rem' }}>BROKERAGE ACCOUNT</div>
-            {brokerAccount?.has_account ? (
-              <>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.75rem', fontWeight: 700, color: 'var(--white)' }}>
-                  ${(parseFloat(brokerAccount.cash || '0')).toFixed(2)}
-                </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', marginTop: '.25rem' }}>
-                  <span style={{ color: brokerAccount.status === 'ACTIVE' ? 'var(--mint)' : 'var(--yellow)' }}>●</span> ****{brokerAccount.account_number?.slice(-4)} · {brokerAccount.status}
-                </div>
-                {brokerAccount.portfolio_value && parseFloat(brokerAccount.portfolio_value) > 0 && (
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--muted)', marginTop: '.25rem' }}>
-                    Portfolio: ${(parseFloat(brokerAccount.portfolio_value)).toFixed(2)}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div style={{ padding: '1rem', background: 'rgba(59,127,255,0.08)', border: '1px dashed rgba(59,127,255,0.3)', borderRadius: 12 }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: 'var(--blue2)', marginBottom: '0.5rem' }}>Brokerage Account</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '1rem', lineHeight: 1.5 }}>
-                  Create an Alpaca brokerage account to trade with real money
-                </div>
-                <button 
-                  onClick={() => setShowAccount(true)}
-                  style={{ display: 'inline-block', padding: '0.6rem 1.2rem', borderRadius: 8, border: 'none', background: 'var(--blue)', color: 'white', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
-                >
-                  Create Account →
-                </button>
-              </div>
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: '.5rem' }}>
-            {brokerAccount?.has_account && (
-              <>
-                <button 
-                  onClick={() => setShowFunding(true)}
-                  style={{ padding: '.5rem 1rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '.7rem', cursor: 'pointer' }}
-                >
-                  Add $ →
-                </button>
-                <button 
-                  onClick={async () => {
-                    setSyncing(true)
-                    const res = await fetch('/api/broker/account')
-                    const data = await res.json()
-                    setBrokerAccount(data)
-                    setSyncing(false)
-                  }}
-                  disabled={syncing}
-                  style={{ padding: '.5rem 1rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '.7rem', cursor: syncing ? 'not-allowed' : 'pointer', opacity: syncing ? 0.5 : 1 }}
-                >
-                  {syncing ? '...' : '↻'}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-        <div style={{ height: 200 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={equityData}>
-              <defs>
-                <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#00E599" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="#00E599" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <Tooltip
-                content={({ active, payload }) => {
-                  if (active && payload && payload.length) {
-                    return (
-                      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '0.5rem 0.75rem' }}>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: 'var(--muted)' }}>{payload[0].payload.date}</div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.9rem', fontWeight: 700, color: 'var(--mint)' }}>${Number(payload[0].value).toFixed(2)}</div>
-                      </div>
-                    )
-                  }
-                  return null
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="value"
-                stroke="#00E599"
-                strokeWidth={2}
-                fill="url(#equityGradient)"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+      {/* Brokerage Account Status with Visual */}
+      <AlpacaApplicationStatus 
+        onCreateAccount={() => setShowAccount(true)}
+        onAddFunds={() => setShowFunding(true)}
+        onLinkBank={() => setShowAccount(true)}
+      />
 
       {/* Stats row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1rem', marginBottom: '2rem' }} className="dash-stats-strip">

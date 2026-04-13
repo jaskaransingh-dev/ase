@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
 /**
  * GET /api/broker/account
  * 
- * Get user's brokerage account status
+ * Get user's brokerage account status - fetches live data from Alpaca
  */
 export async function GET() {
   try {
@@ -148,12 +148,52 @@ export async function GET() {
       })
     }
 
+    // Try to get live account data from Alpaca
+    let liveData: { cash?: string; portfolio_value?: string; buying_power?: string } = {}
+    try {
+      const broker = createBrokerAPI()
+      const alpacaAccount = await broker.getAccount(account.alpaca_account_id)
+      liveData = {
+        cash: alpacaAccount.cash,
+        portfolio_value: alpacaAccount.portfolio_value,
+        buying_power: alpacaAccount.buying_power,
+      }
+      
+      // Update local status if different (in case Alpaca status changed)
+      if (alpacaAccount.status !== account.status || alpacaAccount.trading_enabled !== account.trading_enabled) {
+        await admin
+          .from('broker_accounts')
+          .update({
+            status: alpacaAccount.status,
+            trading_enabled: alpacaAccount.trading_enabled,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', account.id)
+      }
+    } catch (e) {
+      console.log('[Broker Account] Could not fetch live Alpaca data:', e)
+      // Fall back to stored data
+    }
+
+    // Check for bank links
+    const { data: bankLinks } = await admin
+      .from('bank_links')
+      .select('id, status, bank_name, account_last4')
+      .eq('user_id', user.id)
+      .eq('status', 'ACTIVE')
+
+    const hasBankLink = (bankLinks?.length ?? 0) > 0
+
     return NextResponse.json({
       has_account: true,
       account_id: account.alpaca_account_id,
       account_number: account.account_number,
-      status: account.status,
+      status: liveData.status || account.status,
       trading_enabled: account.trading_enabled,
+      cash: liveData.cash,
+      portfolio_value: liveData.portfolio_value,
+      buying_power: liveData.buying_power,
+      has_bank_link: hasBankLink,
     })
   } catch (err: unknown) {
     console.error('[Broker Account] GET Error:', err)
