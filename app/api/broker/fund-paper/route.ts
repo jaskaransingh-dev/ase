@@ -34,12 +34,13 @@ export async function POST(request: NextRequest) {
     // Get user's broker account (use maybeSingle to handle no row gracefully)
     const { data: brokerAccount } = await admin
       .from('broker_accounts')
-      .select('alpaca_account_id, status')
+      .select('alpaca_account_id, account_number, status')
       .eq('user_id', user.id)
       .maybeSingle()
 
     // Fall back to connected_accounts if no broker_accounts
     let alpacaAccountId = brokerAccount?.alpaca_account_id
+    let alpacaAccountNumber = brokerAccount?.account_number
     
     if (!alpacaAccountId) {
       const { data: connection } = await admin
@@ -54,6 +55,10 @@ export async function POST(request: NextRequest) {
 
     if (!alpacaAccountId) {
       return NextResponse.json({ error: 'No Alpaca account found. Create account first.' }, { status: 400 })
+    }
+
+    if (!alpacaAccountNumber) {
+      return NextResponse.json({ error: 'Account number not found. Create account first.' }, { status: 400 })
     }
 
     // Get sandbox broker credentials
@@ -73,23 +78,26 @@ export async function POST(request: NextRequest) {
       }, { status: 500 })
     }
 
-    console.log('[Paper Funding] Using sandbox demo funding for account:', alpacaAccountId, 'amount:', amountDollars)
+    console.log('[Paper Funding] Using sandbox demo funding for account:', alpacaAccountNumber, 'amount:', amountDollars)
     console.log('[Paper Funding] Broker key:', brokerKey?.slice(0, 10) + '...')
 
-    // Use Alpaca's dedicated demo/sandbox funding endpoint
+    // Use demo funding endpoint with Basic Auth
     const demoFundingUrl = 'https://broker-api.sandbox.alpaca.markets/v1beta/demo/banking/funding'
     
-    // Try with header-based auth (Broker API format)
+    // Basic Auth credentials
+    const credentials = Buffer.from(`${brokerKey}:${brokerSecret}`).toString('base64')
+    
     const res = await fetch(demoFundingUrl, {
       method: 'POST',
       headers: {
-        'Apca-Api-Key-Id': brokerKey,
-        'Apca-Api-Secret-Key': brokerSecret,
+        'Authorization': `Basic ${credentials}`,
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
       },
       body: JSON.stringify({
-        account_id: alpacaAccountId,
+        receiver_account_number: alpacaAccountNumber,
         amount: String(amountDollars),
+        currency: 'USD',
         direction: 'INCOMING',
       }),
     })
