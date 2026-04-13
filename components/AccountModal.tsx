@@ -48,18 +48,6 @@ export default function AccountModal({ onClose, onSuccess }: AccountModalProps) 
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
 
-  const rawHasAccount = account?.has_account
-  const accountStatus = account?.status?.toUpperCase()
-  const hasActiveAccount = rawHasAccount && ['ACTIVE', 'APPROVED'].includes(accountStatus || '')
-  const shouldCreateAccount = !rawHasAccount || !hasActiveAccount
-  const hasAnyBankLink = bankLinks.length > 0
-  const hasActiveBankLink = bankLinks.some(b => b.status === 'ACTIVE')
-
-  function formatAmount(amt: string | number | undefined) {
-    const val = typeof amt === 'string' ? parseFloat(amt) : (amt || 0)
-    return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  }
-
   const [kycData, setKycData] = useState({
     first_name: '',
     last_name: '',
@@ -260,7 +248,7 @@ export default function AccountModal({ onClose, onSuccess }: AccountModalProps) 
     }
   }
 
-if (loading) {
+  if (loading) {
     return (
       <div style={{
         position: 'fixed', inset: 0, zIndex: 9999,
@@ -275,10 +263,83 @@ if (loading) {
     )
   }
 
-  const rawHasAccount = account?.has_account
+  if (step === 'success') {
+    return (
+      <div onClick={onClose} style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: 'rgba(4,3,12,.95)', backdropFilter: 'blur(20px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
+      }}>
+        <div onClick={e => e.stopPropagation()} style={{
+          background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 20,
+          padding: '2rem', width: '100%', maxWidth: 400, textAlign: 'center'
+        }}>
+          <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>✓</div>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>Success!</h2>
+          <p style={{ fontSize: '0.9rem', color: 'var(--muted)', marginBottom: '1.5rem' }}>{successMessage}</p>
+          <button
+            onClick={() => { onSuccess?.(); onClose() }}
+            style={{
+              width: '100%', padding: '1rem', borderRadius: 10, border: 'none',
+              background: 'var(--blue)', color: 'white', fontWeight: 700, cursor: 'pointer'
+            }}
+          >
+            Continue
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (step === 'error') {
+    return (
+      <div onClick={onClose} style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: 'rgba(4,3,12,.95)', backdropFilter: 'blur(20px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
+      }}>
+        <div onClick={e => e.stopPropagation()} style={{
+          background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 20,
+          padding: '2rem', width: '100%', maxWidth: 400, textAlign: 'center'
+        }}>
+          <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>✕</div>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>Error</h2>
+          <p style={{ fontSize: '0.9rem', color: 'var(--red)', marginBottom: '1.5rem' }}>{error}</p>
+          <button
+            onClick={() => setStep('menu')}
+            style={{
+              width: '100%', padding: '1rem', borderRadius: 10, border: 'none',
+              background: 'var(--blue)', color: 'white', fontWeight: 700, cursor: 'pointer'
+            }}
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (step === 'loading') {
+    return (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: 'rgba(4,3,12,.95)', backdropFilter: 'blur(20px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⏳</div>
+          <div style={{ fontWeight: 600 }}>Processing...</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (step === 'menu') {
+    const rawHasAccount = account?.has_account
     const accountStatus = account?.status?.toUpperCase()
+    const isAccountMissing = !rawHasAccount || !accountStatus || accountStatus === 'NOT_FOUND'
     const hasActiveAccount = rawHasAccount && ['ACTIVE', 'APPROVED'].includes(accountStatus || '')
-    const shouldCreateAccount = !rawHasAccount || !hasActiveAccount || rawHasAccount && !['ACTIVE', 'APPROVED'].includes(accountStatus || '')
+    const shouldCreateAccount = isAccountMissing || !hasActiveAccount
     const hasAnyBankLink = bankLinks.length > 0
     const hasActiveBankLink = bankLinks.some(b => b.status === 'ACTIVE')
 
@@ -287,13 +348,14 @@ if (loading) {
       return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     }
 
-  if (loading) {
-          position: 'fixed', inset: 0, zIndex: 9999,
-          background: 'rgba(4,3,12,.95)', backdropFilter: 'blur(20px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
-        }}>
-          <div onClick={e => e.stopPropagation()} style={{
-            background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 20,
+    return (
+      <div onClick={onClose} style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: 'rgba(4,3,12,.95)', backdropFilter: 'blur(20px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
+      }}>
+        <div onClick={e => e.stopPropagation()} style={{
+          background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 20,
           padding: '2rem', width: '100%', maxWidth: 440
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
@@ -330,91 +392,31 @@ if (loading) {
               </button>
             </div>
           ) : (
-            <div style={{ marginBottom: '1rem' }}>
-              {accountStatus === 'SUBMITTED' || accountStatus === 'PENDING' ? (
-                <div style={{ padding: '1.5rem', background: 'var(--bg3)', borderRadius: 16, border: '1px solid var(--yellow)', textAlign: 'center' }}>
-                  <div style={{ width: 64, height: 64, margin: '0 auto 1rem', position: 'relative' }}>
-                    <div style={{ 
-                      width: 64, height: 64, borderRadius: '50%', background: 'var(--yellow)', 
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      animation: 'pulse 2s ease-in-out infinite'
-                    }}>
-                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#07090F" strokeWidth="2">
-                        <circle cx="12" cy="12" r="10" />
-                        <path d="M12 6v6l4 2" />
-                      </svg>
-                    </div>
+            <div style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--bg3)', borderRadius: 12, border: `1px solid ${hasActiveAccount ? 'var(--mint)' : 'var(--border)'}` }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--faint)', marginBottom: '0.25rem' }}>BROKERAGE ACCOUNT</div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'white', marginBottom: '0.25rem' }}>
+                ****{account?.account_number?.slice(-4)}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: hasActiveAccount ? 'var(--mint)' : 'var(--yellow)', textTransform: 'uppercase' }}>
+                {account?.status}
+                {!hasActiveAccount && ' - Trading disabled'}
+              </div>
+              {balance && (
+                <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem' }}>
+                    <span style={{ color: 'var(--faint)' }}>Cash</span>
+                    <span style={{ color: 'white', fontFamily: 'var(--font-mono)' }}>${Number(balance.cash || 0).toLocaleString()}</span>
                   </div>
-                  <div style={{ fontSize: '1rem', fontWeight: 700, color: 'white', marginBottom: '0.5rem' }}>
-                    Verification Pending
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', marginTop: '0.25rem' }}>
+                    <span style={{ color: 'var(--faint)' }}>Portfolio</span>
+                    <span style={{ color: 'white', fontFamily: 'var(--font-mono)' }}>${Number(balance.portfolio_value || 0).toLocaleString()}</span>
                   </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--yellow)', marginBottom: '0.75rem', fontFamily: 'var(--font-mono)' }}>
-                    {account?.status || 'SUBMITTED'}
-                  </div>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--muted)', lineHeight: 1.5 }}>
-                    Your account is being verified by Alpaca.<br />
-                    This usually takes 1-2 business days.
-                  </p>
-                  <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-                    {['Submitted', 'Review', 'Approved'].map((step, i) => (
-                      <div key={step} style={{ 
-                        display: 'flex', alignItems: 'center', gap: '0.25rem',
-                        padding: '0.3rem 0.5rem', borderRadius: 6, fontSize: '0.65rem',
-                        background: i === 0 ? 'var(--yellow)' : 'var(--bg2)',
-                        color: i === 0 ? '#07090F' : 'var(--faint)'
-                      }}>
-                        <span style={{ 
-                          width: 6, height: 6, borderRadius: '50%', 
-                          background: i === 0 ? '#07090F' : 'var(--faint)' 
-                        }} />
-                        {step}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div style={{ padding: '1rem', background: 'var(--bg3)', borderRadius: 12, border: `1px solid ${hasActiveAccount ? 'var(--mint)' : 'var(--border)'}` }}>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--faint)', marginBottom: '0.25rem' }}>BROKERAGE ACCOUNT</div>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'white', marginBottom: '0.25rem' }}>
-                    ****{account?.account_number?.slice(-4)}
-                  </div>
-<div style={{ fontSize: '0.7rem', color: hasActiveAccount ? 'var(--mint)' : 'var(--yellow)', textTransform: 'uppercase' }}>
-                  {account?.status}
-                  {!hasActiveAccount && ' - Trading disabled'}
-                </div>
-                  {balance && (
-                    <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem' }}>
-                        <span style={{ color: 'var(--faint)' }}>Cash</span>
-                        <span style={{ color: 'white', fontFamily: 'var(--font-mono)' }}>${Number(balance.cash || 0).toLocaleString()}</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', marginTop: '0.25rem' }}>
-                        <span style={{ color: 'var(--faint)' }}>Portfolio</span>
-                        <span style={{ color: 'white', fontFamily: 'var(--font-mono)' }}>${Number(balance.portfolio_value || 0).toLocaleString()}</span>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
           )}
 
-          {rawHasAccount && accountStatus && ['SUBMITTED', 'PENDING'].includes(accountStatus) && (
-            <div style={{ padding: '1.5rem', background: 'var(--bg3)', borderRadius: 12, border: '1px solid var(--yellow)', textAlign: 'center', marginBottom: '1rem' }}>
-              <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--yellow)', margin: '0 auto 1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#07090F" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-                </svg>
-              </div>
-              <div style={{ fontSize: '1rem', fontWeight: 700, color: 'white', marginBottom: '0.5rem' }}>Verification Pending</div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--yellow)', marginBottom: '0.75rem', fontFamily: 'var(--font-mono)' }}>{accountStatus}</div>
-              <p style={{ fontSize: '0.8rem', color: 'var(--muted)', lineHeight: 1.5 }}>
-                Your account is being verified by Alpaca.<br/>This usually takes 1-2 business days.
-              </p>
-            </div>
-          )}
-
-          {rawHasAccount && !hasActiveAccount && !['SUBMITTED', 'PENDING'].includes(accountStatus || '') && (
+          {rawHasAccount && !hasActiveAccount && (
             <div style={{ fontSize: '0.75rem', color: 'var(--yellow)', marginBottom: '1rem', padding: '0.5rem', background: 'rgba(255,200,0,0.1)', borderRadius: 8 }}>
               ℹ️ Account pending verification. You can link bank & deposit, but trading disabled until approved.
             </div>
