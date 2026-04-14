@@ -138,7 +138,7 @@ export default function AlpacaApplicationStatus({
           <Step 
             number={3}
             label="Fund & Trade"
-            status={canTrade ? 'complete' : canFund ? 'ready' : 'pending'}
+            status={canTrade ? 'complete' : canFund ? 'active' : 'pending'}
           />
         </div>
 

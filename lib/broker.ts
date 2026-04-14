@@ -94,6 +94,11 @@ interface Account {
   transfers_enabled: boolean
   created_at: string
   updated_at: string
+  cash?: string
+  portfolio_value?: string
+  buying_power?: string
+  equity?: string
+  last_equity?: string
 }
 
 interface ACHRelationship {
@@ -421,11 +426,109 @@ class BrokerAPI {
   }
 
   /**
+   * Ensure a sandbox ACH relationship exists for the account.
+   * Returns the relationship ID. Accepts any relationship status in sandbox.
+   */
+  async ensureSandboxAchRelationship(params: {
+    accountId: string
+    accountOwnerName: string
+  }): Promise<string> {
+    const { accountId, accountOwnerName } = params
+
+    // 1) Try to find any existing relationship (any status in sandbox)
+    try {
+      const result = await this.listACHRelationships(accountId)
+      const raw = result as Record<string, unknown>
+      // Handle both { ach_relationships: [...] } and [...] formats
+      const rels: ACHRelationship[] = Array.isArray(raw)
+        ? (raw as ACHRelationship[])
+        : Array.isArray(raw?.ach_relationships)
+          ? (raw.ach_relationships as ACHRelationship[])
+          : []
+      console.log('[Broker] Found relationships:', rels.length, rels.map(r => ({ id: r.id, status: r.status })))
+      const rel = rels[0]
+      if (rel?.id) {
+        console.log('[Broker] Using existing ACH relationship:', rel.id, 'status:', rel.status)
+        return rel.id
+      }
+    } catch (e) {
+      console.warn('[Broker] Could not list ACH relationships:', e)
+    }
+
+    // 2) Create a sandbox demo relationship
+    try {
+      const created = await this.createACHRelationship(accountId, {
+        account_owner_name: accountOwnerName,
+        bank_account_type: 'CHECKING',
+        bank_account_number: '32131231abc',
+        bank_routing_number: '121000358',
+        nickname: 'Sandbox Checking',
+      })
+      console.log('[Broker] Created ACH relationship:', created.id, 'status:', created.status)
+      return created.id
+    } catch (e) {
+      // 409 means active relationship already exists — check again
+      if (e instanceof Error && e.message.includes('409')) {
+        console.warn('[Broker] 409 conflict, re-checking relationships')
+        try {
+          const result = await this.listACHRelationships(accountId)
+          const raw = result as Record<string, unknown>
+          const rels: ACHRelationship[] = Array.isArray(raw)
+            ? (raw as ACHRelationship[])
+            : Array.isArray(raw?.ach_relationships)
+              ? (raw.ach_relationships as ACHRelationship[])
+              : []
+          const rel = rels[0]
+          if (rel?.id) return rel.id
+        } catch {
+          // fall through
+        }
+      }
+      throw e
+    }
+  }
+
+  /**
+   * Fund sandbox/paper account via ACH transfer.
+   * POST /v1/accounts/{account_id}/transfers
+   */
+  async fundSandboxAccount(params: {
+    accountId: string
+    relationshipId: string
+    amount: string
+  }): Promise<Transfer> {
+    const { accountId, relationshipId, amount } = params
+    return this.createTransfer(accountId, {
+      transfer_type: 'ach',
+      relationship_id: relationshipId,
+      amount,
+      direction: 'INCOMING',
+    })
+  }
+
+  /**
+   * Get trading account details (includes cash, buying_power, equity)
+   * GET /v1/trading/accounts/{account_id}/account
+   */
+  async getTradingAccount(accountId: string): Promise<{
+    id: string
+    account_number: string
+    status: string
+    cash: string
+    buying_power: string
+    portfolio_value: string
+    equity: string
+    last_equity: string
+  }> {
+    return this.request(`/v1/trading/accounts/${accountId}/account`)
+  }
+
+  /**
    * Update trading account configuration
    * PATCH /v1/trading/accounts/{account_id}/account-configurations
    */
   async updateTradingConfiguration(accountId: string, config: {
-   允许_pdt_check?: boolean
+    pdt_check?: boolean
     allow_international_today?: boolean
     disable_no_margin_trade?: boolean
     fractional_trading?: boolean

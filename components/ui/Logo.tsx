@@ -1,5 +1,6 @@
 import React from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 
 interface LogoProps {
   size?: 'small' | 'medium' | 'large'
@@ -16,29 +17,50 @@ export const Logo: React.FC<LogoProps> = ({
   style = {},
   showLink = true
 }) => {
-  const sizeConfig = {
-    small: { fontSize: '1rem' },
-    medium: { fontSize: '1.5rem' },
-    large: { fontSize: '2rem' }
+  const sizes = {
+    small: { height: 28 },
+    medium: { height: 40 },
+    large: { height: 56 }
   }
 
-  const config = sizeConfig[size]
+  const config = sizes[size]
 
   const LogoContent = (
     <div 
       className={className}
       style={{
-        fontFamily: 'var(--font-serif)',
-        fontWeight: 700,
-        color: 'var(--white)',
         display: 'flex',
         alignItems: 'center',
-        letterSpacing: '-0.04em',
-        ...config,
         ...style
       }}
     >
-      ase
+      <Image
+        src="/transparent_logo.png"
+        alt="ASE"
+        height={config.height}
+        width={config.height * 2}
+        style={{ 
+          height: config.height, 
+          width: 'auto',
+          display: 'block',
+        }}
+        priority
+      />
+      {variant === 'full' && (
+        <span style={{
+          fontFamily: 'var(--font-head)',
+          fontWeight: 900,
+          fontSize: `${config.height * 0.55}px`,
+          letterSpacing: '-0.02em',
+          marginLeft: '0.5rem',
+          background: 'linear-gradient(135deg, var(--ivory) 0%, var(--gold) 100%)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          backgroundClip: 'text',
+        }}>
+          ASE<span style={{ color: 'var(--gold)', WebkitTextFillColor: 'var(--gold)' }}>.</span>
+        </span>
+      )}
     </div>
   )
 

@@ -167,30 +167,44 @@ export async function GET() {
     }
 
     // Try to get live account data from Alpaca
-    let liveData: { cash?: string; portfolio_value?: string; buying_power?: string } = {}
+    let liveData: { cash?: string; portfolio_value?: string; buying_power?: string; status?: string } = {}
     try {
       const broker = createBrokerAPI()
-      const alpacaAccount = await broker.getAccount(account.alpaca_account_id)
-      liveData = {
-        cash: alpacaAccount.cash,
-        portfolio_value: alpacaAccount.portfolio_value,
-        buying_power: alpacaAccount.buying_power,
+      // Try trading account endpoint first (has balance info)
+      try {
+        const tradingAccount = await broker.getTradingAccount(account.alpaca_account_id)
+        liveData = {
+          cash: tradingAccount.cash,
+          portfolio_value: tradingAccount.portfolio_value,
+          buying_power: tradingAccount.buying_power,
+          status: tradingAccount.status,
+        }
+      } catch {
+        // Fallback to regular account endpoint + balances
+        const alpacaAccount = await broker.getAccount(account.alpaca_account_id)
+        liveData.status = alpacaAccount.status
+        try {
+          const balances = await broker.getBalances(account.alpaca_account_id)
+          liveData.cash = balances.cash
+          liveData.portfolio_value = balances.portfolio_value
+        } catch {
+          // Balance fetch failed - use stored data
+        }
       }
-      
-      // Update local status if different (in case Alpaca status changed)
-      if (alpacaAccount.status !== account.status || alpacaAccount.trading_enabled !== account.trading_enabled) {
+
+      // Update local status if different
+      const newStatus = liveData.status || account.status
+      if (newStatus !== account.status) {
         await admin
           .from('broker_accounts')
           .update({
-            status: alpacaAccount.status,
-            trading_enabled: alpacaAccount.trading_enabled,
+            status: newStatus,
             updated_at: new Date().toISOString(),
           })
           .eq('id', account.id)
       }
     } catch (e) {
       console.log('[Broker Account] Could not fetch live Alpaca data:', e)
-      // Fall back to stored data
     }
 
     // Check for bank links

@@ -11,7 +11,7 @@
  */
 
 import { SupabaseClient } from '@supabase/supabase-js'
-import { getCryptoBars, submitOrder, waitForFill, AlpacaBar } from './market-data'
+import { getCryptoBars, getStockBars, submitOrder, waitForFill, AlpacaBar } from './market-data'
 
 // ── AGENT CONFIG ──────────────────────────────────────────────────────────
 
@@ -20,7 +20,7 @@ export interface AgentConfig {
   slug: string
   name: string
   description: string
-  strategyType: 'momentum' | 'mean_reversion' | 'trend_following' | 'crypto_momentum' | 'crypto_mean_reversion'
+  strategyType: 'momentum' | 'mean_reversion' | 'trend_following' | 'crypto_momentum' | 'crypto_mean_reversion' | 'equity_momentum' | 'equity_mean_reversion' | 'equity_rotation'
   tagline: string
   ticker: string
   asset: 'equity' | 'crypto'
@@ -127,6 +127,56 @@ export const AGENT_CONFIGS: AgentConfig[] = [
     ticker: 'DYLD',
     asset: 'crypto',
   },
+  {
+    id: 'spy-momentum',
+    slug: 'spy-momentum',
+    name: 'S&P 500 Momentum Edge',
+    description: 'Systematic trend-following on SPY using 20/50 EMA crossover with ADX confirmation. Trades S&P 500 ETF for broad market exposure. Entry: 20 EMA crosses above 50 EMA AND ADX > 22. Exit: 20 EMA crosses below 50 EMA OR ADX < 18. Position sizing based on ATR volatility. Max 40% exposure per signal.',
+    strategyType: 'trend_following',
+    tagline: 'Trend-following on broad market S&P 500 exposure',
+    ticker: 'SPYM',
+    asset: 'equity',
+  },
+  {
+    id: 'qqq-growth',
+    slug: 'qqq-growth',
+    name: 'Nasdaq Growth Rotation',
+    description: 'Tactical rotation strategy for Nasdaq 100 via QQQ. Combines momentum scoring (20-day return) with relative strength versus SPY. Buys QQQ when it outperforms SPY by >2% and QQQ RSI < 70 (not overbought). Exits when QQQ underperforms SPY or RSI > 80. Uses 5% trailing stop.',
+    strategyType: 'equity_momentum',
+    tagline: 'Nasdaq momentum rotation with relative strength overlay',
+    ticker: 'QQQR',
+    asset: 'equity',
+  },
+  {
+    id: 'sector-rotation',
+    slug: 'sector-rotation',
+    name: 'Sector Momentum Rotation',
+    description: 'Rotates between tech (XLK), healthcare (XLV), and financial (XLF) ETFs based on 20-day momentum scores. Buys the top performer with minimum 3% momentum advantage over second place. Rebalances weekly. Uses 4% maximum loss stop per sector. Cash when no sector qualifies.',
+    strategyType: 'equity_rotation',
+    tagline: 'Weekly sector rotation based on momentum ranking',
+    ticker: 'SROT',
+    asset: 'equity',
+  },
+  {
+    id: 'low-vol-equity',
+    slug: 'low-vol-equity',
+    name: 'Low Volatility Premium Capture',
+    description: 'Mean-reversion strategy on US equity market using SPLV (low volatility ETF). Targets overbought/oversold extremes using 14-day RSI. Buys when RSI < 30 with positive 5-day price momentum. Sells when RSI > 65. Uses 3% stop loss. Avoids entries when VIX > 25 (high fear environment).',
+    strategyType: 'equity_mean_reversion',
+    tagline: 'Mean-reversion on low volatility equities at extremes',
+    ticker: 'LVOL',
+    asset: 'equity',
+  },
+  {
+    id: ' CoveredCall-Overlay',
+    slug: 'covered-call-overlay',
+    name: 'Covered Call Income Overlay',
+    description: 'Sells covered calls on a 70% delta position in QQQ to generate income. Writes 30-delta calls at 5% out-of-the-money. Rolls up and out when called away or 7 days before expiration. Target: 1-2% monthly premium capture. Uses protective put at 10% below entry when IV rank > 60.',
+    strategyType: 'equity_momentum',
+    tagline: 'Income generation via covered call writing on tech',
+    ticker: 'CCAL',
+    asset: 'equity',
+  },
 ]
 
 // ── CRYPTO SYMBOLS (Alpaca slash format) ──────────────────────────────────
@@ -138,6 +188,16 @@ const SYM = {
   UNI:  'UNI/USD',
   AAVE: 'AAVE/USD',
   AVAX: 'AVAX/USD',
+} as const
+
+// ── EQUITY SYMBOLS (Alpaca standard format) ───────────────────────────────
+const STOCK = {
+  SPY:  'SPY',
+  QQQ:  'QQQ',
+  XLK:  'XLK',
+  XLV:  'XLV',
+  XLF:  'XLF',
+  SPLV: 'SPLV',
 } as const
 
 // ── TYPES ─────────────────────────────────────────────────────────────────

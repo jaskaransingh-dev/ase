@@ -75,15 +75,21 @@ export default function FundingModal({ onClose }: FundingModalProps) {
         body: JSON.stringify({ amount_cents: amountNum }),
       })
 
+      const data = await res.json()
+
       if (res.ok) {
-        const data = await res.json()
-        // Update the account cash with the new balance from the API
-        if (data.new_balance_cents !== undefined) {
-          setAccount(prev => prev ? { ...prev, cash: (data.new_balance_cents / 100).toString() } : null)
+        // If transfer is APPROVED, funds are immediately available
+        if (data.transfer_status === 'APPROVED' || data.transfer_status === 'COMPLETE') {
+          if (data.new_balance_cents !== undefined) {
+            setAccount(prev => prev ? { ...prev, cash: (data.new_balance_cents / 100).toString() } : null)
+          }
+          setStep('success')
+        } else {
+          // Transfer is QUEUED/PENDING - funds will arrive in 10-30 min
+          setError('') // Clear error
+          setStep('success')
         }
-        setStep('success')
       } else {
-        const data = await res.json()
         setError(data.error || 'Failed to add funds')
         setStep('amount')
       }
@@ -243,17 +249,20 @@ export default function FundingModal({ onClose }: FundingModalProps) {
           padding: '2.5rem', width: '100%', maxWidth: 380, textAlign: 'center'
         }}>
           <div style={{ fontSize: '3rem', marginBottom: '1rem', color: 'var(--mint)' }}>✓</div>
-          <h2 style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: '0.5rem', color: 'var(--white)' }}>Funds Added!</h2>
+          <h2 style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: '0.5rem', color: 'var(--white)' }}>Transfer Initiated!</h2>
           <p style={{ fontSize: '0.95rem', color: 'var(--muted)', marginBottom: '1.5rem', lineHeight: 1.5 }}>
             {method === 'virtual' 
-              ? `$${parseInt(amount).toLocaleString()} in virtual cash added to your paper account.`
+              ? `$${parseInt(amount).toLocaleString()} transfer initiated. Funds will appear in your paper account when the transfer completes (10-30 minutes in sandbox).`
               : `$${parseInt(amount).toLocaleString()} deposit initiated. Funds will arrive in 2-5 business days.`
             }
           </p>
-          <div style={{ background: 'var(--bg3)', borderRadius: 12, padding: '1rem', marginBottom: '1.5rem' }}>
-            <div style={{ fontSize: '0.7rem', color: 'var(--muted)', marginBottom: '0.25rem' }}>NEW BALANCE</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.5rem', fontWeight: 700, color: 'var(--mint)' }}>
-              ${account?.cash ? parseFloat(account.cash).toLocaleString() : '0.00'}
+          <div style={{ background: 'var(--bg3)', borderRadius: 12, padding: '1rem', marginBottom: '1.5rem', textAlign: 'left' }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--muted)', marginBottom: '0.25rem' }}>STATUS</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.25rem', fontWeight: 700, color: 'var(--yellow)' }}>
+              QUEUED
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--faint)', marginTop: '0.5rem' }}>
+              Current balance: ${account?.cash ? parseFloat(account.cash).toLocaleString() : '0.00'}
             </div>
           </div>
           <button

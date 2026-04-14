@@ -25,7 +25,7 @@
  */
 
 import { NextResponse } from 'next/server'
-import { runBacktest, runBuyAndHold, STRATEGIES, type OHLCV } from '@/lib/backtest'
+import { runBacktest, runBuyAndHold, runWalkForward, runMonteCarlo, STRATEGIES, type OHLCV } from '@/lib/backtest'
 
 // DO NOT use edge runtime — Yahoo Finance blocks Cloudflare edge IPs
 // and edge runtime has memory limits that cause "Internal Server Error"
@@ -480,6 +480,10 @@ export async function POST(req: Request) {
       nTrials?: number
       windowDays?: number
       seed?: number
+      // Walk-forward fields
+      walkForward?: boolean
+      trainDays?: number
+      testDays?: number
     }
 
     const requestedSymbol = (body.symbol ?? 'BTC-USD').toUpperCase().trim()
@@ -534,13 +538,36 @@ export async function POST(req: Request) {
         mcBars = await fetchYahooFinance(symbol, mcPeriod, interval)
       }
 
-      const summary = runMonteCarloBacktest(mcBars, strategyId, mergedParams, fee, nTrials, windowDays, seed)
+      const summary = runMonteCarlo(mcBars, strategyId, mergedParams, nTrials, windowDays, fee)
 
       return NextResponse.json({
         symbol,
         period: mcPeriod,
         strategy: meta,
         monteCarlo: summary,
+      })
+    }
+
+    // ─── Walk-forward analysis mode ───────────────────────────────
+    if (body.walkForward) {
+      const trainDays = body.trainDays ?? 252
+      const testDays = body.testDays ?? 63
+
+      // For walk-forward, always fetch 5y of data minimum
+      const wfPeriod = PERIOD_DAYS[period] < 1825 ? '5y' : period
+      let wfBars = bars
+      if (wfPeriod !== period) {
+        wfBars = await fetchYahooFinance(symbol, wfPeriod, interval)
+      }
+
+      const config = { fee }
+      const summary = runWalkForward(wfBars, strategyId, mergedParams, config, trainDays, testDays)
+
+      return NextResponse.json({
+        symbol,
+        period: wfPeriod,
+        strategy: meta,
+        walkForward: summary,
       })
     }
 

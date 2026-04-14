@@ -1,12 +1,17 @@
 /**
  * ASE Backtesting Engine — TypeScript port of algo_lab_refresh (Python/Streamlit)
  *
- * Supports 5 strategies:
+ * Supports 10 strategies:
  *   1. Mean Reversion       — z-score based
  *   2. Momentum Crossover   — fast/slow MA crossover
  *   3. Breakout Trend       — rolling high breakout
  *   4. RSI Trend Filter     — RSI + trend MA
  *   5. Volatility Breakout  — ATR trailing stop
+ *   6. Dual Momentum        — absolute + relative momentum
+ *   7. Pairs Mean Reversion — z-score of spread (single-symbol proxy)
+ *   8. Factor Rotation      — risk-adjusted momentum rotation
+ *   9. RSI Mean Reversion   — pure RSI overbought/oversold
+ *  10. MACD Trend           — MACD crossover trend following
  */
 
 export interface OHLCV {
@@ -42,13 +47,19 @@ export interface BacktestStats {
   totalReturnPct: number
   annualizedReturnPct: number
   sharpeRatio: number
+  sortinoRatio: number
   maxDrawdownPct: number
+  maxDrawdownDuration: number
   winRate: number
   totalTrades: number
   profitableTrades: number
   avgTradeDurationDays: number
   bestTradePct: number
   worstTradePct: number
+  avgWin: number
+  avgLoss: number
+  profitFactor: number
+  exposureTime: number
   calmarRatio: number
 }
 
@@ -70,6 +81,65 @@ export interface ParamDef {
   min: number
   max: number
   step: number
+}
+
+export interface MonteCarloResult {
+  nTrials: number
+  windowDays: number
+  medianReturn: number
+  meanReturn: number
+  beatRate: number
+  p10Return: number
+  p90Return: number
+  medianSharpe: number
+  medianMaxDrawdown: number
+  trials: MonteCarloTrial[]
+}
+
+export interface WalkForwardResult {
+  nWindows: number
+  windowDays: number
+  trainDays: number
+  avgReturn: number
+  avgSharpe: number
+  beatBuyHoldRate: number
+  consistencyRatio: number
+  windows: WalkForwardWindow[]
+}
+
+export interface WalkForwardWindow {
+  trainStart: string
+  trainEnd: string
+  testStart: string
+  testEnd: string
+  trainReturn: number
+  trainSharpe: number
+  testReturn: number
+  testSharpe: number
+  testDrawdown: number
+  testTrades: number
+  outperformance: number
+}
+
+export interface BacktestConfig {
+  fee?: number
+  slippage?: SlippageModel
+  initialCapital?: number
+}
+
+export interface SlippageModel {
+  type: 'fixed' | 'volatility' | 'volume'
+  baseBps?: number
+  volMultiplier?: number
+}
+
+export interface MonteCarloTrial {
+  start: string
+  end: string
+  strategyReturn: number
+  buyHoldReturn: number
+  sharpe: number
+  maxDrawdown: number
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -153,6 +223,22 @@ function computeAtr(highs: number[], lows: number[], closes: number[], window: n
   return rollingMean(tr, window)
 }
 
+function computeEma(arr: number[], window: number): number[] {
+  const ema: number[] = new Array(arr.length).fill(NaN)
+  const k = 2 / (window + 1)
+  let started = false
+  for (let i = 0; i < arr.length; i++) {
+    if (isNaN(arr[i])) continue
+    if (!started) {
+      ema[i] = arr[i]
+      started = true
+    } else {
+      ema[i] = arr[i] * k + ema[i - 1] * (1 - k)
+    }
+  }
+  return ema
+}
+
 // ──────────────────────────────────────────────────────────────
 // Strategy implementations
 // ──────────────────────────────────────────────────────────────
@@ -196,7 +282,6 @@ function stratBreakoutTrend(bars: OHLCV[], params: BacktestParams): number[] {
   const bw = Math.round(params.breakout_window ?? 50)
   const ew = Math.round(params.exit_window ?? 20)
 
-  // shift(1) means use previous bar's rolling max
   const breakoutHigh = rollingMax(highs, bw)
   const exitLow = rollingMin(lows, ew)
 
@@ -271,6 +356,129 @@ function stratVolatilityBreakout(bars: OHLCV[], params: BacktestParams): number[
   return positions
 }
 
+// ── New strategies ──────────────────────────────────────────
+
+function stratDualMomentum(bars: OHLCV[], params: BacktestParams): number[] {
+  const closes = bars.map(b => b.close)
+  const lookback = Math.round(params.lookback ?? 60)
+  const maWindow = Math.round(params.ma_window ?? 200)
+  const ma = rollingMean(closes, maWindow)
+
+  const positions: number[] = new Array(bars.length).fill(0)
+  for (let i = 0; i < bars.length; i++) {
+    if (i < lookback || isNaN(ma[i])) { positions[i] = 0; continue }
+    // Absolute momentum: price above its lookback-period-ago level
+    const absoluteMom = closes[i] > closes[i - lookback]
+    // Relative momentum: price above long-term MA (proxy for risk-free benchmark)
+    const relativeMom = closes[i] > ma[i]
+    positions[i] = (absoluteMom && relativeMom) ? 1 : 0
+  }
+  return positions
+}
+
+function stratPairsMeanReversion(bars: OHLCV[], params: BacktestParams): number[] {
+  // Single-symbol proxy: uses ratio of short MA to long MA as a "spread"
+  const closes = bars.map(b => b.close)
+  const shortW = Math.round(params.short_window ?? 10)
+  const longW = Math.round(params.long_window ?? 50)
+  const zThreshold = params.z_threshold ?? 2.0
+  const shortMA = rollingMean(closes, shortW)
+  const longMA = rollingMean(closes, longW)
+
+  // Compute spread as ratio
+  const spread: number[] = bars.map((_, i) => {
+    if (isNaN(shortMA[i]) || isNaN(longMA[i]) || longMA[i] === 0) return NaN
+    return shortMA[i] / longMA[i]
+  })
+
+  const spreadMean = rollingMean(spread, longW)
+  const spreadStd = rollingStd(spread, longW)
+
+  const positions: number[] = new Array(bars.length).fill(0)
+  let current = 0
+  for (let i = 0; i < bars.length; i++) {
+    if (isNaN(spreadMean[i]) || isNaN(spreadStd[i]) || spreadStd[i] === 0) {
+      positions[i] = current
+      continue
+    }
+    const z = (spread[i] - spreadMean[i]) / spreadStd[i]
+    // Buy when spread is abnormally low (mean revert up), sell when high
+    if (z < -zThreshold) current = 1
+    else if (z > zThreshold) current = 0
+    else if (z > 0 && current === 1) current = 0 // close when spread reverts past zero
+    positions[i] = current
+  }
+  return positions
+}
+
+function stratFactorRotation(bars: OHLCV[], params: BacktestParams): number[] {
+  // Risk-adjusted momentum: hold when risk-adjusted return (return/volatility) is positive
+  const closes = bars.map(b => b.close)
+  const momWindow = Math.round(params.momentum_window ?? 60)
+  const volWindow = Math.round(params.vol_window ?? 20)
+  const threshold = params.threshold ?? 0.5
+
+  const stds = rollingStd(closes, volWindow)
+
+  const positions: number[] = new Array(bars.length).fill(0)
+  for (let i = 0; i < bars.length; i++) {
+    if (i < momWindow || isNaN(stds[i]) || stds[i] === 0) { positions[i] = 0; continue }
+    const mom = (closes[i] - closes[i - momWindow]) / closes[i - momWindow]
+    const annualizedVol = (stds[i] / closes[i]) * Math.sqrt(252)
+    const riskAdjMom = annualizedVol === 0 ? 0 : mom / annualizedVol
+    positions[i] = riskAdjMom > threshold ? 1 : 0
+  }
+  return positions
+}
+
+function stratRsiMeanReversion(bars: OHLCV[], params: BacktestParams): number[] {
+  const closes = bars.map(b => b.close)
+  const rsiWindow = Math.round(params.rsi_window ?? 14)
+  const buyBelow = params.buy_below ?? 30
+  const sellAbove = params.sell_above ?? 70
+
+  const rsi = computeRsi(closes, rsiWindow)
+
+  const positions: number[] = new Array(bars.length).fill(0)
+  let current = 0
+  for (let i = 0; i < bars.length; i++) {
+    if (isNaN(rsi[i])) { positions[i] = current; continue }
+    if (rsi[i] < buyBelow) current = 1
+    else if (rsi[i] > sellAbove) current = 0
+    positions[i] = current
+  }
+  return positions
+}
+
+function stratMacdTrend(bars: OHLCV[], params: BacktestParams): number[] {
+  const closes = bars.map(b => b.close)
+  const fastPeriod = Math.round(params.fast_period ?? 12)
+  const slowPeriod = Math.round(params.slow_period ?? 26)
+  const signalPeriod = Math.round(params.signal_period ?? 9)
+
+  const fastEma = computeEma(closes, fastPeriod)
+  const slowEma = computeEma(closes, slowPeriod)
+
+  // MACD line = fast EMA - slow EMA
+  const macdLine: number[] = bars.map((_, i) => {
+    if (isNaN(fastEma[i]) || isNaN(slowEma[i])) return NaN
+    return fastEma[i] - slowEma[i]
+  })
+
+  // Signal line = EMA of MACD line
+  const signalLine = computeEma(macdLine, signalPeriod)
+
+  const positions: number[] = new Array(bars.length).fill(0)
+  let current = 0
+  for (let i = 0; i < bars.length; i++) {
+    if (isNaN(macdLine[i]) || isNaN(signalLine[i])) { positions[i] = current; continue }
+    if (macdLine[i] > signalLine[i]) current = 1
+    else current = 0
+    positions[i] = current
+  }
+  return positions
+}
+
 // ──────────────────────────────────────────────────────────────
 // Statistics
 // ──────────────────────────────────────────────────────────────
@@ -279,9 +487,10 @@ function computeStats(equityCurve: number[], positions: number[], bars: OHLCV[])
   const n = equityCurve.length
   if (n < 2) {
     return {
-      totalReturnPct: 0, annualizedReturnPct: 0, sharpeRatio: 0,
-      maxDrawdownPct: 0, winRate: 0, totalTrades: 0, profitableTrades: 0,
-      avgTradeDurationDays: 0, bestTradePct: 0, worstTradePct: 0, calmarRatio: 0,
+      totalReturnPct: 0, annualizedReturnPct: 0, sharpeRatio: 0, sortinoRatio: 0,
+      maxDrawdownPct: 0, maxDrawdownDuration: 0, winRate: 0, totalTrades: 0,
+      profitableTrades: 0, avgTradeDurationDays: 0, bestTradePct: 0, worstTradePct: 0,
+      avgWin: 0, avgLoss: 0, profitFactor: 0, exposureTime: 0, calmarRatio: 0,
     }
   }
 
@@ -306,15 +515,47 @@ function computeStats(equityCurve: number[], positions: number[], bars: OHLCV[])
   const stdReturn = Math.sqrt(dailyReturns.reduce((a, b) => a + (b - meanReturn) ** 2, 0) / dailyReturns.length)
   const sharpeRatio = stdReturn === 0 ? 0 : (meanReturn / stdReturn) * Math.sqrt(252)
 
-  // Max drawdown
+  // Sortino (only downside deviation)
+  const negativeReturns = dailyReturns.filter(r => r < 0)
+  const downsideDeviation = negativeReturns.length > 0
+    ? Math.sqrt(negativeReturns.reduce((a, b) => a + b ** 2, 0) / dailyReturns.length)
+    : 0
+  const sortinoRatio = downsideDeviation === 0 ? 0 : (meanReturn / downsideDeviation) * Math.sqrt(252)
+
+  // Max drawdown + duration
   let peak = equityCurve[0]
   let maxDD = 0
-  for (const val of equityCurve) {
-    if (val > peak) peak = val
-    const dd = (peak - val) / peak
-    if (dd > maxDD) maxDD = dd
+  let maxDDDuration = 0
+  let currentDDStart = 0
+  let inDrawdown = false
+
+  for (let i = 0; i < equityCurve.length; i++) {
+    if (equityCurve[i] > peak) {
+      peak = equityCurve[i]
+      if (inDrawdown) {
+        const duration = i - currentDDStart
+        if (duration > maxDDDuration) maxDDDuration = duration
+        inDrawdown = false
+      }
+    } else {
+      const dd = (peak - equityCurve[i]) / peak
+      if (!inDrawdown) {
+        inDrawdown = true
+        currentDDStart = i
+      }
+      if (dd > maxDD) maxDD = dd
+    }
+  }
+  // If still in drawdown at end
+  if (inDrawdown) {
+    const duration = equityCurve.length - 1 - currentDDStart
+    if (duration > maxDDDuration) maxDDDuration = duration
   }
   const maxDrawdownPct = maxDD * 100
+
+  // Exposure time (% of bars in market)
+  const inMarketBars = positions.filter(p => p === 1).length
+  const exposureTime = (inMarketBars / positions.length) * 100
 
   // Trade analysis
   const trades: Array<{ entryIdx: number; exitIdx: number; entryPrice: number; exitPrice: number }> = []
@@ -343,19 +584,36 @@ function computeStats(equityCurve: number[], positions: number[], bars: OHLCV[])
     ? trades.reduce((sum, t) => sum + (t.exitIdx - t.entryIdx), 0) / trades.length
     : 0
 
+  // Avg win / avg loss
+  const wins = tradePcts.filter(p => p > 0)
+  const losses = tradePcts.filter(p => p < 0)
+  const avgWin = wins.length > 0 ? wins.reduce((a, b) => a + b, 0) / wins.length : 0
+  const avgLoss = losses.length > 0 ? losses.reduce((a, b) => a + b, 0) / losses.length : 0
+
+  // Profit factor = gross profit / gross loss
+  const grossProfit = wins.reduce((a, b) => a + b, 0)
+  const grossLoss = Math.abs(losses.reduce((a, b) => a + b, 0))
+  const profitFactor = grossLoss === 0 ? (grossProfit > 0 ? Infinity : 0) : grossProfit / grossLoss
+
   const calmarRatio = maxDrawdownPct === 0 ? 0 : annualizedReturnPct / maxDrawdownPct
 
   return {
     totalReturnPct,
     annualizedReturnPct,
     sharpeRatio: Math.round(sharpeRatio * 100) / 100,
+    sortinoRatio: Math.round(sortinoRatio * 100) / 100,
     maxDrawdownPct,
+    maxDrawdownDuration: maxDDDuration,
     winRate,
     totalTrades: trades.length,
     profitableTrades,
     avgTradeDurationDays: Math.round(avgDuration),
     bestTradePct,
     worstTradePct,
+    avgWin: Math.round(avgWin * 100) / 100,
+    avgLoss: Math.round(avgLoss * 100) / 100,
+    profitFactor: profitFactor === Infinity ? 999 : Math.round(profitFactor * 100) / 100,
+    exposureTime: Math.round(exposureTime * 100) / 100,
     calmarRatio: Math.round(calmarRatio * 100) / 100,
   }
 }
@@ -433,6 +691,75 @@ export const STRATEGIES: Record<string, StrategyMeta> = {
       { key: 'stop_atr_mult', label: 'ATR stop multiple', kind: 'float', min: 1.0, max: 6.0, step: 0.25 },
     ],
   },
+  dual_momentum: {
+    id: 'dual_momentum',
+    name: 'Dual Momentum',
+    description: 'Holds when both absolute momentum (price rising) and relative momentum (price above long-term average) are positive.',
+    plainEnglish: 'Only stays in the market when both short-term and long-term signals agree the trend is up.',
+    bestFor: 'Avoiding prolonged drawdowns while capturing major trends.',
+    mainRisk: 'Can exit prematurely during volatile but ultimately bullish periods.',
+    defaultParams: { lookback: 60, ma_window: 200 },
+    paramSchema: [
+      { key: 'lookback', label: 'Momentum lookback (days)', kind: 'int', min: 20, max: 252, step: 5 },
+      { key: 'ma_window', label: 'Long-term MA window', kind: 'int', min: 50, max: 300, step: 10 },
+    ],
+  },
+  pairs_mean_reversion: {
+    id: 'pairs_mean_reversion',
+    name: 'Pairs Mean Reversion',
+    description: 'Trades z-score of the short/long moving average ratio, buying when the spread is abnormally low and closing when it reverts.',
+    plainEnglish: 'Bets that the short-term trend will snap back toward the long-term trend.',
+    bestFor: 'Range-bound or oscillating markets with clear mean-reverting behavior.',
+    mainRisk: 'Spread can diverge further if a regime change occurs.',
+    defaultParams: { short_window: 10, long_window: 50, z_threshold: 2.0 },
+    paramSchema: [
+      { key: 'short_window', label: 'Short MA window', kind: 'int', min: 3, max: 30, step: 1 },
+      { key: 'long_window', label: 'Long MA window', kind: 'int', min: 20, max: 120, step: 5 },
+      { key: 'z_threshold', label: 'Z-score threshold', kind: 'float', min: 0.5, max: 4.0, step: 0.1 },
+    ],
+  },
+  factor_rotation: {
+    id: 'factor_rotation',
+    name: 'Factor Rotation',
+    description: 'Holds the asset when its risk-adjusted momentum (return divided by volatility) exceeds a threshold.',
+    plainEnglish: 'Only invests when the asset is trending well relative to how risky it is.',
+    bestFor: 'Rotating between assets or staying in cash when risk/reward is poor.',
+    mainRisk: 'Can stay out of market too long during volatile rallies.',
+    defaultParams: { momentum_window: 60, vol_window: 20, threshold: 0.5 },
+    paramSchema: [
+      { key: 'momentum_window', label: 'Momentum lookback', kind: 'int', min: 20, max: 252, step: 5 },
+      { key: 'vol_window', label: 'Volatility window', kind: 'int', min: 5, max: 60, step: 1 },
+      { key: 'threshold', label: 'Risk-adj. threshold', kind: 'float', min: 0.0, max: 2.0, step: 0.1 },
+    ],
+  },
+  rsi_mean_reversion: {
+    id: 'rsi_mean_reversion',
+    name: 'RSI Mean Reversion',
+    description: 'Pure RSI strategy: buys when RSI drops below oversold level and sells when it rises above overbought level.',
+    plainEnglish: 'Classic overbought/oversold indicator used to catch reversals.',
+    bestFor: 'Choppy markets where RSI extremes reliably signal turning points.',
+    mainRisk: 'In strong trends, RSI can stay overbought or oversold for extended periods.',
+    defaultParams: { rsi_window: 14, buy_below: 30, sell_above: 70 },
+    paramSchema: [
+      { key: 'rsi_window', label: 'RSI window', kind: 'int', min: 5, max: 30, step: 1 },
+      { key: 'buy_below', label: 'Buy when RSI below', kind: 'float', min: 10, max: 45, step: 1 },
+      { key: 'sell_above', label: 'Sell when RSI above', kind: 'float', min: 55, max: 90, step: 1 },
+    ],
+  },
+  macd_trend: {
+    id: 'macd_trend',
+    name: 'MACD Trend',
+    description: 'MACD crossover strategy: goes long when MACD line crosses above signal line, exits when it crosses below.',
+    plainEnglish: 'Uses the difference between fast and slow moving averages to detect momentum shifts.',
+    bestFor: 'Trending markets where momentum changes are persistent.',
+    mainRisk: 'Frequent whipsaws in choppy markets can erode returns through fees.',
+    defaultParams: { fast_period: 12, slow_period: 26, signal_period: 9 },
+    paramSchema: [
+      { key: 'fast_period', label: 'Fast EMA period', kind: 'int', min: 5, max: 30, step: 1 },
+      { key: 'slow_period', label: 'Slow EMA period', kind: 'int', min: 15, max: 60, step: 1 },
+      { key: 'signal_period', label: 'Signal EMA period', kind: 'int', min: 3, max: 20, step: 1 },
+    ],
+  },
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -446,6 +773,7 @@ export function runBacktest(
   strategyId: string,
   params: BacktestParams,
   fee = 0.001,
+  slippage = 0.0005,
 ): BacktestResult {
   if (!bars.length) throw new Error('No bars provided')
   const stratMeta = STRATEGIES[strategyId]
@@ -454,15 +782,20 @@ export function runBacktest(
   // Get positions from strategy
   let positions: number[]
   switch (strategyId) {
-    case 'mean_reversion':     positions = stratMeanReversion(bars, params); break
-    case 'momentum_crossover': positions = stratMomentumCrossover(bars, params); break
-    case 'breakout_trend':     positions = stratBreakoutTrend(bars, params); break
-    case 'rsi_trend_filter':   positions = stratRsiTrendFilter(bars, params); break
-    case 'volatility_breakout': positions = stratVolatilityBreakout(bars, params); break
+    case 'mean_reversion':        positions = stratMeanReversion(bars, params); break
+    case 'momentum_crossover':    positions = stratMomentumCrossover(bars, params); break
+    case 'breakout_trend':        positions = stratBreakoutTrend(bars, params); break
+    case 'rsi_trend_filter':      positions = stratRsiTrendFilter(bars, params); break
+    case 'volatility_breakout':   positions = stratVolatilityBreakout(bars, params); break
+    case 'dual_momentum':         positions = stratDualMomentum(bars, params); break
+    case 'pairs_mean_reversion':  positions = stratPairsMeanReversion(bars, params); break
+    case 'factor_rotation':       positions = stratFactorRotation(bars, params); break
+    case 'rsi_mean_reversion':    positions = stratRsiMeanReversion(bars, params); break
+    case 'macd_trend':            positions = stratMacdTrend(bars, params); break
     default: throw new Error(`No runner for ${strategyId}`)
   }
 
-  // Simulate equity curve with trading fees
+  // Simulate equity curve with trading fees and slippage
   const equityCurve: number[] = []
   let equity = INITIAL_CAPITAL
   let prevPosition = 0
@@ -470,9 +803,12 @@ export function runBacktest(
   for (let i = 0; i < bars.length; i++) {
     const pos = positions[i]
 
-    // Apply fee on position change
+    // Apply fee + slippage on position change
     if (pos !== prevPosition && i > 0) {
       equity *= (1 - fee)
+      // Slippage: buy at higher price, sell at lower price
+      // Model as a percentage cost on each trade
+      equity *= (1 - slippage)
     }
 
     // Daily return when in position
@@ -506,4 +842,210 @@ export function runBuyAndHold(bars: OHLCV[]): BacktestBar[] {
     }
     return { date: bar.date, close: bar.close, position: 1, equity }
   })
+}
+
+// ──────────────────────────────────────────────────────────────
+// Slippage modeling
+// ──────────────────────────────────────────────────────────────
+
+function computeVolatility(bars: OHLCV[], window = 20): number {
+  if (bars.length < window + 1) return 0
+  const returns: number[] = []
+  for (let i = 1; i < bars.length; i++) {
+    returns.push(Math.log(bars[i].close / bars[i - 1].close))
+  }
+  const recent = returns.slice(-window)
+  const mean = recent.reduce((a, b) => a + b, 0) / recent.length
+  const variance = recent.reduce((a, b) => a + (b - mean) ** 2, 0) / recent.length
+  return Math.sqrt(variance)
+}
+
+function calculateSlippage(
+  slippage: SlippageModel,
+  bar: OHLCV,
+  prevBar?: OHLCV,
+): number {
+  switch (slippage.type) {
+    case 'fixed':
+      return slippage.baseBps ?? 0.0005
+    case 'volatility': {
+      const vol = computeVolatility(prevBar ? [prevBar, bar] : [bar], 20)
+      const annualVol = vol * Math.sqrt(252)
+      const volScaler = slippage.volMultiplier ?? 0.5
+      return Math.min(annualVol * volScaler / Math.sqrt(252), 0.01)
+    }
+    case 'volume':
+      return slippage.baseBps ?? 0.0005
+    default:
+      return 0.0005
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// Walk-forward analysis
+// ──────────────────────────────────────────────────────────────
+
+export function runWalkForward(
+  bars: OHLCV[],
+  strategyId: string,
+  params: BacktestParams,
+  config: BacktestConfig = {},
+  trainDays = 252,
+  testDays = 63,
+): WalkForwardResult {
+  const fee = config.fee ?? 0.001
+  const slippage = config.slippage ?? { type: 'volatility', volMultiplier: 0.5 }
+  
+  const windows: WalkForwardWindow[] = []
+  const totalBars = bars.length
+  const stepSize = testDays
+  
+  for (let testStart = trainDays; testStart + testDays <= totalBars; testStart += stepSize) {
+    const trainBars = bars.slice(Math.max(0, testStart - trainDays), testStart)
+    const testBars = bars.slice(testStart, Math.min(testStart + testDays, totalBars))
+    
+    if (trainBars.length < 100 || testBars.length < 20) continue
+    
+    try {
+      const trainResult = runBacktest(trainBars, strategyId, params, fee)
+      const testResult = runBacktest(testBars, strategyId, params, fee)
+      const trainBuyHold = runBuyAndHold(trainBars)
+      const testBuyHold = runBuyAndHold(testBars)
+      
+      const trainReturn = trainResult.stats.totalReturnPct
+      const testReturn = testResult.stats.totalReturnPct
+      
+      const trainBHReturn = trainBuyHold.length > 1
+        ? ((trainBuyHold[trainBuyHold.length - 1].equity - trainBuyHold[0].equity) / trainBuyHold[0].equity) * 100
+        : 0
+      const testBHReturn = testBuyHold.length > 1
+        ? ((testBuyHold[testBuyHold.length - 1].equity - testBuyHold[0].equity) / testBuyHold[0].equity) * 100
+        : 0
+      
+      windows.push({
+        trainStart: trainBars[0].date,
+        trainEnd: trainBars[trainBars.length - 1].date,
+        testStart: testBars[0].date,
+        testEnd: testBars[testBars.length - 1].date,
+        trainReturn,
+        trainSharpe: trainResult.stats.sharpeRatio,
+        testReturn,
+        testSharpe: testResult.stats.sharpeRatio,
+        testDrawdown: testResult.stats.maxDrawdownPct,
+        testTrades: testResult.stats.totalTrades,
+        outperformance: testReturn - testBHReturn,
+      })
+    } catch {
+      // Skip invalid windows
+    }
+  }
+  
+  if (windows.length === 0) {
+    throw new Error('No valid walk-forward windows could be computed')
+  }
+  
+  const avgReturn = windows.reduce((sum, w) => sum + w.testReturn, 0) / windows.length
+  const avgSharpe = windows.reduce((sum, w) => sum + w.testSharpe, 0) / windows.length
+  const beatBuyHoldRate = windows.filter(w => w.outperformance > 0).length / windows.length
+  
+  const positiveReturns = windows.filter(w => w.testReturn > 0).length
+  const consistencyRatio = positiveReturns / windows.length
+  
+  return {
+    nWindows: windows.length,
+    windowDays: testDays,
+    trainDays,
+    avgReturn: Math.round(avgReturn * 100) / 100,
+    avgSharpe: Math.round(avgSharpe * 100) / 100,
+    beatBuyHoldRate: Math.round(beatBuyHoldRate * 1000) / 1000,
+    consistencyRatio: Math.round(consistencyRatio * 1000) / 1000,
+    windows,
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// Monte Carlo simulation
+// ──────────────────────────────────────────────────────────────
+
+export function runMonteCarlo(
+  bars: OHLCV[],
+  strategyId: string,
+  params: BacktestParams,
+  nTrials: number,
+  windowDays: number,
+  fee = 0.001,
+  slippage = 0.0005,
+): MonteCarloResult {
+  const trials: MonteCarloTrial[] = []
+  const totalBars = bars.length
+
+  if (totalBars < windowDays + 10) {
+    throw new Error(`Not enough data: have ${totalBars} bars, need at least ${windowDays + 10}`)
+  }
+
+  const maxStart = totalBars - windowDays
+
+  for (let t = 0; t < nTrials; t++) {
+    // Random start index
+    const startIdx = Math.floor(Math.random() * maxStart)
+    const endIdx = startIdx + windowDays
+    const windowBars = bars.slice(startIdx, endIdx)
+
+    if (windowBars.length < 30) continue
+
+    try {
+      const result = runBacktest(windowBars, strategyId, params, fee, slippage)
+      const buyHold = runBuyAndHold(windowBars)
+      const bhReturn = buyHold.length > 1
+        ? ((buyHold[buyHold.length - 1].equity - buyHold[0].equity) / buyHold[0].equity) * 100
+        : 0
+
+      trials.push({
+        start: windowBars[0].date,
+        end: windowBars[windowBars.length - 1].date,
+        strategyReturn: result.stats.totalReturnPct,
+        buyHoldReturn: bhReturn,
+        sharpe: result.stats.sharpeRatio,
+        maxDrawdown: result.stats.maxDrawdownPct,
+      })
+    } catch {
+      // Skip failed windows
+    }
+  }
+
+  if (trials.length === 0) {
+    throw new Error('No valid Monte Carlo trials could be computed')
+  }
+
+  const returns = trials.map(t => t.strategyReturn).sort((a, b) => a - b)
+  const sharpes = trials.map(t => t.sharpe).sort((a, b) => a - b)
+  const drawdowns = trials.map(t => t.maxDrawdown).sort((a, b) => a - b)
+  const excessReturns = trials.map(t => t.strategyReturn - t.buyHoldReturn)
+
+  const mid = Math.floor(returns.length / 2)
+  const medianReturn = returns.length % 2 ? returns[mid] : (returns[mid - 1] + returns[mid]) / 2
+  const meanReturn = returns.reduce((a, b) => a + b, 0) / returns.length
+
+  const sharpeMid = Math.floor(sharpes.length / 2)
+  const medianSharpe = sharpes.length % 2 ? sharpes[sharpeMid] : (sharpes[sharpeMid - 1] + sharpes[sharpeMid]) / 2
+
+  const ddMid = Math.floor(drawdowns.length / 2)
+  const medianMaxDrawdown = drawdowns.length % 2 ? drawdowns[ddMid] : (drawdowns[ddMid - 1] + drawdowns[ddMid]) / 2
+
+  const beatRate = excessReturns.filter(e => e > 0).length / excessReturns.length
+  const p10Idx = Math.floor(returns.length * 0.1)
+  const p90Idx = Math.min(Math.floor(returns.length * 0.9), returns.length - 1)
+
+  return {
+    nTrials: trials.length,
+    windowDays,
+    medianReturn: Math.round(medianReturn * 100) / 100,
+    meanReturn: Math.round(meanReturn * 100) / 100,
+    beatRate: Math.round(beatRate * 1000) / 1000,
+    p10Return: Math.round(returns[p10Idx] * 100) / 100,
+    p90Return: Math.round(returns[p90Idx] * 100) / 100,
+    medianSharpe: Math.round(medianSharpe * 100) / 100,
+    medianMaxDrawdown: Math.round(medianMaxDrawdown * 100) / 100,
+    trials,
+  }
 }
