@@ -2,7 +2,9 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { Logo } from '@/components/ui/Logo'
+import PublicNav from '@/components/ui/PublicNav'
+import LoadingState from '@/components/ui/LoadingState'
+import EmptyState from '@/components/ui/EmptyState'
 
 function useInView(threshold = 0.15) {
   const ref = useRef<HTMLDivElement>(null)
@@ -99,24 +101,8 @@ function InvestorsPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--white)', fontFamily: 'var(--font-body)' }}>
-      {/* Fixed Navigation */}
-      <nav style={{
-        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
-        height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 2rem',
-        background: 'rgba(7,17,31,.95)', borderBottom: '1px solid var(--border)',
-        backdropFilter: 'blur(16px)',
-      }}>
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
-          <Logo size="medium" />
-        </Link>
-        <div style={{ display: 'flex', gap: '1.25rem' }}>
-          <Link href="/agents" style={{ fontSize: '.85rem', fontWeight: 500, color: 'var(--text)' }}>Marketplace</Link>
-          <Link href="/builders" style={{ fontSize: '.85rem', fontWeight: 500, color: 'var(--text)' }}>Builders</Link>
-          <Link href="/login" style={{ fontSize: '.85rem', color: 'var(--text)', fontWeight: 500 }}>Sign In</Link>
-          <Link href="/signup" className="btn-primary" style={{ fontSize: '.85rem', padding: '0.6rem 1.25rem', borderRadius: 12 }}>Get Started</Link>
-        </div>
-      </nav>
+      {/* Navigation */}
+      <PublicNav variant="dark" />
 
       <section ref={sectionRef.ref} style={{
         minHeight: '100vh', padding: '8rem 2.5rem 4rem', display: 'flex', flexDirection: 'column', justifyContent: 'center',
@@ -146,11 +132,9 @@ function InvestorsPage() {
           </div>
 
           {loading ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.25rem' }}>
-              {[...Array(3)].map((_, i) => (
-                <div key={i} style={{ height: 220, borderRadius: 12, background: 'var(--bg2)' }} />
-              ))}
-            </div>
+            <LoadingState fullHeight={false} />
+          ) : agents.length === 0 ? (
+            <EmptyState icon="📊" title="No Agents Available" description="Check back soon for new trading strategies." />
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.25rem' }}>
               {agents.map((agent, i) => {

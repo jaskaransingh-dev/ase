@@ -3,6 +3,8 @@ import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Logo } from '@/components/ui/Logo'
+import LoadingState from '@/components/ui/LoadingState'
+import EmptyState from '@/components/ui/EmptyState'
 
 interface AgentPreview {
   name: string
@@ -697,16 +699,14 @@ export default function LandingPage() {
 
           {/* Agent Cards Grid */}
           {loading ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.25rem' }}>
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="skeleton" style={{ height: 220, borderRadius: 12 }} />
-              ))}
-            </div>
+            <LoadingState fullHeight={false} />
           ) : agents.length === 0 ? (
-            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)', background: 'var(--bg2)', borderRadius: 12, border: '1px solid var(--border)' }}>
-              <p style={{ marginBottom: '1rem', fontSize: '.9rem' }}>No trading agents available yet.</p>
-              <Link href="/agents" style={{ color: 'var(--blue)', fontSize: '.85rem' }}>Browse all agents →</Link>
-            </div>
+            <EmptyState
+              icon="📊"
+              title="No Trading Agents Available"
+              description="Check back soon for new verified strategies."
+              action={{ label: 'Browse All Agents', href: '/agents' }}
+            />
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1.25rem' }} className="agents-grid">
               {agents.map((agent, i) => {

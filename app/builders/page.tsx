@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { Logo } from '@/components/ui/Logo'
+import PublicNav from '@/components/ui/PublicNav'
 
 function useInView(threshold = 0.15) {
   const ref = useRef<HTMLDivElement>(null)
@@ -23,23 +23,7 @@ function BuildersPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--white)', fontFamily: 'var(--font-body)' }}>
-      <nav style={{
-        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
-        height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 2rem',
-        background: 'rgba(7,17,31,.95)', borderBottom: '1px solid var(--border)',
-        backdropFilter: 'blur(16px)',
-      }}>
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
-          <Logo size="medium" />
-        </Link>
-        <div style={{ display: 'flex', gap: '1.25rem' }}>
-          <Link href="/agents" style={{ fontSize: '.85rem', fontWeight: 500, color: 'var(--text)' }}>Marketplace</Link>
-          <Link href="/investors" style={{ fontSize: '.85rem', fontWeight: 500, color: 'var(--text)' }}>Investors</Link>
-          <Link href="/login" style={{ fontSize: '.85rem', color: 'var(--text)', fontWeight: 500 }}>Sign In</Link>
-          <Link href="/signup" className="btn-primary" style={{ fontSize: '.85rem', padding: '0.6rem 1.25rem', borderRadius: 12 }}>Get Started</Link>
-        </div>
-      </nav>
+      <PublicNav variant="dark" />
 
       <section ref={sectionRef.ref} style={{
         minHeight: '100vh', padding: '8rem 2.5rem 4rem', display: 'flex', flexDirection: 'column', justifyContent: 'center',
