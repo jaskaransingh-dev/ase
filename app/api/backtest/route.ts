@@ -463,6 +463,11 @@ const AGENT_LOCKED_SYMBOLS: Record<string, string> = {
   'momentum-carry':  'BTC-USD',
   'cascade-detect':  'BTC-USD',
   'defi-yield':      'ETH-USD',
+  'spy-momentum':    'SPY',
+  'qqq-growth':      'QQQ',
+  'sector-rotation': 'XLK',
+  'low-vol-equity':  'SPLV',
+  'covered-call-overlay': 'QQQ',
 }
 
 export async function POST(req: Request) {

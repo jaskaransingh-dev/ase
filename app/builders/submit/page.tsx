@@ -155,7 +155,7 @@ export default function BuilderSubmitPage() {
 
   if (submitted) {
     return (
-      <div style={{ maxWidth: 640, margin: '6rem auto', padding: '2rem', textAlign: 'center' }}>
+      <div style={{ maxWidth: 640, margin: '4rem auto', textAlign: 'center' }}>
         <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>✓</div>
         <h1 style={{ fontFamily: 'var(--font-head)', fontSize: '1.6rem', fontWeight: 800, marginBottom: '.75rem' }}>Submission Received</h1>
         <p style={{ color: 'var(--muted)', lineHeight: 1.7, marginBottom: '1.5rem' }}>
@@ -167,18 +167,11 @@ export default function BuilderSubmitPage() {
   }
 
   return (
-    <div style={{ maxWidth: 760, margin: '0 auto', padding: '2rem 2.5rem' }}>
-      {/* Header */}
-      <Link href="/agents" style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: 'var(--faint)', display: 'inline-flex', alignItems: 'center', gap: '.35rem', marginBottom: '1.5rem', textDecoration: 'none' }}
-        onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--white)'}
-        onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--faint)'}>
-        ← Back to Agents
-      </Link>
-
+    <div style={{ maxWidth: 760, margin: '0 auto' }}>
       <div className="eyebrow" style={{ marginBottom: '.35rem' }}>BUILDERS</div>
-      <h1 style={{ fontFamily: 'var(--font-head)', fontSize: '1.75rem', fontWeight: 800, marginBottom: '.5rem' }}>Submit Your Agent</h1>
+      <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.75rem', fontWeight: 700, marginBottom: '.5rem', letterSpacing: '-0.02em' }}>Submit Your Agent</h1>
       <p style={{ color: 'var(--muted)', fontSize: '.9rem', lineHeight: 1.65, marginBottom: '2rem' }}>
-        Upload your backtest results and strategy details. We automatically validate performance before listing — agents must pass Sharpe, drawdown, and win-rate thresholds.
+        Upload your backtest results and strategy details. Agents must pass Sharpe, drawdown, and win-rate thresholds before listing.
       </p>
 
       {/* Stepper */}

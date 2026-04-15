@@ -23,13 +23,18 @@ export async function GET() {
     const admin = createAdminClient()
 
     // Get broker account
-    const { data: brokerAccount } = await admin
+    const { data: brokerAccount, error: accError } = await admin
       .from('broker_accounts')
       .select('alpaca_account_id, status, trading_enabled')
       .eq('user_id', user.id)
       .single()
 
-    if (!brokerAccount || brokerAccount.status !== 'ACTIVE') {
+    if (accError) {
+      console.log('[Balance] No broker account found for user, error:', accError.message)
+    }
+
+    if (!brokerAccount || !brokerAccount.alpaca_account_id) {
+      console.log('[Balance] User has no alpaca_account_id')
       return NextResponse.json({
         equity_cents: 0,
         cash_cents: 0,
@@ -41,25 +46,35 @@ export async function GET() {
       })
     }
 
-    // Try to get live balance from Alpaca
+    // Accept any account status - even onboarding accounts should show balance
+    console.log('[Balance] Broker account status:', brokerAccount.status, 'account:', brokerAccount.alpaca_account_id)
+
+    // Try to get live balance from Alpaca (use trading account endpoint which works better)
     let cashCents = 0
     let equityCents = 0
+    let buyingPowerCents = 0
+    let cryptoStatus = 'INACTIVE'
 
     try {
       const broker = createBrokerAPI()
-      const balances = await broker.getBalances(brokerAccount.alpaca_account_id)
-      cashCents = Math.round(parseFloat(balances.cash || '0') * 100)
-      equityCents = Math.round(parseFloat(balances.portfolio_value || '0') * 100)
+      const trading = await broker.getTradingAccount(brokerAccount.alpaca_account_id)
+      cashCents = Math.round(parseFloat(trading.cash || '0') * 100)
+      equityCents = Math.round(parseFloat(trading.equity || '0') * 100)
+      buyingPowerCents = Math.round(parseFloat(trading.buying_power || '0') * 100)
+      cryptoStatus = trading.crypto_status || 'INACTIVE'
+      console.log('[Balance] Got trading account data:', trading)
     } catch (e) {
-      console.log('[Balance] Could not fetch live balance:', e)
+      console.log('[Balance] Could not fetch trading account:', e)
     }
 
     return NextResponse.json({
       equity_cents: equityCents,
       cash_cents: cashCents,
+      buying_power_cents: buyingPowerCents,
       cash: (cashCents / 100).toFixed(2),
       portfolio_value: (equityCents / 100).toFixed(2),
-      status: 'connected',
+      status: equityCents > 0 ? 'connected' : 'no_funds',
+      crypto_status: cryptoStatus,
       provider: 'alpaca',
       account_id: brokerAccount.alpaca_account_id,
     })

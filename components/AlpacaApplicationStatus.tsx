@@ -495,11 +495,14 @@ export default function AlpacaApplicationStatus({
         }
 
         .step-connector {
-          width: 40px;
+          flex: 1;
           height: 2px;
           background: var(--border);
           position: relative;
-          flex-shrink: 0;
+          min-width: 24px;
+          margin: 0 4px;
+          align-self: center;
+          margin-bottom: 20px;
         }
 
         .step-connector.active {
@@ -509,7 +512,7 @@ export default function AlpacaApplicationStatus({
         .step-connector::after {
           content: '';
           position: absolute;
-          right: -4px;
+          right: -5px;
           top: -4px;
           width: 0;
           height: 0;

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { stripe } from '@/lib/stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendDepositConfirmation } from '@/lib/email'
 import Stripe from 'stripe'
 
 export const dynamic = 'force-dynamic'
@@ -34,10 +33,10 @@ export async function POST(req: NextRequest) {
     }
 
     const amountCents = pi.amount
-    const supabase = createAdminClient()
+    const admin = createAdminClient()
 
     try {
-      const { data: existingDeposit } = await supabase
+      const { data: existingDeposit } = await admin
         .from('transactions')
         .select('id')
         .eq('reference_id', pi.id)
@@ -48,42 +47,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, duplicate: true })
       }
 
-      const { data: wallet, error: walletError } = await supabase
-        .from('wallets')
-        .select('id, balance_cents')
-        .eq('user_id', userId)
-        .maybeSingle()
-
-      if (walletError && walletError.code !== 'PGRST116') {
-        throw walletError
-      }
-
-      if (!wallet) {
-        await supabase.from('wallets').insert({
-          user_id: userId,
-          balance_cents: amountCents,
-          updated_at: new Date().toISOString(),
-        })
-      } else {
-        const newBalance = wallet.balance_cents + amountCents
-        await supabase
-          .from('wallets')
-          .update({ balance_cents: newBalance, updated_at: new Date().toISOString() })
-          .eq('user_id', userId)
-      }
-
-      await supabase.from('transactions').insert({
+      await admin.from('transactions').insert({
         user_id: userId,
         type: 'deposit',
         amount_cents: amountCents,
         reference_id: pi.id,
-        note: `Stripe deposit — ${pi.id}`
+        note: `Stripe deposit (Alpaca funding — ${pi.id})`
       })
 
-      const { data: authUser } = await supabase.auth.admin.getUserById(userId)
-      if (authUser?.user?.email) {
-        await sendDepositConfirmation(authUser.user.email, amountCents)
-      }
     } catch (error) {
       console.error('Error processing payment:', error)
     }

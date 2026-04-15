@@ -3,13 +3,12 @@ import { NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
-  // Use trading API keys for OAuth in sandbox
-  const clientId = process.env.ALPACA_KEY_ID
-  const clientSecret = process.env.ALPACA_SECRET_KEY
+  const clientId = process.env.ALPACA_CLIENT_ID
+  const clientSecret = process.env.ALPACA_CLIENT_SECRET
 
   if (!clientId || !clientSecret) {
     return NextResponse.json(
-      { error: 'Alpaca credentials not configured.' },
+      { error: 'Alpaca OAuth client not configured. Set ALPACA_CLIENT_ID and ALPACA_CLIENT_SECRET in environment.' },
       { status: 503 }
     )
   }

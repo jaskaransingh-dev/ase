@@ -5,13 +5,20 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Logo } from '@/components/ui/Logo'
+import AIChatbot from '@/components/AIChatbot'
 
 const NAV_ITEMS = [
-  { href: '/dashboard', label: 'Home', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
-  { href: '/agents', label: 'Exchange', icon: 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9' },
-  { href: '/dashboard/backtest', label: 'Lab', icon: 'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
-  { href: '/builders/submit', label: 'Submit Agent', icon: 'M12 4v16m8-8H4' },
+  { href: '/dashboard', label: 'Dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
+  { href: '/agents', label: 'Agents', icon: 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9' },
+  { href: '/dashboard/activity', label: 'Activity', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
+  { href: '/dashboard/build', label: 'Build', icon: 'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
   { href: '/dashboard/settings', label: 'Settings', icon: 'M10.325 18.693l3.768-1.458.767 1.458 3.83.788-1.458 1.458-3.768.831 1.458 3.768-1.458.767-1.458-.831-3.768-.831zM12 12a4 4 0 110-8 4 4 0 010 8z' },
+]
+
+const NAV_SECTIONS = [
+  { label: 'CORE', items: ['/dashboard', '/agents', '/dashboard/activity'] },
+  { label: 'CREATE', items: ['/dashboard/build'] },
+  { label: 'ACCOUNT', items: ['/dashboard/settings'] },
 ]
 
 
@@ -25,25 +32,18 @@ export default function DashboardShell({ user, children }: { user: { id: string;
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
-    fetch('/api/broker/create-account')
-      .then(r => r.json())
-      .then(d => {
-        setAccountConnected(d.has_account)
-        setAccountStatus(d.status || null)
-        setAccountNumber(d.account_number || null)
-      })
-      .catch(() => null)
-    
-    const interval = setInterval(() => {
-      fetch('/api/broker/create-account')
+    const fetchAccount = () =>
+      fetch('/api/broker/account')
         .then(r => r.json())
         .then(d => {
-          setAccountConnected(d.has_account)
+          setAccountConnected(!!d.has_account)
           setAccountStatus(d.status || null)
           setAccountNumber(d.account_number || null)
         })
         .catch(() => null)
-    }, 30000)
+
+    void fetchAccount()
+    const interval = setInterval(fetchAccount, 60000)
     return () => clearInterval(interval)
   }, [])
 
@@ -93,27 +93,36 @@ export default function DashboardShell({ user, children }: { user: { id: string;
         </div>
 
         <nav className="sidebar-nav">
-          {NAV_ITEMS.map(item => {
-            const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
-                onClick={() => setSidebarOpen(false)}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d={item.icon} />
-                </svg>
-                {item.label}
-              </Link>
-            )
-          })}
+          {NAV_SECTIONS.map(section => (
+            <div key={section.label} style={{ marginBottom: '0.25rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', fontWeight: 700, color: 'var(--faint)', letterSpacing: '0.12em', padding: '0.5rem 0.75rem 0.3rem', opacity: 0.6 }}>
+                {section.label}
+              </div>
+              {section.items.map(href => {
+                const item = NAV_ITEMS.find(n => n.href === href)
+                if (!item) return null
+                const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
+                    onClick={() => setSidebarOpen(false)}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d={item.icon} />
+                    </svg>
+                    {item.label}
+                  </Link>
+                )
+              })}
+            </div>
+          ))}
         </nav>
 
         <div className="sidebar-footer">
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <Link href="/account" className="sidebar-user" onClick={() => setSidebarOpen(false)}>
+            <Link href="/dashboard/settings" className="sidebar-user" onClick={() => setSidebarOpen(false)}>
               <div className="sidebar-user-avatar">
                 {(user.name || user.email || 'U').charAt(0).toUpperCase()}
               </div>
@@ -195,6 +204,8 @@ export default function DashboardShell({ user, children }: { user: { id: string;
           {children}
         </div>
       </main>
+
+      <AIChatbot />
 
       <style>{`
         @media (max-width: 768px) {

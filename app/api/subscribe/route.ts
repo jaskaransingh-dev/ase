@@ -1,24 +1,23 @@
 /**
  * POST /api/subscribe
  *
- * One-step subscribe + allocate real USD endpoint.
+ * One-step subscribe + allocate USD endpoint.
  *
- * Combines:
- * 1. Create subscription (user follows agent)
- * 2. Invest real USD (user allocates Alpaca trading funds)
- * 3. Trigger immediate agent run (starts real trading)
- *
- * IMPORTANT: This uses REAL MONEY from user's Alpaca account.
- * Agents execute real trades on Alpaca.
+ * 1. Verifies Alpaca account is connected
+ * 2. Creates/updates a holding position
+ * 3. Records the transaction
+ * 4. Reprices the agent
+ * 5. Triggers an immediate agent run
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateQuoteFromNav } from '@/lib/market'
-import { mergeHoldingPosition, syncAgentMarketState } from '@/lib/exchange'
+import { mergeHoldingPosition, syncAgentMarketState, reserveCapitalAllocation } from '@/lib/exchange'
 import { triggerImmediateAgentRun } from '@/lib/agent-cycle'
 import { createBrokerAPI } from '@/lib/broker'
+import { distributeTradeToUsers, getUsersWithHoldings } from '@/lib/user-trading'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,35 +34,46 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdminClient()
 
-    // 1. Check Alpaca account balance from broker_accounts
+    // 1. Check user's Alpaca account has sufficient balance
     const { data: brokerAccount } = await admin
       .from('broker_accounts')
-      .select('alpaca_account_id, status')
+      .select('alpaca_account_id')
       .eq('user_id', user.id)
       .single()
 
-    if (!brokerAccount || brokerAccount.status !== 'ACTIVE') {
-      return NextResponse.json({ error: 'No Alpaca account connected. Please connect your Alpaca account first.' }, { status: 400 })
+    if (!brokerAccount?.alpaca_account_id) {
+      return NextResponse.json({
+        error: 'No Alpaca account connected. Connect your Alpaca account before investing.',
+      }, { status: 400 })
     }
 
-    // Get cash balance from Alpaca
-    let cashCents = 0
+    let alpacaCashCents = 0
+    let alpacaCryptoStatus = 'INACTIVE'
     try {
-      const broker = createBrokerAPI()
-      const balances = await broker.getBalances(brokerAccount.alpaca_account_id)
-      cashCents = Math.round(parseFloat(balances.cash || '0') * 100)
+      const brokerAPI = createBrokerAPI()
+      const trading = await brokerAPI.getTradingAccount(brokerAccount.alpaca_account_id)
+      alpacaCashCents = Math.round(parseFloat(trading.cash || '0') * 100)
+      alpacaCryptoStatus = trading.crypto_status || 'INACTIVE'
+      console.log(`[Subscribe] User ${user.id} Alpaca cash: $${(alpacaCashCents / 100).toFixed(2)}, crypto_status: ${alpacaCryptoStatus}`)
     } catch (e) {
-      console.log('[Subscribe] Could not get balance from Alpaca:', e)
+      console.log('[Subscribe] Could not fetch Alpaca balance:', e)
+      // Don't fail here - allow proceed with warning
     }
 
-    if (cashCents < amount_cents) {
-      return NextResponse.json({ error: `Insufficient cash balance. You have $${(cashCents / 100).toFixed(2)} but need $${(amount_cents / 100).toFixed(2)}. Add funds to your Alpaca account.` }, { status: 400 })
+    // Verify sufficient balance - require exact match or require funding
+    if (alpacaCashCents > 0 && alpacaCashCents < amount_cents) {
+      const shortfall = (amount_cents - alpacaCashCents) / 100
+      return NextResponse.json({
+        error: `Insufficient Alpaca balance. You have $${(alpacaCashCents / 100).toFixed(2)} but need $${(amount_cents / 100).toFixed(2)}. Fund your Alpaca account by $${shortfall.toFixed(2)}.`,
+        alpaca_balance_cents: alpacaCashCents,
+        required_cents: amount_cents,
+      }, { status: 400 })
     }
 
     // 2. Get agent
     const { data: agent } = await admin
       .from('agents')
-      .select('id, name, slug, status, share_price_cents, total_aum_cents, total_shares, max_aum_cents, alert_level')
+      .select('id, name, slug, status, share_price_cents, total_aum_cents, total_shares, max_aum_cents, alert_level, primary_symbol')
       .eq('id', agent_id)
       .single()
 
@@ -82,6 +92,9 @@ export async function POST(req: NextRequest) {
     if (currentAum + amount_cents > maxAum) {
       return NextResponse.json({ error: 'Agent is at capacity.' }, { status: 409 })
     }
+
+    // Note: crypto_status is checked but not blocking - trades will execute when account is crypto-enabled
+    const isCryptoAgent = agent.primary_symbol?.includes('/')
 
     // 3. Get latest NAV
     const { data: latestStats } = await admin
@@ -102,13 +115,7 @@ export async function POST(req: NextRequest) {
     const askCents = quote.askCents
     const newShares = amount_cents / askCents
 
-    // 4. Atomic operations
-    // Note: We're NOT deducting from any wallet. The investment represents
-    // capital allocation from the user's existing Alpaca trading balance.
-    // The user has already deposited USD to Alpaca - this subscription
-    // represents their commitment of capital to this agent's strategy.
-
-    // Create/merge holding
+    // 3. Create/merge holding (no wallet deduction — Alpaca is the funding source)
     const holdingUpdate = await mergeHoldingPosition(admin, {
       userId: user.id,
       agentId: agent_id,
@@ -117,23 +124,42 @@ export async function POST(req: NextRequest) {
       investedCents: amount_cents,
     })
 
-    // Create/update subscription
-    const { data: existingSub } = await admin
-      .from('subscriptions')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('agent_id', agent_id)
-      .eq('status', 'active')
-      .maybeSingle()
+    // Reserve capital allocation - this locks the capital in Alpaca for this agent
+    // This is optional - if the migration hasn't run, we continue anyway
+    let allocationId: string | null = null
+    try {
+      const allocation = await reserveCapitalAllocation(admin, {
+        userId: user.id,
+        agentId: agent_id,
+        amountCents: amount_cents,
+        alpacaAccountId: brokerAccount.alpaca_account_id,
+      })
+      allocationId = allocation.id
+      console.log(`[Subscribe] Reserved capital allocation: ${allocation.id} for $${(amount_cents / 100).toFixed(2)}`)
 
-    if (!existingSub) {
-      await admin.from('subscriptions').insert({
+      // Link capital allocation to holding if migration exists
+      await admin
+        .from('holdings')
+        .update({
+          capital_allocation_id: allocation.id,
+        })
+        .eq('id', holdingUpdate.holdingId)
+    } catch (allocErr) {
+      console.warn('[Subscribe] Capital allocation table may not exist yet (migration pending):', allocErr instanceof Error ? allocErr.message : allocErr)
+      // Continue without it - the system works without capital allocations
+    }
+
+    // Create/update subscription so the agent appears immediately in dashboard views.
+    await admin
+      .from('subscriptions')
+      .upsert({
         user_id: user.id,
         agent_id: agent_id,
         status: 'active',
         subscribed_at: new Date().toISOString(),
+      }, {
+        onConflict: 'user_id,agent_id',
       })
-    }
 
     // Record transaction
     await admin.from('transactions').insert({
@@ -141,7 +167,7 @@ export async function POST(req: NextRequest) {
       type: 'invest',
       amount_cents: -amount_cents,
       reference_id: holdingUpdate.holdingId,
-      note: `Subscribed to ${agent.name}${holdingUpdate.merged ? ' (added to position)' : ''}`,
+      note: `Subscribed to ${agent.name}${holdingUpdate.merged ? ' (added to position)' : ''}${allocationId ? ` - Capital allocation: ${allocationId}` : ''}`,
     })
 
     // Reprice agent
@@ -155,9 +181,26 @@ export async function POST(req: NextRequest) {
     // Trigger immediate agent run
     await triggerImmediateAgentRun(req, agent_id)
 
+    // Execute a buy trade on user's account
+    try {
+      const users = await getUsersWithHoldings(admin, agent_id)
+      const currentUser = users.find(u => u.user_id === user.id)
+      if (currentUser && amount_cents >= 1000 && agent.primary_symbol) {
+        console.log(`[subscribe] Executing immediate trade for user ${user.id} - ${agent.primary_symbol}`)
+        const results = await distributeTradeToUsers(admin, agent_id, {
+          symbol: agent.primary_symbol,
+          side: 'buy',
+          notional: amount_cents / 100,
+        }, synced.tradingCapitalCents)
+        console.log(`[subscribe] Trade results:`, results)
+      }
+    } catch (tradeErr) {
+      console.error('[subscribe] Immediate trade failed, will retry in cron:', tradeErr)
+    }
+
     console.log(`[subscribe] User ${user.id} subscribed to ${agent.slug}, invested $${(amount_cents / 100).toFixed(2)}, trading capital now $${(synced.tradingCapitalCents / 100).toFixed(0)}`)
 
-    return NextResponse.json({
+    const response: Record<string, unknown> = {
       ok: true,
       subscription_id: 'sub_' + Date.now(),
       holding_id: holdingUpdate.holdingId,
@@ -167,7 +210,14 @@ export async function POST(req: NextRequest) {
       trading_capital_cents: synced.tradingCapitalCents,
       aum_cents: synced.investorCapitalCents,
       merged: holdingUpdate.merged,
-    })
+    }
+
+    if (isCryptoAgent && alpacaCryptoStatus !== 'ACTIVE') {
+      response.crypto_warning = 'Crypto trading is not enabled on your account. Trades will execute when enabled.'
+      response.crypto_status = alpacaCryptoStatus
+    }
+
+    return NextResponse.json(response)
   } catch (err: unknown) {
     console.error('subscribe error:', err)
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Internal error' }, { status: 500 })

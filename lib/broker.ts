@@ -514,6 +514,7 @@ class BrokerAPI {
     id: string
     account_number: string
     status: string
+    crypto_status: string
     cash: string
     buying_power: string
     portfolio_value: string

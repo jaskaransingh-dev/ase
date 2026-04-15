@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/run-agents",
-      "schedule": "*/30 * * * *"
+      "schedule": "* * * * *"
     },
     {
       "path": "/api/cron/update-nav",

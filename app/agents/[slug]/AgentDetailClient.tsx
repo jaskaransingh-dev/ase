@@ -58,7 +58,7 @@ interface Props {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const TABS = ['Overview', 'Performance', 'Trades', 'Strategy', 'Backtest', 'Monte Carlo'] as const
+const TABS = ['Overview', 'Performance', 'Live', 'Trades', 'Thinking', 'Strategy', 'Backtest', 'Monte Carlo'] as const
 type Tab = typeof TABS[number]
 
 const strategyDescriptions: Record<string, string> = {
@@ -117,7 +117,7 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
   useEffect(() => {
     fetch('/api/account/balance').then(r => r.json()).then(d => {
       setBalance(d.equity_cents ?? 0)
-      setAccountStatus(d.status ?? 'connected')
+      setAccountStatus(d.status === 'connected' ? 'connected' : 'not_connected')
     }).catch(() => { setBalance(0); setAccountStatus('error') }).finally(() => setFetching(false))
   }, [])
 
@@ -127,14 +127,20 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
   const projectedShares = navCents > 0 ? (cappedAmount * 100) / navCents : 0
 
   async function handleInvest() {
-    if (cappedAmount < 10) { setMsg('Minimum investment is $10'); return }
+    if (cappedAmount < 10) { setMsg('Minimum $10'); return }
     setLoading(true); setMsg('')
+    console.log('[Invest] Starting purchase of $' + cappedAmount)
     try {
       const res = await fetch('/api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: agentId, amount_cents: Math.round(cappedAmount * 100) }) })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
+      console.log('[Invest] Response:', res.status, data)
+      if (!res.ok) throw new Error(data.error || 'Purchase failed')
+      setMsg('Success! Shares: ' + data.shares?.toFixed(4))
       onSuccess({ shares: data.shares, amount: cappedAmount })
-    } catch (e) { setMsg(e instanceof Error ? e.message : 'Investment failed') }
+    } catch (e) { 
+      console.error('[Invest] Error:', e)
+      setMsg(e instanceof Error ? e.message : 'Investment failed') 
+    }
     setLoading(false)
   }
 
@@ -143,28 +149,28 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
       <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg2)', border: '1px solid rgba(59,127,255,.22)', borderRadius: 20, padding: '2rem', width: '100%', maxWidth: 400, boxShadow: '0 40px 80px rgba(0,0,0,.7)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
           <div>
-            <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1.1rem' }}>Invest USD</div>
+            <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1.1rem' }}>Buy Shares</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', marginTop: '.18rem' }}>{agentName}</div>
           </div>
           <button onClick={onClose} style={{ background: 'rgba(255,255,255,.06)', border: '1px solid var(--border)', borderRadius: 9, width: 32, height: 32, cursor: 'pointer', color: 'var(--faint)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>x</button>
         </div>
 
         <div style={{ background: 'rgba(59,127,255,.05)', border: '1px solid rgba(59,127,255,.16)', borderRadius: 11, padding: '.8rem 1rem', marginBottom: '1.2rem' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.22rem' }}>TRADING ACCOUNT BALANCE</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.22rem' }}>AVAILABLE BALANCE</div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.2rem', fontWeight: 700, color: fetching ? 'var(--faint)' : (notConnected ? 'var(--red)' : 'var(--blue2)') }}>
             {fetching ? '—' : notConnected ? 'Not Connected' : fmt$(balance ?? 0)}
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', marginTop: '.16rem' }}>
-            {notConnected ? 'Connect your Alpaca account to invest' : 'Real USD from your Alpaca account'}
+            {notConnected ? 'Connect your broker' : 'Ready to invest'}
           </div>
         </div>
 
         {notConnected ? (
           <div style={{ textAlign: 'center', padding: '1rem 0' }}>
             <p style={{ color: 'var(--muted)', fontSize: '.82rem', marginBottom: '1rem', lineHeight: 1.6 }}>
-              You need to connect your Alpaca account to invest real USD into this agent.
+              Connect your Alpaca account to fund the agent.
             </p>
-            <a href="/dashboard" style={{ display: 'inline-block', padding: '.65rem 1.5rem', borderRadius: 10, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, textDecoration: 'none' }}>
+            <a href="/dashboard/settings" style={{ display: 'inline-block', padding: '.65rem 1.5rem', borderRadius: 10, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, textDecoration: 'none' }}>
               Connect Alpaca →
             </a>
           </div>
@@ -192,8 +198,8 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
             </div>
 
             <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.7rem 1rem', marginBottom: '1.2rem' }}>
-              {[['Projected shares', projectedShares.toFixed(4)], ['NAV per share', fmt$(navCents)]].map(([k, v]) => (
-                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: k === 'Projected shares' ? '.35rem' : 0 }}>
+              {[['Projected shares', projectedShares.toFixed(4)]].map(([k, v]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.07em' }}>{k}</span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.8rem', fontWeight: 700 }}>{v}</span>
                 </div>
@@ -283,7 +289,7 @@ function DeallocateModal({ holding, agentName, navCents, onClose, onSuccess }: {
           {loading ? 'Processing...' : `Sell $${(sellValue / 100).toFixed(2)} →`}
         </button>
         <div style={{ marginTop: '.85rem', fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', lineHeight: 1.65, textAlign: 'center' }}>
-          Proceeds returned to your Alpaca trading account.
+          Proceeds returned to your ASE wallet within 2 business days.
         </div>
       </div>
     </div>
@@ -419,14 +425,7 @@ export default function AgentDetailClient({
 
   async function handleSubscribe() {
     if (!isLoggedIn) { router.push(`/login?redirect=/agents/${agent.slug}`); return }
-    setLoading(true); setMsg('')
-    try {
-      const res = await fetch('/api/subscriptions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: agent.id }) })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.error)
-      setIsSubscribed(true); router.refresh()
-    } catch (e: unknown) { setMsg(e instanceof Error ? e.message : 'Failed') }
-    setLoading(false)
+    setShowInvestModal(true)
   }
 
   async function handleUnsubscribe() {
@@ -677,6 +676,11 @@ export default function AgentDetailClient({
                 </div>
               )}
 
+              {/* LIVE NAV - Real-time portfolio based on Yahoo Finance prices */}
+              {tab === 'Live' && (
+                <LiveNavPanel agentSlug={agent.slug} />
+              )}
+
               {/* TRADES */}
               {tab === 'Trades' && (
                 <div>
@@ -711,6 +715,11 @@ export default function AgentDetailClient({
                     </div>
                   )}
                 </div>
+              )}
+
+              {/* THINKING */}
+              {tab === 'Thinking' && (
+                <ThinkingPanel agentSlug={agent.slug} />
               )}
 
               {/* STRATEGY */}
@@ -1018,6 +1027,340 @@ export default function AgentDetailClient({
           .how-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
+    </div>
+  )
+}
+
+// ─── Thinking Panel ───────────────────────────────────────────────────────────
+// Shows the agent's recent reasoning, indicators, and decision history
+
+interface ReasoningEntry {
+  id: string
+  run_at: string
+  signal_summary: string
+  thinking: string | null
+  indicators_json: Record<string, number | string> | null
+  portfolio_json: Record<string, unknown> | null
+  actions_json: Record<string, unknown> | null
+  price_source: string
+}
+
+function ThinkingPanel({ agentSlug }: { agentSlug: string }) {
+  const [reasoning, setReasoning] = useState<ReasoningEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch(`/api/agents/${agentSlug}/reasoning`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) setError(data.error)
+        else setReasoning(data.reasoning || [])
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [agentSlug])
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.66rem', letterSpacing: '.08em' }}>
+        LOADING THOUGHTS...
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: '.66rem', letterSpacing: '.08em' }}>
+        ERROR: {error}
+      </div>
+    )
+  }
+
+  if (reasoning.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.66rem', letterSpacing: '.08em' }}>
+        NO THOUGHTS YET · Agent hasn't run yet
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {reasoning.map((entry, i) => (
+        <div key={entry.id} style={{ 
+          background: 'var(--bg3)', 
+          border: '1px solid var(--border)', 
+          borderRadius: 12, 
+          padding: '1.2rem',
+          borderLeft: `3px solid ${entry.signal_summary.startsWith('BUY') ? 'var(--green)' : entry.signal_summary.startsWith('SELL') ? 'var(--red)' : 'var(--blue2)'}`,
+        }}>
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.8rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+              <span style={{ 
+                fontFamily: 'var(--font-mono)', 
+                fontSize: '.52rem', 
+                fontWeight: 700, 
+                letterSpacing: '.1em',
+                color: entry.signal_summary.startsWith('BUY') ? 'var(--green)' : entry.signal_summary.startsWith('SELL') ? 'var(--red)' : 'var(--blue2)',
+                textTransform: 'uppercase',
+              }}>
+                {entry.signal_summary.split(' ')[0]}
+              </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)' }}>
+                {new Date(entry.run_at).toLocaleString()}
+              </span>
+            </div>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.42rem', color: 'var(--muted)', background: 'rgba(255,255,255,.04)', padding: '.2rem .5rem', borderRadius: 4 }}>
+              {entry.price_source}
+            </span>
+          </div>
+
+          {/* Signal Summary */}
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--white)', marginBottom: '.6rem', lineHeight: 1.5 }}>
+            {entry.signal_summary}
+          </div>
+
+          {/* Thinking */}
+          {entry.thinking && (
+            <div style={{ fontSize: '.74rem', color: 'var(--muted)', lineHeight: 1.6, marginBottom: '.8rem', padding: '.6rem', background: 'rgba(0,0,0,.2)', borderRadius: 8 }}>
+              💭 {entry.thinking}
+            </div>
+          )}
+
+          {/* Indicators */}
+          {entry.indicators_json && (
+            <div style={{ marginBottom: '.8rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--faint)', marginBottom: '.4rem', textTransform: 'uppercase' }}>
+                Technical Indicators
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
+                {Object.entries(entry.indicators_json).slice(0, 8).map(([k, v]) => (
+                  <span key={k} style={{ 
+                    fontFamily: 'var(--font-mono)', 
+                    fontSize: '.6rem', 
+                    background: 'rgba(59,127,255,.08)', 
+                    border: '1px solid rgba(59,127,255,.15)', 
+                    padding: '.25rem .5rem', 
+                    borderRadius: 5,
+                    color: 'var(--white)',
+                  }}>
+                    {k}: <span style={{ color: typeof v === 'number' ? 'var(--blue2)' : 'var(--muted)' }}>{typeof v === 'number' ? v.toFixed(2) : v}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          {entry.actions_json && Array.isArray(entry.actions_json) && entry.actions_json.length > 0 && (
+            <div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--faint)', marginBottom: '.4rem', textTransform: 'uppercase' }}>
+                Actions Taken
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+                {entry.actions_json.map((action: any, j: number) => (
+                  <div key={j} style={{ 
+                    fontFamily: 'var(--font-mono)', 
+                    fontSize: '.62rem', 
+                    padding: '.4rem .6rem',
+                    background: action.action === 'BUY' ? 'rgba(22,199,132,.08)' : action.action === 'SELL' ? 'rgba(239,68,68,.08)' : 'rgba(255,255,255,.03)',
+                    border: `1px solid ${action.action === 'BUY' ? 'rgba(22,199,132,.2)' : action.action === 'SELL' ? 'rgba(239,68,68,.2)' : 'var(--border)'}`,
+                    borderRadius: 6,
+                    color: 'var(--white)',
+                  }}>
+                    <span style={{ fontWeight: 700, color: action.action === 'BUY' ? 'var(--green)' : action.action === 'SELL' ? 'var(--red)' : 'var(--muted)' }}>
+                      {action.action}
+                    </span>
+                    {' '}{action.symbol}{action.notional ? ` $${action.notional.toFixed(0)}` : ''}{action.reason ? ` · ${action.reason}` : ''}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+
+    </div>
+  )
+}
+
+// ─── Live NAV Panel ───────────────────────────────────────────────────────────
+// Real-time NAV calculated from agent_trades ledger + Yahoo Finance prices
+
+interface LivePosition {
+  symbol: string
+  qty: number
+  avg_price: number
+  current_price: number | null
+  pnl_pct: number | null
+}
+
+interface LiveNavData {
+  nav: number
+  change_1d: number
+  realized_pnl_cents: number
+  portfolio_value_cents: number
+  positions: LivePosition[]
+  prices: Record<string, number>
+  trade_count: number
+}
+
+function LiveNavPanel({ agentSlug }: { agentSlug: string }) {
+  const [data, setData] = useState<LiveNavData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+
+  useEffect(() => {
+    async function fetchLiveNav() {
+      try {
+        const res = await fetch(`/api/agents/${agentSlug}/live-nav`)
+        const json = await res.json()
+        if (json.error) throw new Error(json.error)
+        setData(json)
+        setLastUpdated(new Date())
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to load')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchLiveNav()
+    const interval = setInterval(fetchLiveNav, 60000) // Refresh every minute
+    return () => clearInterval(interval)
+  }, [agentSlug])
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.66rem', letterSpacing: '.08em' }}>
+        CALCULATING LIVE NAV...
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: '.66rem', letterSpacing: '.08em' }}>
+        ERROR: {error}
+      </div>
+    )
+  }
+
+  if (!data) {
+    return (
+      <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.66rem', letterSpacing: '.08em' }}>
+        NO DATA AVAILABLE
+      </div>
+    )
+  }
+
+  const navChangeColor = data.change_1d >= 0 ? 'var(--green)' : 'var(--red)'
+  const unrealizedPositions = data.positions.filter(p => p.pnl_pct !== null)
+  const totalUnrealized = unrealizedPositions.reduce((sum, p) => sum + (p.pnl_pct || 0), 0)
+
+  return (
+    <div>
+      {/* Header Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '.55rem', marginBottom: '1.25rem' }}>
+        <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.9rem 1rem', textAlign: 'center' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.2rem' }}>NAV</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.2rem', fontWeight: 800, color: 'var(--white)' }}>${data.nav.toFixed(2)}</div>
+        </div>
+        <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.9rem 1rem', textAlign: 'center' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.2rem' }}>24H</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.2rem', fontWeight: 800, color: navChangeColor }}>
+            {data.change_1d >= 0 ? '+' : ''}{data.change_1d.toFixed(2)}%
+          </div>
+        </div>
+        <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.9rem 1rem', textAlign: 'center' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.2rem' }}>REALIZED P&L</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.2rem', fontWeight: 800, color: data.realized_pnl_cents >= 0 ? 'var(--green)' : 'var(--red)' }}>
+            {data.realized_pnl_cents >= 0 ? '+' : ''}${(data.realized_pnl_cents / 100).toFixed(2)}
+          </div>
+        </div>
+        <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.9rem 1rem', textAlign: 'center' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.2rem' }}>TRADES</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.2rem', fontWeight: 800, color: 'var(--white)' }}>{data.trade_count}</div>
+        </div>
+      </div>
+
+      {/* Last Updated */}
+      {lastUpdated && (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', marginBottom: '.8rem', display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+          <span style={{ opacity: 0.6 }}>⟳</span> Last updated: {lastUpdated.toLocaleTimeString()}
+          <span style={{ opacity: 0.5, fontSize: '.4rem' }}>· Prices from Yahoo Finance</span>
+        </div>
+      )}
+
+      {/* Positions */}
+      {data.positions.length > 0 ? (
+        <div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--faint)', marginBottom: '.6rem', textTransform: 'uppercase' }}>
+            Open Positions
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+            {data.positions.map((pos, i) => (
+              <div key={pos.symbol} style={{ 
+                background: 'var(--bg3)', 
+                border: '1px solid var(--border)', 
+                borderRadius: 10, 
+                padding: '.8rem 1rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}>
+                <div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.8rem', fontWeight: 700, color: 'var(--white)' }}>{pos.symbol}</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', color: 'var(--faint)' }}>
+                    {pos.qty.toFixed(4)} @ ${pos.avg_price.toFixed(2)}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.8rem', fontWeight: 700, color: pos.pnl_pct && pos.pnl_pct >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                    {pos.pnl_pct !== null ? `${pos.pnl_pct >= 0 ? '+' : ''}${pos.pnl_pct.toFixed(2)}%` : '—'}
+                  </div>
+                  {pos.current_price && (
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', color: 'var(--muted)' }}>
+                      ${pos.current_price.toFixed(2)} now
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.66rem', letterSpacing: '.08em' }}>
+          NO OPEN POSITIONS
+        </div>
+      )}
+
+      {/* Market Prices */}
+      {Object.keys(data.prices).length > 0 && (
+        <div style={{ marginTop: '1.25rem' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--faint)', marginBottom: '.6rem', textTransform: 'uppercase' }}>
+            Live Market Prices (Yahoo Finance)
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
+            {Object.entries(data.prices).map(([symbol, price]) => (
+              <span key={symbol} style={{ 
+                fontFamily: 'var(--font-mono)', 
+                fontSize: '.6rem', 
+                background: 'rgba(59,127,255,.06)', 
+                border: '1px solid rgba(59,127,255,.12)', 
+                padding: '.35rem .6rem', 
+                borderRadius: 6,
+                color: 'var(--white)',
+              }}>
+                {symbol}: <span style={{ color: 'var(--blue2)' }}>${price.toFixed(2)}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

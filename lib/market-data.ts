@@ -175,7 +175,21 @@ export async function waitForFill(
   }
 }
 
-// isTradingHours — crypto is always open
 export function isTradingHours(): boolean {
   return true
+}
+
+/** Returns true if Yahoo Finance is accessible */
+export async function healthCheckMarketData(): Promise<boolean> {
+  for (const host of YF_HOSTS) {
+    try {
+      const url = `https://${host}/v8/finance/chart/BTC-USD?interval=1d&period1=0&period2=1`
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (ASE/1.0 health-check)' },
+        signal: AbortSignal.timeout(8_000),
+      })
+      if (res.ok) return true
+    } catch { continue }
+  }
+  return false
 }

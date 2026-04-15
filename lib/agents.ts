@@ -11,7 +11,7 @@
  */
 
 import { SupabaseClient } from '@supabase/supabase-js'
-import { getCryptoBars, getStockBars, submitOrder, waitForFill, AlpacaBar } from './market-data'
+import { getCryptoBars, getStockBars, submitOrder, waitForFill, isCrypto, AlpacaBar } from './market-data'
 
 // ── AGENT CONFIG ──────────────────────────────────────────────────────────
 
@@ -168,13 +168,63 @@ export const AGENT_CONFIGS: AgentConfig[] = [
     asset: 'equity',
   },
   {
-    id: ' CoveredCall-Overlay',
+    id: 'covered-call-overlay',
     slug: 'covered-call-overlay',
     name: 'Covered Call Income Overlay',
     description: 'Sells covered calls on a 70% delta position in QQQ to generate income. Writes 30-delta calls at 5% out-of-the-money. Rolls up and out when called away or 7 days before expiration. Target: 1-2% monthly premium capture. Uses protective put at 10% below entry when IV rank > 60.',
     strategyType: 'equity_momentum',
     tagline: 'Income generation via covered call writing on tech',
     ticker: 'CCAL',
+    asset: 'equity',
+  },
+  {
+    id: 'spy-dual-momentum',
+    slug: 'spy-dual-momentum',
+    name: 'Dual Momentum (Antonacci)',
+    description: 'Gary Antonacci\'s Dual Momentum system on SPY vs AGG bonds. Holds SPY only when absolute momentum is positive (>3% annualized over 252 days) AND SPY\'s 12-month return beats AGG. Otherwise moves to cash. Rebalances monthly. Evidence-based absolute + relative momentum framework.',
+    strategyType: 'equity_momentum',
+    tagline: 'Absolute + relative momentum — hold SPY or go to cash',
+    ticker: 'DUMA',
+    asset: 'equity',
+  },
+  {
+    id: 'tech-rotation',
+    slug: 'tech-rotation',
+    name: 'Tech Sector Rotation',
+    description: 'Risk-adjusted momentum rotation across AAPL, MSFT, GOOGL, NVDA, META. Scores each by 20-day momentum divided by realized volatility (Sharpe-like). Holds top 2 names with equal weight. Rebalances weekly. Avoids holding underperformers during drawdowns.',
+    strategyType: 'equity_rotation',
+    tagline: 'Top-2 risk-adjusted momentum rotation in mega-cap tech',
+    ticker: 'TROT',
+    asset: 'equity',
+  },
+  {
+    id: 'equity-mean-reversion',
+    slug: 'equity-mean-reversion',
+    name: 'Equity Mean Reversion',
+    description: 'Bollinger Band + RSI(2) mean reversion on SPY. Buys when RSI(2) < 10 AND price is above the 200-day moving average (trend filter). Exits when RSI(2) > 80 or price crosses above the 20-day midline. Uses 2x ATR stop. Based on Connors RSI(2) research.',
+    strategyType: 'equity_mean_reversion',
+    tagline: 'RSI(2) oversold entries with trend filter — SPY only',
+    ticker: 'EMVR',
+    asset: 'equity',
+  },
+  {
+    id: 'equity-trend-follow',
+    slug: 'equity-trend-follow',
+    name: 'EMA Golden Cross Trend',
+    description: 'EMA 50/200 golden cross on QQQ with ADX > 20 confirmation. Enters on golden cross when ADX confirms trend strength. 8% hard stop loss. Exits on death cross (EMA50 crosses below EMA200). Designed to capture sustained multi-month trends in Nasdaq 100.',
+    strategyType: 'trend_following',
+    tagline: 'Golden cross trend entry with ADX confirmation on QQQ',
+    ticker: 'EGCT',
+    asset: 'equity',
+  },
+  {
+    id: 'risk-parity',
+    slug: 'risk-parity',
+    name: 'Risk Parity (SPY/TLT/GLD)',
+    description: 'Inverse-volatility weighted allocation across SPY, TLT, and GLD for diversified risk exposure. Each asset\'s weight is proportional to 1/volatility, normalized to 100%. Tactical overlay: halves weight of any asset with negative 20-day return. Rebalances when drift exceeds 5%.',
+    strategyType: 'equity_rotation',
+    tagline: 'Inverse-vol risk parity across stocks, bonds, and gold',
+    ticker: 'RPTY',
     asset: 'equity',
   },
 ]
@@ -228,6 +278,8 @@ export interface StrategyResult {
     exposure_pct: number
   }
   signal_summary: string // e.g. "BULLISH - EMA cross confirmed by MACD, volume surge 1.4x avg"
+  thinking?: string // Agent's reasoning/thought process
+  indicators?: Record<string, number | string> // Technical indicators calculated
 }
 
 // ── INDICATOR HELPERS ─────────────────────────────────────────────────────
@@ -591,14 +643,13 @@ async function logTrade(
   }
 }
 
-// Execute a buy order and log it
 async function executeBuy(
   admin: SupabaseClient,
   agentId: string,
   alpacaKey: string,
   alpacaSecret: string,
   symbol: string,
-  notional: number, // USD amount to buy
+  notional: number,
   currentPrice: number,
   indicators?: Record<string, number | string>
 ): Promise<TradeAction> {
@@ -606,33 +657,27 @@ async function executeBuy(
     return { action: 'SKIP', symbol, reason: `Notional $${notional.toFixed(2)} below minimum`, indicators }
   }
 
+  const isCoinbase = isCrypto(symbol)
+  let orderId = ''
+  let fillPrice = 0
+  let filledQty = 0
+
   try {
     const order = await submitOrder({ symbol, notional, side: 'buy' }, alpacaKey, alpacaSecret)
-
     const filled = await waitForFill(order.id, alpacaKey, alpacaSecret)
+    orderId = order.id
+    fillPrice = parseFloat(filled.filled_avg_price ?? '0')
+    filledQty = parseFloat(filled.filled_qty || '0')
 
-    // CRITICAL: Only log if Alpaca actually filled the order.
-    // If status is not 'filled'/'partially_filled', or filled_qty is 0,
-    // the position never existed on Alpaca — cancel and skip to avoid phantom DB trades.
-    const filledQtyRaw = parseFloat(filled.filled_qty || '0')
-    const isFilled = (filled.status === 'filled' || filled.status === 'partially_filled') && filledQtyRaw > 0
-
+    const isFilled = filledQty > 0 && fillPrice > 0
     if (!isFilled) {
-      // Cancel the pending order so it doesn't fill later unexpectedly
-      try {
-        const { cancelOrder } = await import('./alpaca')
-        await cancelOrder(order.id, alpacaKey, alpacaSecret)
-      } catch { /* best-effort cancel */ }
-      console.warn(`⚠️ BUY ${symbol} order ${order.id} not filled (status: ${filled.status}, qty: ${filledQtyRaw}) — skipping DB log`)
-      return { action: 'SKIP', symbol, reason: `Order not filled (status: ${filled.status})`, indicators }
+      console.warn(`⚠️ BUY ${symbol} not filled (qty: ${filledQty}) — skipping`)
+      return { action: 'SKIP', symbol, reason: `Order not filled`, indicators }
     }
-
-    const fillPrice = parseFloat(filled.filled_avg_price!)
-    const filledQty = filledQtyRaw
 
     await logTrade(admin, {
       agentId,
-      alpacaOrderId: order.id,
+      alpacaOrderId: orderId,
       symbol,
       side: 'buy',
       qty: filledQty,
@@ -640,16 +685,8 @@ async function executeBuy(
       filledAt: new Date().toISOString(),
     })
 
-    console.log(`✅ BUY ${symbol} $${notional} @ ${fillPrice} qty=${filledQty} (agent: ${agentId})`)
-    return {
-      action: 'BUY',
-      symbol,
-      notional,
-      qty: filledQty,
-      fill_price: fillPrice,
-      alpaca_order_id: order.id,
-      indicators,
-    }
+    console.log(`✅ BUY ${symbol} $${notional} @ ${fillPrice} qty=${filledQty} (alpaca, agent: ${agentId})`)
+    return { action: 'BUY', symbol, notional, qty: filledQty, fill_price: fillPrice, alpaca_order_id: orderId, indicators }
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e)
     console.error(`❌ BUY ${symbol} failed:`, err)
@@ -657,7 +694,6 @@ async function executeBuy(
   }
 }
 
-// Execute a sell order and log it with P&L
 async function executeSell(
   admin: SupabaseClient,
   agentId: string,
@@ -674,34 +710,29 @@ async function executeSell(
     return { action: 'SKIP', symbol, reason: 'No sellable quantity', indicators }
   }
 
+  const isCoinbase = isCrypto(symbol)
+  let orderId = ''
+  let fillPrice = 0
+  let actualSellQty = 0
+
   try {
     const order = await submitOrder({ symbol, qty: sellQty, side: 'sell' }, alpacaKey, alpacaSecret)
-
     const filled = await waitForFill(order.id, alpacaKey, alpacaSecret)
+    orderId = order.id
+    fillPrice = parseFloat(filled.filled_avg_price ?? '0')
+    actualSellQty = parseFloat(filled.filled_qty || '0')
 
-    // CRITICAL: Only log if Alpaca actually filled the sell order.
-    // An unfilled sell logged to DB would silently zero out the agent's position
-    // in the DB while Alpaca still holds the asset — causing permanent desync.
-    const filledQtyRaw = parseFloat(filled.filled_qty || '0')
-    const isFilled = (filled.status === 'filled' || filled.status === 'partially_filled') && filledQtyRaw > 0
-
+    const isFilled = actualSellQty > 0 && fillPrice > 0
     if (!isFilled) {
-      try {
-        const { cancelOrder } = await import('./alpaca')
-        await cancelOrder(order.id, alpacaKey, alpacaSecret)
-      } catch { /* best-effort cancel */ }
-      console.warn(`⚠️ SELL ${symbol} order ${order.id} not filled (status: ${filled.status}, qty: ${filledQtyRaw}) — skipping DB log`)
-      return { action: 'SKIP', symbol, reason: `Sell order not filled (status: ${filled.status})`, indicators }
+      console.warn(`⚠️ SELL ${symbol} not filled (qty: ${actualSellQty}) — skipping`)
+      return { action: 'SKIP', symbol, reason: `Sell order not filled`, indicators }
     }
-
-    const fillPrice = parseFloat(filled.filled_avg_price!)
-    const actualSellQty = filledQtyRaw
 
     const pnlCents = await calcSellPnL(admin, agentId, symbol, actualSellQty, fillPrice)
 
     await logTrade(admin, {
       agentId,
-      alpacaOrderId: order.id,
+      alpacaOrderId: orderId,
       symbol,
       side: 'sell',
       qty: actualSellQty,
@@ -711,17 +742,8 @@ async function executeSell(
     })
 
     const pnlUsd = pnlCents / 100
-    console.log(`✅ SELL ${symbol} ${actualSellQty} @ ${fillPrice} | P&L: $${pnlUsd.toFixed(2)} (agent: ${agentId})`)
-    return {
-      action: 'SELL',
-      symbol,
-      qty: sellQty,
-      fill_price: fillPrice,
-      alpaca_order_id: order.id,
-      pnl_cents: pnlCents,
-      reason,
-      indicators,
-    }
+    console.log(`✅ SELL ${symbol} ${actualSellQty} @ ${fillPrice} | P&L: $${pnlUsd.toFixed(2)} (alpaca, agent: ${agentId})`)
+    return { action: 'SELL', symbol, qty: sellQty, fill_price: fillPrice, alpaca_order_id: orderId, pnl_cents: pnlCents, reason, indicators }
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e)
     console.error(`❌ SELL ${symbol} failed:`, err)
@@ -759,6 +781,7 @@ export async function runBtcMomentum(
       skipped: true,
       portfolio: emptyPortfolio,
       signal_summary: 'SKIP - Insufficient data',
+      thinking: `Need 51+ bars for analysis, have ${bars.length}. Waiting for more data.`,
     }
   }
 
@@ -774,6 +797,8 @@ export async function runBtcMomentum(
   const vol20Avg = bars.slice(-20).reduce((sum, b) => sum + b.v, 0) / 20
   const currentVol = bars[bars.length - 1].v
   const volRatio = currentVol / (vol20Avg || 1)
+
+  const indicatorValues = { ema8, ema21, ema50, macd, atr, rsi, currentPrice, volRatio }
 
   // Improved entry condition: more achievable
   const bullishAlignment = ema8 > ema21 && currentPrice > ema50
@@ -798,6 +823,7 @@ export async function runBtcMomentum(
 
   const actions: TradeAction[] = []
   let signalSummary = 'HOLD'
+  let thinkingParts: string[] = []
 
   // ── EXIT LEVELS ──────────────────────────────────────────────────────────
   // Defined outside the pos-check so they appear in signal_summary even when flat
@@ -890,7 +916,14 @@ export async function runBtcMomentum(
     exposure_pct: (investedCents / capitalCents) * 100,
   }
 
-  return { agent_slug: 'btc-momentum', actions, portfolio, signal_summary: signalSummary }
+  return { 
+    agent_slug: 'btc-momentum', 
+    actions, 
+    portfolio, 
+    signal_summary: signalSummary,
+    thinking: thinkingParts.length > 0 ? thinkingParts.join(' ') : 'Scanning market conditions...',
+    indicators,
+  }
 }
 
 // ── STRATEGY 2: ETH STATISTICAL ARBITRAGE ─────────────────────────────────
@@ -1290,14 +1323,18 @@ export async function runSolBreakout(
       const halfQty = Math.floor((pos.qty / 2) * 1e6) / 1e6
       if (halfQty > 0.000001) {
         try {
+          const isCoinbase = isCrypto(symbol)
+          let orderId = ''
+          let fillPrice = currentPrice
           const order = await submitOrder({ symbol, qty: halfQty, side: 'sell' }, alpacaKey, alpacaSecret)
           const filled = await waitForFill(order.id, alpacaKey, alpacaSecret)
-          const fillPrice = filled.filled_avg_price ? parseFloat(filled.filled_avg_price) : currentPrice
+          orderId = order.id
+          fillPrice = filled.filled_avg_price ? parseFloat(filled.filled_avg_price) : currentPrice
+
           const pnlCents = await calcSellPnL(admin, agentId, symbol, halfQty, fillPrice)
-          
           await logTrade(admin, {
             agentId,
-            alpacaOrderId: order.id,
+            alpacaOrderId: orderId,
             symbol,
             side: 'sell',
             qty: halfQty,
@@ -1305,7 +1342,7 @@ export async function runSolBreakout(
             filledAt: new Date().toISOString(),
             pnlCents,
           })
-          
+
           const pnlUsd = pnlCents / 100
           console.log(`✅ PARTIAL SELL ${symbol} ${halfQty} @ ${fillPrice} | P&L: $${pnlUsd.toFixed(2)}`)
           actions.push({
@@ -1313,7 +1350,7 @@ export async function runSolBreakout(
             symbol,
             qty: halfQty,
             fill_price: fillPrice,
-            alpaca_order_id: order.id,
+            alpaca_order_id: orderId,
             pnl_cents: pnlCents,
             reason: '2x ATR partial exit (50%)',
             indicators,
@@ -1546,6 +1583,9 @@ export async function runBtcEthPairs(
   const actions: TradeAction[] = []
   let signalSummary = 'NEUTRAL'
 
+  // Track what's been sold this tick to prevent duplicate orders
+  const sold = new Set<string>()
+
   // Entry: Spread deviation >1.5 sigma
   const strongDeviation = Math.abs(spreadZScore) > 1.5
   const extremeDeviation = Math.abs(spreadZScore) > 3.0
@@ -1553,24 +1593,28 @@ export async function runBtcEthPairs(
 
   if (extremeDeviation && (btcPos || ethPos)) {
     // Hard stop at 3 sigma deviation
-    if (btcPos) {
+    if (btcPos && !sold.has(SYM.BTC)) {
       const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, btcPos, 'Hard stop: 3 sigma deviation', indicators)
       actions.push(action)
+      sold.add(SYM.BTC)
     }
-    if (ethPos) {
+    if (ethPos && !sold.has(SYM.ETH)) {
       const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, ethPos, 'Hard stop: 3 sigma deviation', indicators)
       actions.push(action)
+      sold.add(SYM.ETH)
     }
     signalSummary = `SELL ▼ Hard stop at 3σ deviation (z=${spreadZScore.toFixed(2)})`
   } else if (meanReverted && (btcPos || ethPos)) {
     // Exit when mean-reverted
-    if (btcPos) {
+    if (btcPos && !sold.has(SYM.BTC)) {
       const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, btcPos, 'Mean reversion: spread normalized', indicators)
       actions.push(action)
+      sold.add(SYM.BTC)
     }
-    if (ethPos) {
+    if (ethPos && !sold.has(SYM.ETH)) {
       const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, ethPos, 'Mean reversion: spread normalized', indicators)
       actions.push(action)
+      sold.add(SYM.ETH)
     }
     signalSummary = `SELL ◆ Mean reverted (z=${spreadZScore.toFixed(2)} → 0)`
   } else if (btcPos || ethPos) {
@@ -1578,13 +1622,15 @@ export async function runBtcEthPairs(
     const btcHardStop = btcPos && btcPrice < btcPos.avg_entry * 0.96
     const ethHardStop = ethPos && ethPrice < ethPos.avg_entry * 0.96
 
-    if (btcHardStop) {
+    if (btcHardStop && !sold.has(SYM.BTC)) {
       const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, btcPos!, 'Hard stop -4%', indicators)
       actions.push(action)
+      sold.add(SYM.BTC)
     }
-    if (ethHardStop) {
+    if (ethHardStop && !sold.has(SYM.ETH)) {
       const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, ethPos!, 'Hard stop -4%', indicators)
       actions.push(action)
+      sold.add(SYM.ETH)
     }
 
     if (actions.length === 0) {
@@ -2219,4 +2265,1105 @@ export async function runDefiYield(
   }
 
   return { agent_slug: 'defi-yield', actions, portfolio, signal_summary: signalSummary }
+}
+
+// ── EQUITY AGENTS ──────────────────────────────────────────────────────────
+
+// ── STRATEGY 11: S&P 500 MOMENTUM EDGE (SPY) ───────────────────────────────
+export async function runSpyMomentum(
+  admin: SupabaseClient,
+  agentId: string,
+  alpacaKey: string,
+  alpacaSecret: string,
+  capitalCents = 1_000_000
+): Promise<StrategyResult> {
+  const symbol = STOCK.SPY
+  const bars = await getStockBars(symbol, '1Day', 100)
+
+  const emptyPortfolio: StrategyResult['portfolio'] = {
+    cash_cents: capitalCents,
+    invested_cents: 0,
+    total_value_cents: capitalCents,
+    positions: [],
+    exposure_pct: 0,
+  }
+
+  if (bars.length < 51) {
+    return {
+      agent_slug: 'spy-momentum',
+      actions: [],
+      skipped: true,
+      portfolio: emptyPortfolio,
+      signal_summary: 'SKIP - Insufficient data',
+    }
+  }
+
+  const ema20 = calcEMA(bars, 20)
+  const ema50 = calcEMA(bars, 50)
+  const adx = calcADX(bars, 14)
+  const atr = calcATR(bars, 14)
+  const currentPrice = bars[bars.length - 1].c
+
+  const bullishCross = ema20 > ema50
+  const adxConfirm = adx > 22
+  const shouldBuy = bullishCross && adxConfirm
+
+  const bearishCross = ema20 < ema50
+  const adxWeak = adx < 18
+
+  const positions = await getAgentPositions(admin, agentId)
+  const pos = positions.find(p => p.symbol === symbol)
+  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+
+  const indicators = {
+    ema20: +ema20.toFixed(2),
+    ema50: +ema50.toFixed(2),
+    adx: +adx.toFixed(1),
+    atr: +atr.toFixed(2),
+    price: +currentPrice.toFixed(2),
+  }
+
+  const actions: TradeAction[] = []
+  let signalSummary = 'NEUTRAL'
+
+  if (!pos && shouldBuy && cash > 500) {
+    const stopDistance = Math.max(2 * atr, currentPrice * 0.04)
+    const riskBasedSize = ((capitalCents / 100) * 0.02) / (stopDistance / currentPrice)
+    const maxExposure = (capitalCents / 100) * 0.40
+    const notional = Math.min(riskBasedSize, maxExposure, (cash / 100) * 0.40)
+
+    if (notional > 1) {
+      const action = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, symbol, notional, currentPrice, indicators)
+      actions.push(action)
+      signalSummary = `BUY ▲ EMA ${ema20.toFixed(2)} > ${ema50.toFixed(2)}, ADX ${adx.toFixed(0)} confirmed · $${notional.toFixed(0)}`
+    }
+  } else if (pos) {
+    const pnlPct = calcPositionPnL(pos, currentPrice)
+    const hardStop = pos.avg_entry * 0.95
+    const profitTarget = pos.avg_entry * 1.15
+    const atrStop = pos.avg_entry - 2 * atr
+
+    if (currentPrice < hardStop) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, 'Hard stop -5%', indicators)
+      actions.push(action)
+      signalSummary = `SELL ▼ Hard stop −5% · entry ${pos.avg_entry.toFixed(2)}`
+    } else if (currentPrice < atrStop && pnlPct < 0) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, '2x ATR stop', indicators)
+      actions.push(action)
+      signalSummary = `SELL ▼ 2x ATR stop · P&L ${pnlPct.toFixed(1)}%`
+    } else if (currentPrice >= profitTarget) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, '+15% profit target', indicators)
+      actions.push(action)
+      signalSummary = `SELL ▲ +15% profit target hit · P&L +${pnlPct.toFixed(1)}%`
+    } else if (bearishCross || adxWeak) {
+      const reason = adxWeak ? `ADX ${adx.toFixed(0)} weak` : 'EMA bearish cross'
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, reason, indicators)
+      actions.push(action)
+      signalSummary = `SELL ◆ Trend ended: ${reason} · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%`
+    } else {
+      actions.push({
+        action: 'HOLD',
+        symbol,
+        reason: `EMA ${ema20 > ema50 ? 'bullish' : 'neutral'}, ADX ${adx.toFixed(0)}, P&L ${pnlPct.toFixed(1)}%`,
+        indicators,
+      })
+      signalSummary = `HOLD · EMA ${ema20 > ema50 ? '▲' : '▼'}, ADX ${adx.toFixed(0)} · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%`
+    }
+  }
+
+  if (actions.length === 0) {
+    const waitCond = bullishCross
+      ? `ADX need >22 (now ${adx.toFixed(0)})`
+      : `EMA 20 cross above 50 (gap ${(((ema20/ema50)-1)*100).toFixed(1)}%)`
+    actions.push({ action: 'HOLD', symbol, reason: `Waiting: ${waitCond}`, indicators })
+    signalSummary = `SCAN · ${waitCond} · price $${currentPrice.toFixed(2)}`
+  }
+
+  const investedCents = positions.reduce((sum, p) => sum + Math.round(p.qty * p.avg_entry * 100), 0)
+  const portfolio: StrategyResult['portfolio'] = {
+    cash_cents: Math.max(0, capitalCents - investedCents),
+    invested_cents: investedCents,
+    total_value_cents: capitalCents,
+    positions: positions.map(p => ({
+      symbol: p.symbol,
+      qty: p.qty,
+      entry: p.avg_entry,
+      current: currentPrice,
+      pnl_pct: calcPositionPnL(p, currentPrice),
+    })),
+    exposure_pct: (investedCents / capitalCents) * 100,
+  }
+
+  return { agent_slug: 'spy-momentum', actions, portfolio, signal_summary: signalSummary }
+}
+
+// ── STRATEGY 12: NASDAQ GROWTH ROTATION (QQQ) ─────────────────────────────
+export async function runQqqGrowth(
+  admin: SupabaseClient,
+  agentId: string,
+  alpacaKey: string,
+  alpacaSecret: string,
+  capitalCents = 1_000_000
+): Promise<StrategyResult> {
+  const symbol = STOCK.QQQ
+  const spySymbol = STOCK.SPY
+
+  const [qqqBars, spyBars] = await Promise.all([
+    getStockBars(symbol, '1Day', 60),
+    getStockBars(spySymbol, '1Day', 60),
+  ])
+
+  const emptyPortfolio: StrategyResult['portfolio'] = {
+    cash_cents: capitalCents,
+    invested_cents: 0,
+    total_value_cents: capitalCents,
+    positions: [],
+    exposure_pct: 0,
+  }
+
+  if (qqqBars.length < 21 || spyBars.length < 21) {
+    return {
+      agent_slug: 'qqq-growth',
+      actions: [],
+      skipped: true,
+      portfolio: emptyPortfolio,
+      signal_summary: 'SKIP - Insufficient data',
+    }
+  }
+
+  const qqqMomentum = calcMomentumScore(qqqBars, 20)
+  const spyMomentum = calcMomentumScore(spyBars, 20)
+  const relativeStrength = qqqMomentum - spyMomentum
+  const rsi = calcRSI(qqqBars, 14)
+  const currentPrice = qqqBars[qqqBars.length - 1].c
+  const atr = calcATR(qqqBars, 14)
+
+  const shouldBuy = relativeStrength > 2 && rsi < 70
+  const shouldSell = rsi > 80 || relativeStrength < -1
+
+  const positions = await getAgentPositions(admin, agentId)
+  const pos = positions.find(p => p.symbol === symbol)
+  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+
+  const indicators = {
+    qqq_momentum_20d: +qqqMomentum.toFixed(2),
+    spy_momentum_20d: +spyMomentum.toFixed(2),
+    rel_strength: +relativeStrength.toFixed(2),
+    rsi: +rsi.toFixed(1),
+    atr: +atr.toFixed(2),
+    price: +currentPrice.toFixed(2),
+  }
+
+  const actions: TradeAction[] = []
+  let signalSummary = 'NEUTRAL'
+
+  const trailingStop = pos ? pos.avg_entry * 0.95 : 0
+
+  if (!pos && shouldBuy && cash > 500) {
+    const notional = Math.min((capitalCents / 100) * 0.35, (cash / 100) * 0.35)
+    if (notional > 1) {
+      const action = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, symbol, notional, currentPrice, indicators)
+      actions.push(action)
+      signalSummary = `BUY ▲ QQQ outpacing SPY by ${relativeStrength.toFixed(1)}% · RSI ${rsi.toFixed(0)} · $${notional.toFixed(0)}`
+    }
+  } else if (pos) {
+    const pnlPct = calcPositionPnL(pos, currentPrice)
+    const hardStop = pos.avg_entry * 0.95
+    const trailingStopLevel = Math.max(pos.avg_entry * 0.95, pos.avg_entry * (1 + pnlPct * 0.5 / 100))
+    const profitTarget = pos.avg_entry * 1.12
+
+    if (currentPrice < hardStop) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, 'Hard stop -5%', indicators)
+      actions.push(action)
+      signalSummary = `SELL ▼ Hard stop −5% · entry ${pos.avg_entry.toFixed(2)}`
+    } else if (currentPrice < trailingStopLevel && pnlPct > 0) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, '5% trailing stop', indicators)
+      actions.push(action)
+      signalSummary = `SELL ▼ Trailing stop triggered · P&L ${pnlPct.toFixed(1)}%`
+    } else if (currentPrice >= profitTarget) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, '+12% profit target', indicators)
+      actions.push(action)
+      signalSummary = `SELL ▲ +12% profit target · P&L +${pnlPct.toFixed(1)}%`
+    } else if (shouldSell) {
+      const reason = rsi > 80 ? `RSI ${rsi.toFixed(0)} overbought` : 'QQQ underperforming SPY'
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, reason, indicators)
+      actions.push(action)
+      signalSummary = `SELL ◆ ${reason} · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%`
+    } else {
+      actions.push({
+        action: 'HOLD',
+        symbol,
+        reason: `QQQ vs SPY ${relativeStrength > 0 ? '+' : ''}${relativeStrength.toFixed(1)}%, RSI ${rsi.toFixed(0)}, P&L ${pnlPct.toFixed(1)}%`,
+        indicators,
+      })
+      signalSummary = `HOLD · QQQ ${relativeStrength > 0 ? '+' : ''}${relativeStrength.toFixed(1)}% vs SPY · RSI ${rsi.toFixed(0)} · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%`
+    }
+  }
+
+  if (actions.length === 0) {
+    const waitMsg = relativeStrength > 2
+      ? `RSI needs <70 (now ${rsi.toFixed(0)})`
+      : `QQQ needs >2% outperformance vs SPY (now ${relativeStrength.toFixed(1)}%)`
+    actions.push({ action: 'HOLD', symbol, reason: waitMsg, indicators })
+    signalSummary = `SCAN · QQQ ${qqqMomentum > 0 ? '+' : ''}${qqqMomentum.toFixed(1)}%, SPY ${spyMomentum > 0 ? '+' : ''}${spyMomentum.toFixed(1)}% · ${waitMsg}`
+  }
+
+  const investedCents = positions.reduce((sum, p) => sum + Math.round(p.qty * p.avg_entry * 100), 0)
+  const portfolio: StrategyResult['portfolio'] = {
+    cash_cents: Math.max(0, capitalCents - investedCents),
+    invested_cents: investedCents,
+    total_value_cents: capitalCents,
+    positions: positions.map(p => ({
+      symbol: p.symbol,
+      qty: p.qty,
+      entry: p.avg_entry,
+      current: currentPrice,
+      pnl_pct: calcPositionPnL(p, currentPrice),
+    })),
+    exposure_pct: (investedCents / capitalCents) * 100,
+  }
+
+  return { agent_slug: 'qqq-growth', actions, portfolio, signal_summary: signalSummary }
+}
+
+// ── STRATEGY 13: SECTOR MOMENTUM ROTATION (XLK/XLV/XLF) ──────────────────
+export async function runSectorRotation(
+  admin: SupabaseClient,
+  agentId: string,
+  alpacaKey: string,
+  alpacaSecret: string,
+  capitalCents = 1_000_000
+): Promise<StrategyResult> {
+  const sectorSymbols = [STOCK.XLK, STOCK.XLV, STOCK.XLF]
+
+  const positions = await getAgentPositions(admin, agentId)
+  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+
+  const scores: { symbol: string; momentum: number; price: number; rank: number }[] = []
+
+  const barsPromises = sectorSymbols.map(sym => getStockBars(sym, '1Day', 30))
+  const allBars = await Promise.all(barsPromises)
+
+  for (let i = 0; i < sectorSymbols.length; i++) {
+    const symbol = sectorSymbols[i]
+    const bars = allBars[i]
+    if (bars.length < 21) continue
+
+    const momentum = calcMomentumScore(bars, 20)
+    const price = bars[bars.length - 1].c
+    scores.push({ symbol, momentum, price, rank: 0 })
+  }
+
+  scores.sort((a, b) => b.momentum - a.momentum)
+  scores.forEach((s, i) => { s.rank = i + 1 })
+
+  const topSymbol = scores.length > 0 ? scores[0].symbol : null
+  const topMomentum = scores[0]?.momentum ?? 0
+  const secondMomentum = scores[1]?.momentum ?? 0
+  const momentumGap = topMomentum - secondMomentum
+
+  const qualifiedBuy = momentumGap >= 3
+
+  const actions: TradeAction[] = []
+  let signalSummary = 'NEUTRAL'
+
+  const symbolSet = new Set<string>(sectorSymbols)
+
+  for (const pos of positions) {
+    if (!symbolSet.has(pos.symbol)) continue
+    const score = scores.find(s => s.symbol === pos.symbol)
+    const currentPrice = score?.price ?? pos.avg_entry
+    const pnlPct = calcPositionPnL(pos, currentPrice)
+    const hardStop = pos.avg_entry * 0.96
+
+    if (currentPrice < hardStop) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, '4% max loss stop', {
+        momentum: +(score?.momentum ?? 0).toFixed(2),
+        pnl_pct: +pnlPct.toFixed(2),
+      })
+      actions.push(action)
+      signalSummary = `SELL ▼ 4% stop on ${pos.symbol} · P&L ${pnlPct.toFixed(1)}%`
+    } else if (pos.symbol !== topSymbol || !qualifiedBuy) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, 'No longer top sector', {
+        rank: score?.rank ?? 99,
+        momentum: +(score?.momentum ?? 0).toFixed(2),
+      })
+      actions.push(action)
+      signalSummary = `SELL ◆ ${pos.symbol} rotated out · rank ${score?.rank}`
+    }
+  }
+
+  if (topSymbol && qualifiedBuy) {
+    const pos = positions.find(p => p.symbol === topSymbol)
+    if (!pos && cash > 500) {
+      const notional = Math.min((capitalCents / 100) * 0.50, (cash / 100) * 0.50)
+      if (notional > 1) {
+        const score = scores.find(s => s.symbol === topSymbol)!
+        const action = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, topSymbol, notional, score.price, {
+          momentum: +score.momentum.toFixed(2),
+          gap_vs_2nd: +momentumGap.toFixed(2),
+          rank: score.rank,
+        })
+        actions.push(action)
+        signalSummary = `BUY ▲ ${topSymbol} momentum ${topMomentum.toFixed(1)}% (+${momentumGap.toFixed(1)}% over #2) · $${notional.toFixed(0)}`
+      }
+    }
+  }
+
+  if (actions.length === 0) {
+    const top = scores[0]
+    if (top) {
+      const status = qualifiedBuy
+        ? `${top.symbol} leads by ${momentumGap.toFixed(1)}% (already held)`
+        : `No sector qualifies (gap ${momentumGap.toFixed(1)}% < 3%)`
+      actions.push({
+        action: 'HOLD',
+        symbol: 'SROT',
+        reason: status,
+        indicators: {
+          sector_scores: scores.map(s => `${s.symbol}:${s.momentum.toFixed(1)}%`).join(', '),
+          top: top.symbol,
+          gap: +momentumGap.toFixed(2),
+        },
+      })
+      signalSummary = `SCAN · ${scores.map(s => `${s.symbol} ${s.momentum > 0 ? '+' : ''}${s.momentum.toFixed(1)}%`).join(' | ')}`
+    }
+  }
+
+  const investedCents = positions.reduce((sum, p) => sum + Math.round(p.qty * p.avg_entry * 100), 0)
+  const portfolio: StrategyResult['portfolio'] = {
+    cash_cents: Math.max(0, capitalCents - investedCents),
+    invested_cents: investedCents,
+    total_value_cents: capitalCents,
+    positions: positions.map(p => {
+      const score = scores.find(s => s.symbol === p.symbol)
+      const price = score?.price ?? p.avg_entry
+      return {
+        symbol: p.symbol,
+        qty: p.qty,
+        entry: p.avg_entry,
+        current: price,
+        pnl_pct: calcPositionPnL(p, price),
+      }
+    }),
+    exposure_pct: (investedCents / capitalCents) * 100,
+  }
+
+  return { agent_slug: 'sector-rotation', actions, portfolio, signal_summary: signalSummary }
+}
+
+// ── STRATEGY 14: LOW VOLATILITY PREMIUM CAPTURE (SPLV) ────────────────────
+export async function runLowVolEquity(
+  admin: SupabaseClient,
+  agentId: string,
+  alpacaKey: string,
+  alpacaSecret: string,
+  capitalCents = 1_000_000
+): Promise<StrategyResult> {
+  const symbol = STOCK.SPLV
+
+  const [splvBars, spyBars] = await Promise.all([
+    getStockBars(symbol, '1Day', 60),
+    getStockBars(STOCK.SPY, '1Day', 60),
+  ])
+
+  const emptyPortfolio: StrategyResult['portfolio'] = {
+    cash_cents: capitalCents,
+    invested_cents: 0,
+    total_value_cents: capitalCents,
+    positions: [],
+    exposure_pct: 0,
+  }
+
+  if (splvBars.length < 21) {
+    return {
+      agent_slug: 'low-vol-equity',
+      actions: [],
+      skipped: true,
+      portfolio: emptyPortfolio,
+      signal_summary: 'SKIP - Insufficient data',
+    }
+  }
+
+  const rsi = calcRSI(splvBars, 14)
+  const mom5d = calcMomentumScore(splvBars, 5)
+  const currentPrice = splvBars[splvBars.length - 1].c
+  const atr = calcATR(splvBars, 14)
+
+  const vixBars = spyBars
+  const vixProxy = vixBars.length > 0 ? calcVolatility(vixBars, 20) * 100 : 0
+  const highVix = vixProxy > 25
+
+  const shouldBuy = rsi < 30 && mom5d > 0 && !highVix
+  const shouldSell = rsi > 65
+
+  const positions = await getAgentPositions(admin, agentId)
+  const pos = positions.find(p => p.symbol === symbol)
+  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+
+  const indicators = {
+    rsi: +rsi.toFixed(1),
+    mom_5d: +mom5d.toFixed(2),
+    vix_proxy: +vixProxy.toFixed(1),
+    atr: +atr.toFixed(2),
+    price: +currentPrice.toFixed(2),
+    high_vix: highVix ? 1 : 0,
+  }
+
+  const actions: TradeAction[] = []
+  let signalSummary = 'NEUTRAL'
+
+  if (!pos && shouldBuy && cash > 500) {
+    const notional = Math.min((capitalCents / 100) * 0.40, (cash / 100) * 0.40)
+    if (notional > 1) {
+      const action = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, symbol, notional, currentPrice, indicators)
+      actions.push(action)
+      signalSummary = `BUY ▲ RSI ${rsi.toFixed(0)} oversold, +${mom5d.toFixed(1)}% 5d momentum · $${notional.toFixed(0)}`
+    }
+  } else if (pos) {
+    const pnlPct = calcPositionPnL(pos, currentPrice)
+    const hardStop = pos.avg_entry * 0.97
+    const profitTarget = pos.avg_entry * 1.10
+
+    if (currentPrice < hardStop) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, '3% hard stop', indicators)
+      actions.push(action)
+      signalSummary = `SELL ▼ 3% hard stop · entry ${pos.avg_entry.toFixed(2)}`
+    } else if (currentPrice >= profitTarget) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, '+10% profit target', indicators)
+      actions.push(action)
+      signalSummary = `SELL ▲ +10% profit target · P&L +${pnlPct.toFixed(1)}%`
+    } else if (shouldSell) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, `RSI ${rsi.toFixed(0)} overbought`, indicators)
+      actions.push(action)
+      signalSummary = `SELL ◆ RSI overbought ${rsi.toFixed(0)} · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%`
+    } else {
+      actions.push({
+        action: 'HOLD',
+        symbol,
+        reason: `RSI ${rsi.toFixed(0)}, P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%, target +10%`,
+        indicators,
+      })
+      signalSummary = `HOLD · RSI ${rsi.toFixed(0)} · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%`
+    }
+  }
+
+  if (actions.length === 0) {
+    const waitCond = rsi < 30
+      ? mom5d <= 0 ? '5d momentum needs >0% (now ' + mom5d.toFixed(1) + '%)' : 'VIX too high (skipping entry)'
+      : `RSI needs <30 (now ${rsi.toFixed(0)})`
+    actions.push({ action: 'HOLD', symbol, reason: waitCond, indicators })
+    signalSummary = `SCAN · RSI ${rsi.toFixed(0)} (need <30) · 5d mom ${mom5d > 0 ? '+' : ''}${mom5d.toFixed(1)}% · VIX ${vixProxy.toFixed(0)} (skip >25)`
+  }
+
+  const investedCents = positions.reduce((sum, p) => sum + Math.round(p.qty * p.avg_entry * 100), 0)
+  const portfolio: StrategyResult['portfolio'] = {
+    cash_cents: Math.max(0, capitalCents - investedCents),
+    invested_cents: investedCents,
+    total_value_cents: capitalCents,
+    positions: positions.map(p => ({
+      symbol: p.symbol,
+      qty: p.qty,
+      entry: p.avg_entry,
+      current: currentPrice,
+      pnl_pct: calcPositionPnL(p, currentPrice),
+    })),
+    exposure_pct: (investedCents / capitalCents) * 100,
+  }
+
+  return { agent_slug: 'low-vol-equity', actions, portfolio, signal_summary: signalSummary }
+}
+
+// ── STRATEGY 15: COVERED CALL INCOME OVERLAY (QQQ) ────────────────────────
+// Note: Alpaca paper trading supports stock trading but options require a different
+// account setup. This strategy manages the underlying QQQ position. Options execution
+// would require integration with an options broker (e.g., Tradier, Interactive Brokers).
+export async function runCoveredCallOverlay(
+  admin: SupabaseClient,
+  agentId: string,
+  alpacaKey: string,
+  alpacaSecret: string,
+  capitalCents = 1_000_000
+): Promise<StrategyResult> {
+  const symbol = STOCK.QQQ
+
+  const bars = await getStockBars(symbol, '1Day', 60)
+
+  const emptyPortfolio: StrategyResult['portfolio'] = {
+    cash_cents: capitalCents,
+    invested_cents: 0,
+    total_value_cents: capitalCents,
+    positions: [],
+    exposure_pct: 0,
+  }
+
+  if (bars.length < 30) {
+    return {
+      agent_slug: 'covered-call-overlay',
+      actions: [],
+      skipped: true,
+      portfolio: emptyPortfolio,
+      signal_summary: 'SKIP - Insufficient data',
+    }
+  }
+
+  const rsi = calcRSI(bars, 14)
+  const currentPrice = bars[bars.length - 1].c
+  const atr = calcATR(bars, 14)
+  const vol = calcVolatility(bars, 20)
+  const ivRank = Math.min(Math.max((vol / 0.20) * 50, 0), 100)
+  const highIv = ivRank > 60
+
+  const positions = await getAgentPositions(admin, agentId)
+  const pos = positions.find(p => p.symbol === symbol)
+  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+
+  const indicators = {
+    rsi: +rsi.toFixed(1),
+    iv_rank: +ivRank.toFixed(1),
+    volatility: +(vol * 100).toFixed(2),
+    atr: +atr.toFixed(2),
+    price: +currentPrice.toFixed(2),
+    position_pct: pos ? +((pos.qty * pos.avg_entry / (capitalCents / 100)) * 100).toFixed(1) : 0,
+  }
+
+  const actions: TradeAction[] = []
+  let signalSummary = 'NEUTRAL'
+
+  if (!pos) {
+    if (rsi < 60 && cash > 500) {
+      const notional = Math.min((capitalCents / 100) * 0.70, (cash / 100) * 0.70)
+      if (notional > 1) {
+        const action = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, symbol, notional, currentPrice, {
+          ...indicators,
+          reason: 'Building 70% delta underlying position',
+        })
+        actions.push(action)
+        signalSummary = `BUY ▲ Building 70% position for covered call overlay · $${notional.toFixed(0)}`
+      }
+    } else {
+      actions.push({ action: 'HOLD', symbol, reason: `RSI ${rsi.toFixed(0)} too high (need <60)`, indicators })
+      signalSummary = `SCAN · Waiting: RSI ${rsi.toFixed(0)} (need <60 to build position) · price $${currentPrice.toFixed(2)}`
+    }
+  } else {
+    const pnlPct = calcPositionPnL(pos, currentPrice)
+    const hardStop = pos.avg_entry * 0.90
+    const profitTarget = pos.avg_entry * 1.08
+
+    if (currentPrice < hardStop) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, '10% hard stop', indicators)
+      actions.push(action)
+      signalSummary = `SELL ▼ 10% hard stop · entry ${pos.avg_entry.toFixed(2)}`
+    } else if (currentPrice >= profitTarget) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, '+8% profit target', indicators)
+      actions.push(action)
+      signalSummary = `SELL ▲ +8% target · P&L +${pnlPct.toFixed(1)}%`
+    } else if (highIv && currentPrice < pos.avg_entry * 0.95) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, `High IV ${ivRank.toFixed(0)}, protective exit`, indicators)
+      actions.push(action)
+      signalSummary = `SELL ◆ High IV rank ${ivRank.toFixed(0)}, protective exit · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%`
+    } else {
+      actions.push({
+        action: 'HOLD',
+        symbol,
+        reason: `70% position held · IV rank ${ivRank.toFixed(0)}${highIv ? ' HIGH' : ''} · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%`,
+        indicators,
+      })
+      signalSummary = `HOLD · 70% QQQ · IV rank ${ivRank.toFixed(0)}${highIv ? ' ▲' : ''} · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%`
+    }
+  }
+
+  const investedCents = positions.reduce((sum, p) => sum + Math.round(p.qty * p.avg_entry * 100), 0)
+  const portfolio: StrategyResult['portfolio'] = {
+    cash_cents: Math.max(0, capitalCents - investedCents),
+    invested_cents: investedCents,
+    total_value_cents: capitalCents,
+    positions: positions.map(p => ({
+      symbol: p.symbol,
+      qty: p.qty,
+      entry: p.avg_entry,
+      current: currentPrice,
+      pnl_pct: calcPositionPnL(p, currentPrice),
+    })),
+    exposure_pct: (investedCents / capitalCents) * 100,
+  }
+
+  return { agent_slug: 'covered-call-overlay', actions, portfolio, signal_summary: signalSummary }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// STOCK / EQUITY STRATEGIES (5 additional agents)
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── STRATEGY 11: SPY DUAL MOMENTUM ─────────────────────────────────────────
+// Gary Antonacci's Dual Momentum: hold SPY when absolute momentum is positive
+// AND SPY outperforms AGG (bonds). Otherwise park in AGG.
+// Lookback: 12-month rolling return comparison.
+export async function runSpyDualMomentum(
+  admin: SupabaseClient,
+  agentId: string,
+  alpacaKey: string,
+  alpacaSecret: string,
+  capitalCents = 1_000_000
+): Promise<StrategyResult> {
+  const SPY = 'SPY'
+  const AGG = 'AGG'
+  const bars_spy = await getStockBars(SPY, '1Day', 260)
+  const bars_agg = await getStockBars(AGG, '1Day', 260)
+
+  const emptyPortfolio: StrategyResult['portfolio'] = {
+    cash_cents: capitalCents, invested_cents: 0,
+    total_value_cents: capitalCents, positions: [], exposure_pct: 0,
+  }
+
+  if (bars_spy.length < 252 || bars_agg.length < 252) {
+    return { agent_slug: 'spy-dual-momentum', actions: [], skipped: true, portfolio: emptyPortfolio, signal_summary: 'SKIP - Insufficient data' }
+  }
+
+  const spyCurrent = bars_spy[bars_spy.length - 1].c
+  const spy12mAgo  = bars_spy[bars_spy.length - 252].c
+  const aggCurrent = bars_agg[bars_agg.length - 1].c
+  const agg12mAgo  = bars_agg[bars_agg.length - 252].c
+
+  const spy12mReturn = (spyCurrent - spy12mAgo) / spy12mAgo
+  const agg12mReturn = (aggCurrent - agg12mAgo) / agg12mAgo
+
+  // Absolute momentum: SPY must beat risk-free (approx 3% annual = positive vs cash)
+  const absoluteMomentum = spy12mReturn > 0.03
+  // Relative momentum: SPY must beat AGG
+  const relativeMomentum = spy12mReturn > agg12mReturn
+
+  // We invest in SPY only when BOTH signals are positive
+  const shouldHoldSpy = absoluteMomentum && relativeMomentum
+
+  const positions = await getAgentPositions(admin, agentId)
+  const spyPos = positions.find(p => p.symbol === SPY)
+  const aggPos = positions.find(p => p.symbol === AGG)
+  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+
+  const indicators = {
+    spy_price: +spyCurrent.toFixed(2),
+    spy_12m_return: +(spy12mReturn * 100).toFixed(2),
+    agg_12m_return: +(agg12mReturn * 100).toFixed(2),
+    absolute_mom: absoluteMomentum ? 1 : 0,
+    relative_mom: relativeMomentum ? 1 : 0,
+  }
+
+  const actions: TradeAction[] = []
+  let signalSummary = 'HOLD'
+
+  const notional = Math.min((capitalCents / 100) * 0.90, (cash / 100) * 0.90)
+
+  if (shouldHoldSpy && !spyPos && !aggPos && notional > 10) {
+    const action = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, SPY, notional, spyCurrent, indicators)
+    actions.push(action)
+    signalSummary = `BUY SPY · 12m return ${(spy12mReturn * 100).toFixed(1)}% vs AGG ${(agg12mReturn * 100).toFixed(1)}%`
+  } else if (!shouldHoldSpy && spyPos) {
+    const reason = !absoluteMomentum ? 'SPY absolute momentum negative' : 'SPY underperforming AGG'
+    const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, spyPos, reason, indicators)
+    actions.push(action)
+    signalSummary = `SELL SPY → rotate to AGG · ${reason}`
+  } else if (!shouldHoldSpy && !spyPos && !aggPos && notional > 10) {
+    const action = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, AGG, notional, aggCurrent, indicators)
+    actions.push(action)
+    signalSummary = `BUY AGG (defensive) · SPY 12m return ${(spy12mReturn * 100).toFixed(1)}%`
+  } else if (shouldHoldSpy && aggPos) {
+    const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, aggPos, 'Rotate AGG→SPY', indicators)
+    actions.push(action)
+    signalSummary = `SELL AGG → rotate to SPY`
+  } else {
+    const currentSym = spyPos ? SPY : aggPos ? AGG : 'CASH'
+    actions.push({ action: 'HOLD', symbol: currentSym, reason: `Dual momentum signal unchanged`, indicators })
+    signalSummary = `HOLD ${currentSym} · SPY 12m ${(spy12mReturn * 100).toFixed(1)}% | AGG ${(agg12mReturn * 100).toFixed(1)}%`
+  }
+
+  const investedCents = positions.reduce((sum, p) => sum + Math.round(p.qty * p.avg_entry * 100), 0)
+  const portfolio: StrategyResult['portfolio'] = {
+    cash_cents: Math.max(0, capitalCents - investedCents),
+    invested_cents: investedCents,
+    total_value_cents: capitalCents,
+    positions: positions.map(p => ({ symbol: p.symbol, qty: p.qty, entry: p.avg_entry, current: p.symbol === SPY ? spyCurrent : aggCurrent, pnl_pct: calcPositionPnL(p, p.symbol === SPY ? spyCurrent : aggCurrent) })),
+    exposure_pct: (investedCents / capitalCents) * 100,
+  }
+  return { agent_slug: 'spy-dual-momentum', actions, portfolio, signal_summary: signalSummary }
+}
+
+// ── STRATEGY 12: TECH SECTOR MOMENTUM ROTATION ─────────────────────────────
+// Rank AAPL, MSFT, GOOGL, NVDA, META by risk-adjusted 20-day momentum.
+// Hold top 2 with equal weight. Rebalance when ranking changes.
+export async function runTechRotation(
+  admin: SupabaseClient,
+  agentId: string,
+  alpacaKey: string,
+  alpacaSecret: string,
+  capitalCents = 1_000_000
+): Promise<StrategyResult> {
+  const TECH_STOCKS = ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'META']
+  const LOOKBACK = 20
+  const TOP_N = 2
+
+  const allBars = await Promise.all(TECH_STOCKS.map(s => getStockBars(s, '1Day', LOOKBACK + 5)))
+
+  const emptyPortfolio: StrategyResult['portfolio'] = {
+    cash_cents: capitalCents, invested_cents: 0,
+    total_value_cents: capitalCents, positions: [], exposure_pct: 0,
+  }
+
+  const validBars = allBars.filter(b => b.length >= LOOKBACK)
+  if (validBars.length < 3) {
+    return { agent_slug: 'tech-rotation', actions: [], skipped: true, portfolio: emptyPortfolio, signal_summary: 'SKIP - Insufficient data' }
+  }
+
+  // Score each stock: momentum / volatility (Sharpe-like)
+  const scores = TECH_STOCKS.map((sym, i) => {
+    const bars = allBars[i]
+    if (bars.length < LOOKBACK) return { sym, score: -999, price: 0 }
+    const returns: number[] = []
+    for (let j = 1; j < bars.length; j++) returns.push((bars[j].c - bars[j-1].c) / bars[j-1].c)
+    const recent = returns.slice(-LOOKBACK)
+    const momentum = recent.reduce((a, b) => a + b, 0)
+    const variance = recent.reduce((a, b) => a + b * b, 0) / recent.length
+    const vol = Math.sqrt(variance) || 0.001
+    return { sym, score: momentum / vol, price: bars[bars.length - 1].c }
+  })
+
+  const ranked = [...scores].sort((a, b) => b.score - a.score)
+  const topStocks = ranked.slice(0, TOP_N).map(s => s.sym)
+  const topSet = new Set(topStocks)
+
+  const positions = await getAgentPositions(admin, agentId)
+  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+  const currentHeld = new Set(positions.map(p => p.symbol))
+
+  const actions: TradeAction[] = []
+  const notionalPer = Math.min((capitalCents / 100) * 0.45, (cash / 100 + positions.reduce((s, p) => s + p.qty * p.avg_entry, 0)) * 0.45)
+
+  // Sell positions no longer in top-N
+  for (const pos of positions) {
+    if (!topSet.has(pos.symbol)) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, `Rotated out of top-${TOP_N}`, { rank: ranked.findIndex(r => r.sym === pos.symbol) + 1 })
+      actions.push(action)
+    }
+  }
+
+  // Buy new top-N entries
+  for (const sym of topStocks) {
+    if (!currentHeld.has(sym)) {
+      const scoreInfo = scores.find(s => s.sym === sym)!
+      if (scoreInfo.price > 0 && notionalPer > 10) {
+        const action = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, sym, notionalPer, scoreInfo.price, { score: +scoreInfo.score.toFixed(3), price: scoreInfo.price })
+        actions.push(action)
+      }
+    }
+  }
+
+  if (actions.length === 0) {
+    const topDesc = topStocks.join(', ')
+    actions.push({ action: 'HOLD', symbol: topStocks[0] ?? 'SPY', reason: `Top-${TOP_N}: ${topDesc}`, indicators: {} })
+  }
+
+  const top3Desc = ranked.slice(0, 3).map(r => `${r.sym}(${r.score.toFixed(2)})`).join(' ')
+  const signalSummary = `ROTATION · Top: ${topStocks.join('+')} · Ranked: ${top3Desc}`
+
+  const investedCents = positions.reduce((sum, p) => sum + Math.round(p.qty * p.avg_entry * 100), 0)
+  const portfolio: StrategyResult['portfolio'] = {
+    cash_cents: Math.max(0, capitalCents - investedCents),
+    invested_cents: investedCents,
+    total_value_cents: capitalCents,
+    positions: positions.map(p => {
+      const info = scores.find(s => s.sym === p.symbol)
+      return { symbol: p.symbol, qty: p.qty, entry: p.avg_entry, current: info?.price ?? p.avg_entry, pnl_pct: calcPositionPnL(p, info?.price ?? p.avg_entry) }
+    }),
+    exposure_pct: (investedCents / capitalCents) * 100,
+  }
+  return { agent_slug: 'tech-rotation', actions, portfolio, signal_summary: signalSummary }
+}
+
+// ── STRATEGY 13: MEAN REVERSION EQUITY ─────────────────────────────────────
+// Classic Bollinger Band + RSI(2) mean reversion on SPY.
+// Entry: price < lower BB AND RSI(2) < 10 AND above 200d MA.
+// Exit: price touches 20d SMA or RSI(2) > 80.
+export async function runEquityMeanReversion(
+  admin: SupabaseClient,
+  agentId: string,
+  alpacaKey: string,
+  alpacaSecret: string,
+  capitalCents = 1_000_000
+): Promise<StrategyResult> {
+  const symbol = 'SPY'
+  const bars = await getStockBars(symbol, '1Day', 210)
+
+  const emptyPortfolio: StrategyResult['portfolio'] = {
+    cash_cents: capitalCents, invested_cents: 0,
+    total_value_cents: capitalCents, positions: [], exposure_pct: 0,
+  }
+
+  if (bars.length < 205) {
+    return { agent_slug: 'equity-mean-reversion', actions: [], skipped: true, portfolio: emptyPortfolio, signal_summary: 'SKIP - Insufficient data' }
+  }
+
+  const closes = bars.map(b => b.c)
+  const currentPrice = closes[closes.length - 1]
+
+  // 200-day MA (trend filter)
+  const ma200 = closes.slice(-200).reduce((a, b) => a + b, 0) / 200
+
+  // Bollinger Bands (20,2)
+  const bb = calcBollingerBands(bars, 20)
+
+  // RSI(2) — ultra-short RSI for mean reversion
+  const rsi2 = calcRSI(bars, 2)
+  // Regular RSI(14) for confirmation
+  const rsi14 = calcRSI(bars, 14)
+
+  // ATR for stop
+  const atr = calcATR(bars, 14)
+
+  const aboveTrend = currentPrice > ma200
+  const belowLowerBB = currentPrice < bb.lower
+  const extremeOversold = rsi2 < 10
+  const moderateOversold = rsi2 < 25 && rsi14 < 35
+
+  const shouldBuy = aboveTrend && (extremeOversold || (belowLowerBB && moderateOversold))
+  const shouldExit = rsi2 > 80 || currentPrice > bb.middle
+
+  const positions = await getAgentPositions(admin, agentId)
+  const pos = positions.find(p => p.symbol === symbol)
+  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+
+  const indicators = {
+    price: +currentPrice.toFixed(2), ma200: +ma200.toFixed(2),
+    bb_lower: +bb.lower.toFixed(2), bb_mid: +bb.middle.toFixed(2), bb_upper: +bb.upper.toFixed(2),
+    rsi2: +rsi2.toFixed(1), rsi14: +rsi14.toFixed(1), atr: +atr.toFixed(2),
+  }
+
+  const actions: TradeAction[] = []
+  let signalSummary = 'SCAN'
+
+  if (!pos && shouldBuy && cash > 500) {
+    const notional = Math.min((capitalCents / 100) * 0.90, (cash / 100) * 0.90)
+    if (notional > 10) {
+      const action = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, symbol, notional, currentPrice, indicators)
+      actions.push(action)
+      signalSummary = `BUY SPY · RSI(2)=${rsi2.toFixed(0)} ${belowLowerBB ? '< lower BB' : ''} · above 200MA`
+    }
+  } else if (pos) {
+    const pnlPct = calcPositionPnL(pos, currentPrice)
+    const hardStop = pos.avg_entry - 2 * atr
+    if (currentPrice < hardStop) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, '2x ATR stop', indicators)
+      actions.push(action)
+      signalSummary = `SELL SPY ▼ 2xATR stop hit · P&L ${pnlPct.toFixed(1)}%`
+    } else if (shouldExit) {
+      const reason = rsi2 > 80 ? `RSI(2)=${rsi2.toFixed(0)} overbought` : 'Price touched 20d SMA'
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, reason, indicators)
+      actions.push(action)
+      signalSummary = `SELL SPY · ${reason} · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%`
+    } else {
+      actions.push({ action: 'HOLD', symbol, reason: `RSI(2)=${rsi2.toFixed(0)} · P&L ${pnlPct.toFixed(1)}%`, indicators })
+      signalSummary = `HOLD SPY · RSI(2)=${rsi2.toFixed(0)} · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%`
+    }
+  } else {
+    actions.push({ action: 'HOLD', symbol, reason: `Waiting: RSI(2)=${rsi2.toFixed(0)}, above200MA=${aboveTrend}`, indicators })
+    signalSummary = `SCAN SPY · RSI(2)=${rsi2.toFixed(0)} · ${aboveTrend ? 'above' : 'BELOW'} 200MA · need RSI<10`
+  }
+
+  const investedCents = positions.reduce((sum, p) => sum + Math.round(p.qty * p.avg_entry * 100), 0)
+  const portfolio: StrategyResult['portfolio'] = {
+    cash_cents: Math.max(0, capitalCents - investedCents),
+    invested_cents: investedCents, total_value_cents: capitalCents,
+    positions: positions.map(p => ({ symbol: p.symbol, qty: p.qty, entry: p.avg_entry, current: currentPrice, pnl_pct: calcPositionPnL(p, currentPrice) })),
+    exposure_pct: (investedCents / capitalCents) * 100,
+  }
+  return { agent_slug: 'equity-mean-reversion', actions, portfolio, signal_summary: signalSummary }
+}
+
+// ── STRATEGY 14: QQQ/SPY TREND FOLLOWING ───────────────────────────────────
+// Classic 50/200 EMA golden cross on QQQ with ADX confirmation.
+// Long QQQ when EMA50 > EMA200 AND ADX > 20.
+// Exit: EMA50 crosses below EMA200 OR drawdown > 8%.
+export async function runEquityTrendFollow(
+  admin: SupabaseClient,
+  agentId: string,
+  alpacaKey: string,
+  alpacaSecret: string,
+  capitalCents = 1_000_000
+): Promise<StrategyResult> {
+  const symbol = 'QQQ'
+  const bars = await getStockBars(symbol, '1Day', 220)
+
+  const emptyPortfolio: StrategyResult['portfolio'] = {
+    cash_cents: capitalCents, invested_cents: 0,
+    total_value_cents: capitalCents, positions: [], exposure_pct: 0,
+  }
+
+  if (bars.length < 205) {
+    return { agent_slug: 'equity-trend-follow', actions: [], skipped: true, portfolio: emptyPortfolio, signal_summary: 'SKIP - Insufficient data' }
+  }
+
+  const ema50 = calcEMA(bars, 50)
+  const ema200 = calcEMA(bars, 200)
+  const adx = calcADX(bars, 14)
+  const atr = calcATR(bars, 14)
+  const rsi = calcRSI(bars, 14)
+  const currentPrice = bars[bars.length - 1].c
+
+  const goldenCross = ema50 > ema200
+  const strongTrend = adx > 20
+  const shouldBuy = goldenCross && strongTrend && rsi < 75
+
+  const positions = await getAgentPositions(admin, agentId)
+  const pos = positions.find(p => p.symbol === symbol)
+  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+
+  const indicators = {
+    price: +currentPrice.toFixed(2), ema50: +ema50.toFixed(2), ema200: +ema200.toFixed(2),
+    adx: +adx.toFixed(1), atr: +atr.toFixed(2), rsi: +rsi.toFixed(1),
+    cross: goldenCross ? 'GOLDEN' : 'DEATH',
+  }
+
+  const actions: TradeAction[] = []
+  let signalSummary = 'SCAN'
+
+  if (!pos && shouldBuy && cash > 500) {
+    const notional = Math.min((capitalCents / 100) * 0.85, (cash / 100) * 0.85)
+    if (notional > 10) {
+      const action = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, symbol, notional, currentPrice, indicators)
+      actions.push(action)
+      signalSummary = `BUY QQQ · Golden Cross · ADX=${adx.toFixed(0)} · RSI=${rsi.toFixed(0)}`
+    }
+  } else if (pos) {
+    const pnlPct = calcPositionPnL(pos, currentPrice)
+    const deathCross = ema50 < ema200
+    const hardStop = pos.avg_entry * 0.92  // -8% hard stop
+    if (currentPrice < hardStop) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, 'Hard stop -8%', indicators)
+      actions.push(action)
+      signalSummary = `SELL QQQ ▼ -8% hard stop · P&L ${pnlPct.toFixed(1)}%`
+    } else if (deathCross) {
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, 'Death cross EMA50<EMA200', indicators)
+      actions.push(action)
+      signalSummary = `SELL QQQ · Death cross · ADX=${adx.toFixed(0)}`
+    } else {
+      actions.push({ action: 'HOLD', symbol, reason: `Golden cross held · P&L ${pnlPct.toFixed(1)}%`, indicators })
+      signalSummary = `HOLD QQQ · EMA50/200 spread ${((ema50/ema200-1)*100).toFixed(2)}% · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%`
+    }
+  } else {
+    actions.push({ action: 'HOLD', symbol, reason: `Waiting: ${goldenCross ? 'Golden cross ✓' : 'Need golden cross'}, ADX=${adx.toFixed(0)}${strongTrend ? ' ✓' : ' (need >20)'}`, indicators })
+    signalSummary = `SCAN QQQ · ${goldenCross ? 'Golden cross' : 'Death cross'} · ADX=${adx.toFixed(0)}`
+  }
+
+  const investedCents = positions.reduce((sum, p) => sum + Math.round(p.qty * p.avg_entry * 100), 0)
+  const portfolio: StrategyResult['portfolio'] = {
+    cash_cents: Math.max(0, capitalCents - investedCents),
+    invested_cents: investedCents, total_value_cents: capitalCents,
+    positions: positions.map(p => ({ symbol: p.symbol, qty: p.qty, entry: p.avg_entry, current: currentPrice, pnl_pct: calcPositionPnL(p, currentPrice) })),
+    exposure_pct: (investedCents / capitalCents) * 100,
+  }
+  return { agent_slug: 'equity-trend-follow', actions, portfolio, signal_summary: signalSummary }
+}
+
+// ── STRATEGY 15: RISK PARITY (SPY + TLT + GLD) ─────────────────────────────
+// Inverse-volatility weighted allocation across SPY, TLT (bonds), GLD (gold).
+// Rebalance when any weight drifts >5% from target.
+// Tactical overlay: reduce allocation if 20d return is negative.
+export async function runRiskParity(
+  admin: SupabaseClient,
+  agentId: string,
+  alpacaKey: string,
+  alpacaSecret: string,
+  capitalCents = 1_000_000
+): Promise<StrategyResult> {
+  const ASSETS = ['SPY', 'TLT', 'GLD']
+  const LOOKBACK = 60
+
+  const allBars = await Promise.all(ASSETS.map(s => getStockBars(s, '1Day', LOOKBACK + 5)))
+
+  const emptyPortfolio: StrategyResult['portfolio'] = {
+    cash_cents: capitalCents, invested_cents: 0,
+    total_value_cents: capitalCents, positions: [], exposure_pct: 0,
+  }
+
+  if (allBars.some(b => b.length < LOOKBACK)) {
+    return { agent_slug: 'risk-parity', actions: [], skipped: true, portfolio: emptyPortfolio, signal_summary: 'SKIP - Insufficient data' }
+  }
+
+  // Compute inverse-vol weights
+  const volData = ASSETS.map((sym, i) => {
+    const b = allBars[i]
+    const rets: number[] = []
+    for (let j = 1; j < b.length; j++) rets.push((b[j].c - b[j-1].c) / b[j-1].c)
+    const mean = rets.reduce((a, x) => a + x, 0) / rets.length
+    const variance = rets.reduce((a, x) => a + Math.pow(x - mean, 2), 0) / rets.length
+    const vol = Math.sqrt(variance) * Math.sqrt(252) || 0.001
+    const ret20d = (b[b.length-1].c - b[b.length-21].c) / b[b.length-21].c
+    const price = b[b.length - 1].c
+    return { sym, vol, invVol: 1 / vol, price, ret20d }
+  })
+
+  const totalInvVol = volData.reduce((s, v) => s + v.invVol, 0)
+  const weights = volData.map(v => {
+    // Tactical: halve weight if 20d return is negative
+    const tacticalMult = v.ret20d < 0 ? 0.5 : 1.0
+    return { sym: v.sym, price: v.price, vol: v.vol, weight: (v.invVol / totalInvVol) * tacticalMult, ret20d: v.ret20d }
+  })
+  // Renormalize
+  const totalW = weights.reduce((s, w) => s + w.weight, 0)
+  weights.forEach(w => { w.weight = w.weight / totalW })
+
+  const positions = await getAgentPositions(admin, agentId)
+  const totalCapital = capitalCents / 100
+
+  const actions: TradeAction[] = []
+
+  for (const w of weights) {
+    const targetNotional = totalCapital * w.weight * 0.95
+    const existing = positions.find(p => p.symbol === w.sym)
+    const existingNotional = existing ? existing.qty * w.price : 0
+    const drift = Math.abs(existingNotional - targetNotional) / Math.max(targetNotional, 1)
+
+    // Rebalance if drift > 5% from target
+    if (drift > 0.05) {
+      if (existingNotional < targetNotional && targetNotional - existingNotional > 10) {
+        if (existing) {
+          // Sell existing and rebuy at target
+          const sellAction = await executeSell(admin, agentId, alpacaKey, alpacaSecret, existing, `Rebalance ${w.sym}`, { weight: +w.weight.toFixed(3) })
+          actions.push(sellAction)
+        }
+        const buyNotional = targetNotional
+        if (buyNotional > 10) {
+          const buyAction = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, w.sym, buyNotional, w.price, { weight: +w.weight.toFixed(3), vol: +w.vol.toFixed(3), ret20d: +(w.ret20d * 100).toFixed(2) })
+          actions.push(buyAction)
+        }
+      } else if (existingNotional > targetNotional && existing && existingNotional - targetNotional > 10) {
+        const sellAction = await executeSell(admin, agentId, alpacaKey, alpacaSecret, existing, `Rebalance ${w.sym} overweight`, { weight: +w.weight.toFixed(3) })
+        actions.push(sellAction)
+        const reenterNotional = targetNotional
+        if (reenterNotional > 10) {
+          const rebuyAction = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, w.sym, reenterNotional, w.price, { weight: +w.weight.toFixed(3) })
+          actions.push(rebuyAction)
+        }
+      }
+    }
+  }
+
+  if (actions.length === 0) {
+    const desc = weights.map(w => `${w.sym}=${(w.weight * 100).toFixed(0)}%`).join(' ')
+    actions.push({ action: 'HOLD', symbol: 'SPY', reason: `Allocation: ${desc}`, indicators: {} })
+  }
+
+  const weightDesc = weights.map(w => `${w.sym}=${(w.weight * 100).toFixed(0)}%`).join(' ')
+  const signalSummary = `RISK PARITY · ${weightDesc}`
+
+  const investedCents = positions.reduce((sum, p) => sum + Math.round(p.qty * p.avg_entry * 100), 0)
+  const portfolio: StrategyResult['portfolio'] = {
+    cash_cents: Math.max(0, capitalCents - investedCents),
+    invested_cents: investedCents, total_value_cents: capitalCents,
+    positions: positions.map(p => {
+      const info = weights.find(w => w.sym === p.symbol)
+      return { symbol: p.symbol, qty: p.qty, entry: p.avg_entry, current: info?.price ?? p.avg_entry, pnl_pct: calcPositionPnL(p, info?.price ?? p.avg_entry) }
+    }),
+    exposure_pct: (investedCents / capitalCents) * 100,
+  }
+  return { agent_slug: 'risk-parity', actions, portfolio, signal_summary: signalSummary }
 }

@@ -81,14 +81,11 @@ export default function AccountConnectModal({ onClose, onSuccess }: Props) {
           boxShadow: '0 40px 80px rgba(0,0,0,.8)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
           <div>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, marginBottom: '.25rem' }}>
               Connect Your Trading Account
             </h2>
-            <p style={{ fontSize: '.85rem', color: 'var(--muted)', margin: 0 }}>
-              Your capital stays in your brokerage. ASE only executes trades.
-            </p>
           </div>
           <button
             onClick={onClose}
@@ -112,6 +109,27 @@ export default function AccountConnectModal({ onClose, onSuccess }: Props) {
           </button>
         </div>
 
+        {/* Required Alpaca Disclosure */}
+        <div
+          style={{
+            background: 'rgba(255,200,0,.08)',
+            border: '1px solid rgba(255,200,0,.2)',
+            borderRadius: 12,
+            padding: '1rem',
+            marginBottom: '1.25rem',
+            fontSize: '.78rem',
+            color: 'var(--white)',
+            lineHeight: 1.5,
+          }}
+        >
+          <strong style={{ display: 'block', marginBottom: '.4rem', color: '#fbbf24' }}>
+            Important Disclosure
+          </strong>
+          <p style={{ margin: 0 }}>
+            By allowing ASE to access your Alpaca account, you are granting ASE access to your account information and authorization to place transactions in your account at your direction. Alpaca does not warrant or guarantee that ASE will work as advertised or expected. Before authorizing, learn more about ASE.
+          </p>
+        </div>
+
         {step === 'method' && (
           <>
             <div
@@ -131,39 +149,18 @@ export default function AccountConnectModal({ onClose, onSuccess }: Props) {
               </strong>
               <ol style={{ margin: 0, paddingLeft: '1.2rem', lineHeight: 1.8 }}>
                 <li>
+                  <strong>Connect with Alpaca OAuth</strong> (recommended)<br/>
+                  <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>Securely sign in with your Alpaca account</span>
+                </li>
+                <li style={{ marginTop: '0.75rem' }}>
                   <strong>Enter API key directly</strong><br/>
                   <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>Get your API key from Alpaca dashboard → API tab</span>
                 </li>
               </ol>
             </div>
 
-            <a
-              href="https://app.alpaca.markets/dashboard/api"
-              target="_blank"
-              rel="noopener"
-              style={{
-                display: 'block',
-                width: '100%',
-                padding: '0.75rem',
-                borderRadius: 10,
-                border: '1px solid var(--border)',
-                background: 'transparent',
-                color: 'var(--blue)',
-                fontFamily: 'var(--font-head)',
-                fontWeight: 600,
-                fontSize: '0.85rem',
-                textAlign: 'center',
-                textDecoration: 'none',
-                marginBottom: '1rem',
-              }}
-            >
-              Open Alpaca API Page ↗
-            </a>
-
-            <div style={{ textAlign: 'center', marginBottom: '1rem', color: 'var(--faint)', fontSize: '0.8rem' }}>or enter your credentials below</div>
-
             <button
-              onClick={() => window.open('https://app.alpaca.markets/dashboard', '_blank')}
+              onClick={() => window.location.href = '/api/auth/alpaca/connect'}
               style={{
                 width: '100%',
                 padding: '1rem',
@@ -175,10 +172,16 @@ export default function AccountConnectModal({ onClose, onSuccess }: Props) {
                 fontWeight: 700,
                 fontSize: '1rem',
                 cursor: 'pointer',
-                marginBottom: '1.25rem',
+                marginBottom: '1rem',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.boxShadow = '0 12px 32px rgba(59,127,255,.4)'
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.boxShadow = 'none'
               }}
             >
-              Open Alpaca Dashboard →
+              Connect with Alpaca →
             </button>
 
             <div style={{ textAlign: 'center', marginBottom: '1rem', color: 'var(--faint)', fontSize: '0.8rem' }}>or enter API credentials directly</div>

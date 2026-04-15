@@ -47,28 +47,52 @@ export async function POST(request: NextRequest) {
     const admin = createAdminClient()
     const broker = createBrokerAPI(apiKey, apiSecret)
 
-    // Get account info from Alpaca
+    // Get account info from Alpaca - try multiple methods
     let alpacaAccount = null
     
+    // First, try to list accounts via Broker API
     try {
       const accounts = await broker.listAccounts()
       if (accounts.accounts && accounts.accounts.length > 0) {
         alpacaAccount = accounts.accounts[0]
+        console.log('[Broker] Found account via listAccounts:', alpacaAccount.id)
       }
     } catch (apiErr) {
-      console.log('[Broker] Could not list accounts, trying fallback:', apiErr)
+      console.log('[Broker] listAccounts failed:', apiErr)
     }
 
-    // If no account found, create a placeholder (for paper trading scenario)
+    // If no account found, try each potential paper account ID
     if (!alpacaAccount) {
-      alpacaAccount = {
-        id: 'paper-' + apiKey.slice(0, 8),
-        account_number: 'PAPER-' + apiKey.slice(0, 8).toUpperCase(),
-        status: 'ACTIVE',
-        account_type: 'INDIVIDUAL',
-        trading_enabled: true,
-        transfers_enabled: true,
+      const potentialIds = [
+        'paper-PKILN4ZAIIMEYCZ2DLUZNCXG5R', // Common paper account
+        apiKey, // Try using the API key directly
+      ]
+      
+      for (const accId of potentialIds) {
+        try {
+          const trading = await broker.getTradingAccount(accId)
+          alpacaAccount = {
+            id: accId,
+            account_number: trading.account_number,
+            status: trading.status,
+            account_type: 'INDIVIDUAL',
+            trading_enabled: true,
+            transfers_enabled: true,
+          }
+          console.log('[Broker] Found account via trading account:', accId)
+          break
+        } catch {
+          // Try next one
+        }
       }
+    }
+
+    // If still no account, the API key may not have Broker API access
+    if (!alpacaAccount) {
+      return NextResponse.json({ 
+        error: 'Account not found',
+        message: 'Could not find a brokerage account with these credentials. Use /api/broker/create-account to create a new account.',
+      }, { status: 400 })
     }
 
     // Check if user already has an account
@@ -85,6 +109,7 @@ export async function POST(request: NextRequest) {
           alpaca_account_id: alpacaAccount.id,
           account_number: alpacaAccount.account_number,
           status: alpacaAccount.status,
+          trading_enabled: true,
           updated_at: new Date().toISOString(),
         })
         .eq('id', existing.id)

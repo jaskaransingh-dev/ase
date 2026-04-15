@@ -134,6 +134,151 @@ export async function reduceHoldingPosition(
   }
 }
 
+/**
+ * Sync actual Alpaca positions back to holdings table
+ * This ensures holdings reflect real broker positions
+ */
+export async function syncAlpacaPositionsToHoldings(
+  admin: AdminClient,
+  params: {
+    userId: string
+    agentId: string
+    alpacaPositions: Array<{ symbol: string; qty: number; avg_entry_price: number }>
+  }
+) {
+  try {
+    // Get all trades for this user-agent combination
+    const { data: trades } = await admin
+      .from('user_trades')
+      .select('symbol, side, qty, fill_price')
+      .eq('user_id', params.userId)
+      .eq('agent_id', params.agentId)
+
+    // Calculate holdings from actual trades
+    const positionMap = new Map<string, { qty: number; totalCost: number }>()
+
+    for (const trade of trades || []) {
+      const key = trade.symbol
+      const current = positionMap.get(key) || { qty: 0, totalCost: 0 }
+
+      if (trade.side === 'buy') {
+        current.qty += Number(trade.qty) || 0
+        current.totalCost += (Number(trade.qty) || 0) * Number(trade.fill_price)
+      } else {
+        current.qty -= Number(trade.qty) || 0
+      }
+      positionMap.set(key, current)
+    }
+
+    // Calculate portfolio value from Alpaca positions
+    let totalValueCents = 0
+    for (const alpacaPos of params.alpacaPositions) {
+      totalValueCents += Math.round(alpacaPos.qty * alpacaPos.avg_entry_price * 100)
+    }
+
+    // Update holding with actual values
+    const { data: holding } = await admin
+      .from('holdings')
+      .select('id, invested_cents')
+      .eq('user_id', params.userId)
+      .eq('agent_id', params.agentId)
+      .eq('status', 'active')
+      .maybeSingle()
+
+    if (holding) {
+      const pnlCents = totalValueCents - Number(holding.invested_cents || 0)
+      await admin
+        .from('holdings')
+        .update({
+          current_value_cents: totalValueCents,
+          pnl_cents: pnlCents,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', holding.id)
+    }
+  } catch (err) {
+    console.error('[syncAlpacaPositionsToHoldings] Error:', err)
+  }
+}
+
+/**
+ * Verify trade execution by checking if order actually filled
+ */
+export async function verifyTradeExecution(
+  admin: AdminClient,
+  params: {
+    userId: string
+    agentId: string
+    orderId: string
+    expectedQty: number
+    expectedSide: 'buy' | 'sell'
+  }
+): Promise<{ executed: boolean; filledQty: number; fillPrice: number }> {
+  const { data: trade } = await admin
+    .from('user_trades')
+    .select('qty, fill_price')
+    .eq('user_id', params.userId)
+    .eq('agent_id', params.agentId)
+    .eq('alpaca_order_id', params.orderId)
+    .maybeSingle()
+
+  if (!trade) {
+    return { executed: false, filledQty: 0, fillPrice: 0 }
+  }
+
+  return {
+    executed: true,
+    filledQty: Number(trade.qty) || 0,
+    fillPrice: Number(trade.fill_price) || 0,
+  }
+}
+
+/**
+ * Lock/reserve capital for an agent investment
+ * Returns a capital allocation record
+ */
+export async function reserveCapitalAllocation(
+  admin: AdminClient,
+  params: {
+    userId: string
+    agentId: string
+    amountCents: number
+    alpacaAccountId: string
+  }
+) {
+  const { data: allocation, error } = await admin
+    .from('capital_allocations')
+    .insert({
+      user_id: params.userId,
+      agent_id: params.agentId,
+      amount_cents: params.amountCents,
+      alpaca_account_id: params.alpacaAccountId,
+      status: 'reserved',
+      allocated_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single()
+
+  if (error) throw error
+  return allocation
+}
+
+/**
+ * Release capital allocation after trades are confirmed
+ */
+export async function releaseCapitalAllocation(
+  admin: AdminClient,
+  allocationId: string
+) {
+  await admin
+    .from('capital_allocations')
+    .update({
+      status: 'deployed',
+      deployed_at: new Date().toISOString(),
+    })
+    .eq('id', allocationId)
+}
+
 export async function syncAgentMarketState(
   admin: AdminClient,
   params: {

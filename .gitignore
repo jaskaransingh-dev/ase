@@ -48,3 +48,7 @@ next-env.d.ts
 .dev.vars*
 !.dev.vars.example
 !.env.example
+
+# cloudflare workers
+/workers/*/node_modules
+/workers/.wrangler

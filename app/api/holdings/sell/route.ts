@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateQuoteFromNav } from '@/lib/market'
 import { reduceHoldingPosition, syncAgentMarketState } from '@/lib/exchange'
 import { triggerImmediateAgentRun } from '@/lib/agent-cycle'
+import { getUserPositions, closeUserPosition, logUserTrade } from '@/lib/user-trading'
+import { createBrokerAPI } from '@/lib/broker'
 
 export const dynamic = 'force-dynamic'
 
@@ -88,7 +90,42 @@ export async function POST(req: NextRequest) {
       note: `Sold ${sellShares.toFixed(4)} shares of ${holding.agents?.name}`,
     })
 
-    // 3. Reprice from actual post-sale capital.
+    // 3. Close positions on user's broker account (if they have one)
+    let closedPositions: Array<{ symbol: string; filledQty: number; fillPrice: number; pnlCents: number }> = []
+    const { data: brokerAccount } = await admin
+      .from('broker_accounts')
+      .select('alpaca_account_id')
+      .eq('user_id', user.id)
+      .eq('status', 'ACTIVE')
+      .single()
+
+    if (brokerAccount?.alpaca_account_id) {
+      const broker = createBrokerAPI()
+      const userPos = await getUserPositions(admin, user.id, agentId)
+
+      for (const pos of userPos) {
+        if (pos.qty > 0) {
+          const result = await closeUserPosition(
+            admin,
+            broker,
+            brokerAccount.alpaca_account_id,
+            user.id,
+            agentId,
+            pos.symbol
+          )
+          if (result) {
+            closedPositions.push({
+              symbol: pos.symbol,
+              filledQty: result.filledQty,
+              fillPrice: result.fillPrice,
+              pnlCents: result.pnlCents,
+            })
+          }
+        }
+      }
+    }
+
+    // 4. Reprice from actual post-sale capital.
     const synced = await syncAgentMarketState(admin, {
       agentId,
       previousInvestorCapitalCents: Number(holding.agents?.total_aum_cents) || 0,
@@ -124,6 +161,7 @@ export async function POST(req: NextRequest) {
       new_aum_cents: synced.investorCapitalCents,
       total_capital_cents: synced.tradingCapitalCents,
       partial: reduction.partial,
+      closed_positions: closedPositions,
     })
   } catch (err: unknown) {
     console.error('sell error:', err)

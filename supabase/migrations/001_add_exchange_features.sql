@@ -72,9 +72,19 @@ CREATE INDEX IF NOT EXISTS limit_orders_status ON limit_orders(status, created_a
 CREATE INDEX IF NOT EXISTS order_fills_agent_time ON order_fills(agent_id, filled_at DESC);
 
 -- ── ENABLE REALTIME ───────────────────────────────────────────────────
-ALTER PUBLICATION supabase_realtime ADD TABLE limit_orders;
-ALTER PUBLICATION supabase_realtime ADD TABLE order_fills;
-ALTER PUBLICATION supabase_realtime ADD TABLE price_ticks;
+-- Use DO block to handle already-existing publication memberships (Supabase managed)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'limit_orders'
+  ) THEN ALTER PUBLICATION supabase_realtime ADD TABLE limit_orders; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'order_fills'
+  ) THEN ALTER PUBLICATION supabase_realtime ADD TABLE order_fills; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'price_ticks'
+  ) THEN ALTER PUBLICATION supabase_realtime ADD TABLE price_ticks; END IF;
+END $$;
 
 -- ── ROW LEVEL SECURITY ───────────────────────────────────────────────
 ALTER TABLE limit_orders ENABLE ROW LEVEL SECURITY;

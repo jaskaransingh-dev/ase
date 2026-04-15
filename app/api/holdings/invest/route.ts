@@ -106,6 +106,18 @@ export async function POST(req: NextRequest) {
       note: `Invested in ${agent.name}${holdingUpdate.merged ? ' (added to position)' : ''}`,
     })
 
+    // Keep the subscription table in sync with the actual holding so dashboard views update correctly.
+    await admin
+      .from('subscriptions')
+      .upsert({
+        user_id: user.id,
+        agent_id: agent_id,
+        status: 'active',
+        subscribed_at: new Date().toISOString(),
+      }, {
+        onConflict: 'user_id,agent_id',
+      })
+
     // 4. Reprice the agent from actual capital in the pool plus carried P&L.
     const synced = await syncAgentMarketState(admin, {
       agentId: agent_id,

@@ -23,46 +23,30 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getCryptoBars } from '@/lib/alpaca'
+import { getCryptoBars } from '@/lib/market-data'
 import { getAgentPositions } from '@/lib/agents'
 import { calculateHoldingValueCents, calculateNavFromState, calculateQuoteFromNav, PLATFORM_SEED_CAPITAL_CENTS } from '@/lib/market'
 
 export const dynamic = 'force-dynamic'
 
-/**
- * Calculate Sharpe Ratio from daily returns
- * sharpe = (mean_return / std_return) * sqrt(365)
- */
 function calculateSharpeRatio(dailyReturns: number[]): number {
   if (dailyReturns.length < 2) return 0
-
   const meanReturn = dailyReturns.reduce((a, b) => a + b, 0) / dailyReturns.length
   const variance = dailyReturns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) / dailyReturns.length
   const stdDev = Math.sqrt(variance)
-
   if (stdDev === 0) return 0
-
   const sharpe = (meanReturn / stdDev) * Math.sqrt(365)
   return parseFloat(sharpe.toFixed(4))
 }
 
-/**
- * Calculate Sortino Ratio from daily returns
- * sortino = (mean_return / downside_std) * sqrt(365)
- */
 function calculateSortinoRatio(dailyReturns: number[]): number {
   if (dailyReturns.length < 2) return 0
-
   const meanReturn = dailyReturns.reduce((a, b) => a + b, 0) / dailyReturns.length
   const downsideReturns = dailyReturns.filter(r => r < 0)
-
   if (downsideReturns.length === 0) return 0
-
   const downsideVariance = downsideReturns.reduce((sum, r) => sum + Math.pow(r, 2), 0) / downsideReturns.length
   const downsideStdDev = Math.sqrt(downsideVariance)
-
   if (downsideStdDev === 0) return 0
-
   const sortino = (meanReturn / downsideStdDev) * Math.sqrt(365)
   return parseFloat(sortino.toFixed(4))
 }
@@ -77,12 +61,6 @@ export async function POST(req: NextRequest) {
   }
 
   const admin = createAdminClient()
-  const alpacaKey = process.env.ALPACA_KEY_ID || ''
-  const alpacaSecret = process.env.ALPACA_SECRET_KEY || ''
-
-  if (!alpacaKey) {
-    return NextResponse.json({ skipped: true, reason: 'No Alpaca credentials' })
-  }
 
   const { data: agents } = await admin
     .from('agents')

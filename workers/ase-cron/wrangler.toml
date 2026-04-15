@@ -1,0 +1,10 @@
+name = "ase-cron"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[[triggers]]
+crons = ["* * * * *"]
+
+[vars]
+PAGES_FUNCTION_URL = "https://ase.jazing14.workers.dev/api/cron/run-agents"
+CRON_SECRET = "9f3c2b7a1e8d4c6f0a2b9e7d1c4f8a6b"
