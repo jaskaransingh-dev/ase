@@ -1,5 +1,5 @@
 export default {
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(event: unknown, env: Env, ctx: unknown): Promise<void> {
     const url = env.PAGES_FUNCTION_URL
     const secret = env.CRON_SECRET
 
@@ -27,7 +27,7 @@ export default {
       throw error
     }
   },
-} satisfies ExportedHandler<Env>
+}
 
 interface Env {
   PAGES_FUNCTION_URL: string

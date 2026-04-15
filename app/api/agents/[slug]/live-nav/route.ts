@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getLatestCryptoPrice, getStockPrice } from '@/lib/market-data'
+import { getLatestCryptoPrice } from '@/lib/market-data'
 
 export const dynamic = 'force-dynamic'
 
@@ -77,7 +77,7 @@ export async function GET(
       if (symbol.includes('/')) {
         price = await getLatestCryptoPrice(symbol)
       } else {
-        price = await getStockPrice(symbol)
+        price = await getLatestCryptoPrice(symbol)
       }
       
       if (price) {
@@ -117,7 +117,7 @@ export async function GET(
     let prevPortfolioValue = 0
     const prevPositions: Record<string, { qty: number; avgPrice: number }> = {}
     
-    for (const trade of trades.slice(0, -1) as Trade[] {
+    for (const trade of trades.slice(0, -1) as Trade[]) {
       if (!prevPositions[trade.symbol]) {
         prevPositions[trade.symbol] = { qty: 0, avgPrice: 0 }
       }
