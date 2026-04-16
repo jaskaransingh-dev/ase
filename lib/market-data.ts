@@ -45,6 +45,26 @@ export function isCrypto(symbol: string): boolean {
 
 const YF_HOSTS = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com']
 
+function toBinanceSymbol(yahooSymbol: string): string | null {
+  const m = yahooSymbol.match(/^([A-Z0-9]+)-USD$/)
+  return m ? `${m[1]}USDT` : null
+}
+
+async function fetchBinancePrice(symbol: string): Promise<number | null> {
+  const binanceSym = toBinanceSymbol(symbol)
+  if (!binanceSym) return null
+  
+  try {
+    const url = `https://api.binance.com/api/v3/ticker/price?symbol=${binanceSym}`
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
+    if (!res.ok) return null
+    const data = await res.json() as { price: string }
+    return parseFloat(data.price)
+  } catch {
+    return null
+  }
+}
+
 async function fetchYahooBars(
   yahooSym: string,
   interval: string,   // '1d', '1h'
@@ -130,6 +150,13 @@ export const getBars = getCryptoBars
 
 /** Latest closing price for a symbol */
 export async function getLatestCryptoPrice(symbol: string): Promise<number | null> {
+  // Try Binance first for crypto pairs
+  if (toBinanceSymbol(symbol)) {
+    const binancePrice = await fetchBinancePrice(symbol)
+    if (binancePrice) return binancePrice
+  }
+  
+  // Fallback to Yahoo Finance bars
   const bars = await getCryptoBars(symbol, '1Day', 2)
   return bars.length > 0 ? bars[bars.length - 1].c : null
 }

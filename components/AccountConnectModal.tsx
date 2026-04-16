@@ -109,7 +109,7 @@ export default function AccountConnectModal({ onClose, onSuccess }: Props) {
           </button>
         </div>
 
-        {/* Required Alpaca Disclosure */}
+        {/* Required Exchange Disclosure */}
         <div
           style={{
             background: 'rgba(255,200,0,.08)',
@@ -126,7 +126,7 @@ export default function AccountConnectModal({ onClose, onSuccess }: Props) {
             Important Disclosure
           </strong>
           <p style={{ margin: 0 }}>
-            By allowing ASE to access your Alpaca account, you are granting ASE access to your account information and authorization to place transactions in your account at your direction. Alpaca does not warrant or guarantee that ASE will work as advertised or expected. Before authorizing, learn more about ASE.
+            By allowing ASE to access your trading account, you grant ASE authorization to execute trades on your behalf. ASE does not custody your funds — trades execute directly on your exchange. 
           </p>
         </div>
 
@@ -149,24 +149,24 @@ export default function AccountConnectModal({ onClose, onSuccess }: Props) {
               </strong>
               <ol style={{ margin: 0, paddingLeft: '1.2rem', lineHeight: 1.8 }}>
                 <li>
-                  <strong>Connect with Alpaca OAuth</strong> (recommended)<br/>
-                  <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>Securely sign in with your Alpaca account</span>
+                  <strong>Connect with Kraken</strong> (recommended)<br/>
+                  <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>Securely sign in with your Kraken account</span>
                 </li>
                 <li style={{ marginTop: '0.75rem' }}>
-                  <strong>Enter API key directly</strong><br/>
-                  <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>Get your API key from Alpaca dashboard → API tab</span>
+                  <strong>Connect with Alpaca</strong><br/>
+                  <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>US stocks & crypto trading</span>
                 </li>
               </ol>
             </div>
 
             <button
-              onClick={() => window.location.href = '/api/auth/alpaca/connect'}
+              onClick={() => window.location.href = '/api/auth/kraken/connect'}
               style={{
                 width: '100%',
                 padding: '1rem',
                 borderRadius: 10,
                 border: 'none',
-                background: 'linear-gradient(135deg, #3b7eff, #3b7eff)',
+                background: 'linear-gradient(135deg, #5741D9, #5741D9)',
                 color: 'white',
                 fontFamily: 'var(--font-head)',
                 fontWeight: 700,
@@ -175,10 +175,29 @@ export default function AccountConnectModal({ onClose, onSuccess }: Props) {
                 marginBottom: '1rem',
               }}
               onMouseEnter={e => {
-                (e.currentTarget as HTMLElement).style.boxShadow = '0 12px 32px rgba(59,127,255,.4)'
+                (e.currentTarget as HTMLElement).style.boxShadow = '0 12px 32px rgba(87,65,217,.4)'
               }}
               onMouseLeave={e => {
                 (e.currentTarget as HTMLElement).style.boxShadow = 'none'
+              }}
+            >
+              Connect with Kraken →
+            </button>
+
+            <button
+              onClick={() => window.location.href = '/api/auth/alpaca/connect'}
+              style={{
+                width: '100%',
+                padding: '1rem',
+                borderRadius: 10,
+                border: '1px solid var(--border)',
+                background: 'transparent',
+                color: 'var(--blue)',
+                fontFamily: 'var(--font-head)',
+                fontWeight: 700,
+                fontSize: '1rem',
+                cursor: 'pointer',
+                marginBottom: '1rem',
               }}
             >
               Connect with Alpaca →

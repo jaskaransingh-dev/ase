@@ -32,6 +32,11 @@ import { runBacktest, runBuyAndHold, runWalkForward, runMonteCarlo, STRATEGIES, 
 export const dynamic = 'force-dynamic'
 
 const PERIOD_DAYS: Record<string, number> = {
+  '7d': 7,
+  '14d': 14,
+  '30d': 30,
+  '90d': 90,
+  '180d': 180,
   '1mo': 30,
   '3mo': 91,
   '6mo': 183,
@@ -39,6 +44,17 @@ const PERIOD_DAYS: Record<string, number> = {
   '2y': 730,
   '5y': 1825,
   '10y': 3650,
+}
+
+const INTERVAL_HOURS: Record<string, number> = {
+  '1m': 1/60,
+  '5m': 5/60,
+  '15m': 15/60,
+  '30m': 30/60,
+  '1h': 1,
+  '2h': 2,
+  '4h': 4,
+  '1d': 24,
 }
 
 type YahooChartResponse = {
@@ -59,19 +75,165 @@ type YahooChartResponse = {
   }
 }
 
-// ─── Binance fallback for crypto pairs ──────────────────────────────────────
+// ─── Crypto symbol mappings ─────────────────────────────────────────────────
 
 function toBinanceSymbol(yahooSymbol: string): string | null {
   const m = yahooSymbol.match(/^([A-Z0-9]+)-USD$/)
   return m ? `${m[1]}USDT` : null
 }
 
+function toCoinGeckoId(yahooSymbol: string): string | null {
+  const map: Record<string, string> = {
+    'BTC-USD': 'bitcoin',
+    'ETH-USD': 'ethereum',
+    'SOL-USD': 'solana',
+    'AVAX-USD': 'avalanche-2',
+    'BNB-USD': 'binancecoin',
+    'XRP-USD': 'ripple',
+    'ADA-USD': 'cardano',
+    'DOGE-USD': 'dogecoin',
+    'DOT-USD': 'polkadot',
+    'MATIC-USD': 'matic-network',
+    'LINK-USD': 'chainlink',
+    'UNI-USD': 'uniswap',
+    'ATOM-USD': 'cosmos',
+    'LTC-USD': 'litecoin',
+  }
+  return map[yahooSymbol] || null
+}
+
+function toKrakenPair(yahooSymbol: string): string | null {
+  const map: Record<string, string> = {
+    'BTC-USD': 'XBT/USD',
+    'ETH-USD': 'ETH/USD',
+    'SOL-USD': 'SOL/USD',
+    'AVAX-USD': 'AVAX/USD',
+    'BNB-USD': 'BNB/USD',
+  }
+  return map[yahooSymbol] || null
+}
+
+// ─── CoinGecko fallback ─────────────────────────────────────────────────────
+
+async function fetchCoinGeckoData(symbol: string, period: string, interval: string): Promise<OHLCV[]> {
+  const cgId = toCoinGeckoId(symbol)
+  if (!cgId) throw new Error(`No CoinGecko mapping for ${symbol}`)
+
+  const days = Math.ceil(PERIOD_DAYS[period] ?? 30)
+  const url = `https://api.coingecko.com/api/v3/coins/${cgId}/ohlc?vs_currency=usd&days=${days}`
+  
+  const res = await fetch(url, { 
+    signal: AbortSignal.timeout(15000),
+    headers: { 'Accept': 'application/json' }
+  })
+  
+  if (!res.ok) throw new Error(`CoinGecko returned ${res.status}`)
+  
+  const data = await res.json() as number[][]
+  if (!Array.isArray(data) || data.length === 0) throw new Error(`No CoinGecko data for ${symbol}`)
+
+  // CoinGecko returns [timestamp, open, high, low, close]
+  const bars: OHLCV[] = data.map(c => ({
+    date: new Date(c[0]).toISOString().slice(0, 10),
+    open: c[1],
+    high: c[2],
+    low: c[3],
+    close: c[4],
+    volume: 0,
+  }))
+
+  return bars
+}
+
+// ─── CryptoCompare fallback ─────────────────────────────────────────────────
+
+async function fetchCryptoCompareData(symbol: string, period: string, interval: string): Promise<OHLCV[]> {
+  const cgId = toCoinGeckoId(symbol)
+  if (!cgId) throw new Error(`No CryptoCompare mapping for ${symbol}`)
+
+  const days = PERIOD_DAYS[period] ?? 30
+  const end = Math.floor(Date.now() / 1000)
+  const start = end - days * 86400
+
+  // Map to CryptoCompare symbol
+  const ccSymbol = symbol.replace('-USD', '')
+  const url = `https://min-api.cryptocompare.com/data/v2/histoday?fsym=${ccSymbol}&tsym=USD&limit=2000&toTs=${end}`
+  
+  const res = await fetch(url, { 
+    signal: AbortSignal.timeout(15000),
+    headers: { 'Accept': 'application/json' }
+  })
+  
+  if (!res.ok) throw new Error(`CryptoCompare returned ${res.status}`)
+  
+  const json = await res.json() as { Data?: { Data?: Array<{ time: number, open: number, high: number, low: number, close: number, volumeto: number }> } }
+  if (!json.Data?.Data) throw new Error(`No CryptoCompare data for ${symbol}`)
+
+  const bars: OHLCV[] = json.Data.Data
+    .filter(c => c.time >= start)
+    .map(c => ({
+      date: new Date(c.time * 1000).toISOString().slice(0, 10),
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volumeto,
+    }))
+
+  return bars
+}
+
+// ─── Kraken fallback ─────────────────────────────────────────────────────────
+
+async function fetchKrakenData(symbol: string, period: string, interval: string): Promise<OHLCV[]> {
+  const pair = toKrakenPair(symbol)
+  if (!pair) throw new Error(`No Kraken mapping for ${symbol}`)
+
+  const days = PERIOD_DAYS[period] ?? 30
+  const end = Math.floor(Date.now() / 1000)
+  const start = end - days * 86400
+
+  const url = `https://api.kraken.com/0/public/OHLC?pair=${pair}&interval=15&since=${start}`
+  
+  const res = await fetch(url, { 
+    signal: AbortSignal.timeout(15000),
+    headers: { 'Accept': 'application/json' }
+  })
+  
+  if (!res.ok) throw new Error(`Kraken returned ${res.status}`)
+  
+  const json = await res.json() as { error?: string[], result?: Record<string, Array<number[]>> }
+  if (json.error?.length) throw new Error(`Kraken error: ${json.error.join(', ')}`)
+  
+  const resultKey = Object.keys(json.result || {}).find(k => k !== 'last')
+  if (!resultKey) throw new Error(`No Kraken data for ${symbol}`)
+
+  const bars: OHLCV[] = (json.result?.[resultKey] || []).map(c => ({
+    date: new Date(c[0] * 1000).toISOString().slice(0, 16).replace('T', ' '),
+    open: c[1],
+    high: c[2],
+    low: c[3],
+    close: c[4],
+    volume: c[6],
+  }))
+
+  return bars
+}
+
+// ─── Binance fallback for crypto pairs ──────────────────────────────────────
+
 async function fetchBinanceData(symbol: string, period: string, interval: string): Promise<OHLCV[]> {
   const binanceSym = toBinanceSymbol(symbol)
   if (!binanceSym) throw new Error(`No Binance mapping for ${symbol}`)
 
-  const binanceInterval = interval === '1wk' ? '1w' : '1d'
-  const days = PERIOD_DAYS[period] ?? 730
+  // Map interval to Binance format
+  const intervalMap: Record<string, string> = {
+    '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
+    '1h': '1h', '2h': '2h', '4h': '4h', '1d': '1d', '1wk': '1w'
+  }
+  const binanceInterval = intervalMap[interval] || '30m'
+  
+  const days = PERIOD_DAYS[period] ?? 30
   const endMs = Date.now()
   const startMs = endMs - days * 86400000
 
@@ -80,15 +242,16 @@ async function fetchBinanceData(symbol: string, period: string, interval: string
 
   while (currentStart < endMs) {
     const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSym}&interval=${binanceInterval}&startTime=${currentStart}&endTime=${endMs}&limit=1000`
-    const res = await fetch(url, { signal: AbortSignal.timeout(15000) })
+    const res = await fetch(url, { signal: AbortSignal.timeout(20000) })
     if (!res.ok) throw new Error(`Binance returned ${res.status} for ${symbol}`)
 
     const data = await res.json() as Array<[number, string, string, string, string, string]>
     if (data.length === 0) break
 
     for (const c of data) {
+      const timestamp = c[0]
       bars.push({
-        date: new Date(c[0]).toISOString().slice(0, 10),
+        date: new Date(timestamp).toISOString().slice(0, 16).replace('T', ' '),
         open: parseFloat(c[1]),
         high: parseFloat(c[2]),
         low: parseFloat(c[3]),
@@ -98,7 +261,8 @@ async function fetchBinanceData(symbol: string, period: string, interval: string
     }
 
     if (data.length < 1000) break
-    const msPerBar = interval === '1wk' ? 7 * 86400000 : 86400000
+    const intervalMs: Record<string, number> = { '1m': 60000, '5m': 300000, '15m': 900000, '30m': 1800000, '1h': 3600000, '2h': 7200000, '4h': 14400000, '1d': 86400000 }
+    const msPerBar = intervalMs[binanceInterval] || 1800000
     currentStart = data[data.length - 1][0] + msPerBar
   }
 
@@ -478,8 +642,10 @@ export async function POST(req: Request) {
       params?: Record<string, number>
       period?: string
       interval?: string
+      timeframe?: string
       fee?: number
-      agent_slug?: string  // optional — enforces symbol lock for agent backtests
+      agent_slug?: string
+      includeTrades?: boolean
       // Monte Carlo fields
       monteCarlo?: boolean
       nTrials?: number
@@ -507,8 +673,12 @@ export async function POST(req: Request) {
       if (locked) symbol = locked
     }
     const params = body.params ?? {}
-    const period = body.period ?? '2y'
-    const interval = body.interval ?? '1d'
+    const period = body.period ?? '30d'
+    let interval = body.interval ?? '30m'
+    // Convert timeframe to interval
+    if (body.timeframe && INTERVAL_HOURS[body.timeframe]) {
+      interval = body.timeframe
+    }
     const fee = body.fee ?? 0.001
 
     if (!STRATEGIES[strategyId]) {
@@ -588,6 +758,11 @@ export async function POST(req: Request) {
       stats: result.stats,
       bars: result.bars,
       buyHold,
+      trades: body.includeTrades ? result.bars.map((b, i) => ({
+        date: b.date,
+        position: b.position,
+        close: b.close,
+      })) : undefined,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Internal error'

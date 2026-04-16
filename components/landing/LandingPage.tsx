@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Logo } from '@/components/ui/Logo'
 import LoadingState from '@/components/ui/LoadingState'
 import EmptyState from '@/components/ui/EmptyState'
+import HeroDevices from './HeroDevices'
 
 interface AgentPreview {
   name: string
@@ -270,7 +271,7 @@ export default function LandingPage() {
         <div style={{ position: 'absolute', top: '20%', left: '5%', width: 600, height: 600, borderRadius: '50%', background: 'radial-gradient(circle, rgba(79,124,255,.08) 0%, transparent 70%)', pointerEvents: 'none', filter: 'blur(80px)' }} />
         <div style={{ position: 'absolute', top: '30%', right: '15%', width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,107,53,.06) 0%, transparent 70%)', pointerEvents: 'none', filter: 'blur(60px)' }} />
 
-        <div style={{ position: 'relative', zIndex: 1, maxWidth: 1200, margin: '0 auto', width: '100%', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', alignItems: 'center' }}>
+        <div className="hero-grid" style={{ position: 'relative', zIndex: 1, maxWidth: 1200, margin: '0 auto', width: '100%', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', alignItems: 'center' }}>
           {/* Left Content */}
           <div style={{ maxWidth: 420 }}>
             <h1 style={{
@@ -353,210 +354,7 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* NEW: Strategy Core Hero Visual */}
-          <div style={{ position: 'relative', height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {/* Grid background */}
-            <div style={{
-              position: 'absolute', inset: 0,
-              backgroundImage: `
-                linear-gradient(rgba(91,140,255,0.06) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(91,140,255,0.06) 1px, transparent 1px)
-              `,
-              backgroundSize: '32px 32px',
-              opacity: 0.6,
-            }} />
-            
-            {/* Strategy Core - central luminous sphere - BIGGER */}
-            <div style={{
-              position: 'relative',
-              width: 340, height: 340,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              {/* Rotating bar - outer */}
-              <svg width="340" height="340" viewBox="0 0 340 340" style={{ position: 'absolute' }}>
-                <defs>
-                  <linearGradient id="barGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#5B8CFF" />
-                    <stop offset="50%" stopColor="#19E6A7" />
-                    <stop offset="100%" stopColor="#5B8CFF" />
-                  </linearGradient>
-                </defs>
-                {/* Rotating arc bar */}
-                <circle cx="170" cy="170" r="155" fill="none" stroke="url(#barGradient)" strokeWidth="3" strokeLinecap="round" strokeDasharray="20 60" opacity="0.6">
-                  <animateTransform attributeName="transform" type="rotate" from="0 170 170" to="360 170 170" dur="8s" repeatCount="indefinite" />
-                </circle>
-                {/* Counter-rotating inner bar */}
-                <circle cx="170" cy="170" r="130" fill="none" stroke="rgba(25,230,167,0.4)" strokeWidth="2" strokeLinecap="round" strokeDasharray="15 45" opacity="0.5">
-                  <animateTransform attributeName="transform" type="rotate" from="360 170 170" to="0 170 170" dur="6s" repeatCount="indefinite" />
-                </circle>
-              </svg>
-              
-              {/* Outer glow */}
-              <div style={{
-                position: 'absolute', inset: -50,
-                borderRadius: '50%',
-                background: 'radial-gradient(circle, rgba(91,140,255,0.15) 0%, transparent 70%)',
-                filter: 'blur(25px)',
-              }} />
-              
-              {/* Middle orbital ring */}
-              <svg width="340" height="340" viewBox="0 0 340 340" style={{ position: 'absolute' }}>
-                <defs>
-                  <linearGradient id="coreGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#5B8CFF" stopOpacity="0.9" />
-                    <stop offset="60%" stopColor="#19E6A7" stopOpacity="0.4" />
-                    <stop offset="100%" stopColor="#5B8CFF" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-                {/* Outer orbital ring */}
-                <ellipse cx="170" cy="170" rx="140" ry="60" fill="none" transform="rotate(-25, 170, 170)"
-                  stroke="rgba(91,140,255,0.4)" strokeWidth="1" strokeDasharray="4 8">
-                  <animateTransform attributeName="transform" type="rotate" from="0 170 170" to="360 170 170" dur="20s" repeatCount="indefinite" />
-                </ellipse>
-                {/* Inner orbital ring */}
-                <ellipse cx="170" cy="170" rx="120" ry="45" fill="none" transform="rotate(60, 170, 170)"
-                  stroke="rgba(25,230,167,0.35)" strokeWidth="1" strokeDasharray="3 6">
-                  <animateTransform attributeName="transform" type="rotate" from="360 170 170" to="0 170 170" dur="15s" repeatCount="indefinite" />
-                </ellipse>
-                {/* Signal contour layers */}
-                <circle cx="170" cy="170" r="85" fill="none" stroke="url(#coreGradient)" strokeWidth="0.5" opacity="0.6" />
-                <circle cx="170" cy="170" r="65" fill="none" stroke="rgba(91,140,255,0.3)" strokeWidth="0.5" opacity="0.4" />
-                <circle cx="170" cy="170" r="40" fill="none" stroke="rgba(91,140,255,0.5)" strokeWidth="1" />
-              </svg>
-              
-              {/* Core center - BIGGER */}
-              <div style={{
-                width: 100, height: 100, borderRadius: '50%',
-                background: 'radial-gradient(circle at 30% 30%, #78A2FF 0%, #5B8CFF 50%, #4676E8 100%)',
-                boxShadow: '0 0 50px rgba(91,140,255,0.6), 0 0 100px rgba(91,140,255,0.25)',
-                position: 'relative',
-              }}>
-                {/* Inner glow pulse */}
-                <div style={{
-                  position: 'absolute', inset: -10, borderRadius: '50%',
-                  background: 'transparent', border: '1px solid rgba(91,140,255,0.5)',
-                  animation: 'breathe 3s ease-in-out infinite',
-                }} />
-              </div>
-              
-              {/* Execution trails */}
-              <svg width="340" height="340" viewBox="0 0 340 340" style={{ position: 'absolute', inset: 0 }}>
-                <path d="M 70 240 Q 120 210 170 170 T 270 90" fill="none" stroke="rgba(25,230,167,0.5)" strokeWidth="2" strokeLinecap="round">
-                  <animate attributeName="stroke-dashoffset" values="0;-200" dur="3s" repeatCount="indefinite" />
-                </path>
-                <path d="M 240 260 Q 200 230 170 190 T 90 110" fill="none" stroke="rgba(91,140,255,0.4)" strokeWidth="1.5" strokeLinecap="round" strokeDasharray="4 4">
-                  <animate attributeName="stroke-dashoffset" values="0;-100" dur="4s" repeatCount="indefinite" />
-                </path>
-              </svg>
-            </div>
-            
-            {/* Live Market Module - Bloomberg terminal style - floating to the side */}
-            <div style={{ 
-              position: 'absolute', top: '50%', right: '-40px', 
-              transform: 'translateY(-50%)',
-              width: 260,
-              background: 'var(--bg3)', border: '1px solid var(--border)', 
-              borderRadius: 12, overflow: 'hidden',
-              boxShadow: '-4px 0 20px rgba(0,0,0,0.3)',
-            }}>
-              {/* Module Header */}
-              <div style={{ 
-                padding: '0.6rem 0.75rem', borderBottom: '1px solid var(--border)',
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                background: 'var(--bg2)',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--mint)', animation: 'breathe 2s ease-in-out infinite' }} />
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', fontWeight: 600, color: 'var(--white)', letterSpacing: '.08em' }}>LIVE MARKET</span>
-                </div>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.45rem', color: 'var(--faint)' }}>NAV 60s</span>
-              </div>
-              
-              {/* Table Header */}
-              <div style={{ 
-                display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr 0.8fr', gap: '0.25rem',
-                padding: '0.5rem 0.75rem', borderBottom: '1px solid var(--border)',
-                fontFamily: 'var(--font-mono)', fontSize: '.42rem', color: 'var(--faint)', letterSpacing: '.05em',
-              }}>
-                <span>AGENT</span>
-                <span>STRATEGY</span>
-                <span style={{ textAlign: 'right' }}>RETURN</span>
-                <span style={{ textAlign: 'right' }}>SHARPE</span>
-              </div>
-              
-              {/* Live Agents List */}
-              {[
-                { ticker: 'ARB', name: 'ETH Arb', strategy: 'Arbitrage', ret: 18.4, sharpe: 2.1, dd: -4.2, bench: '+12%', last: '2m ago' },
-                { ticker: 'TRD', name: 'BTC Trend', strategy: 'Momentum', ret: 12.2, sharpe: 1.8, dd: -8.5, bench: '+8%', last: '5m ago' },
-                { ticker: 'VOL', name: 'SOL Vol', strategy: 'Volatility', ret: 9.8, sharpe: 1.4, dd: -12.1, bench: '+6%', last: '1m ago' },
-                { ticker: 'COR', name: 'Core', strategy: 'Trend', ret: 7.2, sharpe: 1.1, dd: -6.8, bench: '+4%', last: '8m ago' },
-              ].map((agent, i) => (
-                <div key={i} style={{ 
-                  position: 'relative',
-                  padding: '0.5rem 0.75rem', borderBottom: '1px solid var(--border)',
-                  transition: 'all .2s', cursor: 'pointer',
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.background = 'var(--blue-dim)'
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = 'transparent'
-                }}
-                >
-                  {/* Hover expanded details */}
-                  <div style={{ 
-                    display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr 0.8fr', gap: '0.25rem',
-                    alignItems: 'center',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      <span style={{ 
-                        width: 20, height: 20, borderRadius: 4, 
-                        background: 'var(--bg2)', border: '1px solid var(--border)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontFamily: 'var(--font-mono)', fontSize: '.4rem', fontWeight: 700, color: 'var(--white)',
-                      }}>{agent.ticker}</span>
-                      <span style={{ fontSize: '.6rem', color: 'var(--white)' }}>{agent.name}</span>
-                    </div>
-                    <span style={{ fontSize: '.5rem', color: 'var(--muted)', textTransform: 'capitalize' }}>{agent.strategy}</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', fontWeight: 700, color: agent.ret >= 0 ? 'var(--mint)' : 'var(--red)', textAlign: 'right' }}>
-                      {agent.ret >= 0 ? '+' : ''}{agent.ret}%
-                    </span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--white)', textAlign: 'right' }}>
-                      {agent.sharpe}
-                    </span>
-                  </div>
-                  
-                  {/* Hover: Show expanded metrics */}
-                  <div className="agent-hover-details" style={{
-                    display: 'none',
-                    marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)',
-                    fontFamily: 'var(--font-mono)', fontSize: '.45rem',
-                  }}>
-                    <span style={{ color: 'var(--faint)' }}>MAX DD: </span>
-                    <span style={{ color: agent.dd > -20 ? 'var(--mint)' : agent.dd > -40 ? '#F59E0B' : 'var(--red)' }}>{agent.dd}%</span>
-                    <span style={{ marginLeft: '0.75rem', color: 'var(--faint)' }}>VS {agent.bench}</span>
-                    <span style={{ float: 'right', color: 'var(--faint)' }}>{agent.last}</span>
-                  </div>
-                </div>
-              ))}
-              
-              {/* Sparkline mini-chart */}
-              <div style={{ padding: '0.5rem 0.75rem' }}>
-                <svg width="100%" height="24" viewBox="0 0 100 24" preserveAspectRatio="none">
-                  <path d="M0,20 Q10,18 20,15 T40,12 T60,8 T80,5 T100,2" fill="none" stroke="var(--mint)" strokeWidth="1.5" opacity="0.6" />
-                </svg>
-              </div>
-               
-              <Link href="/agents" style={{
-                display: 'block', textAlign: 'center', padding: '0.5rem',
-                fontSize: '.55rem', color: 'var(--blue)', 
-                fontFamily: 'var(--font-mono)', letterSpacing: '.05em',
-                borderTop: '1px solid var(--border)',
-              }}>
-                View All Agents →
-              </Link>
-            </div>
-          </div>
+          <HeroDevices />
         </div>
       </section>
 
@@ -655,7 +453,7 @@ export default function LandingPage() {
       </section>
 
       {/* Live Trading Agents */}
-      <section ref={liveTradingSection.ref} style={{ minHeight: '100vh', padding: '4rem 2.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center', background: 'var(--bg)', opacity: liveTradingSection.visible ? 1 : 0, transform: liveTradingSection.visible ? 'translateY(0)' : 'translateY(40px)', transition: 'opacity 0.8s ease, transform 0.8s ease' }}>
+      <section id="verified-agents" ref={liveTradingSection.ref} style={{ minHeight: '100vh', padding: '4rem 2.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center', background: 'var(--bg)', opacity: liveTradingSection.visible ? 1 : 0, transform: liveTradingSection.visible ? 'translateY(0)' : 'translateY(40px)', transition: 'opacity 0.8s ease, transform 0.8s ease' }}>
         <div style={{ maxWidth: 1400, margin: '0 auto' }}>
           <div style={{ marginBottom: '1.5rem' }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', letterSpacing: '.14em', color: 'var(--ivory)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '.5rem' }}>

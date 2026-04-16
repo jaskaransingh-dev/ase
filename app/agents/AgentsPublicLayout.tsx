@@ -10,9 +10,7 @@ export default function AgentsPublicLayout({ children }: { children: React.React
   return (
     <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '0 1.5rem', height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: 'rgba(8,6,18,.9)', backdropFilter: 'blur(20px) saturate(180%)', zIndex: 100 }}>
-        <Link href="/" style={{ textDecoration: 'none' }}>
-          <Logo size="medium" variant="full" />
-        </Link>
+        <Logo size="medium" variant="full" />
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
           {wallet.connected ? (
             <button

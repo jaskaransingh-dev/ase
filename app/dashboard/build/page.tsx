@@ -1,467 +1,324 @@
 'use client'
 
-import { useState } from 'react'
-import Link from 'next/link'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { Send, Loader2, Play, Save, Zap, ChevronRight } from 'lucide-react'
 
-const UNIVERSES = [
-  { id: 'crypto', label: 'Crypto', symbols: ['BTC-USD', 'ETH-USD', 'SOL-USD'], icon: '₿' },
-  { id: 'equity', label: 'Equities', symbols: ['SPY', 'QQQ', 'AAPL'], icon: '📈' },
-  { id: 'etf', label: 'ETFs', symbols: ['XLK', 'XLV', 'XLF', 'SPLV'], icon: '🎯' },
-  { id: 'multi', label: 'Multi-Asset', symbols: ['BTC-USD', 'ETH-USD', 'SPY'], icon: '🌐' },
-]
+const STRATEGY_CODE = {
+  momentum: `"""
+Momentum Strategy
+Fast EMA crosses slow EMA
+"""
+import pandas as pd
+import numpy as np
+
+class MomentumStrategy:
+    def __init__(self, fast=5, slow=15):
+        self.fast = fast
+        self.slow = slow
+        
+    def generate_signals(self, df):
+        df['fast_ema'] = df['close'].ewm(span=self.fast).mean()
+        df['slow_ema'] = df['close'].ewm(span=self.slow).mean()
+        
+        # Golden cross = buy, Death cross = sell
+        golden = (df['fast_ema'] > df['slow_ema']) & (df['fast_ema'].shift(1) <= df['slow_ema'].shift(1))
+        death = (df['fast_ema'] < df['slow_ema']) & (df['fast_ema'].shift(1) >= df['slow_ema'].shift(1))
+        
+        df['signal'] = 0
+        df.loc[golden, 'signal'] = 1  # BUY
+        df.loc[death, 'signal'] = -1  # SELL
+        return df`,
+  
+  mean_reversion: `"""
+Mean Reversion Strategy
+RSI + Bollinger Bands
+"""
+import pandas as pd
+
+class MeanReversionStrategy:
+    def __init__(self, rsi_p=7, bb_p=20):
+        self.rsi_p = rsi_p
+        self.bb_p = bb_p
+        
+    def generate_signals(self, df):
+        # RSI
+        delta = df['close'].diff()
+        gain = delta.where(delta > 0, 0).rolling(self.rsi_p).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(self.rsi_p).mean()
+        df['rsi'] = 100 - (100 / (1 + gain/loss))
+        
+        # Bollinger Bands
+        sma = df['close'].rolling(self.bb_p).mean()
+        std = df['close'].rolling(self.bb_p).std()
+        df['bb_upper'] = sma + 2 * std
+        df['bb_lower'] = sma - 2 * std
+        
+        # Buy when oversold, sell when overbought
+        df['signal'] = 0
+        df.loc[df['rsi'] < 30, 'signal'] = 1  # BUY
+        df.loc[df['rsi'] > 70, 'signal'] = -1  # SELL
+        return df`,
+  
+  rsi: `"""
+RSI Oscillator Strategy
+Buy oversold, sell overbought
+"""
+import pandas as pd
+
+class RSIStrategy:
+    def __init__(self, period=7, oversold=30, overbought=70):
+        self.period = period
+        self.oversold = oversold
+        self.overbought = overbought
+        
+    def generate_signals(self, df):
+        delta = df['close'].diff()
+        gain = delta.where(delta > 0, 0).rolling(self.period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(self.period).mean()
+        df['rsi'] = 100 - (100 / (1 + gain/loss))
+        
+        df['signal'] = 0
+        df.loc[df['rsi'] < self.oversold, 'signal'] = 1
+        df.loc[df['rsi'] > self.overbought, 'signal'] = -1
+        return df`,
+  
+  breakout: `"""
+Breakout Strategy
+Volatility squeeze + ATR stops
+"""
+import pandas as pd
+import numpy as np
+
+class BreakoutStrategy:
+    def __init__(self, lookback=10, atr_p=14):
+        self.lookback = lookback
+        self.atr_p = atr_p
+        
+    def generate_signals(self, df):
+        # Rolling high/low
+        df['roll_high'] = df['high'].rolling(self.lookback).max()
+        df['roll_low'] = df['low'].rolling(self.lookback).min()
+        
+        # True Range for ATR
+        high_low = df['high'] - df['low']
+        tr = pd.concat([high_low, np.abs(df['high'] - df['close'].shift()), np.abs(df['low'] - df['close'].shift())], axis=1).max(axis=1)
+        df['atr'] = tr.rolling(self.atr_p).mean()
+        
+        # Breakout signals
+        df['signal'] = 0
+        df.loc[df['close'] > df['roll_high'], 'signal'] = 1
+        df.loc[df['close'] < (df['roll_low'] - df['atr']), 'signal'] = -1
+        return df`,
+}
 
 const STRATEGIES = [
-  { id: 'momentum', label: 'Momentum Crossover', desc: 'EMA fast/slow crossover with trend confirmation', color: '#4f7cff' },
-  { id: 'mean_reversion', label: 'Mean Reversion', desc: 'RSI and Bollinger Band reversions', color: '#10b981' },
-  { id: 'rsi', label: 'RSI Oscillator', desc: 'Buy oversold, sell overbought', color: '#f59e0b' },
-  { id: 'breakout', label: 'Breakout', desc: 'Volatility squeeze and range breakouts', color: '#ff6b35' },
+  { id: 'momentum', label: 'Momentum', desc: 'Fast/slow EMA crossover', icon: '↗' },
+  { id: 'mean_reversion', label: 'Mean Reversion', desc: 'RSI + Bollinger Bands', icon: '↔' },
+  { id: 'rsi', label: 'RSI Oscillator', desc: 'Buy oversold, sell overbought', icon: '⚡' },
+  { id: 'breakout', label: 'Breakout', desc: 'Volatility squeeze + ATR', icon: '💥' },
 ]
 
-const STRATEGY_TYPES = [
-  { value: 'crypto_momentum', label: 'Crypto Momentum' },
-  { value: 'crypto_mean_reversion', label: 'Crypto Mean Reversion' },
-  { value: 'trend_following', label: 'Trend Following' },
-  { value: 'equity_momentum', label: 'Equity Momentum' },
-  { value: 'equity_mean_reversion', label: 'Equity Mean Reversion' },
-  { value: 'equity_rotation', label: 'Equity Rotation' },
+const QUICK_PROMPTS = [
+  "Optimize the RSI thresholds",
+  "Add stop-loss logic",
+  "Reduce trade frequency",
+  "Improve risk management",
 ]
 
-function fmtPct(n: number): string {
-  return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
+async function askGemini(question: string, code: string): Promise<string> {
+  try {
+    const res = await fetch('/api/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ 
+          role: 'user', 
+          content: `You are a trading strategy expert. Help me improve this Python code for a crypto trading strategy.\n\nCurrent code:\n${code}\n\nRequest: ${question}\n\nRespond with improved code and brief explanation.` 
+        }]
+      })
+    })
+    const data = await res.json()
+    return data.reply || data.error || 'AI unavailable'
+  } catch { return 'AI unavailable' }
 }
 
 export default function BuildPage() {
   const router = useRouter()
-  const [tab, setTab] = useState<'builder' | 'submit'>('builder')
-  const [universe, setUniverse] = useState('crypto')
+  const codeRef = useRef<HTMLTextAreaElement>(null)
+  
   const [strategy, setStrategy] = useState('momentum')
-  const [symbol, setSymbol] = useState('BTC-USD')
-  const [period, setPeriod] = useState('1y')
-  const [stopLoss, setStopLoss] = useState(5)
-  const [positionSize, setPositionSize] = useState(25)
-  const [backtesting, setBacktesting] = useState(false)
-  const [result, setResult] = useState<{ totalReturn: number; sharpe: number; maxDD: number; winRate: number; trades: number } | null>(null)
-  const [error, setError] = useState('')
+  const [code, setCode] = useState(STRATEGY_CODE.momentum)
+  const [aiQuestion, setAiQuestion] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiHistory, setAiHistory] = useState<Array<{ q: string; a: string; code?: string }>>([])
+  
+  useEffect(() => { setCode(STRATEGY_CODE[strategy as keyof typeof STRATEGY_CODE] || STRATEGY_CODE.momentum) }, [strategy])
 
-  // Submit form
-  const [submitName, setSubmitName] = useState('')
-  const [submitDesc, setSubmitDesc] = useState('')
-  const [submitType, setSubmitType] = useState('crypto_momentum')
-  const [submitFee, setSubmitFee] = useState(2)
-  const [submitting, setSubmitting] = useState(false)
-  const [submitMsg, setSubmitMsg] = useState('')
-
-  async function runBacktest() {
-    setBacktesting(true)
-    setError('')
-    setResult(null)
-    try {
-      const res = await fetch('/api/backtest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          symbol,
-          strategy: strategy === 'momentum' ? 'momentum_crossover' : strategy === 'mean_reversion' ? 'mean_reversion' : strategy === 'rsi' ? 'rsi_trend_filter' : 'volatility_breakout',
-          params: { fast_window: 20, slow_window: 50 },
-          period,
-          fee: 0.001,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Backtest failed')
-      setResult({
-        totalReturn: data.stats?.totalReturnPct ?? 0,
-        sharpe: data.stats?.sharpeRatio ?? 0,
-        maxDD: data.stats?.maxDrawdownPct ?? 0,
-        winRate: data.stats?.winRate ?? 0,
-        trades: data.stats?.totalTrades ?? 0,
-      })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Backtest failed')
+  const handleAiAsk = async () => {
+    if (!aiQuestion.trim()) return
+    setAiLoading(true)
+    const response = await askGemini(aiQuestion, code)
+    
+    // Try to extract code from response
+    let extractedCode = code
+    const codeMatch = response.match(/```python\n([\s\S]*?)```/)
+    if (codeMatch) {
+      extractedCode = codeMatch[1]
     }
-    setBacktesting(false)
+    
+    setAiHistory([...aiHistory, { q: aiQuestion, a: response, code: extractedCode !== code ? extractedCode : undefined }])
+    if (extractedCode !== code) setCode(extractedCode)
+    setAiQuestion('')
+    setAiLoading(false)
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!submitName.trim()) { setSubmitMsg('Agent name is required'); return }
-    if (!submitDesc.trim()) { setSubmitMsg('Description is required'); return }
-    setSubmitting(true)
-    setSubmitMsg('')
-    try {
-      const res = await fetch('/api/agents/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: submitName,
-          description: submitDesc,
-          strategy_type: submitType,
-          monthly_fee_pct: submitFee,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Submission failed')
-      setSubmitMsg('Agent submitted for review! We will notify you once it is approved.')
-      setSubmitName('')
-      setSubmitDesc('')
-      setSubmitFee(2)
-    } catch (e) {
-      setSubmitMsg(e instanceof Error ? e.message : 'Submission failed')
+  const applyQuickPrompt = async (prompt: string) => {
+    setAiQuestion(prompt)
+    setAiLoading(true)
+    const response = await askGemini(prompt, code)
+    
+    let extractedCode = code
+    const codeMatch = response.match(/```python\n([\s\S]*?)```/)
+    if (codeMatch) {
+      extractedCode = codeMatch[1]
+      setCode(extractedCode)
     }
-    setSubmitting(false)
+    
+    setAiHistory([...aiHistory, { q: prompt, a: response, code: extractedCode !== code ? extractedCode : undefined }])
+    setAiLoading(false)
   }
 
-  const selectedStrategy = STRATEGIES.find(s => s.id === strategy)
-  const selectedUniverse = UNIVERSES.find(u => u.id === universe)
+  const colors = {
+    bg: '#07111F', bg2: '#0B1728', bg3: '#101A2D', bg4: '#142038',
+    border: '#21314D', border2: '#3B5D94',
+    blue: '#5B8CFF', blue2: '#78A2FF',
+    mint: '#19E6A7', red: '#FF6B7A', orange: '#FFB648',
+    text: '#B5C1D6', muted: '#7F8CA3', faint: '#5E6A7E',
+    white: '#F5F7FB'
+  }
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 100px)', background: colors.bg, color: colors.text }}>
+      
       {/* Header */}
-      <div style={{ marginBottom: '1.5rem' }}>
-        <div className="eyebrow" style={{ marginBottom: '.25rem' }}>CREATE</div>
-        <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.6rem', fontWeight: 700, letterSpacing: '-.02em' }}>Build</h1>
-      </div>
-
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: '.25rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: 0 }}>
-        {([
-          { id: 'builder', label: 'Strategy Builder' },
-          { id: 'submit', label: 'Submit Agent' },
-        ] as const).map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            style={{
-              padding: '0.6rem 1.5rem',
-              borderRadius: '8px 8px 0 0',
-              border: 'none',
-              background: tab === t.id ? 'var(--bg2)' : 'transparent',
-              color: tab === t.id ? 'var(--blue2)' : 'var(--muted)',
-              fontSize: '.82rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              borderBottom: tab === t.id ? '2px solid var(--blue)' : '2px solid transparent',
-              marginBottom: '-1px',
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* ── STRATEGY BUILDER ─────────────────────────────────── */}
-      {tab === 'builder' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          {/* Universe */}
-          <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.5rem' }}>
-            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '1rem' }}>Choose Universe</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '.75rem' }}>
-              {UNIVERSES.map(u => (
-                <button
-                  key={u.id}
-                  onClick={() => { setUniverse(u.id); setSymbol(u.symbols[0]) }}
-                  style={{
-                    padding: '1rem',
-                    borderRadius: 12,
-                    border: `1px solid ${universe === u.id ? 'rgba(59,127,255,.4)' : 'var(--border)'}`,
-                    background: universe === u.id ? 'rgba(59,127,255,.08)' : 'var(--bg3)',
-                    cursor: 'pointer',
-                    textAlign: 'center',
-                    transition: 'all .15s',
-                  }}
-                >
-                  <div style={{ fontSize: '1.4rem', marginBottom: '.35rem' }}>{u.icon}</div>
-                  <div style={{ fontFamily: 'var(--font-body)', fontWeight: 600, fontSize: '.82rem', color: universe === u.id ? 'var(--blue2)' : 'var(--white)' }}>{u.label}</div>
-                </button>
-              ))}
-            </div>
-            {/* Symbol picker */}
-            {selectedUniverse && (
-              <div style={{ marginTop: '.75rem' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.4rem' }}>SELECT SYMBOL</div>
-                <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-                  {selectedUniverse.symbols.map(s => (
-                    <button key={s} onClick={() => setSymbol(s)} style={{
-                      padding: '.3rem .75rem',
-                      borderRadius: 7,
-                      border: `1px solid ${symbol === s ? 'rgba(59,127,255,.4)' : 'var(--border)'}`,
-                      background: symbol === s ? 'rgba(59,127,255,.1)' : 'transparent',
-                      color: symbol === s ? 'var(--blue2)' : 'var(--muted)',
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '.7rem',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}>
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </section>
-
-          {/* Strategy */}
-          <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.5rem' }}>
-            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '1rem' }}>Choose Strategy Logic</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: '.75rem' }}>
-              {STRATEGIES.map(s => (
-                <button
-                  key={s.id}
-                  onClick={() => setStrategy(s.id)}
-                  style={{
-                    padding: '1rem',
-                    borderRadius: 12,
-                    border: `1px solid ${strategy === s.id ? s.color + '60' : 'var(--border)'}`,
-                    background: strategy === s.id ? `${s.color}10` : 'var(--bg3)',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    transition: 'all .15s',
-                  }}
-                >
-                  <div style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: '.85rem', color: strategy === s.id ? s.color : 'var(--white)', marginBottom: '.25rem' }}>{s.label}</div>
-                  <div style={{ fontSize: '.72rem', color: 'var(--muted)', lineHeight: 1.4 }}>{s.desc}</div>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          {/* Risk Controls */}
-          <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.5rem' }}>
-            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '1rem' }}>Risk Controls</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '.5rem' }}>
-                  <label style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.08em' }}>STOP LOSS</label>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', fontWeight: 700, color: 'var(--red)' }}>-{stopLoss}%</span>
-                </div>
-                <input type="range" min={1} max={20} value={stopLoss} onChange={e => setStopLoss(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--blue)' }} />
-              </div>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '.5rem' }}>
-                  <label style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.08em' }}>POSITION SIZE</label>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', fontWeight: 700, color: 'var(--white)' }}>{positionSize}%</span>
-                </div>
-                <input type="range" min={5} max={100} value={positionSize} onChange={e => setPositionSize(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--blue)' }} />
-              </div>
-            </div>
-          </section>
-
-          {/* Time Period */}
-          <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.5rem' }}>
-            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '1rem' }}>Backtest Period</h2>
-            <div style={{ display: 'flex', gap: '.4rem' }}>
-              {[['1mo', '1M'], ['3mo', '3M'], ['6mo', '6M'], ['1y', '1Y'], ['2y', '2Y'], ['5y', '5Y']].map(([val, label]) => (
-                <button key={val} onClick={() => setPeriod(val)} style={{
-                  padding: '.45rem 1.1rem',
-                  borderRadius: 8,
-                  border: `1px solid ${period === val ? 'rgba(59,127,255,.4)' : 'var(--border)'}`,
-                  background: period === val ? 'rgba(59,127,255,.1)' : 'var(--bg3)',
-                  color: period === val ? 'var(--blue2)' : 'var(--muted)',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '.75rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          {/* Summary */}
-          <div style={{ padding: '1rem 1.25rem', background: 'rgba(59,127,255,.04)', border: '1px solid rgba(59,127,255,.15)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)' }}>
-              SUMMARY:
-            </div>
-            {[
-              { label: 'Symbol', value: symbol },
-              { label: 'Strategy', value: selectedStrategy?.label ?? '—' },
-              { label: 'Stop Loss', value: `-${stopLoss}%` },
-              { label: 'Position', value: `${positionSize}%` },
-              { label: 'Period', value: period.toUpperCase() },
-            ].map(item => (
-              <div key={item.label} style={{ display: 'flex', gap: '.35rem', alignItems: 'center' }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)' }}>{item.label}:</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.68rem', fontWeight: 700, color: 'var(--white)' }}>{item.value}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Run */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '.75rem' }}>
-            <button
-              onClick={runBacktest}
-              disabled={backtesting}
-              style={{
-                padding: '.85rem',
-                borderRadius: 12,
-                border: 0,
-                background: backtesting ? 'rgba(59,127,255,.5)' : 'var(--blue)',
-                color: '#fff',
-                fontFamily: 'var(--font-head)',
-                fontSize: '.9rem',
-                fontWeight: 700,
-                cursor: backtesting ? 'not-allowed' : 'pointer',
-                letterSpacing: '-.01em',
-              }}
-            >
-              {backtesting ? 'Running Backtest…' : 'Run Backtest →'}
-            </button>
-
-            {error && (
-              <div style={{ padding: '.75rem 1rem', background: 'rgba(242,54,69,.08)', border: '1px solid rgba(242,54,69,.2)', borderRadius: 10, fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--red)' }}>
-                {error}
-              </div>
-            )}
-          </div>
-
-          {/* Results */}
-          {result && (
-            <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.5rem' }}>
-              <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '1.25rem' }}>Results</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: '.75rem', marginBottom: '1.25rem' }}>
-                {[
-                  { label: 'Total Return', value: fmtPct(result.totalReturn), color: result.totalReturn >= 0 ? 'var(--mint)' : 'var(--red)' },
-                  { label: 'Sharpe Ratio', value: result.sharpe.toFixed(2), color: result.sharpe > 1 ? 'var(--white)' : 'var(--muted)' },
-                  { label: 'Max Drawdown', value: fmtPct(-result.maxDD), color: 'var(--red)' },
-                  { label: 'Win Rate', value: `${result.winRate.toFixed(1)}%`, color: 'var(--white)' },
-                  { label: 'Total Trades', value: result.trades.toString(), color: 'var(--white)' },
-                ].map(item => (
-                  <div key={item.label} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.85rem .75rem', textAlign: 'center' }}>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.35rem' }}>{item.label.toUpperCase()}</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 800, color: item.color }}>{item.value}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: '.75rem' }}>
-                <Link href={`/dashboard/backtest?symbol=${symbol}&strategy=${strategy}&period=${period}`} style={{ padding: '.6rem 1.25rem', borderRadius: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontSize: '.78rem', fontWeight: 600, textDecoration: 'none' }}>
-                  Advanced Backtest →
-                </Link>
-                <button style={{ padding: '.6rem 1.25rem', borderRadius: 10, border: 0, background: 'var(--blue)', color: '#fff', fontSize: '.78rem', fontWeight: 700, cursor: 'pointer' }}>
-                  Deploy Agent →
-                </button>
-              </div>
-            </section>
-          )}
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: `1px solid ${colors.border}`, background: colors.bg2 }}>
+        <div>
+          <h1 style={{ fontSize: '1.35rem', fontWeight: 700, color: colors.white, margin: 0 }}>Build Agent</h1>
+          <p style={{ fontSize: '.7rem', color: colors.muted, margin: '4px 0 0' }}>Write strategy code with AI assistance</p>
         </div>
-      )}
+        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+          <button style={{ padding: '.45rem .85rem', borderRadius: 8, border: `1px solid ${colors.border}`, background: 'transparent', color: colors.muted, fontSize: '.7rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Save size={14} />Save Draft
+          </button>
+          <button onClick={() => router.push(`/dashboard/backtest?strategy=${strategy}&code=${encodeURIComponent(code)}`)} style={{ padding: '.45rem 1rem', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #19E6A7, #10b981)', color: '#07111F', fontSize: '.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Play size={14} />Run Backtest<ChevronRight size={14} />
+          </button>
+        </div>
+      </header>
 
-      {/* ── SUBMIT AGENT ───────────────────────────────────── */}
-      {tab === 'submit' && (
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.5rem' }}>
-            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '1.25rem' }}>Submit Your Agent</h2>
-            <p style={{ fontSize: '.82rem', color: 'var(--muted)', marginBottom: '1.5rem', lineHeight: 1.6 }}>
-              Submit a verified strategy to be listed on the ASE marketplace. Your strategy will be reviewed within 2-3 business days.
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              <div>
-                <label style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.45rem' }}>AGENT NAME</label>
-                <input
-                  type="text"
-                  value={submitName}
-                  onChange={e => setSubmitName(e.target.value)}
-                  placeholder="e.g. Bitcoin Momentum Alpha"
-                  className="input-base"
-                  maxLength={60}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.45rem' }}>STRATEGY TYPE</label>
-                <select
-                  value={submitType}
-                  onChange={e => setSubmitType(e.target.value)}
-                  className="input-base"
-                  style={{ cursor: 'pointer' }}
-                >
-                  {STRATEGY_TYPES.map(t => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.45rem' }}>DESCRIPTION</label>
-                <textarea
-                  value={submitDesc}
-                  onChange={e => setSubmitDesc(e.target.value)}
-                  placeholder="Describe your trading strategy, indicators used, risk management approach, and historical performance..."
-                  rows={5}
-                  className="input-base"
-                  style={{ resize: 'vertical', lineHeight: 1.6 }}
-                  maxLength={500}
-                />
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)', marginTop: '.3rem', textAlign: 'right' }}>{submitDesc.length}/500</div>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.45rem' }}>PERFORMANCE FEE (%)</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem' }}>
-                  <input
-                    type="number"
-                    value={submitFee}
-                    onChange={e => setSubmitFee(Number(e.target.value))}
-                    min={0}
-                    max={50}
-                    step={0.5}
-                    className="input-base"
-                    style={{ width: 100 }}
-                  />
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--muted)' }}>% of profits charged to subscribers</span>
-                </div>
-              </div>
+      {/* Main Content */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        
+        {/* Left - Strategy Selector */}
+        <div style={{ width: 220, borderRight: `1px solid ${colors.border}`, background: colors.bg2, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '1rem', borderBottom: `1px solid ${colors.border}` }}>
+            <h3 style={{ fontSize: '.5rem', color: colors.faint, fontWeight: 600, letterSpacing: '.1em', marginBottom: '.6rem' }}>STRATEGY</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+              {STRATEGIES.map(s => (
+                <button key={s.id} onClick={() => setStrategy(s.id)} style={{ padding: '.6rem', borderRadius: 8, border: `1px solid ${strategy === s.id ? colors.mint : colors.border}`, background: strategy === s.id ? 'rgba(25,230,167,.08)' : 'transparent', cursor: 'pointer', textAlign: 'left' }}>
+                  <span style={{ fontSize: '.7rem', fontWeight: 600, color: strategy === s.id ? colors.mint : colors.text }}>{s.icon} {s.label}</span>
+                  <p style={{ fontSize: '.5rem', color: colors.muted, marginTop: 2 }}>{s.desc}</p>
+                </button>
+              ))}
             </div>
-          </section>
+          </div>
+          
+          <div style={{ padding: '1rem', flex: 1 }}>
+            <h3 style={{ fontSize: '.5rem', color: colors.faint, fontWeight: 600, letterSpacing: '.1em', marginBottom: '.6rem' }}>QUICK ACTIONS</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+              {QUICK_PROMPTS.map(prompt => (
+                <button key={prompt} onClick={() => applyQuickPrompt(prompt)} disabled={aiLoading} style={{ padding: '.45rem .6rem', borderRadius: 6, border: `1px solid ${colors.border}`, background: 'transparent', color: colors.muted, fontSize: '.55rem', cursor: 'pointer', textAlign: 'left' }}>
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
 
-          <div style={{ background: 'rgba(59,127,255,.04)', border: '1px solid rgba(59,127,255,.15)', borderRadius: 12, padding: '1rem 1.25rem' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.4rem' }}>SUBMISSION CHECKLIST</div>
-            {[
-              'Strategy logic is fully disclosed',
-              'Backtesting results attached (optional)',
-              'You have verified historical performance',
-              'Risk parameters are clearly defined',
-            ].map(item => (
-              <div key={item} style={{ display: 'flex', alignItems: 'center', gap: '.6rem', marginBottom: '.35rem' }}>
-                <div style={{ width: 14, height: 14, borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg3)', flexShrink: 0 }} />
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.68rem', color: 'var(--muted)' }}>{item}</span>
+        {/* Center - Code Editor */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: colors.bg }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '.5rem .8rem', borderBottom: `1px solid ${colors.border}`, background: colors.bg3 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+              <span style={{ fontSize: '.6rem', color: colors.muted }}>strategy.py</span>
+              <span style={{ fontSize: '.4rem', color: colors.mint, background: 'rgba(25,230,167,.1)', padding: '2px 5px', borderRadius: 3 }}>PYTHON</span>
+            </div>
+            <div style={{ display: 'flex', gap: '.4rem' }}>
+              <button onClick={() => setCode(STRATEGY_CODE[strategy as keyof typeof STRATEGY_CODE])} style={{ fontSize: '.5rem', color: colors.muted, background: 'transparent', border: 'none', cursor: 'pointer' }}>Reset</button>
+            </div>
+          </div>
+          <textarea 
+            ref={codeRef}
+            value={code} 
+            onChange={e => setCode(e.target.value)} 
+            spellCheck={false}
+            style={{ flex: 1, padding: '.8rem', background: colors.bg, color: colors.text, fontFamily: 'var(--font-mono)', fontSize: '.6rem', lineHeight: 1.6, border: 'none', outline: 'none', resize: 'none' }} 
+          />
+        </div>
+
+        {/* Right - AI Panel */}
+        <div style={{ width: 340, borderLeft: `1px solid ${colors.border}`, background: colors.bg2, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '.8rem', borderBottom: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+            <Zap size={16} style={{ color: colors.orange }} />
+            <span style={{ fontSize: '.7rem', fontWeight: 600, color: colors.white }}>AI Assistant</span>
+            <span style={{ fontSize: '.45rem', color: colors.muted, background: colors.bg3, padding: '2px 6px', borderRadius: 4 }}>GEMINI</span>
+          </div>
+          
+          {/* Chat History */}
+          <div style={{ flex: 1, overflow: 'auto', padding: '.8rem', display: 'flex', flexDirection: 'column', gap: '.8rem' }}>
+            {aiHistory.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '2rem', color: colors.faint, fontSize: '.6rem' }}>
+                <Zap size={32} style={{ opacity: 0.3, marginBottom: '.5rem' }} />
+                <p>Ask me about your strategy</p>
+                <p>I can help optimize parameters, add risk management, or fix bugs</p>
+              </div>
+            )}
+            {aiHistory.map((item, i) => (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+                <div style={{ padding: '.5rem .6rem', background: colors.bg3, borderRadius: 8, border: `1px solid ${colors.border}` }}>
+                  <div style={{ fontSize: '.5rem', color: colors.blue, marginBottom: '.2rem' }}>YOU</div>
+                  <div style={{ fontSize: '.6rem', color: colors.text }}>{item.q}</div>
+                </div>
+                <div style={{ padding: '.6rem .7rem', background: colors.bg, borderRadius: 8, border: `1px solid ${colors.border}` }}>
+                  <div style={{ fontSize: '.5rem', color: colors.mint, marginBottom: '.3rem' }}>AI</div>
+                  <div style={{ fontSize: '.55rem', color: colors.muted, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{item.a}</div>
+                  {item.code && (
+                    <button onClick={() => setCode(item.code!)} style={{ marginTop: '.5rem', padding: '.25rem .5rem', borderRadius: 4, border: `1px solid ${colors.mint}`, background: 'rgba(25,230,167,.1)', color: colors.mint, fontSize: '.5rem', cursor: 'pointer' }}>
+                      Apply Code
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
-
-          {submitMsg && (
-            <div style={{ padding: '.75rem 1rem', background: submitMsg.includes('submitted') ? 'rgba(0,229,153,.08)' : 'rgba(242,54,69,.08)', border: `1px solid ${submitMsg.includes('submitted') ? 'rgba(0,229,153,.2)' : 'rgba(242,54,69,.2)'}`, borderRadius: 10, fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: submitMsg.includes('submitted') ? 'var(--mint)' : 'var(--red)' }}>
-              {submitMsg}
+          
+          {/* Input */}
+          <div style={{ padding: '.8rem', borderTop: `1px solid ${colors.border}`, background: colors.bg3 }}>
+            <div style={{ display: 'flex', gap: '.4rem' }}>
+              <input 
+                value={aiQuestion} 
+                onChange={e => setAiQuestion(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleAiAsk()}
+                placeholder="Ask about your strategy..." 
+                style={{ flex: 1, padding: '.5rem', borderRadius: 6, border: `1px solid ${colors.border}`, background: colors.bg, color: colors.text, fontSize: '.6rem' }}
+              />
+              <button onClick={handleAiAsk} disabled={aiLoading || !aiQuestion.trim()} style={{ padding: '.5rem', borderRadius: 6, border: 'none', background: aiLoading ? colors.border : colors.blue, color: '#fff', cursor: aiLoading ? 'not-allowed' : 'pointer' }}>
+                {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+              </button>
             </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={submitting}
-            style={{
-              padding: '.85rem',
-              borderRadius: 12,
-              border: 0,
-              background: submitting ? 'rgba(59,127,255,.5)' : 'var(--blue)',
-              color: '#fff',
-              fontFamily: 'var(--font-head)',
-              fontSize: '.9rem',
-              fontWeight: 700,
-              cursor: submitting ? 'not-allowed' : 'pointer',
-              letterSpacing: '-.01em',
-            }}
-          >
-            {submitting ? 'Submitting…' : 'Submit for Review →'}
-          </button>
-
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', textAlign: 'center', lineHeight: 1.6 }}>
-            By submitting, you confirm that all information is accurate and that you have the right to list this strategy.
-            ASE reserves the right to reject submissions that do not meet our quality standards.
           </div>
-        </form>
-      )}
+        </div>
+      </div>
     </div>
   )
 }

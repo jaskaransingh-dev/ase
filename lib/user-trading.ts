@@ -3,31 +3,56 @@ import { createBrokerAPI } from './broker'
 import { decryptAES } from './crypto/encryption'
 
 /**
- * Get user's connected Alpaca credentials from connected_accounts table
+ * Get user's connected exchange credentials from connected_accounts table
+ * Supports both Alpaca and Kraken
  */
-async function getUserAlpacaCredentials(
+async function getUserCredentials(
   admin: SupabaseClient,
   userId: string
-): Promise<{ apiKey: string; apiSecret: string; accountId: string } | null> {
-  const { data: connection } = await admin
+): Promise<{ provider: 'alpaca' | 'kraken'; credentials: any; accountId: string } | null> {
+  // Check for Kraken first (preferred)
+  const { data: krakenConn } = await admin
+    .from('connected_accounts')
+    .select('id, access_token, account_id')
+    .eq('user_id', userId)
+    .eq('provider', 'kraken')
+    .single()
+
+  if (krakenConn) {
+    const accessToken = krakenConn.access_token ? decryptAES(krakenConn.access_token) : null
+    if (accessToken) {
+      return {
+        provider: 'kraken',
+        credentials: { accessToken },
+        accountId: krakenConn.account_id,
+      }
+    }
+  }
+
+  // Fall back to Alpaca
+  const { data: alpacaConn } = await admin
     .from('connected_accounts')
     .select('id, access_token, refresh_token, api_key, api_secret, account_id')
     .eq('user_id', userId)
     .eq('provider', 'alpaca')
     .single()
 
-  if (!connection) return null
+  if (!alpacaConn) return null
 
-  let apiKey = connection.api_key
-  let apiSecret = connection.api_secret ? decryptAES(connection.api_secret) : null
+  let apiKey = alpacaConn.api_key
+  let apiSecret = alpacaConn.api_secret ? decryptAES(alpacaConn.api_secret) : null
 
-  if (!apiSecret && connection.access_token) {
-    apiSecret = decryptAES(connection.access_token)
+  if (!apiSecret && alpacaConn.access_token) {
+    apiSecret = decryptAES(alpacaConn.access_token)
   }
 
   if (!apiKey || !apiSecret) return null
 
-  return { apiKey, apiSecret, accountId: connection.account_id }
+  return {
+    provider: 'alpaca',
+    credentials: { apiKey, apiSecret },
+    accountId: alpacaConn.account_id,
+  }
 }
 
 /**
@@ -132,25 +157,51 @@ export async function syncAlpacaBalance(
   userId: string,
   alpacaAccountId: string
 ): Promise<{ cash: number; equity: number; positions: any[] }> {
+  const userCreds = await getUserCredentials(admin, userId)
+  if (!userCreds) {
+    throw new Error('No connected exchange account found')
+  }
+
+  // Handle Kraken
+  if (userCreds.provider === 'kraken') {
+    const { getAccountInfo, getPositions } = await import('./kraken')
+    const accountInfo = await getAccountInfo(userId)
+    if (!accountInfo) throw new Error('Failed to get Kraken balance')
+    
+    await admin.from('account_balances').upsert({
+      user_id: userId,
+      provider: 'kraken',
+      equity_cents: accountInfo.equity,
+      cash_cents: accountInfo.balance,
+      buying_power_cents: accountInfo.free,
+      portfolio_value_cents: accountInfo.equity,
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: 'user_id,provider',
+    })
+
+    return {
+      cash: accountInfo.balance,
+      equity: accountInfo.equity,
+      positions: [],
+    }
+  }
+
+  // Handle Alpaca
   const ALPACA_BASE_URL = process.env.ALPACA_BASE_URL || 'https://paper-api.alpaca.markets'
   
   try {
-    const credentials = await getUserAlpacaCredentials(admin, userId)
-    if (!credentials) {
-      throw new Error('No connected Alpaca account found')
-    }
-
     const [accountRes, positionsRes] = await Promise.all([
       fetch(`${ALPACA_BASE_URL}/account`, {
         headers: {
-          'APCA-API-KEY-ID': credentials.apiKey,
-          'APCA-API-SECRET-KEY': credentials.apiSecret,
+          'APCA-API-KEY-ID': userCreds.credentials.apiKey,
+          'APCA-API-SECRET-KEY': userCreds.credentials.apiSecret,
         },
       }),
       fetch(`${ALPACA_BASE_URL}/positions`, {
         headers: {
-          'APCA-API-KEY-ID': credentials.apiKey,
-          'APCA-API-SECRET-KEY': credentials.apiSecret,
+          'APCA-API-KEY-ID': userCreds.credentials.apiKey,
+          'APCA-API-SECRET-KEY': userCreds.credentials.apiSecret,
         },
       }),
     ])
@@ -411,10 +462,21 @@ export async function getUserAccountBalance(
   admin: SupabaseClient,
   userId: string
 ): Promise<{ cash: number; equity: number; buying_power: number } | null> {
-  const credentials = await getUserAlpacaCredentials(admin, userId)
-  if (!credentials) return null
+  const userCreds = await getUserCredentials(admin, userId)
+  if (!userCreds) return null
 
-  const accountInfo = await getUserAccountDirect(userId, credentials.apiKey, credentials.apiSecret)
+  if (userCreds.provider === 'kraken') {
+    const { getAccountInfo } = await import('./kraken')
+    const accountInfo = await getAccountInfo(userId)
+    if (!accountInfo) return null
+    return {
+      cash: accountInfo.balance,
+      equity: accountInfo.equity,
+      buying_power: accountInfo.free,
+    }
+  }
+
+  const accountInfo = await getUserAccountDirect(userId, userCreds.credentials.apiKey, userCreds.credentials.apiSecret)
   if (!accountInfo) return null
 
   return {
@@ -503,19 +565,64 @@ export async function distributeTradeToUsers(
         continue
       }
 
-      const credentials = await getUserAlpacaCredentials(admin, user.user_id)
+      const credentials = await getUserCredentials(admin, user.user_id)
       if (!credentials) {
         console.error(`[distributeTradeToUsers] No credentials found for user ${user.user_id}`)
         results.push({
           user_id: user.user_id,
           alpaca_account_id: user.alpaca_account_id,
           success: false,
-          error: 'No connected Alpaca account found',
+          error: 'No connected exchange account found',
         })
         continue
       }
 
-      const result = await placeOrderDirect(user.user_id, credentials.apiKey, credentials.apiSecret, {
+      // Route to appropriate exchange based on provider
+      if (credentials.provider === 'kraken') {
+        const { placeOrder: placeKrakenOrder } = await import('./kraken')
+        const result = await placeKrakenOrder({
+          userId: user.user_id,
+          symbol: userTrade.symbol,
+          side: userTrade.side,
+          qty: userTrade.qty,
+          notional: userTrade.notional,
+        })
+
+        if (!result) {
+          results.push({
+            user_id: user.user_id,
+            alpaca_account_id: user.alpaca_account_id,
+            success: false,
+            error: 'Failed to place Kraken order',
+          })
+          continue
+        }
+
+        console.log(`[distributeTradeToUsers] Kraken trade executed for user ${user.user_id}: ${result.filledQty}@${result.filledPrice}`)
+        await logUserTrade(admin, {
+          userId: user.user_id,
+          agentId,
+          alpacaOrderId: result.orderId,
+          symbol: userTrade.symbol,
+          side: userTrade.side,
+          qty: result.filledQty,
+          fillPrice: result.filledPrice,
+          filledAt: new Date().toISOString(),
+          note: `Distributed via Kraken - ${(allocationPct * 100).toFixed(1)}% allocation`,
+        })
+        results.push({
+          user_id: user.user_id,
+          alpaca_account_id: user.alpaca_account_id,
+          success: true,
+          orderId: result.orderId,
+          filledQty: result.filledQty,
+          fillPrice: result.filledPrice,
+        })
+        continue
+      }
+
+      // Alpaca fallback
+      const result = await placeOrderDirect(user.user_id, credentials.credentials.apiKey, credentials.credentials.apiSecret, {
         symbol: userTrade.symbol,
         qty: userTrade.qty,
         notional: userTrade.notional,

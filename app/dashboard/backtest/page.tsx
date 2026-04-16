@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Area, AreaChart, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, BarChart, Bar, Cell } from 'recharts'
 import { STRATEGIES, type BacktestStats, type MonteCarloResult, type WalkForwardResult } from '@/lib/backtest'
 import { createClient } from '@/lib/supabase/client'
@@ -71,11 +72,19 @@ function StatCard({ label, value, color, sub }: { label: string; value: string; 
 }
 
 export default function BacktestPage() {
+  const searchParams = useSearchParams()
   const [mode, setMode] = useState<'simple' | 'advanced' | 'csv'>('simple')
 
   // Simple mode
-  const [symbol, setSymbol] = useState('SPY')
-  const [strategy, setStrategy] = useState('momentum_crossover')
+  const [symbol, setSymbol] = useState('BTC-USD')
+  const [strategy, setStrategy] = useState(() => {
+    const strat = searchParams.get('strategy')
+    return strat || 'momentum_crossover'
+  })
+  const [customCode, setCustomCode] = useState(() => {
+    const code = searchParams.get('code')
+    return code ? decodeURIComponent(code) : ''
+  })
   const [period, setPeriod] = useState('1y')
   const [fee, setFee] = useState(0.001)
   const [slippageBps, setSlippageBps] = useState(5)
