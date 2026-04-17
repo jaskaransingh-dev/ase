@@ -2181,12 +2181,14 @@ ${api.implementation}
     setTerminalLoading(false)
   }
 
-  const sendToAi = async (prompt?: string) => {
+  const sendToAi = async (prompt?: string, silent?: boolean) => {
     const userMsg = prompt || aiInput
     if (!userMsg.trim() || aiLoading) return
     
     setAiInput('')
-    setAiMessages(prev => [...prev, { role: 'user', content: userMsg }])
+    if (!silent) {
+      setAiMessages(prev => [...prev, { role: 'user', content: userMsg }])
+    }
     setAiLoading(true)
     
     const strategyNames: Record<string, string> = {
@@ -2271,7 +2273,18 @@ Be concise but informative. Give actionable advice with working code examples.`
       const data = await res.json()
       
       if (data.reply) {
-        setAiMessages(prev => [...prev, { role: 'assistant', content: data.reply }])
+        const reply = data.reply
+        setAiMessages(prev => [...prev, { role: 'assistant', content: reply }])
+        
+        // Auto-apply code changes if AI provides new code
+        const codeMatch = reply.match(/```python\n([\s\S]*?)```/)?.[1] || reply.match(/```\n([\s\S]*?)```/)?.[1]
+        if (codeMatch && (userMsg.toLowerCase().includes('improve') || userMsg.toLowerCase().includes('strategy') || userMsg.toLowerCase().includes('add') || userMsg.toLowerCase().includes('optimize') || userMsg.toLowerCase().includes('incorporate') || userMsg.toLowerCase().includes('integrate'))) {
+          const cleanedCode = codeMatch.replace(/^#.*$/gm, '').trim()
+          if (cleanedCode.length > 100) {
+            setCode(cleanedCode)
+            setTimeout(() => setAiMessages(prev => [...prev, { role: 'user', content: '✓ Auto-applied code changes from AI!' }]), 500)
+          }
+        }
       } else {
         setAiMessages(prev => [...prev, { role: 'assistant', content: data.error || 'AI unavailable - check your API key configuration' }])
       }
@@ -2304,7 +2317,7 @@ Be concise but informative. Give actionable advice with working code examples.`
     setTrades([])
     setError('')
     setBacktestStatus('Fetching market data...')
-    
+
     try {
       // Check if using custom code or built-in strategy
       const isCustomCode = code && code !== strategy.code
@@ -2322,9 +2335,9 @@ Be concise but informative. Give actionable advice with working code examples.`
           fee: fee / 100,
         }),
       })
-      setBacktestStatus('Calculating statistics...')
+      setBacktestStatus('Processing results...')
       const data = await res.json()
-      
+
       if (data.error) {
         setError(data.error)
         setTerminalOutput(prev => [...prev, `Error: ${data.error}`])
@@ -2332,27 +2345,35 @@ Be concise but informative. Give actionable advice with working code examples.`
         const INITIAL_CAPITAL = 100000
         const equityPoints: { date: string; strategy: number; buyHold: number }[] = []
         const tradeList: TradeStats[] = []
-        
+
         let strategyEquity = INITIAL_CAPITAL
         let position = 0
         let entryPrice = 0
         let finalBuyHold = INITIAL_CAPITAL
         const startPrice = data.bars?.[0]?.close || 1
-        
-        data.bars?.forEach((bar: any, i: number) => {
-          if (i > 0 && data.bars[i-1].position === 1) {
-            strategyEquity *= (bar.close / data.bars[i-1].close)
+
+        // Downsample bars for visualization (max 200 points)
+        const bars = data.bars || []
+        const maxChartPoints = 200
+        const step = Math.max(1, Math.ceil(bars.length / maxChartPoints))
+
+        bars.forEach((bar: any, i: number) => {
+          if (i > 0 && bars[i-1].position === 1) {
+            strategyEquity *= (bar.close / bars[i-1].close)
           }
-          
+
           const buyHoldEquity = INITIAL_CAPITAL * (bar.close / startPrice)
           finalBuyHold = buyHoldEquity
-          
-          equityPoints.push({
-            date: bar.date,
-            strategy: strategyEquity,
-            buyHold: buyHoldEquity,
-          })
-          
+
+          // Add all points for trades, but downsample for chart display
+          if (i % step === 0 || i === bars.length - 1) {
+            equityPoints.push({
+              date: bar.date,
+              strategy: strategyEquity,
+              buyHold: buyHoldEquity,
+            })
+          }
+
           if (bar.position === 1 && position === 0) {
             entryPrice = bar.close
             tradeList.push({ date: bar.date, action: 'BUY', price: bar.close })
@@ -2363,7 +2384,7 @@ Be concise but informative. Give actionable advice with working code examples.`
             position = 0
           }
         })
-        
+
         const bhReturnPct = ((finalBuyHold / INITIAL_CAPITAL) - 1) * 100
         
         // Store full results for the analytics page
@@ -2423,7 +2444,7 @@ Be concise but informative. Give actionable advice with working code examples.`
           avgLoss: data.stats.avgLoss || 0,
         })
         setTrades(tradeList.slice(-50))
-        setChartData(equityPoints.filter((_, i) => i % Math.ceil(equityPoints.length / 150) === 0))
+        setChartData(equityPoints)
         setBuyHoldResult(bhReturnPct)
       }
     } catch (e) {
@@ -2442,11 +2463,11 @@ Be concise but informative. Give actionable advice with working code examples.`
     setTrades([])
     setError('')
     setBacktestStatus('Running blind simulation...')
-    
+
     try {
       const isCustomCode = code && code !== strategy.code
-      setBacktestStatus('Analyzing years of market data...')
-      
+      setBacktestStatus('Analyzing market data...')
+
       const res = await fetch('/api/backtest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2456,38 +2477,47 @@ Be concise but informative. Give actionable advice with working code examples.`
           code: isCustomCode ? code : undefined,
           params,
           simulate: true,
-          simPeriod: '5y',
-          simInterval: '1h',
+          simPeriod: '2y',
+          simInterval: '1d',
           fee: fee / 100,
           includeTrades: true,
         }),
       })
       
-      setBacktestStatus('Calculating performance...')
+      setBacktestStatus('Processing results...')
       const data = await res.json()
-      
+
       if (data.error) {
         setError(data.error)
         setTerminalOutput(prev => [...prev, `Error: ${data.error}`])
         return
       }
-      
+
       const INITIAL_CAPITAL = 100000
       const equityPoints: { date: string; strategy: number; buyHold: number }[] = []
       const tradeList: TradeStats[] = []
-      
+
       let strategyEquity = INITIAL_CAPITAL
       let position = 0
       let entryPrice = 0
       const startPrice = data.bars?.[0]?.close || 1
-      
-      data.bars?.forEach((bar: any, i: number) => {
-        if (i > 0 && data.bars[i-1].position === 1) {
-          strategyEquity *= (bar.close / data.bars[i-1].close)
+
+      // Downsample for visualization (max 200 points)
+      const bars = data.bars || []
+      const maxChartPoints = 200
+      const step = Math.max(1, Math.ceil(bars.length / maxChartPoints))
+
+      bars.forEach((bar: any, i: number) => {
+        if (i > 0 && bars[i-1].position === 1) {
+          strategyEquity *= (bar.close / bars[i-1].close)
         }
         const buyHoldEquity = INITIAL_CAPITAL * (bar.close / startPrice)
-        equityPoints.push({ date: bar.date, strategy: strategyEquity, buyHold: buyHoldEquity })
-        
+
+        // Downsample for chart display
+        if (i % step === 0 || i === bars.length - 1) {
+          equityPoints.push({ date: bar.date, strategy: strategyEquity, buyHold: buyHoldEquity })
+        }
+
         if (bar.position === 1 && position === 0) {
           entryPrice = bar.close
           tradeList.push({ date: bar.date, action: 'BUY', price: bar.close })
@@ -3398,37 +3428,49 @@ signal: sell, {price}  # Exit`}
               </div>
               
               {/* Input */}
-              <div style={{ padding: '0.75rem', borderTop: `1px solid ${C.border}`, display: 'flex', gap: 8 }}>
-                <input 
-                  value={aiInput} 
-                  onChange={e => setAiInput(e.target.value)} 
-                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), sendToAi())} 
-                  placeholder="Ask about your strategy..." 
-                  style={{ 
-                    flex: 1, 
-                    padding: '0.6rem', 
-                    borderRadius: 6, 
-                    border: `1px solid ${C.border}`, 
-                    background: C.bg, 
-                    color: C.text, 
-                    fontSize: '0.85rem' 
-                  }} 
-                />
-                <button 
-                  onClick={() => sendToAi()} 
-                  disabled={aiLoading || !aiInput.trim()} 
-                  style={{ 
-                    padding: '0.6rem 1rem', 
-                    borderRadius: 6, 
-                    border: 'none', 
-                    background: aiLoading ? C.border : C.orange, 
-                    color: C.bg, 
-                    cursor: aiLoading ? 'not-allowed' : 'pointer', 
-                    fontWeight: 600 
-                  }}
-                >
-                  <Sparkle size={14} />
-                </button>
+              <div style={{ padding: '0.75rem', borderTop: `1px solid ${C.border}` }}>
+                <div style={{ display: 'flex', gap: 8, marginBottom: '0.5rem' }}>
+                  <input 
+                    value={aiInput} 
+                    onChange={e => setAiInput(e.target.value)} 
+                    onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), sendToAi())} 
+                    placeholder="Ask about your strategy..." 
+                    style={{ 
+                      flex: 1, 
+                      padding: '0.6rem', 
+                      borderRadius: 6, 
+                      border: `1px solid ${C.border}`, 
+                      background: C.bg, 
+                      color: C.text, 
+                      fontSize: '0.85rem' 
+                    }} 
+                  />
+                  <button 
+                    onClick={() => sendToAi()} 
+                    disabled={aiLoading || !aiInput.trim()} 
+                    style={{ 
+                      padding: '0.6rem 1rem', 
+                      borderRadius: 6, 
+                      border: 'none', 
+                      background: aiLoading ? C.border : C.orange, 
+                      color: C.bg, 
+                      cursor: aiLoading ? 'not-allowed' : 'pointer', 
+                      fontWeight: 600 
+                    }}
+                  >
+                    <Sparkle size={14} />
+                  </button>
+                </div>
+                
+                {/* Quick Suggestions */}
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                  <button onClick={() => sendToAi('Add RSI indicator and create buy/sell signals based on oversold/overbought levels')} style={{ padding: '0.25rem 0.5rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.muted, fontSize: '0.6rem', cursor: 'pointer' }}>+ RSI</button>
+                  <button onClick={() => sendToAi('Add stop loss at 5% to protect against large drawdowns')} style={{ padding: '0.25rem 0.5rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.muted, fontSize: '0.6rem', cursor: 'pointer' }}>+ Stop Loss</button>
+                  <button onClick={() => sendToAi('Add volume filter to only trade when volume is above average')} style={{ padding: '0.25rem 0.5rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.muted, fontSize: '0.6rem', cursor: 'pointer' }}>+ Volume Filter</button>
+                  <button onClick={() => sendToAi('Optimize the parameters for better risk-adjusted returns')} style={{ padding: '0.25rem 0.5rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.muted, fontSize: '0.6rem', cursor: 'pointer' }}>Optimize</button>
+                  <button onClick={() => sendToAi('Add MACD for trend confirmation to improve entry timing')} style={{ padding: '0.25rem 0.5rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.muted, fontSize: '0.6rem', cursor: 'pointer' }}>+ MACD</button>
+                  <button onClick={() => sendToAi('Add Bollinger Bands to capture mean reversion opportunities')} style={{ padding: '0.25rem 0.5rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.muted, fontSize: '0.6rem', cursor: 'pointer' }}>+ Bollinger</button>
+                </div>
               </div>
             </div>
           )}
