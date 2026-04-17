@@ -102,6 +102,15 @@ create table if not exists public.agent_submissions (
   created_at  timestamptz default now()
 );
 
+-- Saved/favorite agents (bookmarks)
+create table if not exists public.saved_agents (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid references public.profiles(id) on delete cascade,
+  agent_id    uuid references public.agents(id) on delete cascade,
+  created_at  timestamptz default now(),
+  unique(user_id, agent_id)
+);
+
 -- ── WAITLIST ─────────────────────────────────────────────────
 create table if not exists public.waitlist (
   id          uuid primary key default gen_random_uuid(),
@@ -263,3 +272,7 @@ create policy "Anyone can join waitlist" on public.waitlist for insert with chec
 
 -- Agent submissions
 create policy "Anyone can submit agent" on public.agent_submissions for insert with check (true);
+
+-- Saved agents
+alter table public.saved_agents enable row level security;
+create policy "Users can manage own saved agents" on public.saved_agents for all using (auth.uid() = user_id);

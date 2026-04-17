@@ -1,1030 +1,874 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { Area, AreaChart, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, BarChart, Bar, Cell } from 'recharts'
-import { STRATEGIES, type BacktestStats, type MonteCarloResult, type WalkForwardResult } from '@/lib/backtest'
-import { createClient } from '@/lib/supabase/client'
+import { useState, useEffect, useMemo } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, BarChart, Bar } from 'recharts'
+import { Loader2, Play, TrendingUp, Activity, Shield, BookOpen, GitBranch, AlertCircle } from 'lucide-react'
+import Link from 'next/link'
 
-interface FullBacktestResult {
-  stats: BacktestStats
-  bars: Array<{ date: string; close: number; equity: number; position: number }>
-  buyHold: Array<{ date: string; equity: number }>
-  symbol: string
-  period: string
-}
-
-const POPULAR_ASSETS = [
-  { group: 'Crypto', symbols: ['BTC-USD', 'ETH-USD', 'SOL-USD', 'AVAX-USD', 'LINK-USD'] },
-  { group: 'Tech Stocks', symbols: ['NVDA', 'AAPL', 'MSFT', 'META', 'GOOGL', 'AMZN', 'TSLA'] },
-  { group: 'ETFs', symbols: ['SPY', 'QQQ', 'VOO', 'IWM', 'TLT', 'GLD', 'ARKK'] },
-  { group: 'Crypto ETFs', symbols: ['IBIT', 'FBTC', 'ARKB'] },
-  { group: 'Finance', symbols: ['JPM', 'BAC', 'GS', 'MS'] },
-]
-const ALL_ASSETS = [...new Set(POPULAR_ASSETS.flatMap(g => g.symbols))].sort()
 const PERIODS = [
-  { value: '3mo', label: '3 months' },
-  { value: '6mo', label: '6 months' },
-  { value: '1y', label: '1 year' },
-  { value: '2y', label: '2 years' },
-  { value: '5y', label: '5 years' },
+  { value: '14d', label: '2 Weeks' },
+  { value: '30d', label: '30 Days' },
+  { value: '90d', label: '3 Months' },
+  { value: '180d', label: '6 Months' },
+  { value: '270d', label: '9 Months' },
+  { value: '1y', label: '1 Year' },
+  { value: '2y', label: '2 Years' },
+  { value: '5y', label: '5 Years' },
 ]
 
-function fmtPct(v: number | undefined | null) {
-  if (v == null || isNaN(v)) return '—'
-  return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
-}
-function colorOf(v: number | undefined | null) {
-  if (v == null || isNaN(v)) return 'var(--faint)'
-  return v >= 0 ? '#00E599' : '#FF5A5F'
-}
-function fmt2(v: number | undefined | null) {
-  if (v == null || isNaN(v)) return '—'
-  return v.toFixed(2)
+const BENCHMARKS: Record<string, { label: string; color: string }> = {
+  'BTC-USD': { label: 'Bitcoin', color: '#f7931a' },
+  'SPY': { label: 'S&P 500', color: '#19E6A7' },
+  'ETH-USD': { label: 'Ethereum', color: '#627eea' },
 }
 
-function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; dataKey: string; color: string }>; label?: string }) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
-      <div style={{ color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
-      {payload.map(p => (
-        <div key={p.dataKey} style={{ color: p.color, fontWeight: 600 }}>
-          {p.dataKey === 'strategy' ? 'Strategy' : 'Buy & Hold'}: ${p.value.toFixed(0)}
-        </div>
-      ))}
-    </div>
-  )
+const STRATEGIES = [
+  { id: 'momentum_crossover', label: 'Momentum' },
+  { id: 'mean_reversion', label: 'Mean Reversion' },
+  { id: 'rsi_trend_filter', label: 'RSI' },
+  { id: 'volatility_breakout', label: 'Breakout' },
+  { id: 'dual_momentum', label: 'Dual Momentum' },
+]
+
+interface AgentData {
+  slug: string
+  name: string
+  ticker: string | null
+  primary_symbol: string | null
+  backtest_strategy: string | null
+  backtest_stats: any
 }
 
-function StatCard({ label, value, color, sub }: { label: string; value: string; color?: string; sub?: string }) {
-  return (
-    <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '0.85rem 1rem' }}>
-      <div style={{ fontSize: '0.58rem', color: 'var(--faint)', marginBottom: '0.3rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.08em' }}>
-        {label.toUpperCase()}
-      </div>
-      <div style={{ fontSize: '1.05rem', fontWeight: 700, color: color ?? 'var(--white)', fontFamily: 'var(--font-mono)' }}>
-        {value}
-      </div>
-      {sub && <div style={{ fontSize: '0.58rem', color: 'var(--faint)', marginTop: '0.2rem' }}>{sub}</div>}
-    </div>
-  )
-}
-
-export default function BacktestPage() {
+export default function BacktestComparePage() {
   const searchParams = useSearchParams()
-  const [mode, setMode] = useState<'simple' | 'advanced' | 'csv'>('simple')
-
-  // Simple mode
-  const [symbol, setSymbol] = useState('BTC-USD')
-  const [strategy, setStrategy] = useState(() => {
-    const strat = searchParams.get('strategy')
-    return strat || 'momentum_crossover'
-  })
-  const [customCode, setCustomCode] = useState(() => {
-    const code = searchParams.get('code')
-    return code ? decodeURIComponent(code) : ''
-  })
+  const router = useRouter()
+  
+  const [agents, setAgents] = useState<AgentData[]>([])
+  const [loadingAgents, setLoadingAgents] = useState(true)
+  const [selectedAgents, setSelectedAgents] = useState<string[]>([])
+  const [symbol, setSymbol] = useState(searchParams.get('symbol') || 'BTC-USD')
+  const [strategy, setStrategy] = useState(searchParams.get('strategy') || 'momentum_crossover')
   const [period, setPeriod] = useState('1y')
-  const [fee, setFee] = useState(0.001)
-  const [slippageBps, setSlippageBps] = useState(5)
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<FullBacktestResult | null>(null)
+  const [results, setResults] = useState<Record<string, any>>({})
+  const [benchmarks, setBenchmarks] = useState<Record<string, any>>({})
   const [error, setError] = useState('')
-  const [search, setSearch] = useState('')
-  const [showAdvParams, setShowAdvParams] = useState(false)
-  const [customParams, setCustomParams] = useState<Record<string, number>>({})
+  
+  // Monte Carlo options
+  const [enableMonteCarlo, setEnableMonteCarlo] = useState(false)
+  const [enableWalkForward, setEnableWalkForward] = useState(false)
+  const [mcTrials, setMcTrials] = useState(100)
+  const [mcResults, setMcResults] = useState<any>(null)
+  const [wfResults, setWfResults] = useState<any>(null)
+  const [activeTab, setActiveTab] = useState<'agents' | 'data'>('agents')
+  const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [csvData, setCsvData] = useState<any[]>([])
+  
+  const colors = {
+    bg: '#07111F', bg2: '#0B1728', bg3: '#101A2D', border: '#21314D',
+    blue: '#5B8CFF', mint: '#19E6A7', red: '#FF6B7A', orange: '#FFB648',
+    text: '#B5C1D6', muted: '#7F8CA3', faint: '#5E6A7E', white: '#F5F7FB'
+  }
 
-  // Advanced compare mode
-  const [advSymbols, setAdvSymbols] = useState<string[]>(['SPY', 'QQQ'])
-  const [advStrategies, setAdvStrategies] = useState<string[]>(['momentum_crossover'])
-  const [advPeriod, setAdvPeriod] = useState('1y')
-  const [advLoading, setAdvLoading] = useState(false)
-  const [advResults, setAdvResults] = useState<Record<string, FullBacktestResult>>({})
-  const [advError, setAdvError] = useState('')
-  const [advInput, setAdvInput] = useState('SPY, QQQ')
+  // Load agents from Supabase
+  useEffect(() => {
+    async function fetchAgents() {
+      try {
+        const res = await fetch('/api/agents')
+        const json = await res.json()
+        const agentsData = json.data || json.agents || []
+        
+        // Map to our format - fetch primary_symbol and backtest_strategy
+        const mappedAgents: AgentData[] = agentsData.map((a: any) => ({
+          slug: a.slug,
+          name: a.name,
+          ticker: a.ticker,
+          primary_symbol: a.primary_symbol || 'BTC-USD',
+          backtest_strategy: a.backtest_strategy || 'momentum_crossover',
+          backtest_stats: a.backtest_stats,
+        }))
+        
+        setAgents(mappedAgents)
+        
+        // Auto-select first 2 agents
+        if (mappedAgents.length >= 2) {
+          setSelectedAgents([mappedAgents[0].slug, mappedAgents[1].slug])
+        } else if (mappedAgents.length === 1) {
+          setSelectedAgents([mappedAgents[0].slug])
+        }
+      } catch (e) {
+        console.error('Failed to load agents:', e)
+      }
+      setLoadingAgents(false)
+    }
+    fetchAgents()
+  }, [])
 
-  // CSV upload mode
-  const [csvData, setCsvData] = useState<Array<{ date: string; open: number; high: number; low: number; close: number; volume: number }> | null>(null)
-  const [csvSymbolName, setCsvSymbolName] = useState('CUSTOM')
-  const [csvStrategy, setCsvStrategy] = useState('momentum_crossover')
-  const [csvFee, setCsvFee] = useState(0.001)
-  const [csvLoading, setCsvLoading] = useState(false)
-  const [csvResult, setCsvResult] = useState<FullBacktestResult | null>(null)
-  const [csvError, setCsvError] = useState('')
-  const [csvFileName, setCsvFileName] = useState('')
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  // Multi-view chart
-  const [chartView, setChartView] = useState<'equity' | 'drawdown' | 'monthly'>('equity')
-
-  // Monte Carlo
-  const [mcLoading, setMcLoading] = useState(false)
-  const [mcResult, setMcResult] = useState<MonteCarloResult | null>(null)
-
-  // Walk-Forward
-  const [wfLoading, setWfLoading] = useState(false)
-  const [wfResult, setWfResult] = useState<WalkForwardResult | null>(null)
-
-  // Saved backtests
-  const [savedBacktests, setSavedBacktests] = useState<Array<{
-    id: string; name: string; symbol: string; strategy: string; period: string;
-    totalReturn: number; sharpe: number; createdAt: string; shareToken?: string
-  }>>([])
-  const [savedLoading, setSavedLoading] = useState(false)
-  const [showSaved, setShowSaved] = useState(false)
-  const [saveName, setSaveName] = useState('')
-  const [saveSaving, setSaveSaving] = useState(false)
-
-  const filteredAssets = ALL_ASSETS.filter(a => a.toLowerCase().includes(search.toLowerCase())).slice(0, 24)
-  const stratMeta = STRATEGIES[strategy as keyof typeof STRATEGIES]
-
-  const runBacktest = useCallback(async () => {
+  const runBacktest = async () => {
     setLoading(true)
     setError('')
-    setResult(null)
+    setResults({})
+    setBenchmarks({})
+    
     try {
-      const slippageFraction = slippageBps / 10000
-      const res = await fetch('/api/backtest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, strategy, period, fee: fee + slippageFraction, params: customParams }),
+      // Run backtests for selected agents in parallel
+      const newResults: Record<string, any> = {}
+      const newBenchmarks: Record<string, any> = {}
+      
+      // Fetch agent backtests
+      const agentPromises = selectedAgents.map(async (slug) => {
+        const agent = agents.find(a => a.slug === slug)
+        if (!agent) return
+        
+        const res = await fetch('/api/backtest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            symbol: agent.primary_symbol || 'BTC-USD', 
+            strategy: agent.backtest_strategy || 'momentum_crossover', 
+            period,
+            fee: 0.001,
+            agent_slug: slug
+          })
+        })
+        const data = await res.json()
+        if (!res.ok || data.error) {
+          console.error(`Backtest failed for ${slug}:`, data.error)
+          return
+        }
+        newResults[slug] = data
       })
-      const data = await res.json()
-      if (!res.ok || data.error) throw new Error(data.error || 'Backtest failed')
-      setResult({ stats: data.stats, bars: data.bars, buyHold: data.buyHold, symbol: data.symbol, period: data.period })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error running backtest')
-    } finally {
-      setLoading(false)
-    }
-  }, [symbol, strategy, period, fee, slippageBps, customParams])
-
-  const runAdvanced = useCallback(async () => {
-    setAdvLoading(true)
-    setAdvError('')
-    const results: Record<string, FullBacktestResult> = {}
-    for (const sym of advSymbols) {
-      for (const strat of advStrategies) {
+      
+      await Promise.all(agentPromises)
+      setResults(newResults)
+      
+      // Fetch benchmarks in parallel
+      const benchSymbols = ['BTC-USD', 'SPY'].filter(s => s !== symbol)
+      const benchPromises = benchSymbols.map(async (bench) => {
         try {
-          const res = await fetch('/api/backtest', {
+          const bRes = await fetch('/api/backtest', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ symbol: sym, strategy: strat, period: advPeriod }),
+            body: JSON.stringify({ symbol: bench, strategy: 'momentum_crossover', period, fee: 0.001 })
           })
-          const data = await res.json()
-          if (res.ok && !data.error) {
-            results[`${sym} · ${strat.replace(/_/g, ' ')}`] = { stats: data.stats, bars: data.bars, buyHold: data.buyHold, symbol: sym, period: data.period }
+          const bData = await bRes.json()
+          if (bRes.ok && !bData.error) {
+            newBenchmarks[bench] = bData
           }
-        } catch { /* skip */ }
+        } catch {}
+      })
+      
+      await Promise.all(benchPromises)
+      setBenchmarks(newBenchmarks)
+      
+      // Run Monte Carlo if enabled (for first selected agent)
+      if (enableMonteCarlo && selectedAgents.length > 0) {
+        const firstAgent = agents.find(a => a.slug === selectedAgents[0])
+        if (firstAgent) {
+          try {
+            const mcRes = await fetch('/api/backtest', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                symbol: firstAgent.primary_symbol || 'BTC-USD',
+                strategy: firstAgent.backtest_strategy || 'momentum_crossover',
+                period,
+                fee: 0.001,
+                monteCarlo: true,
+                nTrials: mcTrials,
+                windowDays: 30,
+              })
+            })
+            const mcData = await mcRes.json()
+            if (mcRes.ok && mcData.monteCarlo) {
+              setMcResults(mcData.monteCarlo)
+            }
+          } catch (e) {
+            console.error('Monte Carlo failed:', e)
+          }
+        }
       }
+      
+      // Run Walk-Forward if enabled
+      if (enableWalkForward && selectedAgents.length > 0) {
+        const firstAgent = agents.find(a => a.slug === selectedAgents[0])
+        if (firstAgent) {
+          try {
+            const wfRes = await fetch('/api/backtest', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                symbol: firstAgent.primary_symbol || 'BTC-USD',
+                strategy: firstAgent.backtest_strategy || 'momentum_crossover',
+                period,
+                fee: 0.001,
+                walkForward: true,
+                trainDays: 252,
+                testDays: 63,
+              })
+            })
+            const wfData = await wfRes.json()
+            if (wfRes.ok && wfData.walkForward) {
+              setWfResults(wfData.walkForward)
+            }
+          } catch (e) {
+            console.error('Walk-forward failed:', e)
+          }
+        }
+      }
+      
+    } catch (e: any) {
+      setError(e.message || 'Backtest failed')
     }
-    setAdvResults(results)
-    setAdvLoading(false)
-  }, [advSymbols, advStrategies, advPeriod])
-
-  const parseCSV = (text: string) => {
-    const lines = text.trim().split('\n')
-    const header = lines[0].toLowerCase().split(',').map(h => h.trim())
-    const dateIdx = header.findIndex(h => h.includes('date') || h.includes('time'))
-    const openIdx = header.findIndex(h => h.includes('open'))
-    const highIdx = header.findIndex(h => h.includes('high'))
-    const lowIdx = header.findIndex(h => h.includes('low'))
-    const closeIdx = header.findIndex(h => h.includes('close') || h.includes('adj'))
-    const volIdx = header.findIndex(h => h.includes('vol'))
-
-    if (closeIdx === -1 || dateIdx === -1) throw new Error('CSV must have Date and Close columns')
-
-    return lines.slice(1).map(line => {
-      const cols = line.split(',').map(c => c.trim().replace(/"/g, ''))
-      const close = parseFloat(cols[closeIdx])
-      return {
-        date: cols[dateIdx].slice(0, 10),
-        open: openIdx >= 0 ? parseFloat(cols[openIdx]) || close : close,
-        high: highIdx >= 0 ? parseFloat(cols[highIdx]) || close : close,
-        low: lowIdx >= 0 ? parseFloat(cols[lowIdx]) || close : close,
-        close,
-        volume: volIdx >= 0 ? parseFloat(cols[volIdx]) || 0 : 0,
-      }
-    }).filter(b => b.close > 0 && !isNaN(b.close) && b.date.length >= 10)
+    setLoading(false)
   }
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setCsvFileName(file.name)
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      try {
-        const text = ev.target?.result as string
-        const parsed = parseCSV(text)
-        if (parsed.length < 60) throw new Error(`Need at least 60 bars, got ${parsed.length}`)
-        setCsvData(parsed)
-        setCsvError('')
-      } catch (err) {
-        setCsvError(err instanceof Error ? err.message : 'Failed to parse CSV')
-        setCsvData(null)
-      }
-    }
-    reader.readAsText(file)
-  }
-
-  const runCsvBacktest = async () => {
-    if (!csvData) return
-    setCsvLoading(true)
-    setCsvError('')
-    setCsvResult(null)
-    try {
-      const res = await fetch('/api/backtest/csv', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bars: csvData, strategy: csvStrategy, fee: csvFee }),
-      })
-      const data = await res.json()
-      if (!res.ok || data.error) throw new Error(data.error || 'Backtest failed')
-      setCsvResult({ stats: data.stats, bars: data.bars, buyHold: data.buyHold, symbol: csvSymbolName, period: `${csvData.length} bars` })
-    } catch (err) {
-      setCsvError(err instanceof Error ? err.message : 'Error running backtest')
-    } finally {
-      setCsvLoading(false)
-    }
-  }
-
-  // Auto-reset custom params when strategy changes
-  useEffect(() => { setCustomParams({}) }, [strategy])
-
-  const activeResult = mode === 'csv' ? csvResult : result
-
-  // ── Monte Carlo ───────────────────────────────────────────────
-  const runMonteCarlo = useCallback(async () => {
-    if (!activeResult) return
-    setMcLoading(true)
-    setMcResult(null)
-    try {
-      const slippageFraction = slippageBps / 10000
-      const res = await fetch('/api/backtest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, strategy, period, fee: fee + slippageFraction, params: customParams, monteCarlo: true, nTrials: 80, windowDays: 180, seed: 42 }),
-      })
-      const data = await res.json()
-      if (!res.ok || data.error) throw new Error(data.error || 'Monte Carlo failed')
-      setMcResult(data.monteCarlo)
-    } catch (e) {
-      setMcResult(null)
-    } finally {
-      setMcLoading(false)
-    }
-  }, [activeResult, symbol, strategy, period, fee, slippageBps, customParams])
-
-  // ── Walk-Forward ──────────────────────────────────────────────
-  const runWalkForward = useCallback(async () => {
-    if (!activeResult) return
-    setWfLoading(true)
-    setWfResult(null)
-    try {
-      const slippageFraction = slippageBps / 10000
-      const res = await fetch('/api/backtest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, strategy, period, fee: fee + slippageFraction, params: customParams, walkForward: true, trainDays: 252, testDays: 63 }),
-      })
-      const data = await res.json()
-      if (!res.ok || data.error) throw new Error(data.error || 'Walk-Forward failed')
-      setWfResult(data.walkForward)
-    } catch (e) {
-      setWfResult(null)
-    } finally {
-      setWfLoading(false)
-    }
-  }, [activeResult, symbol, strategy, period, fee, slippageBps, customParams])
-
-  // ── Saved Backtests ───────────────────────────────────────────
-  const loadSaved = useCallback(async () => {
-    setSavedLoading(true)
-    try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      const res = await fetch('/api/backtest/save?user_id=' + user.id)
-      const data = await res.json()
-      if (data.backtests) setSavedBacktests(data.backtests)
-    } catch { /* ignore */ }
-    finally { setSavedLoading(false) }
-  }, [])
-
-  const saveBacktest = useCallback(async () => {
-    if (!activeResult || !saveName.trim()) return
-    setSaveSaving(true)
-    try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      const res = await fetch('/api/backtest/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: saveName.trim(),
-          symbol: activeResult.symbol,
-          strategy,
-          period: activeResult.period,
-          stats: activeResult.stats,
-          bars: activeResult.bars,
-          buyHold: activeResult.buyHold,
-          user_id: user.id,
-        }),
-      })
-      const data = await res.json()
-      if (data.id) {
-        setSaveName('')
-        loadSaved()
-      }
-    } catch { /* ignore */ }
-    finally { setSaveSaving(false) }
-  }, [activeResult, saveName, strategy, loadSaved])
-
-  const deleteSaved = useCallback(async (id: string) => {
-    try {
-      const res = await fetch('/api/backtest/save?id=' + id, { method: 'DELETE' })
-      if (res.ok) setSavedBacktests(prev => prev.filter(b => b.id !== id))
-    } catch { /* ignore */ }
-  }, [])
-
-  const loadSavedBacktest = useCallback(async (id: string) => {
-    try {
-      const res = await fetch('/api/backtest/save?id=' + id)
-      const data = await res.json()
-      if (data.backtest) {
-        setResult({ stats: data.backtest.results.stats, bars: data.backtest.results.bars, buyHold: data.backtest.results.buyHold, symbol: data.backtest.symbol, period: data.backtest.period })
-        setSymbol(data.backtest.symbol)
-        setStrategy(data.backtest.strategy)
-        setChartView('equity')
-        setMcResult(null)
-        setWfResult(null)
-        setShowSaved(false)
-      }
-    } catch { /* ignore */ }
-  }, [])
-
+  // Auto-run on mount if agents are loaded
   useEffect(() => {
-    if (showSaved) loadSaved()
-  }, [showSaved, loadSaved])
+    if (!loadingAgents && selectedAgents.length > 0 && activeTab === 'agents') {
+      runBacktest()
+    }
+  }, [loadingAgents, activeTab])
 
-  // Build chart data with drawdown
-  const chartData = activeResult?.bars.map(b => ({
-    date: b.date,
-    strategy: Math.round(b.equity),
-    buyHold: undefined as number | undefined,
-    drawdown: 0,
-  })) ?? []
-
-  if (activeResult?.buyHold) {
-    activeResult.buyHold.forEach((b, i) => {
-      if (chartData[i]) chartData[i].buyHold = Math.round(b.equity)
+  const handleCsvUpload = async (file: File) => {
+    setCsvFile(file)
+    const text = await file.text()
+    const lines = text.split('\n').filter(l => l.trim())
+    const headers = lines[0].split(',').map(h => h.trim())
+    const data = lines.slice(1).map(line => {
+      const values = line.split(',').map(v => v.trim())
+      return headers.reduce((obj: any, h, i) => ({ ...obj, [h]: isNaN(Number(values[i])) ? values[i] : Number(values[i]) }), {})
     })
+    setCsvData(data)
   }
 
-  // Compute drawdown series
-  let peak = 0
-  chartData.forEach((d, i) => {
-    const equity = activeResult?.bars[i]?.equity ?? 0
-    if (equity > peak) peak = equity
-    d.drawdown = peak > 0 ? ((equity - peak) / peak) * 100 : 0
-  })
+  const toggleAgent = (slug: string) => {
+    if (selectedAgents.includes(slug)) {
+      setSelectedAgents(selectedAgents.filter(s => s !== slug))
+    } else {
+      setSelectedAgents([...selectedAgents, slug])
+    }
+  }
 
-  // Compute monthly returns
-  const monthlyReturns: Array<{ month: string; year: number; returnPct: number; isPositive: boolean }> = []
-  if (activeResult?.bars) {
-    const byYearMonth = new Map<string, { start: number; end: number }>()
-    activeResult.bars.forEach(b => {
-      const ym = b.date.slice(0, 7) // "2024-01"
-      const existing = byYearMonth.get(ym)
-      if (!existing) byYearMonth.set(ym, { start: b.equity, end: b.equity })
-      else existing.end = b.equity
-    })
-    byYearMonth.forEach((v, ym) => {
-      monthlyReturns.push({
-        month: ym,
-        year: parseInt(ym.slice(0, 4)),
-        returnPct: v.start > 0 ? ((v.end - v.start) / v.start) * 100 : 0,
-        isPositive: v.end >= v.start,
+  const chartData = useMemo(() => {
+    if (Object.keys(results).length === 0 || !results[selectedAgents[0]]?.bars) return []
+    
+    const firstAgent = selectedAgents[0]
+    const firstBars = results[firstAgent].bars
+    if (!firstBars?.length) return []
+    
+    const startEquity = firstBars[0]?.equity || 10000
+    
+    return firstBars.map((bar: any, i: number) => {
+      const point: any = { date: bar.date?.slice(5) || '' }
+      
+      // Normalize agent results to percentage
+      selectedAgents.forEach(slug => {
+        if (results[slug]?.bars?.[i]) {
+          const equity = results[slug].bars[i].equity
+          point[slug] = ((equity - startEquity) / startEquity) * 100
+        }
       })
+      
+      // Normalize benchmarks
+      Object.keys(benchmarks).forEach(bench => {
+        if (benchmarks[bench]?.bars?.[i]) {
+          const equity = benchmarks[bench].bars[i].equity
+          point[bench] = ((equity - startEquity) / startEquity) * 100
+        }
+      })
+      
+      return point
     })
-    monthlyReturns.sort((a, b) => a.month.localeCompare(b.month))
-  }
+  }, [results, benchmarks, selectedAgents])
 
-  const isPositive = (activeResult?.stats.totalReturnPct ?? 0) >= 0
+  const fmtPct = (v: number) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : '—'
+  
+  const agentColors = ['#5B8CFF', '#19E6A7', '#FFB648', '#FF6B7A', '#8B5CF6', '#F472B6', '#34D399', '#FBBF24']
 
   return (
-    <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 100px)', background: colors.bg, color: colors.text }}>
+      
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '1.75rem', flexWrap: 'wrap', gap: '1rem' }}>
-        <div>
-          <div className="eyebrow" style={{ marginBottom: '.3rem' }}>RESEARCH LAB</div>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.85rem', fontWeight: 700, letterSpacing: '-0.02em' }}>Strategy Backtest</h1>
-        </div>
-        <div style={{ fontSize: '0.75rem', color: 'var(--faint)', maxWidth: 320, textAlign: 'right' }}>
-          Historical simulation with fees + slippage. Past performance does not guarantee future results.
-        </div>
-      </div>
-
-      {/* Mode tabs */}
-      <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.75rem', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '0.3rem', width: 'fit-content' }}>
-        {(['simple', 'advanced', 'csv'] as const).map(m => (
-          <button key={m} onClick={() => setMode(m)} style={{
-            padding: '0.45rem 1.1rem', borderRadius: 8, border: 'none',
-            background: mode === m ? 'var(--blue)' : 'transparent',
-            color: mode === m ? '#fff' : 'var(--muted)',
-            fontSize: '0.78rem', fontWeight: mode === m ? 700 : 500, cursor: 'pointer',
-            textTransform: 'capitalize', transition: 'all 0.15s',
-          }}>
-            {m === 'csv' ? 'CSV Upload' : m.charAt(0).toUpperCase() + m.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      {/* ── SIMPLE MODE ─────────────────────────────────────────── */}
-      {mode === 'simple' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '1.5rem', alignItems: 'start' }} className="backtest-grid">
-          {/* Controls */}
-          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-
-            {/* Asset */}
-            <div>
-              <label style={{ display: 'block', fontSize: '0.65rem', color: 'var(--faint)', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}>ASSET</label>
-              <input
-                type="text"
-                value={search || symbol}
-                onChange={e => { setSearch(e.target.value); const v = e.target.value.toUpperCase().trim(); if (ALL_ASSETS.includes(v)) { setSymbol(v); setSearch('') } }}
-                onBlur={() => { if (search && !ALL_ASSETS.includes(search.toUpperCase())) setSearch('') }}
-                placeholder="Search symbol..."
-                style={{ width: '100%', padding: '0.65rem 0.75rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg3)', color: 'var(--white)', fontSize: '0.85rem', fontFamily: 'var(--font-mono)', boxSizing: 'border-box' }}
-              />
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.5rem', maxHeight: 96, overflowY: 'auto' }}>
-                {filteredAssets.map(s => (
-                  <button key={s} onClick={() => { setSymbol(s); setSearch('') }} style={{
-                    padding: '0.25rem 0.55rem', borderRadius: 5,
-                    border: symbol === s ? '1px solid var(--blue)' : '1px solid var(--border)',
-                    background: symbol === s ? 'rgba(59,127,255,0.2)' : 'var(--bg3)',
-                    color: symbol === s ? 'var(--blue)' : 'var(--muted)',
-                    fontSize: '0.65rem', cursor: 'pointer', fontWeight: symbol === s ? 700 : 400,
-                  }}>{s}</button>
-                ))}
-              </div>
-            </div>
-
-            {/* Strategy */}
-            <div>
-              <label style={{ display: 'block', fontSize: '0.65rem', color: 'var(--faint)', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}>STRATEGY</label>
-              <select value={strategy} onChange={e => setStrategy(e.target.value)} style={{ width: '100%', padding: '0.65rem 0.75rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg3)', color: 'var(--white)', fontSize: '0.82rem', boxSizing: 'border-box' }}>
-                {Object.entries(STRATEGIES).map(([id, meta]) => (
-                  <option key={id} value={id}>{meta.name}</option>
-                ))}
-              </select>
-              <p style={{ fontSize: '0.68rem', color: 'var(--muted)', marginTop: '0.4rem', lineHeight: 1.4 }}>{stratMeta?.plainEnglish}</p>
-            </div>
-
-            {/* Period + Fee row */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.65rem', color: 'var(--faint)', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}>PERIOD</label>
-                <select value={period} onChange={e => setPeriod(e.target.value)} style={{ width: '100%', padding: '0.65rem 0.5rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg3)', color: 'var(--white)', fontSize: '0.8rem', boxSizing: 'border-box' }}>
-                  {PERIODS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.65rem', color: 'var(--faint)', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}>FEE (bps)</label>
-                <input type="number" min={0} max={100} step={1} value={Math.round(fee * 10000)} onChange={e => setFee(Number(e.target.value) / 10000)} style={{ width: '100%', padding: '0.65rem 0.5rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg3)', color: 'var(--white)', fontSize: '0.8rem', boxSizing: 'border-box' }} />
-              </div>
-            </div>
-
-            {/* Slippage */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
-                <label style={{ fontSize: '0.65rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}>SLIPPAGE (bps)</label>
-                <span style={{ fontSize: '0.65rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{slippageBps} bps</span>
-              </div>
-              <input type="range" min={0} max={50} step={1} value={slippageBps} onChange={e => setSlippageBps(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--blue)' }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.2rem' }}>
-                <span style={{ fontSize: '0.58rem', color: 'var(--faint)' }}>0 (liquid ETF)</span>
-                <span style={{ fontSize: '0.58rem', color: 'var(--faint)' }}>50 (illiquid crypto)</span>
-              </div>
-            </div>
-
-            {/* Advanced params toggle */}
-            {stratMeta?.paramSchema && (
-              <div>
-                <button onClick={() => setShowAdvParams(!showAdvParams)} style={{ background: 'none', border: 'none', color: 'var(--blue)', fontSize: '0.72rem', cursor: 'pointer', padding: 0, fontFamily: 'var(--font-mono)' }}>
-                  {showAdvParams ? '▾' : '▸'} Strategy parameters
-                </button>
-                {showAdvParams && (
-                  <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                    {stratMeta.paramSchema.map(param => (
-                      <div key={param.key}>
-                        <label style={{ display: 'block', fontSize: '0.62rem', color: 'var(--faint)', marginBottom: '0.25rem' }}>{param.label}</label>
-                        <input
-                          type="number"
-                          step={param.step}
-                          min={param.min}
-                          max={param.max}
-                          value={customParams[param.key] ?? stratMeta.defaultParams[param.key]}
-                          onChange={e => setCustomParams(prev => ({ ...prev, [param.key]: Number(e.target.value) }))}
-                          style={{ width: '100%', padding: '0.5rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg3)', color: 'var(--white)', fontSize: '0.8rem', boxSizing: 'border-box' }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <button onClick={runBacktest} disabled={loading} className="btn-primary" style={{ width: '100%', padding: '0.85rem', borderRadius: 10, fontSize: '0.88rem', fontWeight: 700, opacity: loading ? 0.6 : 1 }}>
-              {loading ? 'Running…' : 'Run Backtest →'}
-            </button>
-
-            {error && (
-              <div style={{ padding: '0.75rem', borderRadius: 8, background: 'rgba(255,90,95,0.1)', border: '1px solid rgba(255,90,95,0.3)', color: '#FF5A5F', fontSize: '0.78rem' }}>{error}</div>
-            )}
-          </div>
-
-          {/* Results */}
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: `1px solid ${colors.border}`, background: colors.bg2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <div>
-            {!result && !loading && (
-              <div style={{ background: 'var(--bg2)', border: '1px dashed var(--border)', borderRadius: 16, padding: '4rem 2rem', textAlign: 'center' }}>
-                <div style={{ color: 'var(--faint)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Configure a strategy and hit Run</div>
-                <div style={{ color: 'var(--faint)', fontSize: '0.75rem' }}>Fees + slippage are applied on every trade</div>
-              </div>
-            )}
-
-            {loading && (
-              <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '4rem 2rem', textAlign: 'center' }}>
-                <div style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Fetching market data and running simulation…</div>
-              </div>
-            )}
-
-            {result && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                {/* Header row with save button */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--faint)', letterSpacing: '0.08em' }}>
-                    {result.symbol} · {result.period}
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button onClick={() => { setSaveName(`${result.symbol} ${STRATEGIES[strategy as keyof typeof STRATEGIES]?.name ?? strategy}`); setSaveSaving(false) }} className="btn-primary" style={{ padding: '0.45rem 1rem', borderRadius: 8, fontSize: '0.72rem', fontWeight: 600, background: 'var(--bg3)', border: '1px solid var(--border)', color: 'var(--muted)', cursor: 'pointer' }}>
-                      Save
-                    </button>
-                    <button onClick={() => setShowSaved(s => !s)} className="btn-primary" style={{ padding: '0.45rem 1rem', borderRadius: 8, fontSize: '0.72rem', fontWeight: 600, background: 'var(--bg3)', border: '1px solid var(--border)', color: 'var(--muted)', cursor: 'pointer' }}>
-                      History {savedBacktests.length > 0 ? `(${savedBacktests.length})` : ''}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Save modal */}
-                {saveName && !saveSaving && (
-                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--blue)', borderRadius: 10, padding: '1rem', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                    <input
-                      type="text"
-                      value={saveName}
-                      onChange={e => setSaveName(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && saveBacktest()}
-                      placeholder="Backtest name..."
-                      style={{ flex: 1, padding: '0.5rem 0.75rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg3)', color: 'var(--white)', fontSize: '0.82rem', boxSizing: 'border-box' }}
-                    />
-                    <button onClick={saveBacktest} style={{ padding: '0.5rem 1rem', borderRadius: 6, background: 'var(--blue)', border: 'none', color: '#fff', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}>Save</button>
-                    <button onClick={() => setSaveName('')} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, background: 'var(--bg3)', border: '1px solid var(--border)', color: 'var(--muted)', fontSize: '0.78rem', cursor: 'pointer' }}>✕</button>
-                  </div>
-                )}
-                {saveSaving && <div style={{ color: 'var(--muted)', fontSize: '0.78rem' }}>Saving…</div>}
-
-                {/* Saved backtests panel */}
-                {showSaved && (
-                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '1rem' }}>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: '0.75rem' }}>SAVED BACKTESTS</div>
-                    {savedLoading ? (
-                      <div style={{ color: 'var(--faint)', fontSize: '0.78rem' }}>Loading…</div>
-                    ) : savedBacktests.length === 0 ? (
-                      <div style={{ color: 'var(--faint)', fontSize: '0.78rem' }}>No saved backtests yet</div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                        {savedBacktests.map(b => (
-                          <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.6rem', background: 'var(--bg3)', borderRadius: 6 }}>
-                            <div style={{ cursor: 'pointer' }} onClick={() => loadSavedBacktest(b.id)}>
-                              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--white)' }}>{b.name}</div>
-                              <div style={{ fontSize: '0.62rem', color: 'var(--faint)' }}>{b.symbol} · {b.strategy} · {fmtPct(b.totalReturn)} · Sharpe {fmt2(b.sharpe)}</div>
-                            </div>
-                            <button onClick={() => deleteSaved(b.id)} style={{ background: 'none', border: 'none', color: 'var(--faint)', cursor: 'pointer', fontSize: '0.7rem', padding: '0.25rem' }}>✕</button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Primary stats row */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '0.75rem' }}>
-                  <StatCard label="Total Return" value={fmtPct(result.stats.totalReturnPct)} color={colorOf(result.stats.totalReturnPct)} />
-                  <StatCard label="Ann. Return" value={fmtPct(result.stats.annualizedReturnPct)} color={colorOf(result.stats.annualizedReturnPct)} />
-                  <StatCard label="Sharpe" value={fmt2(result.stats.sharpeRatio)} color={result.stats.sharpeRatio > 1 ? '#00E599' : result.stats.sharpeRatio > 0 ? 'var(--white)' : '#FF5A5F'} />
-                  <StatCard label="Max Drawdown" value={fmtPct(-result.stats.maxDrawdownPct)} color="#FF5A5F" sub={result.stats.maxDrawdownDuration > 0 ? `${result.stats.maxDrawdownDuration}d duration` : undefined} />
-                </div>
-
-                {/* Chart with view tabs */}
-                <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.5rem' }}>
-                  {/* View tabs */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <div style={{ display: 'flex', gap: '0.25rem', background: 'var(--bg3)', borderRadius: 8, padding: '0.25rem' }}>
-                      {(['equity', 'drawdown', 'monthly'] as const).map(v => (
-                        <button key={v} onClick={() => setChartView(v)} style={{
-                          padding: '0.3rem 0.75rem', borderRadius: 6, border: 'none',
-                          background: chartView === v ? 'var(--blue)' : 'transparent',
-                          color: chartView === v ? '#fff' : 'var(--muted)',
-                          fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer',
-                          textTransform: 'capitalize', transition: 'all 0.15s',
-                        }}>
-                          {v === 'equity' ? 'Equity' : v === 'drawdown' ? 'Drawdown' : 'Monthly'}
-                        </button>
-                      ))}
-                    </div>
-                    {chartView === 'equity' && (
-                      <div style={{ display: 'flex', gap: '1rem', fontFamily: 'var(--font-mono)', fontSize: '0.62rem' }}>
-                        <span style={{ color: isPositive ? '#00E599' : '#FF5A5F' }}>● Strategy</span>
-                        <span style={{ color: 'var(--faint)' }}>● Buy & Hold</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Equity chart */}
-                  {chartView === 'equity' && (
-                    <ResponsiveContainer width="100%" height={260}>
-                      <AreaChart data={chartData}>
-                        <defs>
-                          <linearGradient id="stratGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor={isPositive ? '#00E599' : '#FF5A5F'} stopOpacity={0.25} />
-                            <stop offset="100%" stopColor={isPositive ? '#00E599' : '#FF5A5F'} stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 9 }} tickFormatter={v => v.slice(5)} interval="preserveStartEnd" />
-                        <YAxis tick={{ fill: 'var(--faint)', fontSize: 9 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} domain={['auto', 'auto']} />
-                        <Tooltip content={<ChartTooltip />} />
-                        <ReferenceLine y={10000} stroke="var(--border)" strokeDasharray="3 3" />
-                        <Area type="monotone" dataKey="strategy" stroke={isPositive ? '#00E599' : '#FF5A5F'} strokeWidth={2} fill="url(#stratGrad)" dot={false} />
-                        <Area type="monotone" dataKey="buyHold" stroke="rgba(255,255,255,0.2)" strokeWidth={1} fill="none" dot={false} strokeDasharray="4 2" />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  )}
-
-                  {/* Drawdown chart */}
-                  {chartView === 'drawdown' && (
-                    <ResponsiveContainer width="100%" height={260}>
-                      <AreaChart data={chartData}>
-                        <defs>
-                          <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#FF5A5F" stopOpacity={0.4} />
-                            <stop offset="100%" stopColor="#FF5A5F" stopOpacity={0.05} />
-                          </linearGradient>
-                        </defs>
-                        <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 9 }} tickFormatter={v => v.slice(5)} interval="preserveStartEnd" />
-                        <YAxis tick={{ fill: 'var(--faint)', fontSize: 9 }} tickFormatter={v => `${v.toFixed(1)}%`} domain={['auto', 0]} orientation="right" />
-                        <Tooltip content={({ active, payload, label }: any) => active && payload?.[0] ? (
-                          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
-                            <div style={{ color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
-                            <div style={{ color: '#FF5A5F' }}>Drawdown: {Number(payload[0].value).toFixed(2)}%</div>
-                          </div>
-                        ) : null} />
-                        <Area type="monotone" dataKey="drawdown" stroke="#FF5A5F" strokeWidth={1.5} fill="url(#ddGrad)" dot={false} />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  )}
-
-                  {/* Monthly returns heatmap */}
-                  {chartView === 'monthly' && monthlyReturns.length > 0 && (
-                    <div>
-                      {(() => {
-                        const allYears = [...new Set(monthlyReturns.map(m => m.year))].sort()
-                        const MONTHS = ['01','02','03','04','05','06','07','08','09','10','11','12']
-                        return (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                            {allYears.map(year => (
-                              <div key={year} style={{ display: 'flex', gap: '0.15rem', alignItems: 'center' }}>
-                                <div style={{ width: 36, fontSize: '0.58rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>{year}</div>
-                                <div style={{ display: 'flex', gap: '0.15rem', flex: 1 }}>
-                                  {MONTHS.map(month => {
-                                    const m = monthlyReturns.find(mr => mr.month === `${year}-${month}`)
-                                    if (!m) return <div key={month} style={{ width: 20, height: 20 }} />
-                                    const intensity = Math.min(0.15 + Math.abs(m.returnPct) / 20 * 0.75, 0.9)
-                                    return (
-                                      <div key={month} title={`${m.month}: ${fmtPct(m.returnPct)}`}
-                                        style={{
-                                          width: 20, height: 20, borderRadius: 3,
-                                          background: m.isPositive
-                                            ? `rgba(0,229,153,${intensity})`
-                                            : `rgba(255,90,95,${intensity})`,
-                                          border: '1px solid rgba(255,255,255,0.05)',
-                                        }}
-                                      />
-                                    )
-                                  })}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )
-                      })()}
-                      <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.58rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)' }}>Legend:</span>
-                        <div style={{ display: 'flex', gap: '0.2rem', alignItems: 'center' }}>
-                          <div style={{ width: 12, height: 12, borderRadius: 2, background: 'rgba(255,90,95,0.8)' }} />
-                          <span style={{ fontSize: '0.58rem', color: 'var(--faint)' }}>Loss</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: '0.2rem', alignItems: 'center' }}>
-                          <div style={{ width: 12, height: 12, borderRadius: 2, background: 'rgba(0,229,153,0.8)' }} />
-                          <span style={{ fontSize: '0.58rem', color: 'var(--faint)' }}>Gain</span>
-                        </div>
-                        <span style={{ fontSize: '0.58rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)' }}>Intensity = return magnitude</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Analysis tools row */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: '0.75rem' }}>
-                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '1rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--muted)', letterSpacing: '0.08em' }}>MONTE Carlo — 80 trials</div>
-                      <button onClick={runMonteCarlo} disabled={mcLoading} style={{
-                        padding: '0.35rem 0.85rem', borderRadius: 6, border: '1px solid var(--border)',
-                        background: mcLoading ? 'var(--bg3)' : 'var(--bg3)', color: 'var(--muted)',
-                        fontSize: '0.68rem', fontWeight: 600, cursor: mcLoading ? 'default' : 'pointer',
-                      }}>
-                        {mcLoading ? 'Running…' : 'Run'}
-                      </button>
-                    </div>
-                    {mcResult && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '0.5rem' }}>
-                        <StatCard label="Median Return" value={fmtPct(mcResult.medianReturn)} color={colorOf(mcResult.medianReturn)} />
-                        <StatCard label="Beat Rate" value={`${(mcResult.beatRate * 100).toFixed(0)}%`} color={mcResult.beatRate > 0.5 ? '#00E599' : 'var(--white)'} />
-                        <StatCard label="P90 Return" value={fmtPct(mcResult.p90Return)} color="#00E599" />
-                        <StatCard label="P10 Return" value={fmtPct(mcResult.p10Return)} color="#FF5A5F" />
-                        <StatCard label="Median Sharpe" value={fmt2(mcResult.medianSharpe)} color={mcResult.medianSharpe > 1 ? '#00E599' : 'var(--white)'} />
-                        <StatCard label="Median DD" value={fmtPct(-mcResult.medianMaxDrawdown)} color="#FF5A5F" />
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '1rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--muted)', letterSpacing: '0.08em' }}>WALK-FORWARD — 252d train / 63d test</div>
-                      <button onClick={runWalkForward} disabled={wfLoading} style={{
-                        padding: '0.35rem 0.85rem', borderRadius: 6, border: '1px solid var(--border)',
-                        background: wfLoading ? 'var(--bg3)' : 'var(--bg3)', color: 'var(--muted)',
-                        fontSize: '0.68rem', fontWeight: 600, cursor: wfLoading ? 'default' : 'pointer',
-                      }}>
-                        {wfLoading ? 'Running…' : 'Run'}
-                      </button>
-                    </div>
-                    {wfResult && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '0.5rem' }}>
-                        <StatCard label="Avg Return" value={fmtPct(wfResult.avgReturn)} color={colorOf(wfResult.avgReturn)} />
-                        <StatCard label="Avg Sharpe" value={fmt2(wfResult.avgSharpe)} color={wfResult.avgSharpe > 1 ? '#00E599' : 'var(--white)'} />
-                        <StatCard label="Beat Buy-Hold" value={`${(wfResult.beatBuyHoldRate * 100).toFixed(0)}%`} color={wfResult.beatBuyHoldRate > 0.5 ? '#00E599' : 'var(--white)'} />
-                        <StatCard label="Consistency" value={`${(wfResult.consistencyRatio * 100).toFixed(0)}%`} />
-                        <StatCard label="Windows" value={String(wfResult.nWindows)} />
-                        <StatCard label="Outperformance" value={fmtPct(wfResult.avgSharpe > 0 ? wfResult.avgReturn - (activeResult?.stats.annualizedReturnPct ?? 0) : 0)} color={colorOf(wfResult.avgReturn - (activeResult?.stats.annualizedReturnPct ?? 0))} />
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Full stats grid */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '0.75rem' }}>
-                  <StatCard label="Sortino" value={fmt2(result.stats.sortinoRatio)} color={result.stats.sortinoRatio > 1 ? '#00E599' : 'var(--white)'} />
-                  <StatCard label="Calmar" value={fmt2(result.stats.calmarRatio)} color={result.stats.calmarRatio > 0.5 ? '#00E599' : 'var(--white)'} />
-                  <StatCard label="Profit Factor" value={result.stats.profitFactor >= 999 ? '∞' : fmt2(result.stats.profitFactor)} color={result.stats.profitFactor > 1.5 ? '#00E599' : result.stats.profitFactor > 1 ? 'var(--white)' : '#FF5A5F'} />
-                  <StatCard label="Exposure" value={`${result.stats.exposureTime?.toFixed(0) ?? '—'}%`} sub="time in market" />
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '0.75rem' }}>
-                  <StatCard label="Win Rate" value={result.stats.winRate > 0 ? `${result.stats.winRate.toFixed(0)}%` : '—'} color={result.stats.winRate > 50 ? '#00E599' : 'var(--white)'} />
-                  <StatCard label="Trades" value={String(result.stats.totalTrades || '—')} sub={`${result.stats.profitableTrades ?? 0} profitable`} />
-                  <StatCard label="Avg Win" value={fmtPct(result.stats.avgWin)} color="#00E599" />
-                  <StatCard label="Avg Loss" value={fmtPct(result.stats.avgLoss)} color="#FF5A5F" />
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '0.75rem' }}>
-                  <StatCard label="Best Trade" value={fmtPct(result.stats.bestTradePct)} color="#00E599" />
-                  <StatCard label="Worst Trade" value={fmtPct(result.stats.worstTradePct)} color="#FF5A5F" />
-                  <StatCard label="Avg Duration" value={`${result.stats.avgTradeDurationDays ?? '—'}d`} sub="per trade" />
-                </div>
-              </div>
-            )}
+            <h1 style={{ fontSize: '1.35rem', fontWeight: 700, color: colors.white, margin: 0 }}>Agent Backtest Comparison</h1>
+            <p style={{ fontSize: '.7rem', color: colors.muted, margin: '4px 0 0' }}>Compare agent performance against benchmarks</p>
           </div>
+          <Link href="/dashboard/backtest/guide" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '.25rem .6rem', borderRadius: 6, border: `1px solid ${colors.border}`, background: colors.bg3, color: colors.faint, fontSize: '.6rem', textDecoration: 'none' }}>
+            <BookOpen size={12} />Guide
+          </Link>
         </div>
-      )}
+        <button onClick={runBacktest} disabled={loading || selectedAgents.length === 0} style={{ padding: '.45rem 1rem', borderRadius: 8, border: 'none', background: loading ? colors.bg3 : colors.blue, color: '#fff', fontSize: '.7rem', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+          {loading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+          {loading ? 'Running...' : 'Run Backtest'}
+        </button>
+      </header>
 
-      {/* ── ADVANCED COMPARE MODE ────────────────────────────────── */}
-      {mode === 'advanced' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.5rem' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--muted)', letterSpacing: '0.1em', marginBottom: '1.25rem' }}>CROSS-ASSET & STRATEGY COMPARISON</div>
+      {/* Tab Navigation */}
+      <div style={{ display: 'flex', gap: '0.25rem', padding: '0.75rem 1.5rem', borderBottom: `1px solid ${colors.border}`, background: colors.bg2 }}>
+        <button onClick={() => setActiveTab('agents')} style={{ padding: '0.5rem 1rem', borderRadius: 6, border: 'none', background: activeTab === 'agents' ? colors.blue : 'transparent', color: activeTab === 'agents' ? colors.white : colors.muted, cursor: 'pointer', fontSize: '0.8rem', fontWeight: activeTab === 'agents' ? 600 : 400 }}>Agents</button>
+        <button onClick={() => setActiveTab('data')} style={{ padding: '0.5rem 1rem', borderRadius: 6, border: 'none', background: activeTab === 'data' ? colors.blue : 'transparent', color: activeTab === 'data' ? colors.white : colors.muted, cursor: 'pointer', fontSize: '0.8rem', fontWeight: activeTab === 'data' ? 600 : 400 }}>Data</button>
+      </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.25rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.65rem', color: 'var(--faint)', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}>ASSETS (comma-separated)</label>
-                <input
-                  type="text"
-                  value={advInput}
-                  onChange={e => { setAdvInput(e.target.value); setAdvSymbols(e.target.value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)) }}
-                  placeholder="SPY, QQQ, BTC-USD, AAPL..."
-                  style={{ width: '100%', padding: '0.65rem 0.75rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg3)', color: 'var(--white)', fontSize: '0.85rem', fontFamily: 'var(--font-mono)', boxSizing: 'border-box' }}
-                />
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.5rem' }}>
-                  {['SPY', 'QQQ', 'BTC-USD', 'ETH-USD', 'AAPL', 'NVDA', 'TLT', 'GLD'].map(s => (
-                    <button key={s} onClick={() => { const list = advSymbols.includes(s) ? advSymbols.filter(x => x !== s) : [...advSymbols, s]; setAdvSymbols(list); setAdvInput(list.join(', ')) }} style={{ padding: '0.25rem 0.5rem', borderRadius: 5, border: '1px solid var(--border)', background: advSymbols.includes(s) ? 'var(--blue)' : 'var(--bg3)', color: advSymbols.includes(s) ? '#fff' : 'var(--muted)', fontSize: '0.62rem', cursor: 'pointer' }}>{s}</button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.65rem', color: 'var(--faint)', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}>STRATEGIES</label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
-                  {Object.entries(STRATEGIES).map(([id, meta]) => (
-                    <button key={id} onClick={() => setAdvStrategies(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])} style={{ padding: '0.3rem 0.6rem', borderRadius: 6, border: '1px solid var(--border)', background: advStrategies.includes(id) ? 'var(--mint)' : 'var(--bg3)', color: advStrategies.includes(id) ? '#000' : 'var(--muted)', fontSize: '0.62rem', cursor: 'pointer', fontWeight: advStrategies.includes(id) ? 700 : 400 }}>{meta.name}</button>
-                  ))}
-                </div>
-              </div>
-            </div>
+      {/* Controls */}
+      {activeTab === 'agents' && (
+      <div style={{ display: 'flex', gap: '.75rem', padding: '1rem 1.5rem', borderBottom: `1px solid ${colors.border}`, background: colors.bg2, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+          <span style={{ fontSize: '.55rem', color: colors.faint, letterSpacing: '.1em' }}>PERIOD</span>
+          <select value={period} onChange={e => setPeriod(e.target.value)} style={{ padding: '.35rem .5rem', borderRadius: 6, border: `1px solid ${colors.border}`, background: colors.bg3, color: colors.text, fontSize: '.65rem' }}>
+            {PERIODS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+          </select>
+        </div>
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.3rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={enableMonteCarlo} onChange={e => setEnableMonteCarlo(e.target.checked)} style={{ accentColor: colors.blue }} />
+            <span style={{ fontSize: '.55rem', color: colors.faint }}>Monte Carlo</span>
+          </label>
+          {enableMonteCarlo && (
+            <select value={mcTrials} onChange={e => setMcTrials(Number(e.target.value))} style={{ padding: '.25rem .4rem', borderRadius: 4, border: `1px solid ${colors.border}`, background: colors.bg3, color: colors.text, fontSize: '.55rem' }}>
+              <option value={50}>50 runs</option>
+              <option value={100}>100 runs</option>
+              <option value={500}>500 runs</option>
+              <option value={1000}>1000 runs</option>
+            </select>
+          )}
+        </div>
 
-            <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.65rem', color: 'var(--faint)', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}>PERIOD</label>
-                <select value={advPeriod} onChange={e => setAdvPeriod(e.target.value)} style={{ padding: '0.65rem 0.75rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg3)', color: 'var(--white)', fontSize: '0.82rem' }}>
-                  {PERIODS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                </select>
-              </div>
-              <button onClick={runAdvanced} disabled={advLoading || advSymbols.length === 0 || advStrategies.length === 0} className="btn-primary" style={{ padding: '0.65rem 1.75rem', borderRadius: 10, fontWeight: 700, fontSize: '0.85rem', opacity: advLoading ? 0.6 : 1 }}>
-                {advLoading ? 'Running…' : `Run ${advSymbols.length * advStrategies.length} Backtests →`}
-              </button>
-            </div>
-            {advError && <div style={{ marginTop: '0.75rem', color: '#FF5A5F', fontSize: '0.78rem' }}>{advError}</div>}
-          </div>
-
-          {Object.keys(advResults).length > 0 && (
-            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', fontFamily: 'var(--font-mono)' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg3)' }}>
-                    {['Asset · Strategy', 'Return', 'Ann. Return', 'Sharpe', 'Sortino', 'Max DD', 'Win Rate', 'Profit Factor', 'Trades'].map(h => (
-                      <th key={h} style={{ padding: '0.7rem 0.85rem', textAlign: h === 'Asset · Strategy' ? 'left' : 'right', color: 'var(--faint)', fontWeight: 600, fontSize: '0.58rem', letterSpacing: '0.05em' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(advResults)
-                    .sort((a, b) => b[1].stats.sharpeRatio - a[1].stats.sharpeRatio)
-                    .map(([key, r]) => (
-                      <tr key={key} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '0.65rem 0.85rem', fontWeight: 600, color: 'var(--white)' }}>{key}</td>
-                        <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right', color: colorOf(r.stats.totalReturnPct) }}>{fmtPct(r.stats.totalReturnPct)}</td>
-                        <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right', color: colorOf(r.stats.annualizedReturnPct) }}>{fmtPct(r.stats.annualizedReturnPct)}</td>
-                        <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right', color: r.stats.sharpeRatio > 1 ? '#00E599' : 'var(--muted)' }}>{fmt2(r.stats.sharpeRatio)}</td>
-                        <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right', color: r.stats.sortinoRatio > 1 ? '#00E599' : 'var(--muted)' }}>{fmt2(r.stats.sortinoRatio)}</td>
-                        <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right', color: '#FF5A5F' }}>{fmtPct(-r.stats.maxDrawdownPct)}</td>
-                        <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right' }}>{r.stats.winRate > 0 ? `${r.stats.winRate.toFixed(0)}%` : '—'}</td>
-                        <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right', color: r.stats.profitFactor > 1.5 ? '#00E599' : 'var(--muted)' }}>{r.stats.profitFactor >= 999 ? '∞' : fmt2(r.stats.profitFactor)}</td>
-                        <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right', color: 'var(--muted)' }}>{r.stats.totalTrades}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.3rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={enableWalkForward} onChange={e => setEnableWalkForward(e.target.checked)} style={{ accentColor: colors.mint }} />
+            <span style={{ fontSize: '.55rem', color: colors.faint }}>Walk-Forward</span>
+          </label>
+        </div>
+        
+        <div style={{ borderLeft: `1px solid ${colors.border}`, paddingLeft: '.75rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+          <span style={{ fontSize: '.55rem', color: colors.faint, letterSpacing: '.1em' }}>AGENTS</span>
+          {loadingAgents ? (
+            <span style={{ fontSize: '.65rem', color: colors.muted }}>Loading...</span>
+          ) : (
+            <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
+              {agents.map((agent, idx) => (
+                <button key={agent.slug} onClick={() => toggleAgent(agent.slug)} style={{ padding: '.25rem .5rem', borderRadius: 4, border: `1px solid ${selectedAgents.includes(agent.slug) ? agentColors[idx % agentColors.length] : colors.border}`, background: selectedAgents.includes(agent.slug) ? `${agentColors[idx % agentColors.length]}20` : 'transparent', color: selectedAgents.includes(agent.slug) ? agentColors[idx % agentColors.length] : colors.muted, fontSize: '.55rem', cursor: 'pointer' }}>
+                  {agent.ticker || agent.slug}
+                </button>
+              ))}
             </div>
           )}
         </div>
+      </div>
       )}
 
-      {/* ── CSV UPLOAD MODE ──────────────────────────────────────── */}
-      {mode === 'csv' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '1.5rem', alignItems: 'start' }} className="backtest-grid">
-          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            {/* File upload */}
-            <div>
-              <label style={{ display: 'block', fontSize: '0.65rem', color: 'var(--faint)', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}>CSV FILE</label>
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                style={{ border: '2px dashed var(--border)', borderRadius: 10, padding: '1.5rem', textAlign: 'center', cursor: 'pointer', transition: 'border-color 0.15s' }}
-                onDragOver={e => e.preventDefault()}
-                onDrop={e => { e.preventDefault(); const file = e.dataTransfer.files[0]; if (file && fileInputRef.current) { const dt = new DataTransfer(); dt.items.add(file); fileInputRef.current.files = dt.files; handleFileUpload({ target: fileInputRef.current } as React.ChangeEvent<HTMLInputElement>) } }}
-              >
-                {csvData ? (
-                  <div>
-                    <div style={{ color: '#00E599', fontSize: '0.85rem', fontWeight: 600 }}>{csvFileName}</div>
-                    <div style={{ color: 'var(--muted)', fontSize: '0.72rem', marginTop: '0.25rem' }}>{csvData.length} bars · {csvData[0].date} → {csvData[csvData.length - 1].date}</div>
-                  </div>
-                ) : (
-                  <div>
-                    <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem', color: 'var(--faint)' }}>↑</div>
-                    <div style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>Drop CSV or click to upload</div>
-                    <div style={{ color: 'var(--faint)', fontSize: '0.68rem', marginTop: '0.25rem' }}>Needs: Date, Close (+ Open, High, Low, Volume)</div>
-                  </div>
-                )}
-              </div>
-              <input ref={fileInputRef} type="file" accept=".csv,.txt" onChange={handleFileUpload} style={{ display: 'none' }} />
-              {csvError && <div style={{ color: '#FF5A5F', fontSize: '0.72rem', marginTop: '0.4rem' }}>{csvError}</div>}
-            </div>
+      {/* Data Tab */}
+      {activeTab === 'data' && (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1.5rem', background: colors.bg2, borderBottom: `1px solid ${colors.border}` }}>
+        <div>
+          <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem', color: colors.white }}>CSV Data Upload</h3>
+          <p style={{ margin: '0 0 1rem', fontSize: '0.75rem', color: colors.muted }}>Upload historical price data (date, open, high, low, close, volume)</p>
+        </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.65rem', color: 'var(--faint)', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}>SYMBOL NAME (display only)</label>
-              <input type="text" value={csvSymbolName} onChange={e => setCsvSymbolName(e.target.value.toUpperCase())} style={{ width: '100%', padding: '0.65rem 0.75rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg3)', color: 'var(--white)', fontSize: '0.85rem', fontFamily: 'var(--font-mono)', boxSizing: 'border-box' }} />
-            </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <label style={{
+            display: 'flex', alignItems: 'center', gap: '0.5rem',
+            padding: '0.75rem 1.5rem', borderRadius: 8,
+            border: `2px dashed ${colors.border}`,
+            background: colors.bg3,
+            color: colors.muted,
+            cursor: 'pointer',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            transition: 'all 0.2s'
+          }}>
+            <input
+              type="file"
+              accept=".csv"
+              onChange={(e) => e.target.files?.[0] && handleCsvUpload(e.target.files[0])}
+              style={{ display: 'none' }}
+            />
+            📤 Choose CSV File
+          </label>
+          {csvFile && <span style={{ fontSize: '0.8rem', color: colors.mint }}>{csvFile.name}</span>}
+        </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.65rem', color: 'var(--faint)', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}>STRATEGY</label>
-              <select value={csvStrategy} onChange={e => setCsvStrategy(e.target.value)} style={{ width: '100%', padding: '0.65rem 0.75rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg3)', color: 'var(--white)', fontSize: '0.82rem', boxSizing: 'border-box' }}>
-                {Object.entries(STRATEGIES).map(([id, meta]) => (
-                  <option key={id} value={id}>{meta.name}</option>
-                ))}
-              </select>
+        {csvData.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+            <div style={{ padding: '0.75rem', background: colors.bg3, borderRadius: 6, border: `1px solid ${colors.border}` }}>
+              <div style={{ fontSize: '0.65rem', color: colors.faint }}>Rows</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: colors.white }}>{csvData.length}</div>
             </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.65rem', color: 'var(--faint)', marginBottom: '0.4rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}>FEE + SLIPPAGE (bps)</label>
-              <input type="number" min={0} max={100} step={1} value={Math.round(csvFee * 10000)} onChange={e => setCsvFee(Number(e.target.value) / 10000)} style={{ width: '100%', padding: '0.65rem 0.75rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg3)', color: 'var(--white)', fontSize: '0.82rem', boxSizing: 'border-box' }} />
+            <div style={{ padding: '0.75rem', background: colors.bg3, borderRadius: 6, border: `1px solid ${colors.border}` }}>
+              <div style={{ fontSize: '0.65rem', color: colors.faint }}>Columns</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: colors.white }}>{Object.keys(csvData[0]).length}</div>
             </div>
-
-            <div style={{ background: 'var(--bg3)', borderRadius: 8, padding: '0.75rem', fontSize: '0.68rem', color: 'var(--faint)', lineHeight: 1.5 }}>
-              <strong style={{ color: 'var(--muted)' }}>Supported formats:</strong><br />
-              Yahoo Finance (History → Download), Alpha Vantage CSV, any CSV with Date + Close columns. Dates auto-parsed.
+            <div style={{ padding: '0.75rem', background: colors.bg3, borderRadius: 6, border: `1px solid ${colors.border}` }}>
+              <div style={{ fontSize: '0.65rem', color: colors.faint }}>Date Range</div>
+              <div style={{ fontSize: '0.85rem', fontWeight: 600, color: colors.white }}>{csvData[0]?.date || 'N/A'} → {csvData[csvData.length-1]?.date || 'N/A'}</div>
             </div>
-
-            <button onClick={runCsvBacktest} disabled={!csvData || csvLoading} className="btn-primary" style={{ width: '100%', padding: '0.85rem', borderRadius: 10, fontSize: '0.88rem', fontWeight: 700, opacity: !csvData || csvLoading ? 0.5 : 1 }}>
-              {csvLoading ? 'Running…' : 'Run on CSV Data →'}
-            </button>
           </div>
+        )}
 
-          {/* CSV Results */}
-          <div>
-            {!csvResult && !csvLoading && (
-              <div style={{ background: 'var(--bg2)', border: '1px dashed var(--border)', borderRadius: 16, padding: '4rem 2rem', textAlign: 'center' }}>
-                <div style={{ color: 'var(--faint)', fontSize: '0.9rem' }}>Upload a CSV file and run backtest</div>
-              </div>
-            )}
-            {csvLoading && (
-              <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '4rem 2rem', textAlign: 'center' }}>
-                <div style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>Running simulation on uploaded data…</div>
-              </div>
-            )}
-            {csvResult && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '0.75rem' }}>
-                  <StatCard label="Total Return" value={fmtPct(csvResult.stats.totalReturnPct)} color={colorOf(csvResult.stats.totalReturnPct)} />
-                  <StatCard label="Ann. Return" value={fmtPct(csvResult.stats.annualizedReturnPct)} color={colorOf(csvResult.stats.annualizedReturnPct)} />
-                  <StatCard label="Sharpe" value={fmt2(csvResult.stats.sharpeRatio)} />
-                  <StatCard label="Max Drawdown" value={fmtPct(-csvResult.stats.maxDrawdownPct)} color="#FF5A5F" />
-                </div>
-
-                {(() => {
-                  const csvChartData = csvResult.bars.map((b, i) => ({
-                    date: b.date,
-                    strategy: Math.round(b.equity),
-                    buyHold: csvResult.buyHold?.[i] ? Math.round(csvResult.buyHold[i].equity) : undefined,
-                  }))
-                  const pos = (csvResult.stats.totalReturnPct ?? 0) >= 0
-                  return (
-                    <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.5rem' }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--muted)', marginBottom: '1rem', letterSpacing: '0.1em' }}>EQUITY CURVE — {csvResult.symbol} ({csvResult.period})</div>
-                      <ResponsiveContainer width="100%" height={240}>
-                        <AreaChart data={csvChartData}>
-                          <defs>
-                            <linearGradient id="csvGrad" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor={pos ? '#00E599' : '#FF5A5F'} stopOpacity={0.25} />
-                              <stop offset="100%" stopColor={pos ? '#00E599' : '#FF5A5F'} stopOpacity={0} />
-                            </linearGradient>
-                          </defs>
-                          <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 9 }} tickFormatter={v => v.slice(5)} interval="preserveStartEnd" />
-                          <YAxis tick={{ fill: 'var(--faint)', fontSize: 9 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} domain={['auto', 'auto']} />
-                          <Tooltip content={<ChartTooltip />} />
-                          <ReferenceLine y={10000} stroke="var(--border)" strokeDasharray="3 3" />
-                          <Area type="monotone" dataKey="strategy" stroke={pos ? '#00E599' : '#FF5A5F'} strokeWidth={2} fill="url(#csvGrad)" dot={false} />
-                          <Area type="monotone" dataKey="buyHold" stroke="rgba(255,255,255,0.2)" strokeWidth={1} fill="none" dot={false} strokeDasharray="4 2" />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )
-                })()}
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '0.75rem' }}>
-                  <StatCard label="Sortino" value={fmt2(csvResult.stats.sortinoRatio)} />
-                  <StatCard label="Calmar" value={fmt2(csvResult.stats.calmarRatio)} />
-                  <StatCard label="Profit Factor" value={csvResult.stats.profitFactor >= 999 ? '∞' : fmt2(csvResult.stats.profitFactor)} color={csvResult.stats.profitFactor > 1.5 ? '#00E599' : 'var(--white)'} />
-                  <StatCard label="Win Rate" value={csvResult.stats.winRate > 0 ? `${csvResult.stats.winRate.toFixed(0)}%` : '—'} />
-                </div>
-              </div>
-            )}
+        {csvData.length > 0 && (
+          <div style={{ maxHeight: 300, overflowY: 'auto', background: colors.bg3, border: `1px solid ${colors.border}`, borderRadius: 8 }}>
+            <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+              <thead style={{ position: 'sticky', top: 0, background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                <tr>
+                  {Object.keys(csvData[0]).map(k => <th key={k} style={{ padding: '0.5rem', textAlign: 'left', color: colors.muted, fontWeight: 500 }}>{k}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {csvData.slice(0, 10).map((row, i) => <tr key={i} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  {Object.values(row).map((v: any, j) => <td key={j} style={{ padding: '0.5rem', color: colors.text }}>{typeof v === 'number' ? v.toFixed(2) : v}</td>)}
+                </tr>)}
+              </tbody>
+            </table>
+            {csvData.length > 10 && <div style={{ padding: '0.5rem', textAlign: 'center', fontSize: '0.7rem', color: colors.muted }}>... {csvData.length - 10} more rows</div>}
           </div>
+        )}
+      </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div style={{ margin: '1rem 1.5rem', padding: '.75rem 1rem', background: 'rgba(255,107,122,.1)', border: '1px solid rgba(255,107,122,.3)', borderRadius: 8, color: colors.red, fontSize: '.75rem' }}>
+          {error}
         </div>
       )}
 
-      <style>{`
-        @media(max-width: 900px) { .backtest-grid { grid-template-columns: 1fr !important } }
-      `}</style>
+      {/* Main Content - Agents Tab */}
+      {activeTab === 'agents' && (
+      <div style={{ flex: 1, display: 'flex', gap: '1.5rem', padding: '1.5rem', overflow: 'auto' }}>
+        
+        {/* Chart Section */}
+        <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          
+          {/* Performance Chart */}
+          <div style={{ flex: 1, background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 12, padding: '1.25rem', minHeight: 300 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div style={{ fontWeight: 600, fontSize: '.85rem', color: colors.white }}>Performance vs Benchmarks</div>
+              <div style={{ display: 'flex', gap: '1rem', fontFamily: 'var(--font-mono)', fontSize: '.55rem', flexWrap: 'wrap' }}>
+                {selectedAgents.map((slug, idx) => {
+                  const agent = agents.find(a => a.slug === slug)
+                  return (
+                    <span key={slug} style={{ color: agentColors[idx % agentColors.length] }}>
+                      ● {agent?.ticker || agent?.name || slug}
+                    </span>
+                  )
+                })}
+                {Object.keys(benchmarks).map(bench => (
+                  <span key={bench} style={{ color: BENCHMARKS[bench as keyof typeof BENCHMARKS]?.color || colors.muted }}>
+                    ● {BENCHMARKS[bench as keyof typeof BENCHMARKS]?.label || bench}
+                  </span>
+                ))}
+              </div>
+            </div>
+            
+            {loading ? (
+              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.faint }}>
+                <Loader2 size={24} className="animate-spin" style={{ marginRight: 8 }} />Running backtests...
+              </div>
+            ) : chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+                  <XAxis dataKey="date" tick={{ fill: colors.faint, fontSize: 9 }} tickFormatter={v => v.slice(0, 5)} interval="preserveStartEnd" />
+                  <YAxis tick={{ fill: colors.faint, fontSize: 9 }} tickFormatter={v => `${v.toFixed(0)}%`} domain={['auto', 'auto']} />
+                  <Tooltip contentStyle={{ background: colors.bg3, border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: '.65rem' }} />
+                  {selectedAgents.map((slug, idx) => (
+                    <Line key={slug} type="monotone" dataKey={slug} stroke={agentColors[idx % agentColors.length]} strokeWidth={2} dot={false} />
+                  ))}
+                  {Object.keys(benchmarks).map(bench => (
+                    <Line key={bench} type="monotone" dataKey={bench} stroke={BENCHMARKS[bench as keyof typeof BENCHMARKS]?.color || colors.muted} strokeWidth={1.5} strokeDasharray="4 2" dot={false} />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.faint }}>
+                Select agents and run backtest to see comparison
+              </div>
+            )}
+          </div>
+          
+          {/* Drawdown Chart */}
+          {results[selectedAgents[0]]?.bars && (
+            <div style={{ height: 150, background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 12, padding: '1rem' }}>
+              <div style={{ fontWeight: 600, fontSize: '.75rem', color: colors.white, marginBottom: '.5rem' }}>Drawdown</div>
+              <ResponsiveContainer width="100%" height={110}>
+                <AreaChart data={(() => {
+                  const bars = results[selectedAgents[0]]?.bars || []
+                  let peak = bars[0]?.equity || 100000
+                  return bars.map((b: any, i: number) => {
+                    if (b.equity > peak) peak = b.equity
+                    const dd = (peak - b.equity) / peak
+                    return { date: b.date?.slice(5) || '', drawdown: dd * 100 }
+                  })
+                })()} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+                  <XAxis dataKey="date" tick={{ fill: colors.faint, fontSize: 8 }} tickFormatter={v => v.slice(0, 5)} interval="preserveStartEnd" />
+                  <YAxis tick={{ fill: colors.faint, fontSize: 8 }} tickFormatter={v => `${v.toFixed(0)}%`} domain={['auto', 0]} />
+                  <Tooltip contentStyle={{ background: colors.bg3, border: `1px solid ${colors.border}`, borderRadius: 6, fontSize: '.55rem' }} />
+                  <Area type="monotone" dataKey="drawdown" stroke={colors.red} fill={colors.red} fillOpacity={0.2} strokeWidth={1.5} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          
+          {/* Monthly Returns Heatmap */}
+          {results[selectedAgents[0]]?.bars && (
+            <div style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 12, padding: '1rem' }}>
+              <div style={{ fontWeight: 600, fontSize: '.75rem', color: colors.white, marginBottom: '.5rem' }}>Monthly Returns</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 2 }}>
+                {(() => {
+                  const bars = results[selectedAgents[0]]?.bars || []
+                  const monthlyData: Record<string, number[]> = {}
+                  bars.forEach((b: any, i: number) => {
+                    if (i === 0) return
+                    const monthKey = b.date?.slice(0, 7) || ''
+                    if (!monthlyData[monthKey]) monthlyData[monthKey] = []
+                    const ret = (b.equity - bars[i-1]?.equity) / bars[i-1]?.equity
+                    monthlyData[monthKey].push(ret)
+                  })
+                  const months = Object.keys(monthlyData).sort().slice(-12)
+                  const monthNames = ['J','F','M','A','M','J','J','A','S','O','N','D']
+                  return months.map((m, idx) => {
+                    const monthRet = monthlyData[m].reduce((a: number, b: number) => a + b, 0) * 100
+                    const isPos = monthRet >= 0
+                    const intensity = Math.min(1, Math.abs(monthRet) / 20)
+                    return (
+                      <div key={m} style={{ 
+                        padding: '4px 2px', 
+                        borderRadius: 3, 
+                        background: isPos ? `rgba(25, 230, 167, ${intensity * 0.6})` : `rgba(255, 107, 122, ${intensity * 0.6})`,
+                        textAlign: 'center',
+                        fontSize: '.45rem',
+                        color: colors.white,
+                      }}>
+                        {monthNames[new Date(m + '-01').getMonth()]}
+                        <div style={{ fontWeight: 600 }}>{monthRet >= 0 ? '+' : ''}{monthRet.toFixed(0)}%</div>
+                      </div>
+                    )
+                  })
+                })()}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Stats Panel */}
+        <div style={{ width: 320, display: 'flex', flexDirection: 'column', gap: '.75rem' }}>
+          <div style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 10, padding: '1rem' }}>
+            <div style={{ fontSize: '.55rem', color: colors.faint, letterSpacing: '.1em', marginBottom: '.75rem' }}>PERFORMANCE SUMMARY</div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+              {selectedAgents.map((slug, idx) => {
+                const agent = agents.find(a => a.slug === slug)
+                const stats = results[slug]?.stats
+                const isPositive = (stats?.totalReturnPct ?? 0) >= 0
+                
+                return (
+                  <div key={slug} style={{ padding: '.6rem', background: colors.bg3, borderRadius: 8, borderLeft: `3px solid ${agentColors[idx % agentColors.length]}` }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.3rem' }}>
+                      <span style={{ fontSize: '.7rem', fontWeight: 600, color: colors.white }}>{agent?.ticker || agent?.name || slug}</span>
+                      <span style={{ fontSize: '.75rem', fontWeight: 700, color: isPositive ? colors.mint : colors.red }}>
+                        {stats ? fmtPct(stats.totalReturnPct) : '—'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.3rem', fontSize: '.5rem', color: colors.muted }}>
+                      <span>Sharpe: {stats?.sharpeRatio?.toFixed(2) ?? '—'}</span>
+                      <span>Max DD: {stats ? fmtPct(-stats.maxDrawdownPct) : '—'}</span>
+                      <span>Trades: {stats?.totalTrades ?? '—'}</span>
+                      <span>Win: {stats?.winRate ? `${stats.winRate.toFixed(0)}%` : '—'}</span>
+                    </div>
+                  </div>
+                )
+              })}
+              
+              {/* Benchmarks */}
+              {Object.keys(benchmarks).map(bench => {
+                const stats = benchmarks[bench]?.stats
+                const isPositive = (stats?.totalReturnPct ?? 0) >= 0
+                return (
+                  <div key={bench} style={{ padding: '.5rem', background: colors.bg3, borderRadius: 6, opacity: 0.8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '.65rem', color: BENCHMARKS[bench as keyof typeof BENCHMARKS]?.color || colors.muted }}>
+                        {BENCHMARKS[bench as keyof typeof BENCHMARKS]?.label || bench}
+                      </span>
+                      <span style={{ fontSize: '.7rem', color: isPositive ? colors.mint : colors.red }}>
+                        {stats ? fmtPct(stats.totalReturnPct) : '—'}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+</div>
+          
+          {/* Walk-Forward Results */}
+          {wfResults && (
+            <div style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 12, padding: '1rem' }}>
+              <div style={{ fontWeight: 600, fontSize: '.75rem', color: colors.white, marginBottom: '.75rem' }}>Walk-Forward Analysis</div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '.5rem', marginBottom: '.75rem' }}>
+                <div style={{ padding: '.5rem', background: colors.bg3, borderRadius: 6, textAlign: 'center' }}>
+                  <div style={{ fontSize: '.4rem', color: colors.faint }}>AVG RETURN</div>
+                  <div style={{ fontSize: '.8rem', fontWeight: 700, color: (wfResults?.avgReturn ?? 0) >= 0 ? colors.mint : colors.red }}>{fmtPct(wfResults?.avgReturn ?? 0)}</div>
+                </div>
+                <div style={{ padding: '.5rem', background: colors.bg3, borderRadius: 6, textAlign: 'center' }}>
+                  <div style={{ fontSize: '.4rem', color: colors.faint }}>AVG SHARPE</div>
+                  <div style={{ fontSize: '.8rem', fontWeight: 700, color: colors.white }}>{wfResults?.avgSharpe?.toFixed(2) ?? '—'}</div>
+                </div>
+                <div style={{ padding: '.5rem', background: colors.bg3, borderRadius: 6, textAlign: 'center' }}>
+                  <div style={{ fontSize: '.4rem', color: colors.faint }}>CONSISTENCY</div>
+                  <div style={{ fontSize: '.8rem', fontWeight: 700, color: (wfResults?.consistencyRatio ?? 0) > 0.5 ? colors.mint : colors.orange }}>{((wfResults?.consistencyRatio ?? 0) * 100)?.toFixed(0) ?? '—'}%</div>
+                </div>
+              </div>
+              
+              <div style={{ fontSize: '.5rem', color: colors.faint, marginBottom: '.5rem' }}>Rolling Windows ({wfResults?.nWindows} windows)</div>
+              <ResponsiveContainer width="100%" height={100}>
+                <BarChart data={wfResults?.windows?.map((w: any, i: number) => ({ window: i + 1, return: w.testReturn, out: w.outperformance })) ?? []} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+                  <XAxis dataKey="window" tick={{ fill: colors.faint, fontSize: 8 }} />
+                  <YAxis tick={{ fill: colors.faint, fontSize: 8 }} tickFormatter={v => `${v.toFixed(0)}%`} />
+                  <Tooltip contentStyle={{ background: colors.bg3, border: `1px solid ${colors.border}`, borderRadius: 6, fontSize: '.55rem' }} />
+                  <Bar dataKey="return" fill={colors.blue} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+          
+          {/* Monte Carlo Results */}
+          {mcResults && (
+            <div style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 10, padding: '1rem' }}>
+              <div style={{ fontSize: '.55rem', color: colors.faint, letterSpacing: '.1em', marginBottom: '.75rem' }}>MONTE CARLO SIMULATION ({mcResults?.nTrials ?? mcTrials} runs)</div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem' }}>
+                <div style={{ padding: '.5rem', background: colors.bg3, borderRadius: 6 }}>
+                  <div style={{ fontSize: '.45rem', color: colors.faint }}>MEDIAN RETURN</div>
+                  <div style={{ fontSize: '.8rem', fontWeight: 700, color: (mcResults?.medianReturn ?? 0) >= 0 ? colors.mint : colors.red }}>
+                    {fmtPct(mcResults?.medianReturn ?? 0)}
+                  </div>
+                </div>
+                <div style={{ padding: '.5rem', background: colors.bg3, borderRadius: 6 }}>
+                  <div style={{ fontSize: '.45rem', color: colors.faint }}>MEDIAN DRAWDOWN</div>
+                  <div style={{ fontSize: '.8rem', fontWeight: 700, color: colors.red }}>
+                    {fmtPct(-(mcResults?.medianMaxDrawdown ?? 0))}
+                  </div>
+                </div>
+                <div style={{ padding: '.5rem', background: colors.bg3, borderRadius: 6 }}>
+                  <div style={{ fontSize: '.45rem', color: colors.faint }}>10TH PERCENTILE</div>
+                  <div style={{ fontSize: '.8rem', fontWeight: 700, color: colors.red }}>
+                    {fmtPct(mcResults?.p10Return ?? 0)}
+                  </div>
+                </div>
+                <div style={{ padding: '.5rem', background: colors.bg3, borderRadius: 6 }}>
+                  <div style={{ fontSize: '.45rem', color: colors.faint }}>90TH PERCENTILE</div>
+                  <div style={{ fontSize: '.8rem', fontWeight: 700, color: colors.mint }}>
+                    {fmtPct(mcResults?.p90Return ?? 0)}
+                  </div>
+                </div>
+              </div>
+              
+              <div style={{ marginTop: '.75rem', padding: '.5rem', background: colors.bg3, borderRadius: 6 }}>
+                <div style={{ fontSize: '.45rem', color: colors.faint, marginBottom: '.3rem' }}>BEAT BUY-AND-HOLD RATE</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+                  <div style={{ flex: 1, height: 6, background: colors.bg, borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ width: `${((mcResults?.beatRate ?? 0) * 100)}%`, height: '100%', background: colors.mint }} />
+                  </div>
+                  <span style={{ fontSize: '.65rem', color: colors.muted }}>{((mcResults?.beatRate ?? 0) * 100).toFixed(1)}%</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Deploy Button */}
+          {Object.keys(results).length > 0 && (
+            <button onClick={() => router.push(`/agents/submit?symbol=${symbol}&strategy=${strategy}`)} style={{ padding: '.75rem', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg, #19E6A7, #10b981)', color: colors.bg, fontSize: '.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <TrendingUp size={16} />Deploy Agent
+            </button>
+          )}
+          
+          {Object.keys(results).length > 0 && period === '1y' && (
+            <div style={{ padding: '.6rem', background: 'rgba(91,140,255,.06)', border: '1px solid rgba(91,140,255,.12)', borderRadius: 8, fontSize: '.55rem', color: colors.muted }}>
+              1 year backtest records trades to ledger for live tracking
+            </div>
+          )}
+
+          {/* Scorecard */}
+          {results[selectedAgents[0]]?.stats && (
+            <div style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 10, padding: '1rem' }}>
+              <div style={{ fontSize: '.55rem', color: colors.faint, letterSpacing: '.1em', marginBottom: '.75rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Shield size={12} />STRATEGY SCORECARD
+              </div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem', marginBottom: '.75rem' }}>
+                {(() => {
+                  const stats = results[selectedAgents[0]]?.stats
+                  const cagr = stats?.annualizedReturnPct ?? 0
+                  const sharpe = stats?.sharpeRatio ?? 0
+                  const sortino = stats?.sortinoRatio ?? 0
+                  const pf = stats?.profitFactor ?? 0
+                  
+                  const perfScore = 100 * (
+                    0.30 * Math.min(1, Math.max(0, cagr / 30)) +
+                    0.30 * Math.min(1, Math.max(0, sharpe / 2.5)) +
+                    0.20 * Math.min(1, Math.max(0, sortino / 3.5)) +
+                    0.20 * Math.min(1, Math.max(0, (pf - 1) / 1.5))
+                  )
+                  
+                  const maxDD = Math.abs(stats?.maxDrawdownPct ?? 0)
+                  const calmar = stats?.calmarRatio ?? 0
+                  const downVol = stats?.downsideVolatility ?? 0
+                  
+                  const riskScore = 100 * (
+                    0.45 * Math.min(1, Math.max(0, 1 - (maxDD - 5) / 35)) +
+                    0.35 * Math.min(1, Math.max(0, calmar / 2.5)) +
+                    0.20 * Math.min(1, Math.max(0, 1 - (downVol - 0.05) / 0.30))
+                  )
+                  
+                  const posMonth = stats?.positiveMonthRatio ?? 0
+                  const rollSharpeMean = stats?.rolling63dSharpeMean ?? 0
+                  const rollSharpeStd = stats?.rolling63dSharpeStd ?? 0
+                  
+                  const robustScore = 100 * (
+                    0.40 * Math.min(1, Math.max(0, rollSharpeMean / 2)) +
+                    0.30 * Math.min(1, Math.max(0, (posMonth - 40) / 50)) +
+                    0.30 * Math.min(1, Math.max(0, 1 - rollSharpeStd))
+                  )
+                  
+                  const trades = stats?.totalTrades ?? 0
+                  const turnover = stats?.turnover ?? 0
+                  
+                  const execScore = 100 * (
+                    0.35 * Math.min(1, Math.max(0, (trades - 10) / 90)) +
+                    0.30 * Math.min(1, Math.max(0, 1 - (turnover - 1) / 19)) +
+                    0.35 * 0.8
+                  )
+                  
+                  const composite = 0.30 * perfScore + 0.25 * riskScore + 0.30 * robustScore + 0.15 * execScore
+                  
+                  const getGrade = (s: number) => s >= 90 ? 'A' : s >= 80 ? 'B' : s >= 70 ? 'C' : s >= 60 ? 'D' : 'F'
+                  const grade = getGrade(composite)
+                  
+                  return (
+                    <>
+                      <div style={{ padding: '.5rem', background: colors.bg3, borderRadius: 6, textAlign: 'center' }}>
+                        <div style={{ fontSize: '.45rem', color: colors.faint, marginBottom: 4 }}>PERFORMANCE</div>
+                        <div style={{ fontSize: '.9rem', fontWeight: 700, color: colors.blue }}>{perfScore.toFixed(0)}</div>
+                      </div>
+                      <div style={{ padding: '.5rem', background: colors.bg3, borderRadius: 6, textAlign: 'center' }}>
+                        <div style={{ fontSize: '.45rem', color: colors.faint, marginBottom: 4 }}>RISK</div>
+                        <div style={{ fontSize: '.9rem', fontWeight: 700, color: colors.orange }}>{riskScore.toFixed(0)}</div>
+                      </div>
+                      <div style={{ padding: '.5rem', background: colors.bg3, borderRadius: 6, textAlign: 'center' }}>
+                        <div style={{ fontSize: '.45rem', color: colors.faint, marginBottom: 4 }}>ROBUSTNESS</div>
+                        <div style={{ fontSize: '.9rem', fontWeight: 700, color: colors.mint }}>{robustScore.toFixed(0)}</div>
+                      </div>
+                      <div style={{ padding: '.5rem', background: colors.bg3, borderRadius: 6, textAlign: 'center' }}>
+                        <div style={{ fontSize: '.45rem', color: colors.faint, marginBottom: 4 }}>EXECUTION</div>
+                        <div style={{ fontSize: '.9rem', fontWeight: 700, color: colors.text }}>{execScore.toFixed(0)}</div>
+                      </div>
+                    </>
+                  )
+                })()}
+              </div>
+              
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', padding: '.6rem', background: colors.bg3, borderRadius: 6 }}>
+                <span style={{ fontSize: '.45rem', color: colors.faint }}>COMPOSITE SCORE</span>
+                <span style={{ fontSize: '1.1rem', fontWeight: 700, color: colors.white }}>
+                  {(() => {
+                    const stats = results[selectedAgents[0]]?.stats
+                    const cagr = stats?.annualizedReturnPct ?? 0
+                    const sharpe = stats?.sharpeRatio ?? 0
+                    const sortino = stats?.sortinoRatio ?? 0
+                    const pf = stats?.profitFactor ?? 0
+                    const perfScore = 100 * (0.30 * Math.min(1, Math.max(0, cagr / 30)) + 0.30 * Math.min(1, Math.max(0, sharpe / 2.5)) + 0.20 * Math.min(1, Math.max(0, sortino / 3.5)) + 0.20 * Math.min(1, Math.max(0, (pf - 1) / 1.5)))
+                    const maxDD = Math.abs(stats?.maxDrawdownPct ?? 0)
+                    const calmar = stats?.calmarRatio ?? 0
+                    const downVol = stats?.downsideVolatility ?? 0
+                    const riskScore = 100 * (0.45 * Math.min(1, Math.max(0, 1 - (maxDD - 5) / 35)) + 0.35 * Math.min(1, Math.max(0, calmar / 2.5)) + 0.20 * Math.min(1, Math.max(0, 1 - (downVol - 0.05) / 0.30)))
+                    const posMonth = stats?.positiveMonthRatio ?? 0
+                    const rollSharpeMean = stats?.rolling63dSharpeMean ?? 0
+                    const rollSharpeStd = stats?.rolling63dSharpeStd ?? 0
+                    const robustScore = 100 * (0.40 * Math.min(1, Math.max(0, rollSharpeMean / 2)) + 0.30 * Math.min(1, Math.max(0, (posMonth - 40) / 50)) + 0.30 * Math.min(1, Math.max(0, 1 - rollSharpeStd)))
+                    const trades = stats?.totalTrades ?? 0
+                    const turnover = stats?.turnover ?? 0
+                    const execScore = 100 * (0.35 * Math.min(1, Math.max(0, (trades - 10) / 90)) + 0.30 * Math.min(1, Math.max(0, 1 - (turnover - 1) / 19)) + 0.35 * 0.8)
+                    return (0.30 * perfScore + 0.25 * riskScore + 0.30 * robustScore + 0.15 * execScore).toFixed(0)
+                  })()}
+                </span>
+                <span style={{ fontSize: '.9rem', fontWeight: 700, color: colors.mint, padding: '2px 8px', background: `${colors.mint}20`, borderRadius: 4 }}>
+                  {(() => {
+                    const stats = results[selectedAgents[0]]?.stats
+                    const cagr = stats?.annualizedReturnPct ?? 0
+                    const sharpe = stats?.sharpeRatio ?? 0
+                    const sortino = stats?.sortinoRatio ?? 0
+                    const pf = stats?.profitFactor ?? 0
+                    const perfScore = 100 * (0.30 * Math.min(1, Math.max(0, cagr / 30)) + 0.30 * Math.min(1, Math.max(0, sharpe / 2.5)) + 0.20 * Math.min(1, Math.max(0, sortino / 3.5)) + 0.20 * Math.min(1, Math.max(0, (pf - 1) / 1.5)))
+                    const maxDD = Math.abs(stats?.maxDrawdownPct ?? 0)
+                    const calmar = stats?.calmarRatio ?? 0
+                    const downVol = stats?.downsideVolatility ?? 0
+                    const riskScore = 100 * (0.45 * Math.min(1, Math.max(0, 1 - (maxDD - 5) / 35)) + 0.35 * Math.min(1, Math.max(0, calmar / 2.5)) + 0.20 * Math.min(1, Math.max(0, 1 - (downVol - 0.05) / 0.30)))
+                    const posMonth = stats?.positiveMonthRatio ?? 0
+                    const rollSharpeMean = stats?.rolling63dSharpeMean ?? 0
+                    const rollSharpeStd = stats?.rolling63dSharpeStd ?? 0
+                    const robustScore = 100 * (0.40 * Math.min(1, Math.max(0, rollSharpeMean / 2)) + 0.30 * Math.min(1, Math.max(0, (posMonth - 40) / 50)) + 0.30 * Math.min(1, Math.max(0, 1 - rollSharpeStd)))
+                    const trades = stats?.totalTrades ?? 0
+                    const turnover = stats?.turnover ?? 0
+                    const execScore = 100 * (0.35 * Math.min(1, Math.max(0, (trades - 10) / 90)) + 0.30 * Math.min(1, Math.max(0, 1 - (turnover - 1) / 19)) + 0.35 * 0.8)
+                    const composite = 0.30 * perfScore + 0.25 * riskScore + 0.30 * robustScore + 0.15 * execScore
+                    return composite >= 90 ? 'A' : composite >= 80 ? 'B' : composite >= 70 ? 'C' : composite >= 60 ? 'D' : 'F'
+                  })()}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Extended Metrics */}
+          {results[selectedAgents[0]]?.stats && (
+            <div style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 10, padding: '1rem' }}>
+              <div style={{ fontSize: '.55rem', color: colors.faint, letterSpacing: '.1em', marginBottom: '.75rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Activity size={12} />EXTENDED METRICS
+              </div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.4rem' }}>
+                {(() => {
+                  const s = results[selectedAgents[0]]?.stats
+                  return (
+                    <>
+                      <div style={{ fontSize: '.5rem', color: colors.muted }}>CAGR</div>
+                      <div style={{ fontSize: '.5rem', color: colors.white, textAlign: 'right' }}>{fmtPct(s?.annualizedReturnPct)}</div>
+                      <div style={{ fontSize: '.5rem', color: colors.muted }}>Total Return</div>
+                      <div style={{ fontSize: '.5rem', color: colors.white, textAlign: 'right' }}>{fmtPct(s?.totalReturnPct)}</div>
+                      <div style={{ fontSize: '.5rem', color: colors.muted }}>Sortino</div>
+                      <div style={{ fontSize: '.5rem', color: colors.white, textAlign: 'right' }}>{s?.sortinoRatio?.toFixed(2)}</div>
+                      <div style={{ fontSize: '.5rem', color: colors.muted }}>Calmar</div>
+                      <div style={{ fontSize: '.5rem', color: colors.white, textAlign: 'right' }}>{s?.calmarRatio?.toFixed(2)}</div>
+                      <div style={{ fontSize: '.5rem', color: colors.muted }}>Max DD</div>
+                      <div style={{ fontSize: '.5rem', color: colors.red, textAlign: 'right' }}>{fmtPct(-s?.maxDrawdownPct)}</div>
+                      <div style={{ fontSize: '.5rem', color: colors.muted }}>Avg DD</div>
+                      <div style={{ fontSize: '.5rem', color: colors.red, textAlign: 'right' }}>{fmtPct(-s?.averageDrawdownPct)}</div>
+                      <div style={{ fontSize: '.5rem', color: colors.muted }}>Downside Vol</div>
+                      <div style={{ fontSize: '.5rem', color: colors.white, textAlign: 'right' }}>{(s?.downsideVolatility * 100)?.toFixed(2)}%</div>
+                      <div style={{ fontSize: '.5rem', color: colors.muted }}>Win Rate</div>
+                      <div style={{ fontSize: '.5rem', color: colors.white, textAlign: 'right' }}>{s?.winRate?.toFixed(1)}%</div>
+                      <div style={{ fontSize: '.5rem', color: colors.muted }}>Profit Factor</div>
+                      <div style={{ fontSize: '.5rem', color: colors.white, textAlign: 'right' }}>{s?.profitFactor?.toFixed(2)}</div>
+                      <div style={{ fontSize: '.5rem', color: colors.muted }}>Exposure</div>
+                      <div style={{ fontSize: '.5rem', color: colors.white, textAlign: 'right' }}>{s?.exposureTime?.toFixed(1)}%</div>
+                      <div style={{ fontSize: '.5rem', color: colors.muted }}>Turnover</div>
+                      <div style={{ fontSize: '.5rem', color: colors.white, textAlign: 'right' }}>{s?.turnover?.toFixed(1)}x</div>
+                      <div style={{ fontSize: '.5rem', color: colors.muted }}>Pos. Months</div>
+                      <div style={{ fontSize: '.5rem', color: colors.white, textAlign: 'right' }}>{s?.positiveMonthRatio?.toFixed(1)}%</div>
+                      <div style={{ fontSize: '.5rem', color: colors.muted }}>Roll Sharpe (63d)</div>
+                      <div style={{ fontSize: '.5rem', color: colors.white, textAlign: 'right' }}>{s?.rolling63dSharpeMean?.toFixed(2)} ± {s?.rolling63dSharpeStd?.toFixed(2)}</div>
+                    </>
+                  )
+                })()}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      )}
     </div>
   )
 }

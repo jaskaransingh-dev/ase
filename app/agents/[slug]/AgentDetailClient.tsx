@@ -58,7 +58,7 @@ interface Props {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const TABS = ['Overview', 'Performance', 'Live', 'Trades', 'Thinking', 'Strategy', 'Backtest', 'Monte Carlo'] as const
+const TABS = ['Overview', 'Performance', 'Live', 'Backtest', 'Trades', 'Thinking', 'Strategy', 'Monte Carlo'] as const
 type Tab = typeof TABS[number]
 
 const strategyDescriptions: Record<string, string> = {

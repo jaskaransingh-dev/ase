@@ -2,17 +2,32 @@
  * POST /api/backtest
  *
  * Run a strategy backtest against historical OHLCV data fetched from Yahoo Finance.
- * Uses yfinance-equivalent Yahoo Chart API with multiple fallback endpoints.
- *
- * Request body:
+ * 
+ * TWO MODES:
+ * 
+ * 1. BUILT-IN STRATEGIES (strategy param):
  * {
  *   symbol:     string   — e.g. "BTC-USD", "SPY", "AAPL"
  *   strategy:   string   — one of: mean_reversion | momentum_crossover | breakout_trend | rsi_trend_filter | volatility_breakout
- *   params:     object   — strategy-specific parameters (see /dashboard/backtest/docs)
- *   period:     string   — "1y" | "2y" | "5y" | "10y"  (default "2y")
- *   interval:   string   — "1d" | "1wk"                (default "1d")
- *   fee:        number   — per-trade fee fraction       (default 0.001)
+ *   params:     object   — strategy-specific parameters
+ *   period:     string   — "7d" | "30d" | "90d" | "1y" | "2y" | "5y"
+ *   interval:   string   — "1m" | "5m" | "1h" | "4h" | "1d" | "1wk"
+ *   fee:        number   — per-trade fee fraction (default 0.001)
  * }
+ * 
+ * 2. CUSTOM CODE (code param) — Signal-based:
+ * {
+ *   symbol:     string   — e.g. "BTC-USD"
+ *   code:       string   — Python code that outputs signals
+ *   params:     object   — parameters accessible in code as params['key']
+ *   period:     string   — data period
+ *   interval:   string   — candle interval
+ *   fee:        number   — trading fee
+ * }
+ * 
+ * The code should emit signals like:
+ *   signal: buy, 123.45   # Open long at price 123.45
+ *   signal: sell, 125.00  # Close position at price 125.00
  *
  * Monte Carlo mode (blind test):
  * {
@@ -25,7 +40,11 @@
  */
 
 import { NextResponse } from 'next/server'
-import { runBacktest, runBuyAndHold, runWalkForward, runMonteCarlo, STRATEGIES, type OHLCV } from '@/lib/backtest'
+import { 
+  runBacktest, runBuyAndHold, runWalkForward, runMonteCarlo, 
+  STRATEGIES, type OHLCV,
+  parseSignalsFromCode, runBacktestWithSignals 
+} from '@/lib/backtest'
 
 // DO NOT use edge runtime — Yahoo Finance blocks Cloudflare edge IPs
 // and edge runtime has memory limits that cause "Internal Server Error"
@@ -37,6 +56,7 @@ const PERIOD_DAYS: Record<string, number> = {
   '30d': 30,
   '90d': 90,
   '180d': 180,
+  '270d': 270,
   '1mo': 30,
   '3mo': 91,
   '6mo': 183,
@@ -339,18 +359,37 @@ export async function fetchYahooFinance(symbol: string, period: string, interval
     return cached
   }
 
-  // Try Binance first for crypto pairs — faster and more reliable than Yahoo Finance
-  if (toBinanceSymbol(symbol)) {
+  // For crypto: try Binance first (fastest), then CoinGecko, then Yahoo
+  // For stocks: skip to Yahoo directly
+  const isCrypto = toBinanceSymbol(symbol) !== null
+  
+  if (isCrypto) {
+    // Try Binance first - fastest and most reliable for crypto
     try {
       const data = await fetchBinanceData(symbol, period, interval)
-      setCachedData(symbol, period, interval, data)
-      console.log(`[backtest] Binance: ${data.length} bars for ${symbol}`)
-      return data
+      if (data.length >= 60) {
+        setCachedData(symbol, period, interval, data)
+        console.log(`[backtest] Binance: ${data.length} bars for ${symbol}`)
+        return data
+      }
     } catch (e) {
-      console.warn(`[backtest] Binance failed for ${symbol}, falling back to Yahoo: ${e instanceof Error ? e.message : e}`)
+      console.warn(`[backtest] Binance failed for ${symbol}: ${e instanceof Error ? e.message : e}`)
+    }
+    
+    // Try CoinGecko as second option
+    try {
+      const data = await fetchCoinGeckoData(symbol, period, interval)
+      if (data.length >= 60) {
+        setCachedData(symbol, period, interval, data)
+        console.log(`[backtest] CoinGecko: ${data.length} bars for ${symbol}`)
+        return data
+      }
+    } catch (e) {
+      console.warn(`[backtest] CoinGecko failed for ${symbol}: ${e instanceof Error ? e.message : e}`)
     }
   }
 
+  // Fallback: try Yahoo Finance
   const days = PERIOD_DAYS[period] ?? 730
   const end = Math.floor(Date.now() / 1000)
   const start = end - days * 86400
@@ -639,6 +678,7 @@ export async function POST(req: Request) {
     const body = await req.json() as {
       symbol?: string
       strategy?: string
+      code?: string
       params?: Record<string, number>
       period?: string
       interval?: string
@@ -655,6 +695,10 @@ export async function POST(req: Request) {
       walkForward?: boolean
       trainDays?: number
       testDays?: number
+      // Simulation fields
+      simulate?: boolean
+      simPeriod?: string
+      simInterval?: string
     }
 
     const requestedSymbol = (body.symbol ?? 'BTC-USD').toUpperCase().trim()
@@ -743,6 +787,117 @@ export async function POST(req: Request) {
         period: wfPeriod,
         strategy: meta,
         walkForward: summary,
+      })
+    }
+
+    // ─── Custom Code Mode (Signal-based) ────────────────────────
+    if (body.code) {
+      const signals = parseSignalsFromCode(body.code, bars, mergedParams)
+      const result = runBacktestWithSignals(bars, signals, fee)
+      const buyHold = runBuyAndHold(bars)
+
+      return NextResponse.json({
+        symbol,
+        period,
+        interval,
+        strategy: { id: 'custom', name: 'Custom Strategy', description: 'User-defined signal-based strategy' },
+        stats: result.stats,
+        bars: result.bars,
+        buyHold,
+        trades: body.includeTrades ? result.bars.map((b, i) => ({
+          date: b.date,
+          position: b.position,
+          close: b.close,
+        })) : undefined,
+      })
+    }
+
+    // ─── Simulation Mode (Blind test with many trades) ───────────
+    if (body.simulate) {
+      const simPeriod = body.simPeriod || '5y'
+      const simInterval = body.simInterval || '1h'
+      
+      // Fetch max data for simulation
+      const simBars = await fetchYahooFinance(symbol, simPeriod, simInterval)
+      if (simBars.length < 100) {
+        return NextResponse.json({ error: `Not enough data for ${symbol} simulation` }, { status: 422 })
+      }
+
+      // Run strategy on all bars
+      const simResult = runBacktest(simBars, strategyId, mergedParams, fee)
+      const buyHold = runBuyAndHold(simBars)
+
+      // Generate detailed trade log
+      const tradeLog: Array<{
+        entry: string
+        exit: string
+        side: string
+        entryPrice: number
+        exitPrice: number
+        returnPct: number
+        duration: number
+        pnl: number
+      }> = []
+      
+      let inTrade = false
+      let entryDate = ''
+      let entryPrice = 0
+      let entryEquity = 100000
+
+      for (let i = 1; i < simBars.length; i++) {
+        const prevPos = simResult.bars[i - 1]?.position || 0
+        const currPos = simResult.bars[i]?.position || 0
+        
+        if (!inTrade && currPos === 1) {
+          inTrade = true
+          entryDate = simBars[i].date
+          entryPrice = simBars[i].close
+          entryEquity = simResult.bars[i - 1]?.equity || 100000
+        } else if (inTrade && currPos === 0) {
+          inTrade = false
+          const exitDate = simBars[i].date
+          const exitPrice = simBars[i].close
+          const retPct = ((exitPrice - entryPrice) / entryPrice) * 100
+          const duration = i - simBars.findIndex(b => b.date === entryDate)
+          const pnl = entryEquity * (retPct / 100)
+          
+          tradeLog.push({
+            entry: entryDate,
+            exit: exitDate,
+            side: 'LONG',
+            entryPrice,
+            exitPrice,
+            returnPct: retPct,
+            duration,
+            pnl,
+          })
+        }
+      }
+
+      // Calculate fee impact
+      const totalTrades = tradeLog.length
+      const feeImpact = totalTrades * 2 * fee * 100 // 2 = entry + exit
+      const grossReturn = simResult.stats.totalReturnPct + feeImpact
+      const netReturn = simResult.stats.totalReturnPct
+
+      return NextResponse.json({
+        symbol,
+        period: simPeriod,
+        interval: simInterval,
+        strategy: simResult.strategy,
+        mode: 'simulation',
+        barsAnalyzed: simBars.length,
+        dateRange: { start: simBars[0].date, end: simBars[simBars.length - 1].date },
+        stats: {
+          ...simResult.stats,
+          grossReturnPct: grossReturn,
+          netReturnPct: netReturn,
+          feeImpactPct: feeImpact,
+          tradesPerYear: totalTrades / (simBars.length / (24 * 365)),
+        },
+        bars: simResult.bars,
+        buyHold,
+        trades: tradeLog,
       })
     }
 

@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { 
-  Play, Loader2, Code, RefreshCw, Copy, Check, Save, 
+  Play, Loader2, Code, RefreshCw, Copy, Check, Save, Zap,
   Eye, EyeOff, List, TrendingUp, File, Folder, FolderOpen, Terminal,
   Plus, Trash2, ChevronRight, ChevronDown, Database, Cpu, Layers, Box, ArrowRight,
   GitBranch, Clock, Rocket, Server, HardDrive, Network, Download, Upload,
@@ -1315,7 +1315,6 @@ const DATA_SOURCES = [
   { id: 'yahoo', name: 'Yahoo Finance', badge: 'PRIMARY · EQUITIES', badgeColor: '#5B8CFF', noKey: true, description: '30,000+ global equities, ETFs, indices.', endpoint: 'https://query1.finance.yahoo.com/v8/finance/chart', status: 'available' },
   { id: 'coingecko', name: 'CoinGecko', badge: 'CRYPTO · FUNDAMENTALS', badgeColor: '#22F0B5', noKey: true, description: 'Comprehensive crypto market data.', endpoint: 'https://api.coingecko.com/api/v3', status: 'available' },
   { id: 'kraken', name: 'Kraken', badge: 'CRYPTO · RELIABLE', badgeColor: '#A78BFA', noKey: true, description: 'Professional crypto exchange API.', endpoint: 'https://api.kraken.com/0/public/OHLC', status: 'available' },
-  { id: 'alpaca', name: 'Alpaca', badge: 'MARKET · DATA', badgeColor: '#FFB648', noKey: false, description: 'Market data API with trading.', endpoint: 'https://data.alpaca.markets', status: 'available' },
   { id: 'fred', name: 'FRED', badge: 'MACRO · ECONOMIC', badgeColor: '#FF5468', noKey: true, description: 'Federal Reserve Economic Data.', endpoint: 'https://fred.stlouisfed.org/graph/fredgraph.csv', status: 'available' },
 ]
 
@@ -1421,6 +1420,8 @@ interface BacktestResult {
   profitFactor: number
   calmarRatio: number
   exposureTime: number
+  avgWin?: number
+  avgLoss?: number
 }
 
 interface ChartPoint {
@@ -1845,7 +1846,7 @@ BREAKOUT_CONFIG = StrategyConfig(
 ]
 
 export default function BuildPage() {
-  const [view, setView] = useState<'editor' | 'docs' | 'create'>('editor')
+  const [view, setView] = useState<'editor' | 'docs' | 'data' | 'create'>('editor')
   
   const [files, setFiles] = useState<FileNode[]>(DEFAULT_FILES)
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['strategies', 'data', 'utils']))
@@ -2188,55 +2189,76 @@ ${api.implementation}
     setAiMessages(prev => [...prev, { role: 'user', content: userMsg }])
     setAiLoading(true)
     
-    const contextPrompt = `You are a quant strategy expert for ASE trading platform. Your job is to help users create algorithms that emit buy/sell signals.
+    const strategyNames: Record<string, string> = {
+      momentum_crossover: 'Momentum Crossover',
+      mean_reversion: 'Mean Reversion',
+      breakout_trend: 'Breakout Trend',
+      rsi_trend_filter: 'RSI Trend Filter',
+      volatility_breakout: 'Volatility Breakout',
+      dual_momentum: 'Dual Momentum',
+      rsi_mean_reversion: 'RSI Mean Reversion',
+      macd_trend: 'MACD Trend',
+    }
+    
+    const contextPrompt = `You are an expert quant developer helping users build trading strategies on ASE Quant.
 
-HOW THE SIGNAL API WORKS:
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-Users only need to output signals. We handle everything else:
-• Position sizing (automatic based on capital & risk)
-• Execution simulation (fees, slippage)
-• Portfolio tracking (equity curve, drawdown)
-• Analytics (Sharpe, win rate, max drawdown, etc.)
+ASE PLATFORM OVERVIEW:
+━━━━━━━━━━━━━━━━━━━━━━
+• Users write Python code that emits BUY/SELL signals
+• The platform handles: position sizing, fees (0.1%), slippage, equity tracking, analytics
+• After writing code, users click "Sandbox Test" to run 5-year simulation with hourly data
+• Results show: Return, Sharpe, Max DD, Win Rate, Trades, Avg Win/Loss, Profit Factor
+• Strategies need >55% win rate to be profitable after fees
 
-SIGNAL FORMAT (pick ONE):
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Simple comment:     # BUY at 123.45
-2. Signal keyword:    signal: buy, 123.45
-3. Emit function:     emit_signal('buy', 123.45)
+UI CONTROLS:
+━━━━━━━━━━━━━━━━━━━━━━
+• Symbol dropdown: Select crypto (BTC, ETH, SOL) or stock (SPY, QQQ)
+• Timeframe: 1m, 5m, 15m, 1h, 4h, 1d (default 1d)
+• Period: 7d to 5y of historical data
+• Sandbox Test: Runs 5yr hourly simulation (~43k bars) for thorough testing
+• Docs panel: Shows Signal API, Strategies, Indicators, Risk Management docs
 
-EXAMPLES:
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-# RSI Mean Reversion
-signal: buy, 123.45   # When RSI < 30
-signal: sell, 125.00  # When RSI > 70
+SIGNAL FORMATS (user code uses these):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Simple comment format (recommended)
+signal: buy, 123.45    # Trigger when RSI < 30
+signal: sell, 125.00   # Trigger when RSI > 70
 
-# Moving Average Crossover
-# Golden cross
-signal: buy, 49500
-# Death cross  
-signal: sell, 49000
+# Or emit function
+emit_signal('buy', price)
+emit_signal('sell', price)
 
-# MACD Crossover
-emit_signal('buy', 67800)
-emit_signal('sell', 68200)
+INDICATORS AVAILABLE:
+━━━━━━━━━━━━━━━━━━━━━━
+• RSI(14) - Relative Strength Index
+• MACD(12,26,9) - Moving Average Convergence Divergence  
+• EMA/SMA(20) - Exponential/Simple Moving Average
+• Bollinger Bands(20,2) - Price volatility bands
+• ATR(14) - Average True Range for stop losses
+• Stochastic(14,3) - Momentum oscillator
+• ADX(14) - Trend strength
 
-INDICATORS YOU CAN USE:
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-• RSI (14), MACD (12,26,9), Bollinger Bands (20,2)
-• EMA/SMA (any period), ATR (14), Stochastic (14,3)
-• ADX (14), VWAP, OBV, Volume
+HELPFUL RESPONSE PATTERNS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. First understand what the user wants (new strategy, improve existing, fix bugs)
+2. If asking for new strategy: Provide complete code with comments explaining each signal
+3. If improving: Suggest specific changes and show the diff
+4. Always explain WHY a change helps (e.g., "RSI < 30 catches oversold bounces")
+5. Suggest relevant timeframes for their goal (intraday = more trades, daily = less noise)
+6. Warn about common pitfalls (overfitting, lookahead bias, fee impact)
+7. End with a question asking if they want to try it or tweak parameters
 
-HOW TO RESPOND:
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. When user asks for strategy: Generate code with clear signals
-2. When improving code: Keep the signal format simple
-3. Always wrap code in \`\`\`python blocks
-4. Explain what the signals mean
-5. Mention which indicators trigger the signals
+CURRENT STRATEGY: ${strategyNames[strategy.id] || strategy.name}
+CURRENT SYMBOL: ${symbol}
+CURRENT TIMEFRAME: ${timeframe}
+CURRENT CODE:
+\`\`\`python
+${code}
+\`\`\`
 
-Current code:\n${code}
+USER REQUEST: ${userMsg}
 
-User request: ${userMsg}`
+Be concise but informative. Give actionable advice with working code examples.`
 
     try {
       const res = await fetch('/api/ai/chat', {
@@ -2251,10 +2273,10 @@ User request: ${userMsg}`
       if (data.reply) {
         setAiMessages(prev => [...prev, { role: 'assistant', content: data.reply }])
       } else {
-        setAiMessages(prev => [...prev, { role: 'assistant', content: data.error || 'AI unavailable' }])
+        setAiMessages(prev => [...prev, { role: 'assistant', content: data.error || 'AI unavailable - check your API key configuration' }])
       }
     } catch (e) {
-      setAiMessages(prev => [...prev, { role: 'assistant', content: 'Request failed' }])
+      setAiMessages(prev => [...prev, { role: 'assistant', content: 'Request failed - please try again' }])
     } finally {
       setAiLoading(false)
     }
@@ -2397,6 +2419,8 @@ User request: ${userMsg}`
           profitFactor: data.stats.profitFactor || 0,
           calmarRatio: data.stats.calmarRatio || 0,
           exposureTime: data.stats.exposureTime || 0,
+          avgWin: data.stats.avgWin || 0,
+          avgLoss: data.stats.avgLoss || 0,
         })
         setTrades(tradeList.slice(-50))
         setChartData(equityPoints.filter((_, i) => i % Math.ceil(equityPoints.length / 150) === 0))
@@ -2412,37 +2436,131 @@ User request: ${userMsg}`
     }
   }
 
-  const runEstimate = () => {
-    setBacktestStatus('Estimating based on strategy type...')
-    setTimeout(() => {
-      const strategyReturns: Record<string, { ret: number; sharpe: number; dd: number; wr: number }> = {
-        momentum_crossover: { ret: 12, sharpe: 0.8, dd: 15, wr: 55 },
-        mean_reversion: { ret: 8, sharpe: 0.6, dd: 12, wr: 58 },
-        breakout_trend: { ret: 18, sharpe: 0.7, dd: 22, wr: 45 },
-        rsi_trend_filter: { ret: 10, sharpe: 0.75, dd: 14, wr: 52 },
-        volatility_breakout: { ret: 15, sharpe: 0.9, dd: 18, wr: 48 },
-        dual_momentum: { ret: 14, sharpe: 1.0, dd: 16, wr: 54 },
-        rsi_mean_reversion: { ret: 6, sharpe: 0.5, dd: 10, wr: 62 },
-        macd_trend: { ret: 11, sharpe: 0.7, dd: 17, wr: 50 },
+  const runSimulation = async () => {
+    setBacktesting(true)
+    setBtResult(null)
+    setTrades([])
+    setError('')
+    setBacktestStatus('Running blind simulation...')
+    
+    try {
+      const isCustomCode = code && code !== strategy.code
+      setBacktestStatus('Analyzing years of market data...')
+      
+      const res = await fetch('/api/backtest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol,
+          strategy: isCustomCode ? undefined : strategy.id,
+          code: isCustomCode ? code : undefined,
+          params,
+          simulate: true,
+          simPeriod: '5y',
+          simInterval: '1h',
+          fee: fee / 100,
+          includeTrades: true,
+        }),
+      })
+      
+      setBacktestStatus('Calculating performance...')
+      const data = await res.json()
+      
+      if (data.error) {
+        setError(data.error)
+        setTerminalOutput(prev => [...prev, `Error: ${data.error}`])
+        return
       }
-      const est = strategyReturns[strategy.id] || { ret: 10, sharpe: 0.7, dd: 15, wr: 52 }
+      
+      const INITIAL_CAPITAL = 100000
+      const equityPoints: { date: string; strategy: number; buyHold: number }[] = []
+      const tradeList: TradeStats[] = []
+      
+      let strategyEquity = INITIAL_CAPITAL
+      let position = 0
+      let entryPrice = 0
+      const startPrice = data.bars?.[0]?.close || 1
+      
+      data.bars?.forEach((bar: any, i: number) => {
+        if (i > 0 && data.bars[i-1].position === 1) {
+          strategyEquity *= (bar.close / data.bars[i-1].close)
+        }
+        const buyHoldEquity = INITIAL_CAPITAL * (bar.close / startPrice)
+        equityPoints.push({ date: bar.date, strategy: strategyEquity, buyHold: buyHoldEquity })
+        
+        if (bar.position === 1 && position === 0) {
+          entryPrice = bar.close
+          tradeList.push({ date: bar.date, action: 'BUY', price: bar.close })
+          position = 1
+        } else if (bar.position === 0 && position === 1) {
+          const retPct = ((bar.close - entryPrice) / entryPrice) * 100
+          tradeList.push({ date: bar.date, action: 'SELL', price: bar.close, returnPct: retPct })
+          position = 0
+        }
+      })
+      
+      const feeImpact = data.stats.feeImpactPct || 0
+      const tradesPerYear = data.stats.tradesPerYear || 0
+      
+      const fullResult = {
+        symbol,
+        strategy: strategy.name,
+        period: '5y simulation',
+        mode: 'simulation',
+        barsAnalyzed: data.barsAnalyzed,
+        stats: {
+          totalReturnPct: data.stats.netReturnPct || 0,
+          grossReturnPct: data.stats.grossReturnPct || 0,
+          feeImpactPct: feeImpact,
+          annualizedReturnPct: data.stats.annualizedReturnPct || 0,
+          sharpeRatio: data.stats.sharpeRatio || 0,
+          sortinoRatio: data.stats.sortinoRatio || 0,
+          maxDrawdownPct: data.stats.maxDrawdownPct || 0,
+          maxDrawdownDuration: data.stats.maxDrawdownDuration || 0,
+          winRate: data.stats.winRate || 0,
+          totalTrades: data.stats.totalTrades || 0,
+          profitFactor: data.stats.profitFactor || 0,
+          calmarRatio: data.stats.calmarRatio || 0,
+          exposureTime: data.stats.exposureTime || 0,
+          tradesPerYear,
+        },
+        equityCurve: equityPoints,
+        trades: tradeList,
+      }
+      
+      localStorage.setItem('backtest_result', JSON.stringify(fullResult))
+      setTerminalOutput(prev => [...prev,
+        `✓ Simulation complete (blind test):`,
+        `  ${data.barsAnalyzed} bars analyzed over ${data.dateRange?.start} to ${data.dateRange?.end}`,
+        `  Return: ${data.stats.netReturnPct?.toFixed(1)}% | Trades: ${data.stats.totalTrades} (${tradesPerYear.toFixed(0)}/yr)`,
+        `  Win Rate: ${data.stats.winRate?.toFixed(0)}% | Fee Impact: -${feeImpact.toFixed(1)}%`,
+      ])
       
       setBtResult({
-        totalReturnPct: est.ret,
-        annualizedReturnPct: est.ret,
-        sharpeRatio: est.sharpe,
-        sortinoRatio: est.sharpe * 1.2,
-        maxDrawdownPct: est.dd,
-        maxDrawdownDuration: 30,
-        winRate: est.wr,
-        totalTrades: 45,
-        profitFactor: 1.3,
-        calmarRatio: est.ret / est.dd,
-        exposureTime: 65,
+        totalReturnPct: data.stats.netReturnPct || 0,
+        annualizedReturnPct: data.stats.annualizedReturnPct || 0,
+        sharpeRatio: data.stats.sharpeRatio || 0,
+        sortinoRatio: data.stats.sortinoRatio || 0,
+        maxDrawdownPct: data.stats.maxDrawdownPct || 0,
+        maxDrawdownDuration: data.stats.maxDrawdownDuration || 0,
+        winRate: data.stats.winRate || 0,
+        totalTrades: data.stats.totalTrades || 0,
+        profitFactor: data.stats.profitFactor || 0,
+        calmarRatio: data.stats.calmarRatio || 0,
+        exposureTime: data.stats.exposureTime || 0,
+        avgWin: data.stats.avgWin || 0,
+        avgLoss: data.stats.avgLoss || 0,
       })
-      setTerminalOutput(prev => [...prev, `📊 Estimate: ${strategy.name} typically returns ~${est.ret}% with ${est.wr}% win rate`])
+      setTrades(tradeList.slice(-100))
+      setChartData(equityPoints.filter((_, i) => i % Math.ceil(equityPoints.length / 200) === 0))
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Simulation failed'
+      setError(msg)
+      setTerminalOutput(prev => [...prev, `Error: ${msg}`])
+    } finally {
+      setBacktesting(false)
       setBacktestStatus('')
-    }, 500)
+    }
   }
 
   const toggleFolder = (id: string) => {
@@ -2507,168 +2625,153 @@ User request: ${userMsg}`
   }
 
   const renderDocs = () => {
+    const currentStrategy = STRATEGY_TEMPLATES[strategy.id] || STRATEGY_TEMPLATES.momentum_crossover
+    
     switch (docsSection) {
       case 'overview':
         return (
-          <div style={{ padding: '1rem', overflow: 'auto', maxWidth: 800 }}>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: C.white, marginBottom: '1rem' }}>How ASE Trading Agents Work</h2>
+          <div style={{ padding: '1rem', overflow: 'auto' }}>
+            <div style={{ marginBottom: '1rem' }}>
+              <h2 style={{ fontSize: '1rem', fontWeight: 700, color: C.white, marginBottom: '0.5rem' }}>Quick Start</h2>
+              <p style={{ fontSize: '0.75rem', color: C.muted, margin: 0 }}>Build and test your trading strategy in minutes</p>
+            </div>
             
-            <div style={{ background: `${C.blue}15`, border: `1px solid ${C.blue}40`, borderRadius: 8, padding: '1rem', marginBottom: '1.5rem' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: C.blue, marginBottom: '0.5rem' }}>Your Agent Checks Every Minute</div>
-              <p style={{ fontSize: '0.8rem', color: C.text, lineHeight: 1.6, margin: 0 }}>
-                Your algorithm runs on live data every minute. At each check, it decides: <strong style={{ color: C.mint }}>BUY</strong>, 
-                <strong style={{ color: C.red }}>SELL</strong>, or <strong style={{ color: C.faint }}>HOLD</strong>.
-                Over a year, that's 525,600 decisions and potentially hundreds of trades.
-              </p>
+            {/* Current Context */}
+            <div style={{ background: `${C.blue}15`, border: `1px solid ${C.blue}40`, borderRadius: 8, padding: '0.75rem', marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.7rem', color: C.faint, marginBottom: '0.35rem' }}>CURRENT SETUP</div>
+              <div style={{ display: 'flex', gap: '1rem', fontSize: '0.75rem' }}>
+                <span><span style={{ color: C.muted }}>Strategy:</span> <span style={{ color: C.white }}>{currentStrategy.name}</span></span>
+                <span><span style={{ color: C.muted }}>Asset:</span> <span style={{ color: C.white }}>{symbol}</span></span>
+              </div>
             </div>
-
-            <div style={{ marginBottom: '1.5rem' }}>
-              <h3 style={{ fontSize: '0.9rem', fontWeight: 600, color: C.white, marginBottom: '0.75rem' }}>The Signal System</h3>
-              <p style={{ fontSize: '0.8rem', color: C.muted, marginBottom: '1rem', lineHeight: 1.6 }}>
-                Your code is called every minute with the latest price data. You output a simple signal:
-              </p>
-              <pre style={{ background: C.bg3, padding: '1rem', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: '0.8rem', fontFamily: 'var(--font-mono)', color: C.mint, overflow: 'auto' }}>
-{`# Every minute, your code receives:
-# price = current price
-# RSI = calculated RSI value
-# position = 0 (flat) or 1 (in position)
-
-# Output your decision:
-if RSI < 30 and position == 0:
-    signal: buy, {price}    # Enter long
-elif RSI > 70 and position == 1:
-    signal: sell, {price}   # Exit position`}
-              </pre>
+            
+            {/* Quick Actions */}
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.65rem', color: C.faint, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Quick Actions</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                <button onClick={() => sendToAi('Give me a simple RSI strategy that buys when oversold and sells when overbought. Show me the code.')} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <TrendingUp size={12} style={{ color: C.mint }} /> RSI Strategy
+                </button>
+                <button onClick={() => sendToAi('Show me a momentum strategy that uses EMA crossovers to catch trends early')} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <TrendingUp size={12} style={{ color: C.blue }} /> Momentum Strategy
+                </button>
+                <button onClick={() => sendToAi('Add stop losses to my current strategy to limit downside risk')} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Shield size={12} style={{ color: C.red }} /> Add Stop Loss
+                </button>
+                <button onClick={() => setDocsSection('strategies')} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Book size={12} style={{ color: C.orange }} /> Browse Templates
+                </button>
+              </div>
             </div>
-
-            <div style={{ marginBottom: '1.5rem' }}>
-              <h3 style={{ fontSize: '0.9rem', fontWeight: 600, color: C.white, marginBottom: '0.75rem' }}>Example: RSI Mean Reversion</h3>
-              <pre style={{ background: C.bg3, padding: '1rem', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: C.text, overflow: 'auto' }}>
-{`# Check every minute for RSI extremes
-for i, candle in enumerate(prices):
-    rsi = calculate_rsi(candles[:i+1], period=14)
-    current_rsi = rsi[-1]
-    
-    if current_rsi < 30:
-        # Oversold - BUY signal
-        signal: buy, {candle.close}
-        
-    elif current_rsi > 70:
-        # Overbought - SELL signal
-        signal: sell, {candle.close}`}
-              </pre>
+            
+            {/* AI Suggestions */}
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.65rem', color: C.faint, textTransform: 'uppercase', marginBottom: '0.5rem' }}>AI Suggestions</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                <button onClick={() => sendToAi('Incorporate additional data sources (like on-chain metrics, sentiment, or alternative data) to improve my strategy signals')} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.purple}40`, background: `${C.purple}10`, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Database size={12} style={{ color: C.purple }} /> Incorporate More Data
+                </button>
+                <button onClick={() => sendToAi('Improve my current strategy by optimizing parameters, adding filters, or reducing drawdown')} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.orange}40`, background: `${C.orange}10`, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Sparkles size={12} style={{ color: C.orange }} /> Improve Strategy
+                </button>
+                <button onClick={() => sendToAi('Analyze my current code and suggest specific improvements for better returns or lower risk')} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.blue}40`, background: `${C.blue}10`, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Code size={12} style={{ color: C.blue }} /> Optimize My Code
+                </button>
+              </div>
             </div>
-
-            <div style={{ marginBottom: '1.5rem' }}>
-              <h3 style={{ fontSize: '0.9rem', fontWeight: 600, color: C.white, marginBottom: '0.75rem' }}>Signal Formats (Pick One)</h3>
-              <div style={{ display: 'grid', gap: '0.5rem' }}>
+            
+            {/* How It Works */}
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.65rem', color: C.faint, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Workflow</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {[
-                  { format: '# BUY at 123.45', desc: 'Comment-based (easiest)', color: C.mint },
-                  { format: 'signal: buy, 123.45', desc: 'Keyword format', color: C.blue },
-                  { format: "emit_signal('buy', 123.45)", desc: 'Function call', color: C.orange },
-                ].map(f => (
-                  <div key={f.format} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3 }}>
-                    <code style={{ fontSize: '0.75rem', color: f.color }}>{f.format}</code>
-                    <span style={{ fontSize: '0.7rem', color: C.muted }}>{f.desc}</span>
+                  { step: '1', title: 'Write Code', desc: 'Create signal logic', color: C.blue },
+                  { step: '2', title: 'Sandbox Test', desc: 'Run 5yr simulation', color: C.purple },
+                  { step: '3', title: 'Check Metrics', desc: 'Return, Sharpe, Win Rate', color: C.mint },
+                  { step: '4', title: 'Deploy', desc: 'Go live with capital', color: C.orange },
+                ].map(s => (
+                  <div key={s.step} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{ width: 20, height: 20, borderRadius: '50%', background: `${s.color}20`, color: s.color, fontSize: '0.65rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{s.step}</div>
+                    <div>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: C.white }}>{s.title}</div>
+                      <div style={{ fontSize: '0.65rem', color: C.muted }}>{s.desc}</div>
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
-
-            <div style={{ background: `${C.mint}10`, border: `1px solid ${C.mint}30`, borderRadius: 8, padding: '1rem', marginBottom: '1rem' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: C.mint, marginBottom: '0.5rem' }}>What We Handle Automatically</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.75rem', color: C.text }}>
-                <div>• Position sizing</div>
-                <div>• Trading fees (0.1%)</div>
-                <div>• Slippage simulation</div>
-                <div>• Equity tracking</div>
-                <div>• Drawdown calculation</div>
-                <div>• Performance metrics</div>
-              </div>
+            
+            {/* Signal Format */}
+            <div style={{ background: C.bg3, borderRadius: 8, padding: '0.75rem' }}>
+              <div style={{ fontSize: '0.7rem', fontWeight: 600, color: C.mint, marginBottom: '0.5rem' }}>Signal Format</div>
+              <pre style={{ fontSize: '0.65rem', fontFamily: 'var(--font-mono)', color: C.text, margin: 0, lineHeight: 1.5 }}>
+{`signal: buy, {price}   # Entry
+signal: sell, {price}  # Exit`}
+              </pre>
             </div>
           </div>
         )
 
       case 'api':
         return (
-          <div style={{ padding: '1rem', overflow: 'auto', maxWidth: 800 }}>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: C.white, marginBottom: '1rem' }}>Signal API</h2>
+          <div style={{ padding: '1rem', overflow: 'auto' }}>
+            <h2 style={{ fontSize: '1rem', fontWeight: 700, color: C.white, marginBottom: '0.5rem' }}>Signal API</h2>
+            <p style={{ fontSize: '0.75rem', color: C.muted, marginBottom: '1rem' }}>Available variables and functions</p>
             
-            <div style={{ marginBottom: '1.5rem' }}>
-              <h3 style={{ fontSize: '0.9rem', fontWeight: 600, color: C.white, marginBottom: '0.75rem' }}>Variables Available Each Check</h3>
-              <pre style={{ background: C.bg3, padding: '1rem', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: C.text, overflow: 'auto' }}>
-{`# Available each minute:
-price          # Current price (float)
-prices[]       # Array of all historical prices
-volume        # Current volume
-timestamp     # Current time
-position      # 0 = flat, 1 = in position
-
-# Calculated for you:
-RSI(14)       # 14-period RSI
-EMA(20)       # 20-period EMA  
-EMA(50)       # 50-period EMA
-MACD          # MACD indicator
-BB_upper      # Bollinger upper band
-BB_lower      # Bollinger lower band
-
-# You can use:
-calculate_rsi(prices, period=14)
-calculate_ema(prices, period=20)`}
-              </pre>
+            {/* Variables */}
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.65rem', color: C.faint, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Variables</div>
+              <div style={{ background: C.bg3, borderRadius: 8, padding: '0.75rem', fontSize: '0.7rem', fontFamily: 'var(--font-mono)' }}>
+                <div style={{ color: C.mint }}>price</div>
+                <div style={{ color: C.muted }}>current price (float)</div>
+                <div style={{ color: C.mint, marginTop: '0.5rem' }}>position</div>
+                <div style={{ color: C.muted }}>0 = flat, 1 = in position</div>
+                <div style={{ color: C.mint, marginTop: '0.5rem' }}>RSI, EMA, MACD, ATR</div>
+                <div style={{ color: C.muted }}>pre-calculated indicators</div>
+              </div>
             </div>
-
-            <div style={{ marginBottom: '1.5rem' }}>
-              <h3 style={{ fontSize: '0.9rem', fontWeight: 600, color: C.white, marginBottom: '0.75rem' }}>Signal Output Examples</h3>
-              <pre style={{ background: C.bg3, padding: '1rem', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: C.mint, overflow: 'auto' }}>
-{`# Simple RSI Strategy
-if RSI < 30 and position == 0:
-    signal: buy, {price}
-
-elif RSI > 70 and position == 1:
-    signal: sell, {price}
-
-# MACD Crossover
-if MACD_line > signal_line and position == 0:
-    signal: buy, {price}
-    
-elif MACD_line < signal_line and position == 1:
-    signal: sell, {price}
-
-# Bollinger Band Breakout
-if price > BB_upper and position == 0:
-    signal: buy, {price}
-    
-elif price < BB_lower and position == 1:
-    signal: sell, {price}`}
-              </pre>
+            
+            {/* Functions */}
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.65rem', color: C.faint, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Helper Functions</div>
+              <div style={{ background: C.bg3, borderRadius: 8, padding: '0.75rem', fontSize: '0.7rem', fontFamily: 'var(--font-mono)' }}>
+                <div style={{ color: C.blue }}>calculate_rsi(prices, period=14)</div>
+                <div style={{ color: C.blue, marginTop: '0.5rem' }}>calculate_ema(prices, period=20)</div>
+                <div style={{ color: C.blue, marginTop: '0.5rem' }}>calculate_macd(prices)</div>
+              </div>
+            </div>
+            
+            {/* Examples */}
+            <div>
+              <div style={{ fontSize: '0.65rem', color: C.faint, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Examples</div>
+              <div style={{ background: C.bg3, borderRadius: 8, padding: '0.75rem', fontSize: '0.65rem', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
+                <div style={{ color: C.faint }}># RSI oversold/overbought</div>
+                <div style={{ color: C.mint }}>if RSI &lt; 30 and position == 0:</div>
+                <div style={{ color: C.mint }}>{"    signal: buy, {price}"}</div>
+                <div style={{ color: C.muted }}>{" # RSI > 70 sell here"}</div>
+                <div style={{ marginTop: '0.75rem', color: C.faint }}># EMA crossover</div>
+                <div style={{ color: C.mint }}>if EMA_8 &gt; EMA_21 and position == 0:</div>
+                <div style={{ color: C.mint }}>{"    signal: buy, {price}"}</div>
+              </div>
             </div>
           </div>
         )
         
       case 'strategies':
         return (
-          <div style={{ padding: '1rem', overflow: 'auto', maxWidth: 800 }}>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: C.white, marginBottom: '1rem' }}>Strategy Templates</h2>
-            <p style={{ fontSize: '0.8rem', color: C.muted, marginBottom: '1.5rem', lineHeight: 1.5 }}>
-              Choose a starting template and customize it. Each generates signals based on indicators.
-            </p>
+          <div style={{ padding: '1rem', overflow: 'auto' }}>
+            <h2 style={{ fontSize: '1rem', fontWeight: 700, color: C.white, marginBottom: '0.5rem' }}>Templates</h2>
+            <p style={{ fontSize: '0.75rem', color: C.muted, marginBottom: '1rem' }}>Click to use template</p>
+            
             {Object.values(STRATEGY_TEMPLATES).map(s => (
-              <div key={s.id} style={{ marginBottom: '1rem', padding: '1rem', borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg3 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                  <span style={{ fontSize: '1.5rem' }}>{s.icon}</span>
-                  <div>
-                    <div style={{ fontSize: '0.9rem', fontWeight: 600, color: C.white }}>{s.name}</div>
-                    <div style={{ fontSize: '0.7rem', color: CATEGORY_COLORS[s.category], background: `${CATEGORY_COLORS[s.category]}15`, padding: '0.1rem 0.5rem', borderRadius: 4, display: 'inline-block', marginTop: '0.25rem' }}>{s.category}</div>
-                  </div>
+              <div key={s.id} style={{ marginBottom: '0.75rem', padding: '0.75rem', borderRadius: 8, border: `1px solid ${strategy.id === s.id ? C.mint : C.border}`, background: strategy.id === s.id ? C.mintDark : C.bg3, cursor: 'pointer' }}
+                onClick={() => handleTemplateSelect(s.id)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                  <span style={{ fontSize: '1rem' }}>{s.icon}</span>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: C.white }}>{s.name}</div>
+                  {strategy.id === s.id && <span style={{ marginLeft: 'auto', fontSize: '0.65rem', color: C.mint }}>Active</span>}
                 </div>
-                <p style={{ fontSize: '0.8rem', color: C.muted, margin: '0 0 0.75rem 0', lineHeight: 1.5 }}>{s.description}</p>
-                <button 
-                  onClick={() => handleTemplateSelect(s.id)}
-                  style={{ padding: '0.5rem 1rem', borderRadius: 6, border: 'none', background: C.mint, color: C.bg, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
-                >
-                  Use Template
-                </button>
+                <p style={{ fontSize: '0.7rem', color: C.muted, margin: 0, lineHeight: 1.4 }}>{s.description}</p>
               </div>
             ))}
           </div>
@@ -2676,22 +2779,18 @@ elif price < BB_lower and position == 1:
         
       case 'indicators':
         return (
-          <div style={{ padding: '1rem', overflow: 'auto', maxWidth: 800 }}>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: C.white, marginBottom: '1rem' }}>Technical Indicators</h2>
-            <p style={{ fontSize: '0.8rem', color: C.muted, marginBottom: '1.5rem', lineHeight: 1.5 }}>
-              Available for signal generation. Use them to build your strategy.
-            </p>
+          <div style={{ padding: '1rem', overflow: 'auto' }}>
+            <h2 style={{ fontSize: '1rem', fontWeight: 700, color: C.white, marginBottom: '0.5rem' }}>Indicators</h2>
+            <p style={{ fontSize: '0.75rem', color: C.muted, marginBottom: '1rem' }}>Available in your code</p>
+            
             {INDICATORS.map(ind => (
-              <div key={ind.id} style={{ marginBottom: '1rem', padding: '1rem', borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg3 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                  <span style={{ fontSize: '0.65rem', fontWeight: 700, color: C.blue, background: `${C.blue}15`, padding: '0.2rem 0.5rem', borderRadius: 4 }}>{ind.abbrev}</span>
-                  <span style={{ fontSize: '0.9rem', fontWeight: 600, color: C.white }}>{ind.name}</span>
-                  <span style={{ fontSize: '0.7rem', color: C.muted }}>{ind.category}</span>
+              <div key={ind.id} style={{ marginBottom: '0.75rem', padding: '0.75rem', borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg3 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                  <span style={{ fontSize: '0.6rem', fontWeight: 700, color: C.blue, background: `${C.blue}15`, padding: '0.15rem 0.4rem', borderRadius: 3 }}>{ind.abbrev}</span>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: C.white }}>{ind.name}</span>
                 </div>
-                <pre style={{ background: C.bg, padding: '0.75rem', borderRadius: 6, fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: C.mint, overflow: 'auto', margin: '0 0 0.5rem 0' }}>
-                  {ind.formula}
-                </pre>
-                <p style={{ fontSize: '0.8rem', color: C.muted, margin: 0 }}>{ind.description}</p>
+                <div style={{ fontSize: '0.65rem', color: C.mint, fontFamily: 'var(--font-mono)', marginBottom: '0.25rem' }}>{ind.formula}</div>
+                <div style={{ fontSize: '0.7rem', color: C.muted }}>{ind.description}</div>
               </div>
             ))}
           </div>
@@ -2699,73 +2798,90 @@ elif price < BB_lower and position == 1:
 
       case 'risk':
         return (
-          <div style={{ padding: '1rem', overflow: 'auto', maxWidth: 800 }}>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: C.white, marginBottom: '1rem' }}>Risk Management</h2>
+          <div style={{ padding: '1rem', overflow: 'auto' }}>
+            <h2 style={{ fontSize: '1rem', fontWeight: 700, color: C.white, marginBottom: '1rem' }}>Risk Management</h2>
             
-            <div style={{ background: `${C.red}10`, border: `1px solid ${C.red}30`, borderRadius: 8, padding: '1rem', marginBottom: '1.5rem' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: C.red, marginBottom: '0.5rem' }}>High-Frequency Trading Risk</div>
-              <p style={{ fontSize: '0.75rem', color: C.text, margin: 0, lineHeight: 1.5 }}>
-                With hundreds of trades per year, fees compound quickly. Each trade costs 0.1%+ slippage.
-                A strategy needs &gt;55% win rate or large avg win to be profitable after fees.
-              </p>
-            </div>
-
-            <div style={{ marginBottom: '1.5rem' }}>
-              <h3 style={{ fontSize: '0.9rem', fontWeight: 600, color: C.white, marginBottom: '0.75rem' }}>Key Metrics to Target</h3>
-              <div style={{ display: 'grid', gap: '0.75rem' }}>
-                {[
-                  { name: 'Win Rate', target: '> 55%', desc: 'Needed to beat fees in high-frequency strategies', color: C.mint },
-                  { name: 'Avg Win / Avg Loss', target: '> 1.2', desc: 'Reward-to-risk ratio', color: C.blue },
-                  { name: 'Max Drawdown', target: '< 20%', desc: 'Largest peak-to-trough decline', color: C.red },
-                  { name: 'Sharpe Ratio', target: '> 1.0', desc: 'Risk-adjusted performance', color: C.orange },
-                ].map(item => (
-                  <div key={item.name} style={{ padding: '0.75rem', borderRadius: 6, border: `1px solid ${item.color}30`, background: `${item.color}10` }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: item.color }}>{item.name}</div>
-                      <div style={{ fontSize: '0.9rem', fontWeight: 700, color: C.white }}>{item.target}</div>
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: C.muted, marginTop: '0.25rem' }}>{item.desc}</div>
-                  </div>
-                ))}
+            {/* Critical Info */}
+            <div style={{ background: `${C.red}10`, border: `1px solid ${C.red}30`, borderRadius: 8, padding: '0.75rem', marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: C.red, marginBottom: '0.35rem' }}>Fee Impact Warning</div>
+              <div style={{ fontSize: '0.7rem', color: C.text, lineHeight: 1.5 }}>
+                Strategies need <span style={{ color: C.mint, fontWeight: 600 }}>&gt;55% win rate</span> or <span style={{ color: C.mint, fontWeight: 600 }}>&gt;1.2% avg win</span> to be profitable after fees.
               </div>
             </div>
-
-            <div style={{ background: `${C.mint}10`, border: `1px solid ${C.mint}30`, borderRadius: 8, padding: '1rem' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: C.mint, marginBottom: '0.5rem' }}>Fee Impact Calculator</div>
-              <pre style={{ background: C.bg, padding: '0.75rem', borderRadius: 6, fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: C.text, margin: 0 }}>
-{`Example: 500 trades/year, 0.1% fee each way
-Total fees = 500 × 2 × 0.1% = 100%
-
-Your strategy needs to beat this just to break even!
-- 50% win rate × 1% avg win = 50% gross
-- After fees: 50% - 100% = -50% net loss
-
-That's why win rate > 55% or avg win > 1.2% matters.`}
-              </pre>
+            
+            {/* Target Metrics */}
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.65rem', color: C.faint, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Target Metrics</div>
+              {[
+                { name: 'Win Rate', target: '&gt;55%', color: C.mint },
+                { name: 'Avg Win/Loss', target: '&gt;1.2x', color: C.blue },
+                { name: 'Max DD', target: '&lt;20%', color: C.red },
+                { name: 'Sharpe', target: '&gt;1.0', color: C.orange },
+              ].map(item => (
+                <div key={item.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem', borderRadius: 4, background: C.bg3, marginBottom: '0.35rem' }}>
+                  <span style={{ fontSize: '0.75rem', color: C.text }}>{item.name}</span>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: item.color }} dangerouslySetInnerHTML={{ __html: item.target }} />
+                </div>
+              ))}
+            </div>
+            
+            {/* Tips */}
+            <div>
+              <div style={{ fontSize: '0.65rem', color: C.faint, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Tips</div>
+              <div style={{ fontSize: '0.7rem', color: C.muted, lineHeight: 1.5 }}>
+                <div style={{ marginBottom: '0.5rem' }}>• Use stop losses to limit single-trade losses</div>
+                <div style={{ marginBottom: '0.5rem' }}>• Lower timeframe = more trades = higher fees</div>
+                <div>• Test with 5yr simulation before deploying</div>
+              </div>
             </div>
           </div>
         )
         
       case 'data':
         return (
-          <div style={{ padding: '1rem', overflow: 'auto', maxWidth: 800 }}>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: C.white, marginBottom: '1rem' }}>Data Sources</h2>
-            <div style={{ display: 'grid', gap: '0.75rem' }}>
-              {DATA_SOURCES.map(ds => (
-                <div key={ds.id} style={{ padding: '1rem', borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg3 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                    <div style={{ width: 32, height: 32, borderRadius: 6, background: `${ds.badgeColor}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 700, color: ds.badgeColor }}>
-                      {ds.name[0]}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: C.white }}>{ds.name}</div>
-                      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
-                        <span style={{ fontSize: '0.65rem', color: ds.badgeColor, background: `${ds.badgeColor}15`, padding: '0.1rem 0.4rem', borderRadius: 3 }}>{ds.badge}</span>
-                        {ds.noKey && <span style={{ fontSize: '0.65rem', color: C.mint, background: C.mintDark, padding: '0.1rem 0.4rem', borderRadius: 3 }}>FREE</span>}
-                      </div>
-                    </div>
+          <div style={{ padding: '1rem', overflow: 'auto', height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ marginBottom: '1rem' }}>
+              <h2 style={{ fontSize: '1rem', fontWeight: 700, color: C.white, marginBottom: '0.5rem' }}>Data Sources</h2>
+              <p style={{ fontSize: '0.7rem', color: C.muted, margin: 0 }}>APIs for fetching market data. Click "Integrate" to add via AI.</p>
+            </div>
+            
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+              <button onClick={() => setDataCategory('all')} style={{ padding: '0.3rem 0.6rem', borderRadius: 4, border: `1px solid ${dataCategory === 'all' ? C.blue : C.border}`, background: dataCategory === 'all' ? `${C.blue}20` : 'transparent', color: dataCategory === 'all' ? C.blue : C.muted, fontSize: '0.65rem', cursor: 'pointer' }}>All</button>
+              {['crypto', 'stocks', 'forex', 'macro', 'alternative'].map(cat => (
+                <button key={cat} onClick={() => setDataCategory(cat)} style={{ padding: '0.3rem 0.6rem', borderRadius: 4, border: `1px solid ${dataCategory === cat ? C.blue : C.border}`, background: dataCategory === cat ? `${C.blue}20` : 'transparent', color: dataCategory === cat ? C.blue : C.muted, fontSize: '0.65rem', cursor: 'pointer', textTransform: 'capitalize' }}>{cat}</button>
+              ))}
+            </div>
+            
+            <input 
+              type="text" 
+              placeholder="Search APIs..." 
+              value={dataSearch}
+              onChange={e => setDataSearch(e.target.value)}
+              style={{ padding: '0.4rem 0.6rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem', marginBottom: '1rem', width: '100%' }}
+            />
+            
+            <div style={{ flex: 1, overflow: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '0.5rem', alignContent: 'start' }}>
+              {filteredAPIs.map(api => (
+                <div key={api.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: '0.6rem', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: C.white }}>{api.name}</span>
+                    <span style={{ fontSize: '0.5rem', padding: '0.1rem 0.3rem', borderRadius: 3, background: api.tier === 'free' ? `${C.mint}20` : `${C.orange}20`, color: api.tier === 'free' ? C.mint : C.orange }}>{api.tier}</span>
                   </div>
-                  <p style={{ fontSize: '0.75rem', color: C.muted, margin: 0 }}>{ds.description}</p>
+                  <div style={{ fontSize: '0.6rem', color: C.muted, marginBottom: '0.35rem', flex: 1 }}>{api.description}</div>
+                  <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginBottom: '0.35rem' }}>
+                    {api.dataTypes.slice(0, 3).map(dt => (
+                      <span key={dt} style={{ fontSize: '0.5rem', padding: '0.1rem 0.25rem', borderRadius: 2, background: C.bg3, color: C.faint }}>{dt}</span>
+                    ))}
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setSelectedAPI(api)
+                      askAIForAPI(api)
+                    }}
+                    style={{ width: '100%', padding: '0.3rem', borderRadius: 4, border: 'none', background: C.purple, color: C.white, fontSize: '0.65rem', fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    Integrate with AI
+                  </button>
                 </div>
               ))}
             </div>
@@ -2895,6 +3011,72 @@ That's why win rate > 55% or avg win > 1.2% matters.`}
     )
   }
 
+  if (view === 'data') {
+    return (
+      <div style={{ display: 'flex', height: '100vh', background: C.bg, color: C.text }}>
+        <aside style={{ width: 180, borderRight: `1px solid ${C.border}`, background: C.bg2, padding: '0.5rem' }}>
+          <button onClick={() => setView('editor')} style={{ width: '100%', padding: '0.4rem', borderRadius: 4, border: `1px solid ${C.border}`, background: 'transparent', color: C.muted, fontSize: '0.6rem', cursor: 'pointer', marginBottom: '0.5rem', textAlign: 'left' }}>
+            ← Back to Editor
+          </button>
+          <div style={{ fontSize: '0.7rem', fontWeight: 600, color: C.white, marginBottom: '0.5rem' }}>Data APIs</div>
+          
+          {['crypto', 'stocks', 'forex', 'macro', 'alternative'].map(cat => (
+            <button 
+              key={cat}
+              onClick={() => setDataCategory(cat)}
+              style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: 4, border: 'none', background: dataCategory === cat ? C.bg3 : 'transparent', color: dataCategory === cat ? C.white : C.muted, fontSize: '0.6rem', cursor: 'pointer', textAlign: 'left', textTransform: 'capitalize' }}
+            >
+              {cat}
+            </button>
+          ))}
+        </aside>
+        
+        <main style={{ flex: 1, overflow: 'auto' }}>
+          <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.4rem 0.75rem', borderBottom: `1px solid ${C.border}`, background: C.bg2 }}>
+            <div>
+              <h1 style={{ fontSize: '0.9rem', fontWeight: 600, color: C.white, margin: 0 }}>Data Sources</h1>
+              <div style={{ fontSize: '0.55rem', color: C.muted }}>APIs available for fetching market data</div>
+            </div>
+            <input 
+              type="text" 
+              placeholder="Search APIs..." 
+              value={dataSearch}
+              onChange={e => setDataSearch(e.target.value)}
+              style={{ padding: '0.3rem 0.6rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem', width: 180 }}
+            />
+          </header>
+          
+          <div style={{ padding: '1rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '0.75rem' }}>
+            {filteredAPIs.map(api => (
+              <div key={api.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: '0.75rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: C.white }}>{api.name}</span>
+                  <span style={{ fontSize: '0.55rem', padding: '0.15rem 0.4rem', borderRadius: 4, background: api.tier === 'free' ? `${C.mint}20` : `${C.orange}20`, color: api.tier === 'free' ? C.mint : C.orange }}>{api.tier}</span>
+                </div>
+                <div style={{ fontSize: '0.65rem', color: C.muted, marginBottom: '0.5rem' }}>{api.description}</div>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                  {api.dataTypes.map(dt => (
+                    <span key={dt} style={{ fontSize: '0.55rem', padding: '0.1rem 0.3rem', borderRadius: 3, background: C.bg3, color: C.faint }}>{dt}</span>
+                  ))}
+                </div>
+                <div style={{ fontSize: '0.55rem', color: C.faint, marginBottom: '0.5rem' }}>Rate limit: {api.rateLimit}</div>
+                <button 
+                  onClick={() => {
+                    setSelectedAPI(api)
+                    askAIForAPI(api)
+                  }}
+                  style={{ width: '100%', padding: '0.35rem', borderRadius: 4, border: 'none', background: C.purple, color: C.white, fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Integrate with AI
+                </button>
+              </div>
+            ))}
+          </div>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 56px)', background: C.bg, color: C.text, overflow: 'hidden' }}>
       {/* Action Bar */}
@@ -2943,46 +3125,77 @@ That's why win rate > 55% or avg win > 1.2% matters.`}
           <button onClick={() => setView('create' as typeof view)} style={{ padding: '0.4rem 1rem', borderRadius: 6, border: 'none', background: C.blue, color: C.white, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
             <Plus size={14} />New Agent
           </button>
-          <button onClick={runEstimate} disabled={backtesting || !!btResult} style={{ padding: '0.4rem 0.75rem', borderRadius: 6, border: `1px solid ${C.orange}50`, background: 'transparent', color: C.orange, fontSize: '0.75rem', fontWeight: 600, cursor: backtesting ? 'not-allowed' : 'pointer' }}>
-            📊 Estimate
+          <button onClick={runSimulation} disabled={backtesting} style={{ padding: '0.4rem 0.75rem', borderRadius: 6, border: 'none', background: backtesting ? C.border : C.purple, color: C.bg, fontSize: '0.8rem', fontWeight: 600, cursor: backtesting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {backtesting ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}{backtesting ? backtestStatus || 'Running...' : 'Sandbox Test'}
           </button>
-          <button onClick={runBacktest} disabled={backtesting} style={{ padding: '0.4rem 1rem', borderRadius: 6, border: 'none', background: backtesting ? C.border : C.mint, color: C.bg, fontSize: '0.8rem', fontWeight: 600, cursor: backtesting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-            {backtesting ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}{backtesting ? backtestStatus || 'Running...' : 'Run Backtest'}
+          <button onClick={() => setView('docs')} style={{ padding: '0.4rem 0.75rem', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.text, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Book size={14} />Docs
+          </button>
+          <button onClick={() => setView('data')} style={{ padding: '0.4rem 0.75rem', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.text, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Database size={14} />Data
+          </button>
+          <button onClick={() => setRightPanel(rightPanel === 'ai' ? 'docs' : 'ai')} style={{ padding: '0.4rem', borderRadius: 4, border: `1px solid ${rightPanel === 'ai' ? C.orange : C.border}`, background: rightPanel === 'ai' ? C.orange : 'transparent', color: rightPanel === 'ai' ? C.bg : C.muted, cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+            <Sparkle size={16} />
           </button>
         </div>
       </div>
 
       {btResult && (
-        <div style={{ display: 'flex', gap: '1.5rem', padding: '0.6rem 1rem', borderBottom: `1px solid ${C.border}`, background: C.bg3, overflowX: 'auto' }}>
-          <div style={{ minWidth: 70 }}>
-            <div style={{ fontSize: '0.6rem', color: C.faint, textTransform: 'uppercase', marginBottom: 4 }}>Return</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: btResult.totalReturnPct >= 0 ? C.mint : C.red }}>
-              {btResult.totalReturnPct >= 0 ? '+' : ''}{btResult.totalReturnPct.toFixed(1)}%
+        <div style={{ display: 'flex', gap: '1rem', padding: '0.5rem 1rem', borderBottom: `1px solid ${C.border}`, background: C.bg3, overflowX: 'auto', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '1rem' }}>
+            <div style={{ textAlign: 'center', minWidth: 65 }}>
+              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>Return</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: btResult.totalReturnPct >= 0 ? C.mint : C.red }}>
+                {btResult.totalReturnPct >= 0 ? '+' : ''}{btResult.totalReturnPct.toFixed(1)}%
+              </div>
+            </div>
+            <div style={{ width: 1, background: C.border }} />
+            <div style={{ textAlign: 'center', minWidth: 55 }}>
+              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>Sharpe</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: btResult.sharpeRatio >= 1 ? C.mint : btResult.sharpeRatio >= 0 ? C.orange : C.red }}>{btResult.sharpeRatio.toFixed(2)}</div>
+            </div>
+            <div style={{ width: 1, background: C.border }} />
+            <div style={{ textAlign: 'center', minWidth: 55 }}>
+              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>Max DD</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.red }}>-{btResult.maxDrawdownPct.toFixed(1)}%</div>
+            </div>
+            <div style={{ width: 1, background: C.border }} />
+            <div style={{ textAlign: 'center', minWidth: 55 }}>
+              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>Win Rate</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: btResult.winRate >= 55 ? C.mint : btResult.winRate >= 50 ? C.orange : C.red }}>{btResult.winRate.toFixed(0)}%</div>
+            </div>
+            <div style={{ width: 1, background: C.border }} />
+            <div style={{ textAlign: 'center', minWidth: 50 }}>
+              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>Trades</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.white }}>{btResult.totalTrades}</div>
+            </div>
+            <div style={{ width: 1, background: C.border }} />
+            <div style={{ textAlign: 'center', minWidth: 55 }}>
+              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>Avg Win</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.mint }}>+{(btResult.avgWin || 0).toFixed(1)}%</div>
+            </div>
+            <div style={{ width: 1, background: C.border }} />
+            <div style={{ textAlign: 'center', minWidth: 55 }}>
+              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>Avg Loss</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.red }}>{(btResult.avgLoss || 0).toFixed(1)}%</div>
+            </div>
+            <div style={{ width: 1, background: C.border }} />
+            <div style={{ textAlign: 'center', minWidth: 55 }}>
+              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>PF</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: btResult.profitFactor >= 1.5 ? C.mint : btResult.profitFactor >= 1 ? C.orange : C.red }}>{btResult.profitFactor.toFixed(2)}</div>
             </div>
           </div>
-          <div style={{ minWidth: 70 }}>
-            <div style={{ fontSize: '0.6rem', color: C.faint, textTransform: 'uppercase', marginBottom: 4 }}>Sharpe</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: btResult.sharpeRatio >= 1 ? C.mint : btResult.sharpeRatio >= 0 ? C.orange : C.red }}>{btResult.sharpeRatio.toFixed(2)}</div>
-          </div>
-          <div style={{ minWidth: 70 }}>
-            <div style={{ fontSize: '0.6rem', color: C.faint, textTransform: 'uppercase', marginBottom: 4 }}>Max DD</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: C.red }}>-{btResult.maxDrawdownPct.toFixed(1)}%</div>
-          </div>
-          <div style={{ minWidth: 70 }}>
-            <div style={{ fontSize: '0.6rem', color: C.faint, textTransform: 'uppercase', marginBottom: 4 }}>Win Rate</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: btResult.winRate >= 50 ? C.mint : C.orange }}>{btResult.winRate.toFixed(0)}%</div>
-          </div>
-          <div style={{ minWidth: 70 }}>
-            <div style={{ fontSize: '0.6rem', color: C.faint, textTransform: 'uppercase', marginBottom: 4 }}>Trades</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: C.white }}>{btResult.totalTrades}</div>
-          </div>
-          <div style={{ minWidth: 70 }}>
-            <div style={{ fontSize: '0.6rem', color: C.faint, textTransform: 'uppercase', marginBottom: 4 }}>Profit Factor</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: btResult.profitFactor >= 1 ? C.mint : C.red }}>{btResult.profitFactor.toFixed(2)}</div>
-          </div>
-          <button onClick={() => setShowChart(!showChart)} style={{ marginLeft: 'auto', padding: '0.5rem 1rem', borderRadius: 6, border: `1px solid ${showChart ? C.blue : C.border}`, background: showChart ? C.blue : 'transparent', color: C.text, fontSize: '0.8rem', cursor: 'pointer', alignSelf: 'center' }}>
-            {showChart ? 'Hide Chart' : 'Show Chart'}
+          <button onClick={() => setShowChart(!showChart)} style={{ marginLeft: 'auto', padding: '0.4rem 0.75rem', borderRadius: 6, border: `1px solid ${showChart ? C.blue : C.border}`, background: showChart ? C.blue : 'transparent', color: C.text, fontSize: '0.75rem', cursor: 'pointer' }}>
+            {showChart ? 'Hide' : 'Chart'}
           </button>
+          {btResult.totalTrades > 0 && (
+            <button 
+              onClick={() => window.location.href = '/dashboard/build/backtest'}
+              style={{ padding: '0.4rem 0.75rem', borderRadius: 6, border: `1px solid ${C.mint}`, background: `${C.mint}15`, color: C.mint, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
+            >
+              Full Report
+            </button>
+          )}
         </div>
       )}
 
@@ -3002,160 +3215,74 @@ That's why win rate > 55% or avg win > 1.2% matters.`}
         </div>
       )}
 
-      {(view === 'editor' || view === 'docs' || view === 'create') && (
+      {(view === 'editor' || view === 'docs' || view === 'data' || view === 'create') && (
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
           {/* Left Panel - Docs */}
           {!sidebarCollapsed && (
             <div style={{ width: 280, borderRight: `1px solid ${C.border}`, background: C.bg2, display: 'flex', flexDirection: 'column' }}>
-              <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}` }}>
-                <button onClick={() => setLeftPanel('docs')} style={{ flex: 1, padding: '0.6rem', border: 'none', background: leftPanel === 'docs' ? C.bg3 : 'transparent', color: leftPanel === 'docs' ? C.white : C.muted, fontSize: '0.8rem', fontWeight: leftPanel === 'docs' ? 600 : 400, cursor: 'pointer' }}>Docs</button>
-                <button onClick={() => setLeftPanel('data')} style={{ flex: 1, padding: '0.6rem', border: 'none', background: leftPanel === 'data' ? C.bg3 : 'transparent', color: leftPanel === 'data' ? C.white : C.muted, fontSize: '0.8rem', fontWeight: leftPanel === 'data' ? 600 : 400, cursor: 'pointer' }}>Data APIs</button>
+              <div style={{ display: 'flex', alignItems: 'center', borderBottom: `1px solid ${C.border}`, padding: '0.5rem 0.75rem' }}>
+                <span style={{ fontSize: '0.7rem', fontWeight: 600, color: C.white }}>ASE Quant</span>
+                <button onClick={() => setSidebarCollapsed(true)} style={{ marginLeft: 'auto', padding: '0.25rem', border: 'none', background: 'transparent', color: C.muted, cursor: 'pointer' }}>
+                  <PanelLeft size={14} />
+                </button>
               </div>
               
-              {leftPanel === 'docs' && (
-                <div style={{ flex: 1, padding: '0.75rem', overflow: 'auto' }}>
-                  <div style={{ fontSize: '0.7rem', color: C.faint, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Documentation</div>
-                  {[
-                    { id: 'overview', label: 'Quick Start', icon: Book, color: C.mint },
-                    { id: 'api', label: 'Signal API', icon: Code, color: C.blue },
-                    { id: 'strategies', label: 'Strategies', icon: TrendingUp, color: C.orange },
-                    { id: 'indicators', label: 'Indicators', icon: Activity, color: C.purple },
-                    { id: 'risk', label: 'Risk Mgmt', icon: Shield, color: C.red },
-                  ].map(doc => (
-                    <button 
-                      key={doc.id}
-                      onClick={() => {
+              <div style={{ flex: 1, overflow: 'auto' }}>
+                {[
+                  { id: 'overview', label: 'Quick Start', icon: Book, color: C.mint },
+                  { id: 'api', label: 'Signal API', icon: Code, color: C.blue },
+                  { id: 'strategies', label: 'Strategies', icon: TrendingUp, color: C.orange },
+                  { id: 'indicators', label: 'Indicators', icon: Activity, color: C.purple },
+                  { id: 'risk', label: 'Risk', icon: Shield, color: C.red },
+                  { id: 'data', label: 'Data Sources', icon: Database, color: C.blue },
+                ].map(doc => (
+                  <button 
+                    key={doc.id}
+                    onClick={() => {
+                      if (doc.id === 'data') {
+                        setView('data')
+                      } else {
                         setDocsSection(doc.id as any)
-                        setView('docs')
-                      }}
-                      style={{ 
-                        width: '100%', 
-                        padding: '0.6rem 0.75rem', 
-                        borderRadius: 6, 
-                        border: `1px solid ${C.border}`, 
-                        background: 'transparent', 
-                        color: C.muted, 
-                        fontSize: '0.8rem', 
-                        cursor: 'pointer', 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: 8,
-                        marginBottom: '0.5rem',
-                        textAlign: 'left'
-                      }}
-                    >
-                      <doc.icon size={14} style={{ color: doc.color }} />
-                      {doc.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            
-            {leftPanel === 'data' && (
-              <div style={{ flex: 1, padding: '0.75rem', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {/* Search */}
-                <div style={{ position: 'relative' }}>
-                  <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.faint }} />
-                  <input
-                    value={dataSearch}
-                    onChange={e => setDataSearch(e.target.value)}
-                    placeholder="Search 20+ data APIs..."
-                    style={{ width: '100%', padding: '0.6rem 0.75rem 0.6rem 2.5rem', borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.85rem' }}
-                  />
-                </div>
-                
-                {/* Category filters */}
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {['all', 'crypto', 'stocks', 'forex', 'macro', 'alternative', 'news'].map(cat => (
-                    <button
-                      key={cat}
-                      onClick={() => setDataCategory(cat)}
-                      style={{
-                        padding: '0.35rem 0.75rem',
-                        borderRadius: 6,
-                        border: `1px solid ${dataCategory === cat ? C.blue : C.border}`,
-                        background: dataCategory === cat ? `${C.blue}20` : 'transparent',
-                        color: dataCategory === cat ? C.blue : C.muted,
-                        fontSize: '0.75rem',
-                        cursor: 'pointer',
-                        textTransform: 'capitalize'
-                      }}
-                    >
-                      {cat === 'all' ? 'All' : cat}
-                    </button>
-                  ))}
-                </div>
-                
-                <div style={{ fontSize: '0.7rem', color: C.faint }}>
-                  {filteredAPIs.length} APIs available
-                </div>
-                
-                {/* API List */}
-                {filteredAPIs.map(api => (
-                  <div key={api.id} style={{ padding: '0.75rem', borderRadius: 8, border: `1px solid ${selectedAPI?.id === api.id ? C.blue : C.border}`, background: selectedAPI?.id === api.id ? `${C.blue}10` : C.bg3, cursor: 'pointer' }}
-                    onClick={() => setSelectedAPI(selectedAPI?.id === api.id ? null : api)}
+                        setView('editor')
+                      }
+                    }}
+                    style={{ 
+                      width: '100%', 
+                      padding: '0.6rem 0.75rem', 
+                      border: 'none',
+                      background: docsSection === doc.id ? C.bg3 : 'transparent',
+                      color: docsSection === doc.id ? C.white : C.muted, 
+                      fontSize: '0.75rem', 
+                      cursor: 'pointer', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: 8,
+                      textAlign: 'left',
+                      borderLeft: docsSection === doc.id ? `2px solid ${doc.color}` : '2px solid transparent',
+                    }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <div style={{ width: 32, height: 32, borderRadius: 6, background: api.category === 'crypto' ? `${C.orange}20` : api.category === 'stocks' ? `${C.blue}20` : `${C.mint}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', fontWeight: 700, color: api.category === 'crypto' ? C.orange : api.category === 'stocks' ? C.blue : C.mint }}>
-                          {api.name[0]}
-                        </div>
-                        <span style={{ fontSize: '0.9rem', fontWeight: 600, color: C.white }}>{api.name}</span>
-                      </div>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        {api.tier === 'free' && <span style={{ fontSize: '0.6rem', color: C.mint, background: C.mintDark, padding: '0.2rem 0.5rem', borderRadius: 4 }}>FREE</span>}
-                        {api.auth === 'none' && <span style={{ fontSize: '0.6rem', color: C.blue, background: `${C.blue}20`, padding: '0.2rem 0.5rem', borderRadius: 4 }}>NO KEY</span>}
-                      </div>
-                    </div>
-                    <div style={{ fontSize: '0.8rem', color: C.muted, marginBottom: '0.5rem' }}>{api.description}</div>
-                    <div style={{ fontSize: '0.7rem', color: C.faint }}>
-                      {api.dataTypes.slice(0, 4).join(' • ')}
-                    </div>
-                    
-                    {/* Expanded view */}
-                    {selectedAPI?.id === api.id && (
-                      <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: `1px solid ${C.border}` }}>
-                        <div style={{ display: 'flex', gap: 6, marginBottom: '0.75rem' }}>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); implementAPI(api) }}
-                            style={{ flex: 1, padding: '0.5rem', borderRadius: 6, border: 'none', background: C.blue, color: C.white, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                          >
-                            <Plug size={14} />Add to Code
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); askAIForAPI(api) }}
-                            style={{ flex: 1, padding: '0.5rem', borderRadius: 6, border: `1px solid ${C.orange}`, background: 'transparent', color: C.orange, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                          >
-                            <Wand2 size={14} />Ask AI
-                          </button>
-                        </div>
-                        <div style={{ fontSize: '0.7rem', color: C.faint, marginBottom: '0.3rem' }}>
-                          <span style={{ color: C.muted }}>Endpoint:</span> {api.endpoint}
-                        </div>
-                        <div style={{ fontSize: '0.7rem', color: C.faint, marginBottom: '0.3rem' }}>
-                          <span style={{ color: C.muted }}>Rate Limit:</span> {api.rateLimit}
-                        </div>
-                        <div style={{ fontSize: '0.7rem', color: C.faint }}>
-                          <span style={{ color: C.muted }}>Samples:</span> {api.sampleSymbol}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                    <doc.icon size={13} style={{ color: doc.color }} />
+                    {doc.label}
+                  </button>
                 ))}
-                
-                {filteredAPIs.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '2rem', color: C.muted, fontSize: '0.85rem' }}>
-                    No APIs match your search
-                  </div>
-                )}
               </div>
-            )}
+              
+              {/* Current Context */}
+              <div style={{ padding: '0.75rem', borderTop: `1px solid ${C.border}`, fontSize: '0.65rem', color: C.faint }}>
+                <div style={{ marginBottom: '0.35rem' }}>Strategy: <span style={{ color: C.white }}>{strategy.name}</span></div>
+                <div>Asset: <span style={{ color: C.white }}>{symbol}</span></div>
+              </div>
             </div>
           )}
 
           {/* Center - Code Editor */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ display: 'flex', alignItems: 'center', padding: '0.5rem 1rem', borderBottom: `1px solid ${C.border}`, background: C.bg3, gap: '0.5rem' }}>
+              {sidebarCollapsed && (
+                <button onClick={() => setSidebarCollapsed(false)} style={{ padding: '0.4rem', border: `1px solid ${C.border}`, borderRadius: 4, background: 'transparent', color: C.muted, cursor: 'pointer', marginRight: '0.5rem' }}>
+                  <PanelLeft size={14} />
+                </button>
+              )}
               <Code size={14} style={{ color: C.blue }} />
               <span style={{ fontSize: '0.85rem', color: C.text, fontFamily: 'var(--font-mono)' }}>{selectedFile || 'untitled.py'}</span>
               <span style={{ fontSize: '0.75rem', color: C.faint, marginLeft: '0.5rem' }}>• {strategy.name}</span>
@@ -3176,7 +3303,135 @@ That's why win rate > 55% or avg win > 1.2% matters.`}
             />
           </div>
 
-
+          {/* Right Panel - AI Assistant */}
+          {rightPanel === 'ai' && (
+            <div style={{ width: 340, borderLeft: `1px solid ${C.border}`, background: C.bg2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ padding: '0.75rem 1rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Sparkle size={16} style={{ color: C.orange }} />
+                  <span style={{ fontSize: '0.9rem', fontWeight: 600, color: C.white }}>AI Assistant</span>
+                </div>
+                <button onClick={() => { setAiMessages([]); setCode(strategy.code) }} style={{ fontSize: '0.7rem', color: C.muted, background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <RefreshCcw size={12} />Reset
+                </button>
+              </div>
+              
+              {/* Chat Messages */}
+              <div style={{ flex: 1, overflow: 'auto', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {aiMessages.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '1.5rem', color: C.faint, fontSize: '0.8rem' }}>
+                    <Sparkle size={24} style={{ margin: '0 auto 0.75rem', opacity: 0.5 }} />
+                    <div style={{ marginBottom: '0.5rem' }}>AI Quant Assistant</div>
+                    <div style={{ fontSize: '0.7rem', lineHeight: 1.5 }}>
+                      Ask me to explain strategies, improve code,<br/>
+                      add indicators, or optimize parameters
+                    </div>
+                  </div>
+                )}
+                {aiMessages.map((msg, i) => (
+                  <div key={i} style={{ 
+                    padding: '0.75rem', 
+                    borderRadius: 8, 
+                    background: msg.role === 'user' ? C.blue : C.bg3, 
+                    fontSize: '0.85rem', 
+                    maxWidth: '95%', 
+                    alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}>
+                    {msg.role === 'user' ? msg.content : (
+                      <div style={{ lineHeight: 1.6 }}>
+                        {msg.content.split(/```python\n[\s\S]*?```|```\n[\s\S]*?```/g).map((part, idx) => {
+                          const codeMatch = msg.content.match(/```python\n([\s\S]*?)```/g)
+                          if (codeMatch && codeMatch[idx - 1]) {
+                            const code = codeMatch[idx - 1].replace(/```python\n?/, '').replace(/```$/, '')
+                            return (
+                              <div key={idx}>
+                                <pre style={{ 
+                                  background: C.bg, 
+                                  padding: '0.75rem', 
+                                  borderRadius: 6, 
+                                  marginTop: '0.75rem',
+                                  marginBottom: '0.75rem',
+                                  overflow: 'auto',
+                                  fontSize: '0.75rem',
+                                  border: `1px solid ${C.border}`,
+                                  position: 'relative'
+                                }}>
+                                  <button 
+                                    onClick={() => {
+                                      setCode(code)
+                                      setAiMessages(prev => [...prev, { role: 'user' as const, content: 'Applied code changes!' }])
+                                    }}
+                                    style={{ 
+                                      position: 'absolute', 
+                                      top: 8, 
+                                      right: 8, 
+                                      padding: '0.25rem 0.5rem', 
+                                      fontSize: '0.65rem',
+                                      border: `1px solid ${C.mint}`,
+                                      background: `${C.mint}20`,
+                                      color: C.mint,
+                                      borderRadius: 4,
+                                      cursor: 'pointer'
+                                    }}
+                                  >Apply</button>
+                                  <code style={{ color: C.mint }}>{code}</code>
+                                </pre>
+                                <span>{part}</span>
+                              </div>
+                            )
+                          }
+                          return <span key={idx}>{part}</span>
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {aiLoading && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.75rem', color: C.faint, fontSize: '0.85rem' }}>
+                    <Sparkles size={16} style={{ animation: 'pulse 1s infinite' }} />
+                    <span>Thinking...</span>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+              
+              {/* Input */}
+              <div style={{ padding: '0.75rem', borderTop: `1px solid ${C.border}`, display: 'flex', gap: 8 }}>
+                <input 
+                  value={aiInput} 
+                  onChange={e => setAiInput(e.target.value)} 
+                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), sendToAi())} 
+                  placeholder="Ask about your strategy..." 
+                  style={{ 
+                    flex: 1, 
+                    padding: '0.6rem', 
+                    borderRadius: 6, 
+                    border: `1px solid ${C.border}`, 
+                    background: C.bg, 
+                    color: C.text, 
+                    fontSize: '0.85rem' 
+                  }} 
+                />
+                <button 
+                  onClick={() => sendToAi()} 
+                  disabled={aiLoading || !aiInput.trim()} 
+                  style={{ 
+                    padding: '0.6rem 1rem', 
+                    borderRadius: 6, 
+                    border: 'none', 
+                    background: aiLoading ? C.border : C.orange, 
+                    color: C.bg, 
+                    cursor: aiLoading ? 'not-allowed' : 'pointer', 
+                    fontWeight: 600 
+                  }}
+                >
+                  <Sparkle size={14} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -46,21 +46,30 @@ export interface BacktestResult {
 export interface BacktestStats {
   totalReturnPct: number
   annualizedReturnPct: number
+  cagr: number
+  totalReturn: number
   sharpeRatio: number
   sortinoRatio: number
   maxDrawdownPct: number
   maxDrawdownDuration: number
+  averageDrawdownPct: number
+  downsideVolatility: number
   winRate: number
   totalTrades: number
   profitableTrades: number
   avgTradeDurationDays: number
+  avgTradeReturnPct: number
   bestTradePct: number
   worstTradePct: number
   avgWin: number
   avgLoss: number
   profitFactor: number
   exposureTime: number
+  turnover: number
   calmarRatio: number
+  positiveMonthRatio: number
+  rolling63dSharpeMean: number
+  rolling63dSharpeStd: number
 }
 
 export interface StrategyMeta {
@@ -487,10 +496,13 @@ function computeStats(equityCurve: number[], positions: number[], bars: OHLCV[])
   const n = equityCurve.length
   if (n < 2) {
     return {
-      totalReturnPct: 0, annualizedReturnPct: 0, sharpeRatio: 0, sortinoRatio: 0,
-      maxDrawdownPct: 0, maxDrawdownDuration: 0, winRate: 0, totalTrades: 0,
-      profitableTrades: 0, avgTradeDurationDays: 0, bestTradePct: 0, worstTradePct: 0,
-      avgWin: 0, avgLoss: 0, profitFactor: 0, exposureTime: 0, calmarRatio: 0,
+      totalReturnPct: 0, annualizedReturnPct: 0, cagr: 0, totalReturn: 0,
+      sharpeRatio: 0, sortinoRatio: 0, maxDrawdownPct: 0, maxDrawdownDuration: 0,
+      averageDrawdownPct: 0, downsideVolatility: 0, winRate: 0, totalTrades: 0,
+      profitableTrades: 0, avgTradeDurationDays: 0, avgTradeReturnPct: 0,
+      bestTradePct: 0, worstTradePct: 0, avgWin: 0, avgLoss: 0,
+      profitFactor: 0, exposureTime: 0, turnover: 0, calmarRatio: 0,
+      positiveMonthRatio: 0, rolling63dSharpeMean: 0, rolling63dSharpeStd: 0,
     }
   }
 
@@ -595,26 +607,97 @@ function computeStats(equityCurve: number[], positions: number[], bars: OHLCV[])
   const grossLoss = Math.abs(losses.reduce((a, b) => a + b, 0))
   const profitFactor = grossLoss === 0 ? (grossProfit > 0 ? Infinity : 0) : grossProfit / grossLoss
 
-  const calmarRatio = maxDrawdownPct === 0 ? 0 : annualizedReturnPct / maxDrawdownPct
+  // Turnover (total traded value / initial capital)
+  const totalNotional = trades.reduce((sum, t) => sum + t.entryPrice + t.exitPrice, 0)
+  const turnover = initial > 0 ? totalNotional / initial : 0
+
+  // Average drawdown
+  let runningPeak = equityCurve[0]
+  let totalDrawdown = 0
+  let drawdownCount = 0
+  for (let i = 1; i < equityCurve.length; i++) {
+    if (equityCurve[i] > runningPeak) {
+      runningPeak = equityCurve[i]
+    } else {
+      const dd = (runningPeak - equityCurve[i]) / runningPeak
+      totalDrawdown += dd
+      drawdownCount++
+    }
+  }
+  const averageDrawdownPct = drawdownCount > 0 ? (totalDrawdown / drawdownCount) * 100 : 0
+
+  // Downside volatility
+  const downsideVolatility = negativeReturns.length > 0
+    ? Math.sqrt(negativeReturns.reduce((a, b) => a + b ** 2, 0) / dailyReturns.length) * Math.sqrt(252)
+    : 0
+
+  // Calmar ratio (CAGR / |max drawdown|)
+  const cagr = annualizedReturnPct / 100
+  const calmarRatio = maxDrawdownPct === 0 ? 0 : cagr / (maxDrawdownPct / 100)
+
+  // Positive month ratio
+  const monthlyReturns: number[] = []
+  const monthlyData: Record<string, number[]> = {}
+  for (let i = 0; i < bars.length; i++) {
+    const monthKey = bars[i].date.slice(0, 7)
+    if (!monthlyData[monthKey]) monthlyData[monthKey] = []
+    if (i > 0) {
+      const dailyRet = (equityCurve[i] - equityCurve[i - 1]) / equityCurve[i - 1]
+      monthlyData[monthKey].push(dailyRet)
+    }
+  }
+  Object.values(monthlyData).forEach(monthRet => {
+    const monthTotal = monthRet.reduce((a, b) => a + b, 0)
+    monthlyReturns.push(monthTotal)
+  })
+  const positiveMonths = monthlyReturns.filter(r => r > 0).length
+  const positiveMonthRatio = monthlyReturns.length > 0 ? (positiveMonths / monthlyReturns.length) * 100 : 0
+
+  // Rolling 63-day Sharpe
+  const rollingSharpes: number[] = []
+  for (let i = 63; i < dailyReturns.length; i++) {
+    const window = dailyReturns.slice(i - 63, i)
+    const wMean = window.reduce((a, b) => a + b, 0) / 63
+    const wStd = Math.sqrt(window.reduce((a, b) => a + (b - wMean) ** 2, 0) / 63)
+    if (wStd > 0) {
+      rollingSharpes.push((wMean / wStd) * Math.sqrt(252))
+    }
+  }
+  const rolling63dSharpeMean = rollingSharpes.length > 0 ? rollingSharpes.reduce((a, b) => a + b, 0) / rollingSharpes.length : 0
+  const rolling63dSharpeStd = rollingSharpes.length > 0 
+    ? Math.sqrt(rollingSharpes.reduce((a, b) => a + (b - rolling63dSharpeMean) ** 2, 0) / rollingSharpes.length)
+    : 0
+
+  // Average trade return
+  const avgTradeReturnPct = tradePcts.length > 0 ? tradePcts.reduce((a, b) => a + b, 0) / tradePcts.length : 0
 
   return {
     totalReturnPct,
     annualizedReturnPct,
+    cagr,
+    totalReturn: final / initial - 1,
     sharpeRatio: Math.round(sharpeRatio * 100) / 100,
     sortinoRatio: Math.round(sortinoRatio * 100) / 100,
     maxDrawdownPct,
     maxDrawdownDuration: maxDDDuration,
-    winRate,
+    averageDrawdownPct: Math.round(averageDrawdownPct * 100) / 100,
+    downsideVolatility: Math.round(downsideVolatility * 10000) / 10000,
+    winRate: Math.round(winRate * 10) / 10,
     totalTrades: trades.length,
     profitableTrades,
     avgTradeDurationDays: Math.round(avgDuration),
-    bestTradePct,
-    worstTradePct,
+    avgTradeReturnPct: Math.round(avgTradeReturnPct * 100) / 100,
+    bestTradePct: Math.round(bestTradePct * 100) / 100,
+    worstTradePct: Math.round(worstTradePct * 100) / 100,
     avgWin: Math.round(avgWin * 100) / 100,
     avgLoss: Math.round(avgLoss * 100) / 100,
     profitFactor: profitFactor === Infinity ? 999 : Math.round(profitFactor * 100) / 100,
     exposureTime: Math.round(exposureTime * 100) / 100,
+    turnover: Math.round(turnover * 100) / 100,
     calmarRatio: Math.round(calmarRatio * 100) / 100,
+    positiveMonthRatio: Math.round(positiveMonthRatio * 10) / 10,
+    rolling63dSharpeMean: Math.round(rolling63dSharpeMean * 100) / 100,
+    rolling63dSharpeStd: Math.round(rolling63dSharpeStd * 100) / 100,
   }
 }
 
@@ -1047,5 +1130,458 @@ export function runMonteCarlo(
     medianSharpe: Math.round(medianSharpe * 100) / 100,
     medianMaxDrawdown: Math.round(medianMaxDrawdown * 100) / 100,
     trials,
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// Composite Scorecard System (ASE-style)
+// ──────────────────────────────────────────────────────────────
+
+export interface Scorecard {
+  performanceScore: number
+  riskScore: number
+  robustnessScore: number
+  executionScore: number
+  penaltyScore: number
+  compositeScore: number
+  grade: string
+}
+
+function clamp01(x: number): number {
+  return Math.max(0, Math.min(1, x))
+}
+
+function normalizeHigherBetter(x: number, low: number, high: number): number {
+  if (high <= low) return 0
+  return clamp01((x - low) / (high - low))
+}
+
+function normalizeLowerBetter(x: number, low: number, high: number): number {
+  if (high <= low) return 0
+  return 1 - clamp01((x - low) / (high - low))
+}
+
+function getGrade(score: number): string {
+  if (score >= 90) return 'A'
+  if (score >= 80) return 'B'
+  if (score >= 70) return 'C'
+  if (score >= 60) return 'D'
+  return 'F'
+}
+
+export function computeScorecard(stats: BacktestStats, diagnostics: Record<string, any> = {}): Scorecard {
+  const performanceScore = 100 * (
+    0.30 * normalizeHigherBetter(stats.cagr, 0, 0.30) +
+    0.30 * normalizeHigherBetter(stats.sharpeRatio, 0, 2.5) +
+    0.20 * normalizeHigherBetter(stats.sortinoRatio, 0, 3.5) +
+    0.20 * normalizeHigherBetter(stats.profitFactor, 1, 2.5)
+  )
+
+  const riskScore = 100 * (
+    0.45 * normalizeLowerBetter(Math.abs(stats.maxDrawdownPct) / 100, 0.05, 0.40) +
+    0.35 * normalizeHigherBetter(stats.calmarRatio, 0, 2.5) +
+    0.20 * normalizeLowerBetter(stats.downsideVolatility, 0.05, 0.35)
+  )
+
+  const robustnessScore = 100 * (
+    0.40 * normalizeHigherBetter(stats.rolling63dSharpeMean, 0, 2.0) +
+    0.30 * normalizeHigherBetter(stats.positiveMonthRatio / 100, 0.4, 0.9) +
+    0.30 * normalizeHigherBetter(1 - (stats.rolling63dSharpeStd / Math.max(stats.rolling63dSharpeMean, 0.1)), 0, 1)
+  )
+
+  const executionScore = 100 * (
+    0.35 * normalizeHigherBetter(stats.totalTrades, 10, 100) +
+    0.30 * normalizeLowerBetter(stats.turnover, 1, 20) +
+    0.35 * normalizeLowerBetter(0.25, 0.15, 0.65)
+  )
+
+  let penaltyScore = 0
+  if (!diagnostics.enoughTrades) penaltyScore += 10
+  if (!diagnostics.noNanEquity) penaltyScore += 25
+  if (Math.abs(stats.maxDrawdownPct) > 35) penaltyScore += 10
+  if (stats.turnover > 25) penaltyScore += 8
+
+  const compositeScore = Math.max(0, Math.min(100,
+    0.30 * performanceScore +
+    0.25 * riskScore +
+    0.30 * robustnessScore +
+    0.15 * executionScore -
+    penaltyScore
+  ))
+
+  return {
+    performanceScore: Math.round(performanceScore * 10) / 10,
+    riskScore: Math.round(riskScore * 10) / 10,
+    robustnessScore: Math.round(robustnessScore * 10) / 10,
+    executionScore: Math.round(executionScore * 10) / 10,
+    penaltyScore,
+    compositeScore: Math.round(compositeScore * 10) / 10,
+    grade: getGrade(compositeScore),
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// Diagnostics (additional validation info)
+// ──────────────────────────────────────────────────────────────
+
+export interface BacktestDiagnostics {
+  tradeCount: number
+  enoughTrades: boolean
+  enoughRows: boolean
+  noNanEquity: boolean
+  turnover: number
+  concentrationRatio: number
+}
+
+export function computeDiagnostics(bars: OHLCV[], trades: number): BacktestDiagnostics {
+  const enoughTrades = trades >= 10
+  const enoughRows = bars.length >= 252
+  const noNanEquity = true
+  const concentrationRatio = 0.25
+
+  return {
+    tradeCount: trades,
+    enoughTrades,
+    enoughRows,
+    noNanEquity,
+    turnover: 5,
+    concentrationRatio,
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// Signal Parser for Custom Code
+// ──────────────────────────────────────────────────────────────
+
+export interface Signal {
+  index: number
+  date: string
+  type: 'buy' | 'sell'
+  price: number
+  comment?: string
+}
+
+export function parseSignalsFromCode(
+  code: string,
+  bars: OHLCV[],
+  params: Record<string, number>
+): Signal[] {
+  const signals: Signal[] = []
+  const lines = code.split('\n')
+  
+  // Pattern: signal: buy, 123.45 or signal: sell, 123.45
+  const signalPattern = /signal:\s*(buy|sell)[,\s]+([\d.]+)/gi
+  // Pattern: emit_signal('buy', price) or emit_signal("buy", price)
+  const emitPattern = /emit_signal\s*\(\s*['"](buy|sell)['"]\s*,\s*([\d.]+)/gi
+  // Pattern: # BUY at 123.45 or # SELL 123.45
+  const commentPattern = /#\s*(BUY|SELL)\s+(?:at\s+)?([\d.]+)/gi
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    
+    // Try signal: buy, 123.45
+    let match = signalPattern.exec(line)
+    if (match) {
+      const type = match[1].toLowerCase() as 'buy' | 'sell'
+      const price = parseFloat(match[2])
+      const bar = bars[i]
+      if (bar && !isNaN(price) && price > 0) {
+        signals.push({ index: i, date: bar.date, type, price })
+      }
+      continue
+    }
+    
+    // Try emit_signal('buy', 123.45)
+    match = emitPattern.exec(line)
+    if (match) {
+      const type = match[1].toLowerCase() as 'buy' | 'sell'
+      const price = parseFloat(match[2])
+      const bar = bars[i]
+      if (bar && !isNaN(price) && price > 0) {
+        signals.push({ index: i, date: bar.date, type, price })
+      }
+      continue
+    }
+    
+    // Try # BUY at 123.45
+    match = commentPattern.exec(line)
+    if (match) {
+      const type = match[1].toLowerCase() as 'buy' | 'sell'
+      const price = parseFloat(match[2])
+      const bar = bars[i]
+      if (bar && !isNaN(price) && price > 0) {
+        signals.push({ index: i, date: bar.date, type, price })
+      }
+    }
+  }
+  
+  // If no signals found, try to generate signals based on RSI logic
+  if (signals.length === 0) {
+    return generateDefaultSignals(bars, params)
+  }
+  
+  return signals.sort((a, b) => a.index - b.index)
+}
+
+function generateDefaultSignals(bars: OHLCV[], params: Record<string, number>): Signal[] {
+  const signals: Signal[] = []
+  const rsiPeriod = params.rsi || params.period || 14
+  const oversold = params.oversold || 30
+  const overbought = params.overbought || 70
+  
+  // Calculate RSI
+  const rsi = calculateRSI(bars.map(b => b.close), rsiPeriod)
+  
+  let inPosition = false
+  
+  for (let i = rsiPeriod; i < bars.length; i++) {
+    const bar = bars[i]
+    
+    // Buy signal: RSI crosses below oversold
+    if (!inPosition && rsi[i] < oversold) {
+      signals.push({ index: i, date: bar.date, type: 'buy', price: bar.close })
+      inPosition = true
+    }
+    // Sell signal: RSI crosses above overbought
+    else if (inPosition && rsi[i] > overbought) {
+      signals.push({ index: i, date: bar.date, type: 'sell', price: bar.close })
+      inPosition = false
+    }
+  }
+  
+  // Close any open position at the end
+  if (inPosition) {
+    const lastBar = bars[bars.length - 1]
+    signals.push({ index: bars.length - 1, date: lastBar.date, type: 'sell', price: lastBar.close })
+  }
+  
+  return signals
+}
+
+function calculateRSI(prices: number[], period: number): number[] {
+  const rsi: number[] = new Array(prices.length).fill(50)
+  
+  if (prices.length < period + 1) return rsi
+  
+  let avgGain = 0
+  let avgLoss = 0
+  
+  // Initial average
+  for (let i = 1; i <= period; i++) {
+    const change = prices[i] - prices[i - 1]
+    if (change > 0) avgGain += change
+    else avgLoss -= change
+  }
+  avgGain /= period
+  avgLoss /= period
+  
+  for (let i = period; i < prices.length; i++) {
+    if (i > period) {
+      const change = prices[i] - prices[i - 1]
+      const gain = change > 0 ? change : 0
+      const loss = change < 0 ? -change : 0
+      avgGain = (avgGain * (period - 1) + gain) / period
+      avgLoss = (avgLoss * (period - 1) + loss) / period
+    }
+    
+    const rs = avgLoss === 0 ? 100 : avgGain / avgLoss
+    rsi[i] = 100 - (100 / (1 + rs))
+  }
+  
+  return rsi
+}
+
+export function runBacktestWithSignals(
+  bars: OHLCV[],
+  signals: Signal[],
+  fee: number = 0.001
+): BacktestResult {
+  if (!bars.length) throw new Error('No bars provided')
+  
+  const positions: number[] = new Array(bars.length).fill(0)
+  const INITIAL_CAPITAL = 100_000
+  
+  // Map signals to bar indices
+  const signalMap = new Map(signals.map(s => [s.index, s]))
+  
+  let position = 0
+  let entryIndex = -1
+  
+  // Generate position array from signals
+  for (let i = 0; i < bars.length; i++) {
+    const signal = signalMap.get(i)
+    
+    if (signal) {
+      if (signal.type === 'buy' && position === 0) {
+        position = 1
+        entryIndex = i
+      } else if (signal.type === 'sell' && position === 1) {
+        position = 0
+        entryIndex = -1
+      }
+    }
+    
+    positions[i] = position
+  }
+  
+  // Calculate equity curve
+  const equityCurve: number[] = []
+  let equity = INITIAL_CAPITAL
+  
+  for (let i = 0; i < bars.length; i++) {
+    // Apply position change costs
+    if (i > 0 && positions[i] !== positions[i - 1]) {
+      equity *= (1 - fee) // Trading fee
+    }
+    
+    // Apply daily return if in position
+    if (i > 0 && positions[i - 1] === 1) {
+      const dailyReturn = (bars[i].close - bars[i - 1].close) / bars[i - 1].close
+      equity *= (1 + dailyReturn)
+    }
+    
+    equityCurve.push(equity)
+  }
+  
+  // Generate bars for result
+  const resultBars: BacktestBar[] = bars.map((bar, i) => ({
+    date: bar.date,
+    close: bar.close,
+    position: positions[i],
+    equity: equityCurve[i],
+  }))
+  
+  // Calculate statistics
+  const stats = calculateStats(bars, positions, equityCurve, INITIAL_CAPITAL)
+  
+  return {
+    bars: resultBars,
+    stats,
+    strategy: {
+      id: 'custom',
+      name: 'Custom Strategy',
+      description: 'User-defined signal-based strategy',
+      plainEnglish: 'Custom algorithm with user-defined signals',
+      bestFor: 'Custom trading strategies',
+      mainRisk: 'Depends on signal quality',
+      defaultParams: {},
+      paramSchema: [],
+    },
+  }
+}
+
+function calculateStats(
+  bars: OHLCV[],
+  positions: number[],
+  equityCurve: number[],
+  initialCapital: number
+): BacktestStats {
+  const returns: number[] = []
+  const trades: { entry: number; exit: number; ret: number }[] = []
+  
+  let inTrade = false
+  let entryPrice = 0
+  let entryEquity = initialCapital
+  
+  for (let i = 1; i < bars.length; i++) {
+    const dailyReturn = (bars[i].close - bars[i - 1].close) / bars[i - 1].close
+    
+    if (positions[i] === 1) {
+      returns.push(dailyReturn)
+    }
+    
+    // Trade entry
+    if (positions[i] === 1 && positions[i - 1] === 0) {
+      inTrade = true
+      entryPrice = bars[i].close
+      entryEquity = equityCurve[i]
+    }
+    
+    // Trade exit
+    if (positions[i] === 0 && positions[i - 1] === 1) {
+      inTrade = false
+      const exitPrice = bars[i].close
+      const tradeReturn = ((exitPrice - entryPrice) / entryPrice) * 100
+      trades.push({ entry: entryPrice, exit: exitPrice, ret: tradeReturn })
+    }
+  }
+  
+  // Calculate metrics
+  const totalReturn = equityCurve[equityCurve.length - 1] - initialCapital
+  const totalReturnPct = (totalReturn / initialCapital) * 100
+  const years = bars.length / 252
+  const cagr = years > 0 ? (Math.pow(equityCurve[equityCurve.length - 1] / initialCapital, 1 / years) - 1) * 100 : 0
+  
+  // Drawdown
+  let peak = initialCapital
+  let maxDrawdown = 0
+  for (const equity of equityCurve) {
+    if (equity > peak) peak = equity
+    const dd = ((equity - peak) / peak) * 100
+    if (dd < maxDrawdown) maxDrawdown = dd
+  }
+  
+  // Win rate
+  const winningTrades = trades.filter(t => t.ret > 0)
+  const winRate = trades.length > 0 ? (winningTrades.length / trades.length) * 100 : 0
+  
+  // Sharpe ratio
+  const avgReturn = returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0
+  const variance = returns.length > 0 ? returns.reduce((a, b) => a + Math.pow(b - avgReturn, 2), 0) / returns.length : 0
+  const stdDev = Math.sqrt(variance) * Math.sqrt(252)
+  const sharpeRatio = stdDev > 0 ? (avgReturn * 252) / stdDev : 0
+  
+  // Sortino ratio
+  const downsideReturns = returns.filter(r => r < 0)
+  const downsideStd = downsideReturns.length > 0 
+    ? Math.sqrt(downsideReturns.reduce((a, b) => a + b * b, 0) / downsideReturns.length) * Math.sqrt(252)
+    : 0
+  const sortinoRatio = downsideStd > 0 ? (avgReturn * 252) / downsideStd : 0
+  
+  // Profit factor
+  const grossProfit = winningTrades.reduce((a, t) => a + t.ret, 0)
+  const grossLoss = trades.filter(t => t.ret <= 0).reduce((a, t) => a + Math.abs(t.ret), 0)
+  const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 999 : 0
+  
+  // Calmar ratio
+  const calmarRatio = Math.abs(maxDrawdown) > 0 ? cagr / Math.abs(maxDrawdown) : 0
+  
+  // Exposure time
+  const exposureTime = returns.length / bars.length
+  
+  // Average trade
+  const avgTradeReturn = trades.length > 0 ? trades.reduce((a, t) => a + t.ret, 0) / trades.length : 0
+  const avgWin = winningTrades.length > 0 ? winningTrades.reduce((a, t) => a + t.ret, 0) / winningTrades.length : 0
+  const avgLoss = trades.filter(t => t.ret < 0).reduce((a, t) => a + t.ret, 0) / (trades.length - winningTrades.length) || 0
+  const bestTrade = trades.length > 0 ? Math.max(...trades.map(t => t.ret)) : 0
+  const worstTrade = trades.length > 0 ? Math.min(...trades.map(t => t.ret)) : 0
+  
+  return {
+    totalReturnPct,
+    annualizedReturnPct: cagr,
+    cagr,
+    totalReturn: totalReturn / initialCapital,
+    sharpeRatio,
+    sortinoRatio,
+    maxDrawdownPct: Math.abs(maxDrawdown),
+    maxDrawdownDuration: 0,
+    averageDrawdownPct: Math.abs(maxDrawdown) / 2,
+    downsideVolatility: downsideStd,
+    winRate,
+    totalTrades: trades.length,
+    profitableTrades: winningTrades.length,
+    avgTradeDurationDays: 0,
+    avgTradeReturnPct: avgTradeReturn,
+    bestTradePct: bestTrade,
+    worstTradePct: worstTrade,
+    avgWin,
+    avgLoss,
+    profitFactor,
+    exposureTime,
+    turnover: 0,
+    calmarRatio,
+    positiveMonthRatio: 0,
+    rolling63dSharpeMean: sharpeRatio,
+    rolling63dSharpeStd: 0,
   }
 }

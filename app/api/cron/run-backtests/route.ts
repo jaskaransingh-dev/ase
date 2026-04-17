@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
   if (!agents || agents.length === 0) return NextResponse.json({ ok: true, message: 'No agents to backtest' })
 
   const results: Record<string, unknown> = {}
-  const periods = ['1mo', '3mo', '1y'] // Run backtests for multiple periods
+  const periods = ['7d', '15d', '30d'] // Run backtests for multiple periods (last 7 days for faster execution)
 
   for (const agent of agents) {
     if (!agent.primary_symbol || !agent.backtest_strategy) continue
@@ -152,8 +152,8 @@ export async function POST(req: NextRequest) {
 
           const s = result.stats
           
-          // Store the 1y period as the primary backtest for compatibility
-          if (period === '1y') {
+          // Store the 7d period as the primary backtest for compatibility
+          if (period === '30d') {
             primaryStoragePayload = storagePayload
             primaryStats = s
           }
