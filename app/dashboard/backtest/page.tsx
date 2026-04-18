@@ -19,8 +19,8 @@ const PERIODS = [
 
 const BENCHMARKS: Record<string, { label: string; color: string }> = {
   'BTC-USD': { label: 'Bitcoin', color: '#f7931a' },
-  'SPY': { label: 'S&P 500', color: '#19E6A7' },
   'ETH-USD': { label: 'Ethereum', color: '#627eea' },
+  'SOL-USD': { label: 'Solana', color: '#19E6A7' },
 }
 
 const STRATEGIES = [
@@ -64,11 +64,13 @@ export default function BacktestComparePage() {
   const [activeTab, setActiveTab] = useState<'agents' | 'data'>('agents')
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [csvData, setCsvData] = useState<any[]>([])
+
+  const toBacktestSymbol = (value: string) => value.replace(/\//g, '-')
   
   const colors = {
-    bg: '#07111F', bg2: '#0B1728', bg3: '#101A2D', border: '#21314D',
-    blue: '#5B8CFF', mint: '#19E6A7', red: '#FF6B7A', orange: '#FFB648',
-    text: '#B5C1D6', muted: '#7F8CA3', faint: '#5E6A7E', white: '#F5F7FB'
+    bg: '#06111F', bg2: '#0B1728', bg3: '#101A2D', border: '#1E2A3D',
+    blue: '#4F8CFF', blue2: '#6BA3FF', mint: '#16C784', red: '#FF5468', orange: '#F5B942',
+    text: '#B7C4D5', muted: '#7F8CA3', faint: '#55657A', white: '#F7FAFF'
   }
 
   // Load agents from Supabase
@@ -84,7 +86,7 @@ export default function BacktestComparePage() {
           slug: a.slug,
           name: a.name,
           ticker: a.ticker,
-          primary_symbol: a.primary_symbol || 'BTC-USD',
+          primary_symbol: toBacktestSymbol(a.primary_symbol || 'BTC-USD'),
           backtest_strategy: a.backtest_strategy || 'momentum_crossover',
           backtest_stats: a.backtest_stats,
         }))
@@ -125,7 +127,7 @@ export default function BacktestComparePage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
-            symbol: agent.primary_symbol || 'BTC-USD', 
+            symbol: toBacktestSymbol(agent.primary_symbol || 'BTC-USD'), 
             strategy: agent.backtest_strategy || 'momentum_crossover', 
             period,
             fee: 0.001,
@@ -144,7 +146,7 @@ export default function BacktestComparePage() {
       setResults(newResults)
       
       // Fetch benchmarks in parallel
-      const benchSymbols = ['BTC-USD', 'SPY'].filter(s => s !== symbol)
+      const benchSymbols = ['BTC-USD', 'ETH-USD', 'SOL-USD'].filter(s => s !== symbol)
       const benchPromises = benchSymbols.map(async (bench) => {
         try {
           const bRes = await fetch('/api/backtest', {
@@ -171,7 +173,7 @@ export default function BacktestComparePage() {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                symbol: firstAgent.primary_symbol || 'BTC-USD',
+                symbol: toBacktestSymbol(firstAgent.primary_symbol || 'BTC-USD'),
                 strategy: firstAgent.backtest_strategy || 'momentum_crossover',
                 period,
                 fee: 0.001,
@@ -199,7 +201,7 @@ export default function BacktestComparePage() {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                symbol: firstAgent.primary_symbol || 'BTC-USD',
+                symbol: toBacktestSymbol(firstAgent.primary_symbol || 'BTC-USD'),
                 strategy: firstAgent.backtest_strategy || 'momentum_crossover',
                 period,
                 fee: 0.001,
@@ -294,8 +296,8 @@ export default function BacktestComparePage() {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: `1px solid ${colors.border}`, background: colors.bg2 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <div>
-            <h1 style={{ fontSize: '1.35rem', fontWeight: 700, color: colors.white, margin: 0 }}>Agent Backtest Comparison</h1>
-            <p style={{ fontSize: '.7rem', color: colors.muted, margin: '4px 0 0' }}>Compare agent performance against benchmarks</p>
+            <h1 style={{ fontSize: '1.35rem', fontWeight: 700, color: colors.white, margin: 0 }}>Crypto Backtest Studio</h1>
+            <p style={{ fontSize: '.7rem', color: colors.muted, margin: '4px 0 0' }}>Compare crypto agents, run robustness checks, and publish winners to the exchange</p>
           </div>
           <Link href="/dashboard/backtest/guide" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '.25rem .6rem', borderRadius: 6, border: `1px solid ${colors.border}`, background: colors.bg3, color: colors.faint, fontSize: '.6rem', textDecoration: 'none' }}>
             <BookOpen size={12} />Guide
@@ -306,6 +308,21 @@ export default function BacktestComparePage() {
           {loading ? 'Running...' : 'Run Backtest'}
         </button>
       </header>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.75rem', padding: '1rem 1.5rem', borderBottom: `1px solid ${colors.border}`, background: 'linear-gradient(180deg, rgba(79,140,255,.06), rgba(11,23,40,.98))' }}>
+        {[
+          ['1', 'Select', 'Choose agents and market data'],
+          ['2', 'Run', 'Launch backtests, Monte Carlo, or walk-forward'],
+          ['3', 'Compare', 'Inspect returns, drawdown, and robustness'],
+          ['4', 'Deploy', 'Move the best setup into live trading'],
+        ].map(([step, title, desc]) => (
+          <div key={title} style={{ padding: '.9rem 1rem', borderRadius: 14, border: `1px solid ${colors.border}`, background: colors.bg2 }}>
+            <div style={{ fontSize: '.58rem', color: colors.blue2, letterSpacing: '.12em', marginBottom: '.35rem' }}>{step}</div>
+            <div style={{ fontSize: '.84rem', fontWeight: 700, color: colors.white, marginBottom: '.2rem' }}>{title}</div>
+            <div style={{ fontSize: '.72rem', color: colors.muted, lineHeight: 1.5 }}>{desc}</div>
+          </div>
+        ))}
+      </div>
 
       {/* Tab Navigation */}
       <div style={{ display: 'flex', gap: '0.25rem', padding: '0.75rem 1.5rem', borderBottom: `1px solid ${colors.border}`, background: colors.bg2 }}>

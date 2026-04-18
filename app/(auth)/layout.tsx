@@ -4,16 +4,16 @@ import { Logo } from '@/components/ui/Logo'
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
       {/* Background effects */}
       <div
         style={{
           position: 'fixed',
           inset: 0,
           backgroundImage:
-            'linear-gradient(rgba(79,124,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(79,124,255,.025) 1px,transparent 1px)',
-          backgroundSize: '60px 60px',
-          opacity: 0.4,
+            'linear-gradient(rgba(79,140,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(79,140,255,.04) 1px,transparent 1px)',
+          backgroundSize: '56px 56px',
+          opacity: 0.55,
           pointerEvents: 'none',
         }}
       />
@@ -21,7 +21,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         style={{
           position: 'fixed',
           inset: 0,
-          background: 'radial-gradient(ellipse 50% 40% at 50% 0%,rgba(255,107,53,.08) 0%,transparent 60%)',
+          background: 'radial-gradient(ellipse 50% 40% at 50% 0%,rgba(79,140,255,.12) 0%,transparent 60%)',
           pointerEvents: 'none',
         }}
       />

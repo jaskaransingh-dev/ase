@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import FundingModal from '@/components/FundingModal'
 import AccountModal from '@/components/AccountModal'
 import AlpacaApplicationStatus from '@/components/AlpacaApplicationStatus'
+import { useWallet } from '@/components/WalletProvider'
 
 export const dynamic = 'force-dynamic'
 
@@ -78,9 +79,14 @@ function statusColor(s: AgentActivity['status']): string {
   return s === 'BUYING' ? '#00E599' : s === 'SELLING' ? '#FF5A5F' : s === 'SCANNING' ? '#8E8E93' : '#5A5A5F'
 }
 
-// Simple SVG sparkline
+// Simple SVG sparkline - SSR safe
 function Sparkline({ data, positive }: { data: number[]; positive: boolean }) {
-  if (data.length < 2) return <div style={{ height: 40, width: 80 }} />
+  const [mounted, setMounted] = useState(false)
+  
+  useEffect(() => { setMounted(true) }, [])
+  
+  if (!mounted || data.length < 2) return <div style={{ height: 40, width: 80 }} />
+  
   const min = Math.min(...data)
   const max = Math.max(...data)
   const range = max - min || 1
@@ -92,15 +98,17 @@ function Sparkline({ data, positive }: { data: number[]; positive: boolean }) {
   })
   const color = positive ? '#00E599' : '#FF5A5F'
   const fillPts = `0,${h} ${pts.join(' ')} ${w},${h}`
+  const gradientId = `sg_${data.length}_${positive}`
+  
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ overflow: 'visible' }}>
       <defs>
-        <linearGradient id={`sg-${positive}`} x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity={0.25} />
           <stop offset="100%" stopColor={color} stopOpacity={0} />
         </linearGradient>
       </defs>
-      <polygon points={fillPts} fill={`url(#sg-${positive})`} />
+      <polygon points={fillPts} fill={`url(#${gradientId})`} />
       <polyline points={pts.join(' ')} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   )
@@ -109,6 +117,7 @@ function Sparkline({ data, positive }: { data: number[]; positive: boolean }) {
 export default function DashboardPage() {
   const supabase = createClient()
   const router = useRouter()
+  const { shortAddress, openModal, wallet, disconnect } = useWallet()
 
   const [userName, setUserName] = useState('')
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
@@ -282,6 +291,33 @@ export default function DashboardPage() {
         </div>
         {/* Actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          {/* Wallet button */}
+          {wallet.address ? (
+            <button
+              onClick={disconnect}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.45rem',
+                padding: '.5rem 1rem', borderRadius: 100,
+                border: '1px solid rgba(22,199,132,.28)', background: 'rgba(22,199,132,.07)',
+                color: 'var(--mint)', fontSize: '.72rem', fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--mint)', display: 'inline-block' }} />
+              {shortAddress}
+            </button>
+          ) : (
+            <button
+              onClick={openModal}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.4rem',
+                padding: '.5rem 1rem', borderRadius: 100,
+                border: '1px solid rgba(79,140,255,.25)', background: 'rgba(79,140,255,.07)',
+                color: 'var(--blue2)', fontSize: '.72rem', fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              🦊 Connect Wallet
+            </button>
+          )}
           <button onClick={() => setShowFunding(true)} style={{ padding: '.5rem 1.1rem', borderRadius: 100, border: '1px solid rgba(59,127,255,.3)', background: 'rgba(59,127,255,.08)', color: 'var(--blue2)', fontSize: '.78rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '-.01em', transition: 'all .15s' }}>
             + Add Funds
           </button>

@@ -101,7 +101,7 @@ function WalletModal({
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 9999,
-        background: 'rgba(8,6,18,.85)',
+        background: 'rgba(15,23,42,.18)',
         backdropFilter: 'blur(16px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: '1rem',
@@ -111,12 +111,12 @@ function WalletModal({
         onClick={e => e.stopPropagation()}
         style={{
           background: 'var(--bg2)',
-          border: '1px solid rgba(155,140,255,.25)',
+          border: '1px solid var(--border)',
           borderRadius: 24,
           padding: '2rem',
           width: '100%',
           maxWidth: 380,
-          boxShadow: '0 40px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(155,140,255,.08)',
+          boxShadow: '0 40px 80px rgba(15,23,42,.12), 0 0 0 1px rgba(47,107,255,.05)',
         }}
       >
         {/* Header */}
@@ -127,7 +127,7 @@ function WalletModal({
           </div>
           <button
             onClick={onClose}
-            style={{ background: 'rgba(255,255,255,.06)', border: '1px solid var(--border)', borderRadius: 10, width: 32, height: 32, cursor: 'pointer', color: 'var(--faint)', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+            style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, width: 32, height: 32, cursor: 'pointer', color: 'var(--faint)', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
           >
             ×
           </button>
@@ -185,7 +185,7 @@ function WalletModal({
         {/* Connecting */}
         {connecting && (
           <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '.5rem', fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: 'var(--faint)' }}>
-            <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--gold)', animation: 'pulse 1.2s ease-in-out infinite' }} />
+            <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--mint)', animation: 'pulse 1.2s ease-in-out infinite' }} />
             Waiting for wallet…
           </div>
         )}
@@ -317,9 +317,9 @@ function MetaMaskIcon() {
 function InjectIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <rect x="3" y="6" width="18" height="13" rx="3" stroke="var(--gold)" strokeWidth="1.5"/>
-      <path d="M16 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0z" fill="var(--gold)"/>
-      <path d="M7 6V5a4 4 0 0 1 4-4h2a4 4 0 0 1 4 4v1" stroke="var(--gold)" strokeWidth="1.5"/>
+      <rect x="3" y="6" width="18" height="13" rx="3" stroke="var(--blue)" strokeWidth="1.5"/>
+      <path d="M16 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0z" fill="var(--blue)"/>
+      <path d="M7 6V5a4 4 0 0 1 4-4h2a4 4 0 0 1 4 4v1" stroke="var(--blue)" strokeWidth="1.5"/>
     </svg>
   )
 }

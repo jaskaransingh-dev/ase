@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
     .from('agents')
     .select('id, slug, total_aum_cents, peak_nav_cents, alert_level, high_water_mark_cents, developer_fee_pct, accrued_fee_cents')
     .eq('status', 'active')
+    .eq('asset_class', 'crypto')
 
   const results: Record<string, unknown> = {}
   const now = new Date().toISOString()

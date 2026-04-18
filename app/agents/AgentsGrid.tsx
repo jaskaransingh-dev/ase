@@ -12,6 +12,7 @@ interface AgentDisplay {
   strategy_type: string
   asset_class: string
   primary_symbol: string | null
+  status?: string | null
   return30d: number | null
   sharpe: number | null
   maxDD: number | null
@@ -135,6 +136,11 @@ function AgentCard({ agent }: { agent: AgentDisplay }) {
               SUBSCRIBED
             </span>
           )}
+          {agent.status === 'pending_review' && (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', fontWeight: 700, color: 'var(--orange)', background: 'rgba(245,158,11,.1)', border: '1px solid rgba(245,158,11,.25)', borderRadius: 5, padding: '.18rem .45rem' }}>
+              PENDING
+            </span>
+          )}
         </div>
       </div>
 
@@ -193,7 +199,6 @@ interface AgentsGridProps {
 
 export default function AgentsGrid({ agents: rawAgents }: AgentsGridProps) {
   const [search, setSearch] = useState('')
-  const [assetFilter, setAssetFilter] = useState<string>('all')
   const [sortBy, setSortBy] = useState<'return' | 'sharpe' | 'drawdown' | 'popular'>('return')
 
   const agents = rawAgents
@@ -212,11 +217,6 @@ export default function AgentsGrid({ agents: rawAgents }: AgentsGridProps) {
       )
     }
 
-    // Asset filter
-    if (assetFilter !== 'all') {
-      list = list.filter(a => a.asset_class === assetFilter)
-    }
-
     // Sort
     switch (sortBy) {
       case 'return':    list.sort((a, b) => (b.return30d ?? -999) - (a.return30d ?? -999)); break
@@ -226,12 +226,12 @@ export default function AgentsGrid({ agents: rawAgents }: AgentsGridProps) {
     }
 
     return list
-  }, [agents, search, assetFilter, sortBy])
+  }, [agents, search, sortBy])
 
   const totalSubscribers = agents.reduce((s, a) => s + a.subscriber_count, 0)
   const avgReturn = agents.filter(a => a.return30d !== null).reduce((s, a) => s + (a.return30d ?? 0), 0) / Math.max(agents.filter(a => a.return30d !== null).length, 1)
   const cryptoCount = agents.filter(a => a.asset_class === 'crypto').length
-  const equityCount = agents.filter(a => a.asset_class === 'equity').length
+  const liveCount = agents.filter(a => a.isLive).length
 
   return (
     <>
@@ -239,9 +239,10 @@ export default function AgentsGrid({ agents: rawAgents }: AgentsGridProps) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '.75rem', marginBottom: '1.5rem' }} className="exchange-top-strip">
         {[
           { label: 'Total Agents', value: agents.length.toString(), color: 'var(--white)' },
+          { label: 'Live Now', value: liveCount.toString(), color: 'var(--mint)' },
           { label: 'Subscribers', value: totalSubscribers.toString(), color: 'var(--muted)' },
           { label: 'Avg Return', value: avgReturn !== 0 ? fmtPct(avgReturn) : '--', color: avgReturn >= 0 ? 'var(--mint)' : 'var(--red)' },
-          { label: 'Strategies', value: `${cryptoCount} Crypto · ${equityCount} Equity`, color: 'var(--faint)', small: true },
+          { label: 'Strategies', value: `${cryptoCount} Crypto`, color: 'var(--faint)', small: true },
         ].map(item => (
           <div key={item.label} style={{ borderRadius: 12, border: '1px solid var(--border)', background: 'var(--bg2)', padding: '.85rem 1.1rem' }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: item.small ? '.48rem' : '.52rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.25rem', textTransform: 'uppercase' }}>{item.label}</div>
@@ -268,29 +269,6 @@ export default function AgentsGrid({ agents: rawAgents }: AgentsGridProps) {
           />
         </div>
 
-        {/* Asset filter pills */}
-        <div style={{ display: 'flex', gap: '.35rem' }}>
-          {[['all', 'All'], ['crypto', 'Crypto'], ['equity', 'Equities']].map(([val, label]) => (
-            <button
-              key={val}
-              onClick={() => setAssetFilter(val)}
-              style={{
-                padding: '.38rem .85rem',
-                borderRadius: 8,
-                border: `1px solid ${assetFilter === val ? 'rgba(59,127,255,.4)' : 'var(--border)'}`,
-                background: assetFilter === val ? 'rgba(59,127,255,.1)' : 'transparent',
-                color: assetFilter === val ? 'var(--blue2)' : 'var(--muted)',
-                fontSize: '.72rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all .15s',
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
         {/* Sort */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginLeft: 'auto' }}>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)' }}>SORT:</span>
@@ -309,7 +287,7 @@ export default function AgentsGrid({ agents: rawAgents }: AgentsGridProps) {
 
       {/* Results count */}
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', marginBottom: '1rem' }}>
-        Showing {filtered.length} of {agents.length} agents
+        Showing {filtered.length} of {agents.length} crypto agents
       </div>
 
       {/* Grid */}
@@ -318,7 +296,7 @@ export default function AgentsGrid({ agents: rawAgents }: AgentsGridProps) {
           <div style={{ fontSize: '2rem', marginBottom: '.75rem', opacity: 0.3 }}>🔍</div>
           <div style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 600, marginBottom: '.4rem' }}>No agents found</div>
           <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>Try adjusting your search or filters.</div>
-          <button onClick={() => { setSearch(''); setAssetFilter('all') }} style={{ marginTop: '1rem', padding: '.45rem 1.2rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontSize: '.78rem', cursor: 'pointer' }}>Clear filters</button>
+          <button onClick={() => setSearch('')} style={{ marginTop: '1rem', padding: '.45rem 1.2rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontSize: '.78rem', cursor: 'pointer' }}>Clear search</button>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem' }} className="agents-grid">

@@ -2,22 +2,33 @@
 import { useEffect, useState } from 'react'
 
 function Sparkline({ positive = true, width = 100, height = 28 }: { positive?: boolean; width?: number; height?: number }) {
-  const pts = Array.from({ length: 12 }, (_, i) => {
-    const trend = positive ? -i * ((height * 0.35) / 11) : i * ((height * 0.35) / 11)
-    const noise = Math.sin(i * 1.8) * (height * 0.15) + Math.sin(i * 0.7) * (height * 0.08)
-    const y = (height * 0.65) + trend + noise
-    return `${(i / 11) * width},${Math.max(2, Math.min(height - 2, y))}`
-  }).join(' ')
+  const [mounted, setMounted] = useState(false)
+  const [pts, setPts] = useState('')
+  
+  useEffect(() => {
+    setMounted(true)
+    const points = Array.from({ length: 12 }, (_, i) => {
+      const trend = positive ? -i * ((height * 0.35) / 11) : i * ((height * 0.35) / 11)
+      const noise = Math.sin(i * 1.8) * (height * 0.15) + Math.sin(i * 0.7) * (height * 0.08)
+      const y = (height * 0.65) + trend + noise
+      return `${(i / 11) * width},${Math.max(2, Math.min(height - 2, y))}`
+    }).join(' ')
+    setPts(points)
+  }, [positive, width, height])
+
+  const gradientId = `sg_${width}x${height}_${positive ? 'p' : 'n'}`
+
+  if (!mounted || !pts) return <div style={{ width, height }} />
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ display: 'block' }}>
       <defs>
-        <linearGradient id={`hsg_${positive ? 'p' : 'n'}`} x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={positive ? '#00E599' : '#FF5A5F'} stopOpacity={0.25} />
           <stop offset="100%" stopColor={positive ? '#00E599' : '#FF5A5F'} stopOpacity={0} />
         </linearGradient>
       </defs>
-      <polygon points={`0,${height} ${pts} ${width},${height}`} fill={`url(#hsg_${positive ? 'p' : 'n'})`} />
+      <polygon points={`0,${height} ${pts} ${width},${height}`} fill={`url(#${gradientId})`} />
       <polyline points={pts} fill="none" stroke={positive ? '#00E599' : '#FF5A5F'} strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   )

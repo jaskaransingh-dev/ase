@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 type ValidationResult = {
   passed: boolean
@@ -33,23 +34,22 @@ function ScoreBar({ value, max, color }: { value: number; max: number; color: st
 }
 
 export default function BuilderSubmitPage() {
+  const router = useRouter()
   const [step, setStep] = useState(0)
   const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [publishError, setPublishError] = useState('')
 
-  // Step 0 - info
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [strategyType, setStrategyType] = useState('momentum')
+  const [strategyType, setStrategyType] = useState('crypto_momentum')
   const [symbol, setSymbol] = useState('BTC-USD')
   const [contactEmail, setContactEmail] = useState('')
 
-  // Step 1 - upload
   const [csvText, setCsvText] = useState('')
   const [fileName, setFileName] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Step 2 - validation result
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null)
   const [validationError, setValidationError] = useState('')
 
@@ -147,21 +147,59 @@ export default function BuilderSubmitPage() {
 
   async function handleSubmit() {
     setLoading(true)
-    // In a real implementation this would POST to /api/builders/submit
-    await new Promise(r => setTimeout(r, 1200))
-    setLoading(false)
-    setSubmitted(true)
+    setPublishError('')
+
+    try {
+      const res = await fetch('/api/builders/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          description,
+          strategyType,
+          symbol,
+          csvData: csvText,
+          publish: true,
+        }),
+      })
+
+      const json = await res.json()
+
+      if (!res.ok) {
+        if (json.validation) {
+          setValidationResult(json.validation)
+          setPublishError(json.error || 'Validation failed')
+          setStep(2)
+        } else {
+          setPublishError(json.error || 'Submission failed')
+        }
+        return
+      }
+
+      setSubmitted(true)
+
+      if (json.published) {
+        router.push(`/agents/${json.agent.slug}`)
+      }
+    } catch (err) {
+      setPublishError(err instanceof Error ? err.message : 'Submission failed')
+    } finally {
+      setLoading(false)
+    }
   }
 
   if (submitted) {
     return (
       <div style={{ maxWidth: 640, margin: '4rem auto', textAlign: 'center' }}>
-        <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>✓</div>
-        <h1 style={{ fontFamily: 'var(--font-head)', fontSize: '1.6rem', fontWeight: 800, marginBottom: '.75rem' }}>Submission Received</h1>
+        <div style={{ fontSize: '2.5rem', marginBottom: '1rem', color: 'var(--mint)' }}>◆</div>
+        <h1 style={{ fontFamily: 'var(--font-head)', fontSize: '1.6rem', fontWeight: 800, marginBottom: '.75rem' }}>Agent Published!</h1>
         <p style={{ color: 'var(--muted)', lineHeight: 1.7, marginBottom: '1.5rem' }}>
-          Your agent <strong>{name}</strong> has been submitted for review. We&apos;ll run out-of-sample testing, CPCV, and Deflated Sharpe Ratio analysis. You&apos;ll hear back at <strong>{contactEmail}</strong> within 3–5 business days.
+          Your agent <strong>{name}</strong> has been validated and published to the exchange. Subscribers can now find and invest in your strategy.
         </p>
-        <Link href="/agents" className="btn-primary" style={{ fontSize: '.85rem' }}>Browse Live Agents →</Link>
+        <div style={{ display: 'flex', gap: '.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+          <Link href="/agents" className="btn-secondary">View Exchange</Link>
+          <Link href="/dashboard/backtest" className="btn-primary">Backtest More →</Link>
+        </div>
       </div>
     )
   }
@@ -171,10 +209,9 @@ export default function BuilderSubmitPage() {
       <div className="eyebrow" style={{ marginBottom: '.35rem' }}>BUILDERS</div>
       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.75rem', fontWeight: 700, marginBottom: '.5rem', letterSpacing: '-0.02em' }}>Submit Your Agent</h1>
       <p style={{ color: 'var(--muted)', fontSize: '.9rem', lineHeight: 1.65, marginBottom: '2rem' }}>
-        Upload your backtest results and strategy details. Agents must pass Sharpe, drawdown, and win-rate thresholds before listing.
+        Upload your backtest results and strategy details. Agents must pass Sharpe, drawdown, and win-rate thresholds before listing on the exchange.
       </p>
 
-      {/* Stepper */}
       <div style={{ display: 'flex', gap: 0, marginBottom: '2rem' }}>
         {STEP_LABELS.map((label, i) => (
           <div key={label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.3rem' }}>
@@ -192,7 +229,6 @@ export default function BuilderSubmitPage() {
 
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 20, padding: '1.75rem' }}>
 
-        {/* Step 0: Info */}
         {step === 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <h3 style={{ fontFamily: 'var(--font-head)', fontWeight: 800, marginBottom: '.25rem' }}>Strategy Details</h3>
@@ -216,9 +252,11 @@ export default function BuilderSubmitPage() {
               <label style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--faint)', letterSpacing: '.06em', display: 'block', marginBottom: '.35rem' }}>STRATEGY TYPE</label>
               <select value={strategyType} onChange={e => setStrategyType(e.target.value)}
                 style={{ width: '100%', background: 'rgba(255,255,255,.04)', border: '1px solid var(--border)', borderRadius: 10, padding: '.65rem .9rem', color: 'var(--white)', fontFamily: 'var(--font-mono)', fontSize: '.82rem', outline: 'none' }}>
-                {['momentum', 'mean_reversion', 'trend_following', 'crypto_momentum', 'crypto_mean_reversion', 'other'].map(s => (
-                  <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
-                ))}
+                <option value="crypto_momentum">Crypto Momentum</option>
+                <option value="crypto_mean_reversion">Crypto Mean Reversion</option>
+                <option value="trend_following">Trend Following</option>
+                <option value="momentum">Momentum</option>
+                <option value="mean_reversion">Mean Reversion</option>
               </select>
             </div>
 
@@ -246,7 +284,6 @@ export default function BuilderSubmitPage() {
           </div>
         )}
 
-        {/* Step 1: Upload CSV */}
         {step === 1 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <h3 style={{ fontFamily: 'var(--font-head)', fontWeight: 800 }}>Upload Backtest Results</h3>
@@ -292,7 +329,6 @@ export default function BuilderSubmitPage() {
           </div>
         )}
 
-        {/* Step 2: Validation result */}
         {step === 2 && validationResult && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem' }}>
@@ -338,8 +374,14 @@ export default function BuilderSubmitPage() {
               </div>
             )}
 
+            {publishError && (
+              <div style={{ background: 'rgba(251,113,133,.08)', border: '1px solid rgba(251,113,133,.25)', borderRadius: 12, padding: '.9rem 1rem', color: '#FB7185', fontFamily: 'var(--font-mono)', fontSize: '.72rem' }}>
+                {publishError}
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: '.75rem' }}>
-              <button onClick={() => { setStep(1); setValidationResult(null) }} style={{ padding: '.6rem 1.2rem', borderRadius: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.75rem', cursor: 'pointer' }}>
+              <button onClick={() => { setStep(1); setValidationResult(null); setPublishError('') }} style={{ padding: '.6rem 1.2rem', borderRadius: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.75rem', cursor: 'pointer' }}>
                 ← Re-upload
               </button>
               {validationResult.passed && (
@@ -351,10 +393,9 @@ export default function BuilderSubmitPage() {
           </div>
         )}
 
-        {/* Step 3: Review & Submit */}
         {step === 3 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            <h3 style={{ fontFamily: 'var(--font-head)', fontWeight: 800 }}>Review & Submit</h3>
+            <h3 style={{ fontFamily: 'var(--font-head)', fontWeight: 800 }}>Review & Publish</h3>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.6rem' }}>
               {[
@@ -364,6 +405,8 @@ export default function BuilderSubmitPage() {
                 { label: 'Symbol', value: symbol },
                 { label: 'Sharpe', value: validationResult?.sharpe.toFixed(2) ?? '—' },
                 { label: 'Win Rate', value: validationResult ? validationResult.winRate.toFixed(1) + '%' : '—' },
+                { label: 'Max DD', value: validationResult ? validationResult.maxDD.toFixed(1) + '%' : '—' },
+                { label: 'Trades', value: validationResult?.totalTrades.toString() ?? '—' },
               ].map(({ label, value }) => (
                 <div key={label} style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 10, padding: '.65rem .9rem' }}>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)', letterSpacing: '.06em', marginBottom: '.2rem' }}>{label.toUpperCase()}</div>
@@ -372,23 +415,34 @@ export default function BuilderSubmitPage() {
               ))}
             </div>
 
-            <div style={{ background: 'rgba(155,140,255,.06)', border: '1px solid rgba(155,140,255,.2)', borderRadius: 12, padding: '.9rem 1rem', fontSize: '.82rem', color: 'var(--muted)', lineHeight: 1.65 }}>
-              By submitting, you agree that ASE will run additional out-of-sample tests including CPCV and Deflated Sharpe Ratio analysis. Listing is not guaranteed. Response within 3–5 business days.
-            </div>
+            {validationResult?.passed ? (
+              <div style={{ background: 'rgba(22,199,132,.08)', border: '1px solid rgba(22,199,132,.25)', borderRadius: 12, padding: '.9rem 1rem', fontSize: '.82rem', color: 'var(--mint)', lineHeight: 1.65 }}>
+                ✓ Your agent has passed all validation checks and is ready to be published directly to the exchange.
+              </div>
+            ) : (
+              <div style={{ background: 'rgba(251,113,133,.08)', border: '1px solid rgba(251,113,133,.25)', borderRadius: 12, padding: '.9rem 1rem', fontSize: '.82rem', color: '#FB7185', lineHeight: 1.65 }}>
+                ✗ Your agent has not passed validation. Please fix the issues and re-upload your backtest results.
+              </div>
+            )}
+
+            {publishError && (
+              <div style={{ background: 'rgba(251,113,133,.08)', border: '1px solid rgba(251,113,133,.25)', borderRadius: 12, padding: '.9rem 1rem', color: '#FB7185', fontFamily: 'var(--font-mono)', fontSize: '.72rem' }}>
+                {publishError}
+              </div>
+            )}
 
             <div style={{ display: 'flex', gap: '.75rem' }}>
-              <button onClick={() => setStep(2)} style={{ padding: '.6rem 1.2rem', borderRadius: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.75rem', cursor: 'pointer' }}>
+              <button onClick={() => { setStep(2); setPublishError('') }} style={{ padding: '.6rem 1.2rem', borderRadius: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.75rem', cursor: 'pointer' }}>
                 ← Back
               </button>
-              <button onClick={handleSubmit} disabled={loading} className="btn-primary" style={{ flex: 1 }}>
-                {loading ? 'Submitting…' : 'Submit Agent for Review →'}
+              <button onClick={handleSubmit} disabled={loading || !validationResult?.passed} className="btn-primary" style={{ flex: 1 }}>
+                {loading ? 'Publishing…' : validationResult?.passed ? 'Publish to Exchange →' : 'Fix Issues First'}
               </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Requirements callout */}
       <div style={{ marginTop: '1.5rem', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: '1.25rem 1.5rem' }}>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.75rem' }}>LISTING REQUIREMENTS</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px,1fr))', gap: '.6rem' }}>
@@ -397,8 +451,6 @@ export default function BuilderSubmitPage() {
             { label: 'Max Drawdown', value: '< 50%', desc: 'Capital preservation limit' },
             { label: 'Win Rate', value: '≥ 40%', desc: 'Minimum trade success rate' },
             { label: 'Trade History', value: '≥ 20 trades', desc: 'Statistical significance floor' },
-            { label: 'Out-of-Sample', value: 'Required', desc: 'Walk-forward + CPCV test' },
-            { label: 'Deflated Sharpe', value: 'Required', desc: 'Overfitting detection gate' },
           ].map(({ label, value, desc }) => (
             <div key={label} style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 10, padding: '.7rem .85rem' }}>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)', marginBottom: '.2rem' }}>{label.toUpperCase()}</div>

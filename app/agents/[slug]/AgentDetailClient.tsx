@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { fmtDate } from '@/lib/utils'
+import { useWallet } from '@/components/WalletProvider'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -107,6 +108,7 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
   agentId: string; agentName: string; navCents: number
   onClose: () => void; onSuccess: (result: { shares: number; amount: number }) => void
 }) {
+  const { wallet, shortAddress, openModal } = useWallet()
   const [balance, setBalance] = useState<number | null>(null)
   const [accountStatus, setAccountStatus] = useState<string>('loading')
   const [amount, setAmount] = useState(50)
@@ -166,11 +168,25 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
         </div>
 
         {notConnected ? (
-          <div style={{ textAlign: 'center', padding: '1rem 0' }}>
-            <p style={{ color: 'var(--muted)', fontSize: '.82rem', marginBottom: '1rem', lineHeight: 1.6 }}>
-              Connect your Alpaca account to fund the agent.
+          <div style={{ padding: '0.5rem 0' }}>
+            {/* Wallet option */}
+            {wallet.address ? (
+              <div style={{ background: 'rgba(22,199,132,.06)', border: '1px solid rgba(22,199,132,.2)', borderRadius: 11, padding: '.9rem 1rem', marginBottom: '.85rem', display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--mint)', display: 'inline-block', flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--mint)', fontWeight: 700 }}>Wallet connected</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', marginTop: '.1rem' }}>{shortAddress} — on-chain settlement coming soon</div>
+                </div>
+              </div>
+            ) : (
+              <button onClick={openModal} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', padding: '.7rem 1rem', borderRadius: 10, border: '1px solid rgba(79,140,255,.25)', background: 'rgba(79,140,255,.08)', color: 'var(--blue2)', fontFamily: 'var(--font-mono)', fontSize: '.76rem', fontWeight: 700, cursor: 'pointer', marginBottom: '.75rem' }}>
+                🦊 Connect Wallet
+              </button>
+            )}
+            <p style={{ color: 'var(--muted)', fontSize: '.78rem', marginBottom: '.85rem', lineHeight: 1.6, textAlign: 'center' }}>
+              Connect your Alpaca account to invest with USD.
             </p>
-            <a href="/dashboard/settings" style={{ display: 'inline-block', padding: '.65rem 1.5rem', borderRadius: 10, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, textDecoration: 'none' }}>
+            <a href="/dashboard/settings" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '.65rem 1.5rem', borderRadius: 10, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, textDecoration: 'none' }}>
               Connect Alpaca →
             </a>
           </div>

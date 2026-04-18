@@ -489,6 +489,161 @@ function stratMacdTrend(bars: OHLCV[], params: BacktestParams): number[] {
 }
 
 // ──────────────────────────────────────────────────────────────
+// Custom / Class Strategy (User-Defined)
+// ──────────────────────────────────────────────────────────────
+
+export interface CustomStrategyDefinition {
+  name: string
+  description?: string
+  entryRules: EntryRule[]
+  exitRules: ExitRule[]
+  indicators?: IndicatorConfig[]
+}
+
+export interface IndicatorConfig {
+  type: 'sma' | 'ema' | 'rsi' | 'atr' | 'bb' | 'macd'
+  key: string
+  params: Record<string, number>
+}
+
+export interface EntryRule {
+  type: 'indicator_cross' | 'indicator_level' | 'price_cross' | 'signal'
+  indicator?: string
+  comparison?: 'above' | 'below' | 'crosses_above' | 'crosses_below'
+  target?: string | number
+  signal?: 'buy' | 'sell'
+}
+
+export interface ExitRule {
+  type: 'indicator_cross' | 'indicator_level' | 'price_cross' | 'stop_loss' | 'take_profit'
+  indicator?: string
+  comparison?: 'above' | 'below' | 'crosses_above' | 'crosses_below'
+  target?: string | number
+  value?: number
+}
+
+function stratCustom(bars: OHLCV[], params: BacktestParams): number[] {
+  const definition = (params as any).definition as CustomStrategyDefinition | undefined
+
+  if (!definition || !definition.indicators || definition.indicators.length === 0) {
+    return stratMomentumCrossover(bars, { fast_window: 20, slow_window: 50 })
+  }
+
+  const closes = bars.map(b => b.close)
+  const highs = bars.map(b => b.high)
+  const lows = bars.map(b => b.low)
+
+  const indicatorValues: Record<string, number[]> = {}
+
+  for (const ind of definition.indicators) {
+    switch (ind.type) {
+      case 'sma':
+        indicatorValues[ind.key] = rollingMean(closes, ind.params.period || 20)
+        break
+      case 'ema':
+        indicatorValues[ind.key] = computeEma(closes, ind.params.period || 20)
+        break
+      case 'rsi':
+        indicatorValues[ind.key] = computeRsi(closes, ind.params.period || 14)
+        break
+      case 'atr':
+        indicatorValues[ind.key] = computeAtr(highs, lows, closes, ind.params.period || 14)
+        break
+      default:
+        indicatorValues[ind.key] = rollingMean(closes, 20)
+    }
+  }
+
+  const positions: number[] = new Array(bars.length).fill(0)
+  let currentPosition = 0
+
+  for (let i = 1; i < bars.length; i++) {
+    const shouldEnter = definition.entryRules.some(rule => {
+      if (rule.type === 'indicator_cross' && rule.indicator && rule.target !== undefined) {
+        const currVal = indicatorValues[rule.indicator]?.[i]
+        const prevVal = indicatorValues[rule.indicator]?.[i - 1]
+        const targetVal = typeof rule.target === 'string' ? indicatorValues[rule.target]?.[i] : rule.target
+        if (isNaN(currVal!) || isNaN(prevVal!) || targetVal === undefined) return false
+        if (rule.comparison === 'above' && currVal > targetVal) return true
+        if (rule.comparison === 'below' && currVal < targetVal) return true
+        if (rule.comparison === 'crosses_above' && prevVal <= targetVal && currVal > targetVal) return true
+        if (rule.comparison === 'crosses_below' && prevVal >= targetVal && currVal < targetVal) return true
+      }
+      if (rule.type === 'indicator_level' && rule.indicator) {
+        const levelVal = indicatorValues[rule.indicator]?.[i]
+        if (isNaN(levelVal!)) return false
+        const level = (rule as any).value || 30
+        if (rule.comparison === 'below' && levelVal < level) return true
+        if (rule.comparison === 'above' && levelVal > level) return true
+      }
+      return false
+    })
+
+    const shouldExit = definition.exitRules.some(rule => {
+      if (rule.type === 'indicator_cross' && rule.indicator && rule.target !== undefined) {
+        const currVal = indicatorValues[rule.indicator]?.[i]
+        const prevVal = indicatorValues[rule.indicator]?.[i - 1]
+        const targetVal = typeof rule.target === 'string' ? indicatorValues[rule.target]?.[i] : rule.target
+        if (isNaN(currVal!) || isNaN(prevVal!) || targetVal === undefined) return false
+        if (rule.comparison === 'above' && currVal > targetVal) return true
+        if (rule.comparison === 'below' && currVal < targetVal) return true
+        if (rule.comparison === 'crosses_above' && prevVal <= targetVal && currVal > targetVal) return true
+        if (rule.comparison === 'crosses_below' && prevVal >= targetVal && currVal < targetVal) return true
+      }
+      if (rule.type === 'stop_loss' && (rule as any).value && currentPosition === 1) {
+        const entryPrice = bars[i - 1]?.close || bars[i].close
+        const stopPrice = entryPrice * (1 - (rule as any).value / 100)
+        if (bars[i].low < stopPrice) return true
+      }
+      if (rule.type === 'take_profit' && (rule as any).value && currentPosition === 1) {
+        const entryPrice = bars[i - 1]?.close || bars[i].close
+        const targetPrice = entryPrice * (1 + (rule as any).value / 100)
+        if (bars[i].high > targetPrice) return true
+      }
+      return false
+    })
+
+    if (currentPosition === 0 && shouldEnter) {
+      currentPosition = 1
+    } else if (currentPosition === 1 && shouldExit) {
+      currentPosition = 0
+    }
+
+    positions[i] = currentPosition
+  }
+
+  return positions
+}
+
+// Run custom strategy from definition
+export function runCustomBacktest(
+  bars: OHLCV[],
+  definition: CustomStrategyDefinition,
+  fee = 0.001,
+  slippage = 0.0005,
+): BacktestResult {
+  const params: Record<string, unknown> = {
+    definition,
+    custom_indicator_count: definition.indicators?.length || 0,
+  }
+
+  const result = runBacktest(bars, 'custom', params as BacktestParams, fee, slippage)
+
+  result.strategy = {
+    id: 'custom',
+    name: definition.name || 'Custom Strategy',
+    description: definition.description || 'User-defined trading strategy',
+    plainEnglish: definition.description || 'Custom algorithm',
+    bestFor: 'Custom trading rules',
+    mainRisk: 'Depends on rule quality',
+    defaultParams: {},
+    paramSchema: [],
+  }
+
+  return result
+}
+
+// ──────────────────────────────────────────────────────────────
 // Statistics
 // ──────────────────────────────────────────────────────────────
 
@@ -843,6 +998,16 @@ export const STRATEGIES: Record<string, StrategyMeta> = {
       { key: 'signal_period', label: 'Signal EMA period', kind: 'int', min: 3, max: 20, step: 1 },
     ],
   },
+  custom: {
+    id: 'custom',
+    name: 'Custom Strategy',
+    description: 'Define your own strategy with custom entry/exit rules, indicators, and risk management.',
+    plainEnglish: 'Build your own trading strategy with a visual rule builder or JSON definition.',
+    bestFor: 'Users who want full control over their strategy logic.',
+    mainRisk: 'Custom strategies may have edge cases not covered by built-in safeguards.',
+    defaultParams: {},
+    paramSchema: [],
+  },
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -875,6 +1040,7 @@ export function runBacktest(
     case 'factor_rotation':       positions = stratFactorRotation(bars, params); break
     case 'rsi_mean_reversion':    positions = stratRsiMeanReversion(bars, params); break
     case 'macd_trend':            positions = stratMacdTrend(bars, params); break
+    case 'custom':                positions = stratCustom(bars, params); break
     default: throw new Error(`No runner for ${strategyId}`)
   }
 

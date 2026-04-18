@@ -1,0 +1,249 @@
+/**
+ * POST /api/quant/run
+ *
+ * Full 9-layer quant strategy backtest:
+ *   data → features → alpha → forecast → risk model →
+ *   portfolio optimizer → risk manager → execution → metrics
+ *
+ * Body:
+ * {
+ *   strategy_id?:    uuid          — load from DB, or use inline package
+ *   template?:       string        — "momentum_conservative" | "composite_balanced" | etc.
+ *   alpha_type?:     string        — "momentum" | "mean_reversion" | "composite" | "ml"
+ *   alpha_weights?:  object        — { momentum: 0.4, mean_reversion: 0.3, ... }
+ *   symbols?:        string[]      — override universe
+ *   start_date?:     string        — ISO date (default: 2 years ago)
+ *   end_date?:       string        — ISO date (default: today)
+ *   initial_capital?:number        — default 1_000_000
+ *   rebalance_freq?: string        — "daily" | "weekly" | "monthly"
+ *   risk_aversion?:  number        — optimizer λ
+ *   max_weight?:     number        — per-name cap
+ *   walk_forward?:   boolean       — also run walk-forward analysis
+ *   save?:           boolean       — save to quant_runs table
+ * }
+ */
+
+import { NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+import { fetchYahooFinance } from '@/app/api/backtest/route'
+import { quantBacktester } from '@/lib/quant/backtester'
+import { buildStrategyPackage, STRATEGY_TEMPLATES, describeStrategy } from '@/lib/quant/strategy'
+import { strategyGrade } from '@/lib/quant/metrics'
+import type { QuantStrategyPackage, Bar, BarPanel } from '@/lib/quant/types'
+
+export const dynamic = 'force-dynamic'
+export const maxDuration = 120   // 2 minutes
+
+function supabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  )
+}
+
+function sampleArray<T>(arr: T[], n: number): T[] {
+  if (arr.length <= n) return arr
+  const step = Math.floor(arr.length / n)
+  return arr.filter((_, i) => i % step === 0)
+}
+
+export async function GET() {
+  return NextResponse.json({
+    templates: Object.keys(STRATEGY_TEMPLATES),
+    alpha_types: ['momentum', 'mean_reversion', 'volatility', 'volume', 'composite', 'ml'],
+    default_symbols: ['BTC-USD','ETH-USD','SOL-USD','BNB-USD','ADA-USD'],
+  })
+}
+
+export async function POST(req: Request) {
+  const auth = req.headers.get('authorization')
+  let userId: string | null = null
+  if (auth) {
+    const db = supabase()
+    const { data: { user } } = await db.auth.getUser(auth.replace('Bearer ', ''))
+    userId = user?.id ?? null
+  }
+
+  const body = await req.json() as {
+    strategy_id?:    string
+    template?:       string
+    alpha_type?:     string
+    alpha_weights?:  Record<string, number>
+    symbols?:        string[]
+    start_date?:     string
+    end_date?:       string
+    initial_capital?: number
+    rebalance_freq?: 'daily' | 'weekly' | 'monthly'
+    risk_aversion?:  number
+    max_weight?:     number
+    walk_forward?:   boolean
+    save?:           boolean
+    forecast_horizon?: number
+    signal_scale_bps?: number
+  }
+
+  const template = body.template ?? 'composite_balanced'
+  if (!STRATEGY_TEMPLATES[template]) {
+    return NextResponse.json({ error: `Unknown template "${template}". Valid: ${Object.keys(STRATEGY_TEMPLATES).join(', ')}` }, { status: 400 })
+  }
+
+  // Build strategy package
+  const pkg: QuantStrategyPackage = buildStrategyPackage(
+    body.strategy_id ?? 'adhoc',
+    template,
+    template as keyof typeof STRATEGY_TEMPLATES,
+    {
+      alphaType:       (body.alpha_type as QuantStrategyPackage['alphaType']) ?? undefined,
+      alphaWeights:    body.alpha_weights,
+      rebalanceFreq:   body.rebalance_freq,
+      forecastHorizon: body.forecast_horizon,
+      signalScaleBps:  body.signal_scale_bps,
+      universeConfig: body.symbols ? {
+        symbols:       body.symbols,
+        minAdvUsd:     500_000,
+        minPriceUsd:   0.001,
+        maxAssets:     body.symbols.length,
+        rebalanceFreq: body.rebalance_freq ?? 'daily',
+      } : undefined,
+      optimizerConfig: {
+        riskAversion: body.risk_aversion,
+        maxWeight:    body.max_weight,
+      } as Partial<QuantStrategyPackage['optimizerConfig']> as QuantStrategyPackage['optimizerConfig'],
+    },
+  )
+
+  const endDate   = body.end_date   ?? new Date().toISOString().slice(0, 10)
+  const startDate = body.start_date ?? new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10)
+  const capital   = body.initial_capital ?? 1_000_000
+
+  const symbols = pkg.universeConfig.symbols
+  if (!symbols.length) return NextResponse.json({ error: 'No symbols in universe' }, { status: 400 })
+
+  // Fetch data for all symbols
+  const panelEntries = await Promise.allSettled(
+    symbols.map(async sym => {
+      const raw = await fetchYahooFinance(sym, '2y', '1d')
+      const bars: Bar[] = raw.map(b => ({
+        date:   b.date,
+        open:   b.open,
+        high:   b.high,
+        low:    b.low,
+        close:  b.close,
+        volume: b.volume,
+      }))
+      return [sym, bars] as [string, Bar[]]
+    })
+  )
+
+  const panel: BarPanel = {}
+  for (const result of panelEntries) {
+    if (result.status === 'fulfilled') {
+      const [sym, bars] = result.value
+      const filtered = bars.filter(b => b.date >= startDate && b.date <= endDate)
+      if (filtered.length >= 60) panel[sym] = filtered
+    }
+  }
+
+  if (Object.keys(panel).length < 2) {
+    return NextResponse.json({ error: 'Not enough symbols with sufficient data (need ≥2 with ≥60 bars)' }, { status: 422 })
+  }
+
+  // Update pkg universe to only include symbols we have data for
+  pkg.universeConfig.symbols = Object.keys(panel)
+
+  const startMs = Date.now()
+
+  try {
+    const result = await quantBacktester.run(pkg, panel, {
+      startDate,
+      endDate,
+      initialCapital: capital,
+      feeBps:         pkg.executionConfig.slippageBps,
+      symbols:        Object.keys(panel),
+      rebalanceFreq:  pkg.rebalanceFreq,
+    })
+
+    const { grade, score, breakdown } = strategyGrade(result.tearSheet)
+
+    let walkForwardResult = null
+    if (body.walk_forward) {
+      try {
+        walkForwardResult = await quantBacktester.walkForward(pkg, panel, startDate, endDate, 126, 42, capital)
+      } catch { /* skip if not enough data */ }
+    }
+
+    // Sample heavy arrays for response size
+    const sampledEquity     = sampleArray(result.equityCurve, 500)
+    const sampledAllocations = sampleArray(result.allocationHistory, 100)
+    const sampledSignals    = sampleArray(result.signalHistory, 50)
+
+    // Optionally save to DB
+    let savedRunId: string | null = null
+    if (body.save && userId && body.strategy_id) {
+      const db = supabase()
+      const { data: saved } = await db.from('quant_runs').insert({
+        strategy_id:       body.strategy_id,
+        owner_id:          userId,
+        symbols,
+        start_date:        startDate,
+        end_date:          endDate,
+        rebalance_freq:    pkg.rebalanceFreq,
+        initial_capital:   capital,
+        fee_bps:           pkg.executionConfig.slippageBps,
+        equity_curve:      sampledEquity,
+        ic_series:         result.icSeries,
+        allocation_history: sampledAllocations,
+        signal_snapshots:  sampledSignals,
+        metrics:           result.tearSheet,
+        walkforward_windows: walkForwardResult?.windows ?? [],
+        status:            'completed',
+        runtime_ms:        Date.now() - startMs,
+      }).select('id').single()
+      savedRunId = saved?.id ?? null
+
+      if (savedRunId) {
+        await db.rpc('upsert_quant_leaderboard', {
+          p_strategy_id: body.strategy_id,
+          p_run_id:      savedRunId,
+          p_metrics:     result.tearSheet,
+        })
+      }
+    }
+
+    return NextResponse.json({
+      run_id:             savedRunId,
+      strategy_summary:   describeStrategy(pkg),
+      symbols:            Object.keys(panel),
+      date_range:         { start: startDate, end: endDate },
+      n_rebalances:       result.allocationHistory.length,
+      n_trades:           result.fills.length,
+      runtime_ms:         Date.now() - startMs,
+
+      // Performance
+      tear_sheet:         result.tearSheet,
+      grade,
+      score,
+      grade_breakdown:    breakdown,
+
+      // Equity curve (sampled)
+      equity_curve:       sampledEquity,
+      benchmark_equity:   sampleArray(result.benchmarkEquity.map((e, i) => ({
+        i, equity: e,
+      })), 500),
+
+      // Signal quality
+      ic_series:          result.icSeries,
+
+      // Allocation history (sampled)
+      allocation_history: sampledAllocations,
+      final_positions:    result.finalPositions,
+
+      // Walk-forward
+      walk_forward:       walkForwardResult,
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Backtest failed'
+    console.error('[quant/run]', msg)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
+}

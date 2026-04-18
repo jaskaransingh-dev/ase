@@ -13,6 +13,7 @@ interface AgentRow {
   strategy_type: string | null
   asset_class: string | null
   primary_symbol: string | null
+  status: string | null
   share_price_cents: number | null
   subscriber_count: number | null
   backtest_stats?: { stats?: { totalReturnPct?: number; sharpeRatio?: number; maxDrawdownPct?: number; winRate?: number } } | null
@@ -34,7 +35,8 @@ export default async function AgentsPage() {
     supabase
       .from('agents')
       .select('*, agent_stats(nav_cents,total_return_pct,sharpe_ratio,max_drawdown_pct,win_rate_pct,total_trades,snapshot_at), backtest_stats')
-      .eq('status', 'active')
+      .in('status', ['active', 'pending_review'])
+      .eq('asset_class', 'crypto')
       .order('created_at'),
     supabase
       .from('agent_backtest_history')
@@ -102,6 +104,7 @@ export default async function AgentsPage() {
       strategy_type: agent.strategy_type ?? 'momentum',
       asset_class: agent.asset_class ?? 'crypto',
       primary_symbol: agent.primary_symbol,
+      status: agent.status,
       return30d,
       sharpe,
       maxDD,
@@ -119,11 +122,12 @@ export default async function AgentsPage() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <div className="eyebrow" style={{ marginBottom: '.25rem' }}>MARKETPLACE</div>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-.02em' }}>AI Trading Agents</h1>
+          <div className="eyebrow" style={{ marginBottom: '.25rem' }}>CRYPTO EXCHANGE</div>
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-.02em' }}>Live crypto agents, always trading</h1>
+          <p style={{ margin: '.35rem 0 0', color: 'var(--muted)', fontSize: '.88rem' }}>Browse only crypto strategies with live ledgers, fast publish, and quick de-list controls.</p>
         </div>
         <Link href="/dashboard/backtest" style={{ padding: '.5rem 1rem', borderRadius: 100, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontSize: '.78rem', fontWeight: 600, textDecoration: 'none', transition: 'all .15s' }}>
-          Build →
+          Backtest →
         </Link>
       </div>
 
@@ -131,5 +135,4 @@ export default async function AgentsPage() {
     </div>
   )
 }
-
 

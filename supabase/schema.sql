@@ -40,11 +40,15 @@ create table if not exists public.agents (
   description       text,
   strategy_type     text not null check (strategy_type in ('momentum', 'mean_reversion', 'trend_following', 'crypto_momentum', 'crypto_mean_reversion')),
   asset_class       text default 'crypto',
-  status            text default 'active' check (status in ('active', 'paused', 'pending_review')),
+  primary_symbol    text,
+  backtest_strategy text,
+  backtest_stats    jsonb,
+  status            text default 'pending_review' check (status in ('active', 'paused', 'pending_review')),
   alpaca_account    text,
   total_aum_cents   bigint default 0,
   share_price_cents bigint default 10000,
   total_shares      bigint default 100000,
+  owner_id          uuid references public.profiles(id),
   created_at        timestamptz default now()
 );
 
@@ -222,6 +226,221 @@ on conflict (slug) do nothing;
 -- Agents were seeded with 60 days of simulated returns using random drift+volatility
 -- This has been replaced with real calculations from agent_trades table
 
+-- ══════════════════════════════════════════════════════════════
+-- QUANT STRATEGY PLATFORM — Phase 2 Tables
+-- ══════════════════════════════════════════════════════════════
+
+-- ── STRATEGIES ───────────────────────────────────────────────
+-- User-authored strategies (standardized interface)
+create table if not exists public.strategies (
+  id              uuid primary key default gen_random_uuid(),
+  owner_id        uuid references public.profiles(id) on delete cascade,
+  slug            text unique not null,
+  name            text not null,
+  description     text,
+  language        text default 'python' check (language in ('python', 'typescript')),
+  code            text not null,
+  code_hash       text not null,             -- sha256 of code for reproducibility
+  params          jsonb default '{}',        -- default parameter config
+  symbol          text default 'BTC-USD',
+  interval        text default '1d',
+  status          text default 'draft' check (status in ('draft', 'validating', 'validated', 'rejected', 'listed')),
+  validation_error text,
+  submission_count_today integer default 0,
+  last_submission_at  timestamptz,
+  created_at      timestamptz default now(),
+  updated_at      timestamptz default now()
+);
+
+-- ── STRATEGY VERSIONS ────────────────────────────────────────
+-- Full version history tied to (code hash + params + dataset version)
+create table if not exists public.strategy_versions (
+  id              uuid primary key default gen_random_uuid(),
+  strategy_id     uuid references public.strategies(id) on delete cascade,
+  version         integer not null,
+  code            text not null,
+  code_hash       text not null,
+  params          jsonb default '{}',
+  dataset_version text not null default 'v1',  -- bump when data source changes
+  change_note     text,
+  created_at      timestamptz default now(),
+  unique(strategy_id, version)
+);
+
+-- ── BACKTEST RUNS ─────────────────────────────────────────────
+-- Formal backtests with train/validation/test split enforcement
+create table if not exists public.backtest_runs (
+  id                  uuid primary key default gen_random_uuid(),
+  strategy_id         uuid references public.strategies(id) on delete cascade,
+  version_id          uuid references public.strategy_versions(id),
+  owner_id            uuid references public.profiles(id) on delete cascade,
+  -- run config
+  symbol              text not null,
+  interval            text not null,
+  period              text not null,
+  params              jsonb default '{}',
+  fee                 numeric default 0.001,
+  -- split config
+  split_train_pct     numeric default 0.6,
+  split_val_pct       numeric default 0.2,
+  -- test pct is implied (1 - train - val)
+  -- run type
+  run_type            text default 'standard' check (run_type in ('standard', 'walk_forward', 'monte_carlo')),
+  -- results (stored as JSONB for flexibility)
+  train_stats         jsonb,
+  val_stats           jsonb,
+  test_stats          jsonb,             -- hidden; only revealed after listing
+  full_stats          jsonb,
+  bars                jsonb,             -- equity curve (sampled to 500 pts)
+  trade_log           jsonb,
+  walk_forward_result jsonb,
+  monte_carlo_result  jsonb,
+  -- scoring
+  composite_score     numeric,
+  sharpe              numeric,
+  max_drawdown        numeric,
+  stability_score     numeric,           -- rolling Sharpe std dev (lower = better)
+  -- state
+  status              text default 'pending' check (status in ('pending', 'running', 'completed', 'failed')),
+  error               text,
+  duration_ms         integer,
+  created_at          timestamptz default now()
+);
+
+-- ── EXPERIMENTS ───────────────────────────────────────────────
+-- Parameter sweep / multi-run comparisons
+create table if not exists public.experiments (
+  id              uuid primary key default gen_random_uuid(),
+  strategy_id     uuid references public.strategies(id) on delete cascade,
+  owner_id        uuid references public.profiles(id) on delete cascade,
+  name            text not null,
+  description     text,
+  -- param sweep config: { "fast_period": [5,10,20], "slow_period": [50,100,200] }
+  param_grid      jsonb not null default '{}',
+  symbol          text not null,
+  interval        text not null,
+  period          text not null,
+  fee             numeric default 0.001,
+  -- state
+  status          text default 'pending' check (status in ('pending', 'running', 'completed', 'failed')),
+  total_runs      integer default 0,
+  completed_runs  integer default 0,
+  best_run_id     uuid references public.backtest_runs(id),
+  created_at      timestamptz default now(),
+  completed_at    timestamptz
+);
+
+-- ── EXPERIMENT RUNS ───────────────────────────────────────────
+-- Each individual run within an experiment (one per param combo)
+create table if not exists public.experiment_runs (
+  id              uuid primary key default gen_random_uuid(),
+  experiment_id   uuid references public.experiments(id) on delete cascade,
+  backtest_run_id uuid references public.backtest_runs(id) on delete cascade,
+  params          jsonb not null,        -- the specific param combo for this run
+  sharpe          numeric,
+  total_return    numeric,
+  max_drawdown    numeric,
+  win_rate        numeric,
+  rank            integer,               -- rank within experiment (1 = best)
+  created_at      timestamptz default now()
+);
+
+-- ── MARKETPLACE LISTINGS ──────────────────────────────────────
+create table if not exists public.marketplace_listings (
+  id                  uuid primary key default gen_random_uuid(),
+  strategy_id         uuid unique references public.strategies(id) on delete cascade,
+  owner_id            uuid references public.profiles(id) on delete cascade,
+  backtest_run_id     uuid references public.backtest_runs(id),   -- the qualifying run
+  -- display
+  tagline             text,
+  tags                text[] default '{}',
+  -- pricing
+  price_cents         integer default 999,   -- monthly subscription price
+  is_free             boolean default false,
+  -- ranking score (recomputed nightly)
+  rank_score          numeric default 0,
+  -- stats snapshot (denormalised for fast listing queries)
+  sharpe              numeric,
+  max_drawdown        numeric,
+  total_return        numeric,
+  win_rate            numeric,
+  backtest_period     text,
+  -- counts
+  subscriber_count    integer default 0,
+  view_count          integer default 0,
+  -- state
+  status              text default 'pending_review' check (status in ('pending_review', 'active', 'delisted')),
+  listed_at           timestamptz,
+  created_at          timestamptz default now()
+);
+
+-- ── SUBSCRIPTIONS ─────────────────────────────────────────────
+create table if not exists public.subscriptions (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid references public.profiles(id) on delete cascade,
+  listing_id      uuid references public.marketplace_listings(id) on delete cascade,
+  strategy_id     uuid references public.strategies(id) on delete cascade,
+  status          text default 'active' check (status in ('active', 'cancelled', 'expired')),
+  price_cents     integer not null,
+  started_at      timestamptz default now(),
+  expires_at      timestamptz,
+  cancelled_at    timestamptz,
+  unique(user_id, listing_id)
+);
+
+-- ── INDEXES ───────────────────────────────────────────────────
+create index if not exists idx_strategies_owner        on public.strategies(owner_id);
+create index if not exists idx_strategy_versions_sid   on public.strategy_versions(strategy_id);
+create index if not exists idx_backtest_runs_strategy  on public.backtest_runs(strategy_id);
+create index if not exists idx_backtest_runs_owner     on public.backtest_runs(owner_id);
+create index if not exists idx_experiments_strategy    on public.experiments(strategy_id);
+create index if not exists idx_experiment_runs_exp     on public.experiment_runs(experiment_id);
+create index if not exists idx_marketplace_rank        on public.marketplace_listings(rank_score desc);
+create index if not exists idx_subscriptions_user      on public.subscriptions(user_id);
+
+-- ── RANKING FUNCTION ──────────────────────────────────────────
+-- Weighted score: Sharpe (40%) - drawdown penalty (30%) + stability (30%)
+create or replace function public.compute_rank_score(
+  p_sharpe numeric,
+  p_drawdown numeric,   -- absolute %, e.g. 25.0
+  p_stability numeric   -- rolling Sharpe std dev, lower = better
+) returns numeric as $$
+begin
+  return (
+    coalesce(p_sharpe, 0) * 0.40
+    - (coalesce(p_drawdown, 100) / 100.0) * 0.30
+    - coalesce(p_stability, 1) * 0.30
+  );
+end;
+$$ language plpgsql immutable;
+
+-- Auto-increment strategy version on code change
+create or replace function public.create_strategy_version()
+returns trigger as $$
+declare
+  v_next integer;
+begin
+  if TG_OP = 'INSERT' or OLD.code_hash is distinct from NEW.code_hash then
+    select coalesce(max(version), 0) + 1
+      into v_next
+      from public.strategy_versions
+     where strategy_id = NEW.id;
+
+    insert into public.strategy_versions
+      (strategy_id, version, code, code_hash, params, dataset_version)
+    values
+      (NEW.id, v_next, NEW.code, NEW.code_hash, NEW.params, 'v1');
+  end if;
+  NEW.updated_at = now();
+  return NEW;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_strategy_upsert on public.strategies;
+create trigger on_strategy_upsert
+  after insert or update on public.strategies
+  for each row execute procedure public.create_strategy_version();
+
 -- ── ROW LEVEL SECURITY ───────────────────────────────────────
 alter table public.profiles enable row level security;
 alter table public.wallets enable row level security;
@@ -276,3 +495,65 @@ create policy "Anyone can submit agent" on public.agent_submissions for insert w
 -- Saved agents
 alter table public.saved_agents enable row level security;
 create policy "Users can manage own saved agents" on public.saved_agents for all using (auth.uid() = user_id);
+
+-- Strategies
+alter table public.strategies enable row level security;
+create policy "Users can manage own strategies"   on public.strategies for all using (auth.uid() = owner_id);
+create policy "Anyone can read listed strategies" on public.strategies for select using (status = 'listed');
+
+-- Strategy versions
+alter table public.strategy_versions enable row level security;
+create policy "Owners can read own versions" on public.strategy_versions for select
+  using (exists (select 1 from public.strategies s where s.id = strategy_id and s.owner_id = auth.uid()));
+
+-- Backtest runs
+alter table public.backtest_runs enable row level security;
+create policy "Owners can manage own backtest runs" on public.backtest_runs for all using (auth.uid() = owner_id);
+
+-- Experiments
+alter table public.experiments enable row level security;
+create policy "Owners can manage own experiments" on public.experiments for all using (auth.uid() = owner_id);
+
+-- Experiment runs
+alter table public.experiment_runs enable row level security;
+create policy "Owners can read own experiment runs" on public.experiment_runs for select
+  using (exists (select 1 from public.experiments e where e.id = experiment_id and e.owner_id = auth.uid()));
+
+-- Marketplace listings (public read)
+alter table public.marketplace_listings enable row level security;
+create policy "Anyone can read active listings"    on public.marketplace_listings for select using (status = 'active');
+create policy "Owners can manage own listings"     on public.marketplace_listings for all   using (auth.uid() = owner_id);
+
+-- Subscriptions
+alter table public.subscriptions enable row level security;
+create policy "Users can manage own subscriptions" on public.subscriptions for all using (auth.uid() = user_id);
+
+-- ══════════════════════════════════════════════════════════════
+-- SUPABASE STORAGE BUCKETS
+-- ══════════════════════════════════════════════════════════════
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'site-assets',
+  'site-assets',
+  true,
+  10485760,
+  array['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'application/pdf', 'text/csv']
+)
+on conflict (id) do update set
+  public = true,
+  file_size_limit = 10485760,
+  allowed_mime_types = array['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'application/pdf', 'text/csv'];
+
+-- RLS policies for site-assets bucket
+create policy "Anyone can view site assets" on storage.objects
+  for select using (bucket_id = 'site-assets');
+
+create policy "Authenticated users can upload site assets" on storage.objects
+  for insert with check (bucket_id = 'site-assets' and auth.role() = 'authenticated');
+
+create policy "Users can delete own site assets" on storage.objects
+  for delete using (bucket_id = 'site-assets' and auth.uid()::text = (metadata->>'owner_id'));
+
+create policy "Users can update own site assets" on storage.objects
+  for update using (bucket_id = 'site-assets' and auth.uid()::text = (metadata->>'owner_id'));

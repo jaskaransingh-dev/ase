@@ -7,7 +7,7 @@
  * 
  * 1. BUILT-IN STRATEGIES (strategy param):
  * {
- *   symbol:     string   — e.g. "BTC-USD", "SPY", "AAPL"
+ *   symbol:     string   — e.g. "BTC-USD"
  *   strategy:   string   — one of: mean_reversion | momentum_crossover | breakout_trend | rsi_trend_filter | volatility_breakout
  *   params:     object   — strategy-specific parameters
  *   period:     string   — "7d" | "30d" | "90d" | "1y" | "2y" | "5y"
@@ -359,34 +359,33 @@ export async function fetchYahooFinance(symbol: string, period: string, interval
     return cached
   }
 
-  // For crypto: try Binance first (fastest), then CoinGecko, then Yahoo
-  // For stocks: skip to Yahoo directly
   const isCrypto = toBinanceSymbol(symbol) !== null
+  if (!isCrypto) {
+    throw new Error('Crypto-only backtesting is enabled. Use a USD-quoted crypto symbol.')
+  }
+
+  // Try Binance first - fastest and most reliable for crypto
+  try {
+    const data = await fetchBinanceData(symbol, period, interval)
+    if (data.length >= 60) {
+      setCachedData(symbol, period, interval, data)
+      console.log(`[backtest] Binance: ${data.length} bars for ${symbol}`)
+      return data
+    }
+  } catch (e) {
+    console.warn(`[backtest] Binance failed for ${symbol}: ${e instanceof Error ? e.message : e}`)
+  }
   
-  if (isCrypto) {
-    // Try Binance first - fastest and most reliable for crypto
-    try {
-      const data = await fetchBinanceData(symbol, period, interval)
-      if (data.length >= 60) {
-        setCachedData(symbol, period, interval, data)
-        console.log(`[backtest] Binance: ${data.length} bars for ${symbol}`)
-        return data
-      }
-    } catch (e) {
-      console.warn(`[backtest] Binance failed for ${symbol}: ${e instanceof Error ? e.message : e}`)
+  // Try CoinGecko as second option
+  try {
+    const data = await fetchCoinGeckoData(symbol, period, interval)
+    if (data.length >= 60) {
+      setCachedData(symbol, period, interval, data)
+      console.log(`[backtest] CoinGecko: ${data.length} bars for ${symbol}`)
+      return data
     }
-    
-    // Try CoinGecko as second option
-    try {
-      const data = await fetchCoinGeckoData(symbol, period, interval)
-      if (data.length >= 60) {
-        setCachedData(symbol, period, interval, data)
-        console.log(`[backtest] CoinGecko: ${data.length} bars for ${symbol}`)
-        return data
-      }
-    } catch (e) {
-      console.warn(`[backtest] CoinGecko failed for ${symbol}: ${e instanceof Error ? e.message : e}`)
-    }
+  } catch (e) {
+    console.warn(`[backtest] CoinGecko failed for ${symbol}: ${e instanceof Error ? e.message : e}`)
   }
 
   // Fallback: try Yahoo Finance
@@ -666,11 +665,6 @@ const AGENT_LOCKED_SYMBOLS: Record<string, string> = {
   'momentum-carry':  'BTC-USD',
   'cascade-detect':  'BTC-USD',
   'defi-yield':      'ETH-USD',
-  'spy-momentum':    'SPY',
-  'qqq-growth':      'QQQ',
-  'sector-rotation': 'XLK',
-  'low-vol-equity':  'SPLV',
-  'covered-call-overlay': 'QQQ',
 }
 
 export async function POST(req: Request) {
@@ -702,6 +696,9 @@ export async function POST(req: Request) {
     }
 
     const requestedSymbol = (body.symbol ?? 'BTC-USD').toUpperCase().trim()
+    if (!requestedSymbol.endsWith('-USD')) {
+      return NextResponse.json({ error: 'Crypto-only backtesting is enabled. Use a USD-quoted crypto symbol.' }, { status: 400 })
+    }
     const strategyId = body.strategy ?? 'momentum_crossover'
 
     // If an agent_slug is provided, enforce that the symbol matches the agent's locked symbol

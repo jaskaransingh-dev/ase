@@ -12,8 +12,9 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ sl
 
   const { data: agent } = await supabase
     .from('agents')
-    .select('id, name, slug, description, strategy_type, status, alert_level, drawdown_pct, monthly_fee_cents, subscriber_count, primary_symbol, backtest_strategy, signal_summary, backtest_stats')
+    .select('id, name, slug, description, strategy_type, status, asset_class, alert_level, drawdown_pct, monthly_fee_cents, subscriber_count, primary_symbol, backtest_strategy, signal_summary, backtest_stats')
     .eq('slug', slug)
+    .eq('asset_class', 'crypto')
     .single()
 
   if (!agent) notFound()

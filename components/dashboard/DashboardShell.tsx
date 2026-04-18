@@ -5,19 +5,23 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Logo } from '@/components/ui/Logo'
+import { useWallet } from '@/components/WalletProvider'
 import AIChatbot from '@/components/AIChatbot'
 
 const NAV_ITEMS = [
-  { href: '/dashboard', label: 'Dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
-  { href: '/agents', label: 'Agents', icon: 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9' },
+  { href: '/dashboard', label: 'Home', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
+  { href: '/agents', label: 'Exchange', icon: 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9' },
   { href: '/dashboard/activity', label: 'Activity', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
-  { href: '/dashboard/build', label: 'Build', icon: 'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+  { href: '/dashboard/strategies', label: 'Strategies', icon: 'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4' },
+  { href: '/dashboard/marketplace', label: 'Market', icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z' },
+  { href: '/dashboard/quant', label: 'Quant Lab', icon: 'M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18' },
+  { href: '/dashboard/build', label: 'Builder', icon: 'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
   { href: '/dashboard/settings', label: 'Settings', icon: 'M10.325 18.693l3.768-1.458.767 1.458 3.83.788-1.458 1.458-3.768.831 1.458 3.768-1.458.767-1.458-.831-3.768-.831zM12 12a4 4 0 110-8 4 4 0 010 8z' },
 ]
 
 const NAV_SECTIONS = [
-  { label: 'CORE', items: ['/dashboard', '/agents', '/dashboard/activity'] },
-  { label: 'CREATE', items: ['/dashboard/build'] },
+  { label: 'MAIN', items: ['/dashboard', '/agents', '/dashboard/activity'] },
+  { label: 'STRATEGIES', items: ['/dashboard/strategies', '/dashboard/marketplace', '/dashboard/quant', '/dashboard/build'] },
   { label: 'ACCOUNT', items: ['/dashboard/settings'] },
 ]
 
@@ -26,6 +30,7 @@ export default function DashboardShell({ user, children }: { user: { id: string;
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
+  const { wallet, shortAddress, connect, disconnect } = useWallet()
   const [accountConnected, setAccountConnected] = useState(false)
   const [accountStatus, setAccountStatus] = useState<string | null>(null)
   const [accountNumber, setAccountNumber] = useState<string | null>(null)
@@ -197,6 +202,69 @@ export default function DashboardShell({ user, children }: { user: { id: string;
                 )}
               </span>
             ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            {wallet.connected ? (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '0.5rem',
+                padding: '0.4rem 0.75rem',
+                background: 'var(--bg2)',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                fontSize: '0.8rem',
+                fontFamily: 'var(--font-mono)',
+              }}>
+                <div style={{ 
+                  width: '8px', 
+                  height: '8px', 
+                  borderRadius: '50%', 
+                  background: 'var(--mint)',
+                  boxShadow: '0 0 8px var(--mint)',
+                }} />
+                <span style={{ color: 'var(--white)' }}>{shortAddress}</span>
+                <button 
+                  onClick={disconnect}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--muted)',
+                    cursor: 'pointer',
+                    padding: '0 0.25rem',
+                    fontSize: '0.75rem',
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <button 
+                onClick={() => connect()}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  padding: '0.4rem 0.75rem',
+                  background: 'var(--accent)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  color: 'var(--black)',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.16s',
+                }}
+                onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
+                onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                  <path d="M9 12l2 2 4-4"/>
+                </svg>
+                Connect
+              </button>
+            )}
           </div>
         </header>
 

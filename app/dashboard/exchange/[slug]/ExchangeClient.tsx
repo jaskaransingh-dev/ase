@@ -164,8 +164,8 @@ function parseSignal(signal: string | null): {
 
   if (s.startsWith('BUY')) badge = { label: '▲ BUYING', color: '#0EAD6E', bg: 'rgba(14,173,110,.14)' }
   else if (s.startsWith('SELL')) badge = { label: '▼ SELLING', color: '#E84040', bg: 'rgba(232,64,64,.14)' }
-  else if (s.startsWith('HOLD')) badge = { label: '◆ HOLDING', color: '#E8AC20', bg: 'rgba(74,144,226,.14)' }
-  else if (s.startsWith('SCAN')) badge = { label: '● SCANNING', color: '#E8AC20', bg: 'rgba(232,172,32,.14)' }
+  else if (s.startsWith('HOLD')) badge = { label: '◆ HOLDING', color: '#6BA3FF', bg: 'rgba(74,144,226,.14)' }
+  else if (s.startsWith('SCAN')) badge = { label: '● SCANNING', color: '#6BA3FF', bg: 'rgba(107,163,255,.14)' }
   else if (s.startsWith('TREND') || s.startsWith('BREAKOUT')) badge = { label: '▲ TRADING', color: '#0EAD6E', bg: 'rgba(14,173,110,.14)' }
 
   const waitMatch = signal.match(/Waiting[:\s]+(.+?)(?:\s*·|$)/i)
@@ -379,7 +379,7 @@ export default function ExchangeClient({
         {[
           { label: 'Sharpe', value: sharpe.toFixed(2), color: sharpe >= 1 ? 'var(--green)' : '#8CA0C4' },
           { label: 'Win Rate', value: `${winRate.toFixed(0)}%`, color: winRate >= 50 ? 'var(--green)' : 'var(--red)' },
-          { label: 'Spread', value: '0.30%', color: '#8BE9FF' },
+          { label: 'Spread', value: '0.30%', color: '#6DD3FF' },
           { label: 'Open Trades', value: String(openTrades.length), color: 'var(--white)' },
         ].map((item) => (
           <div key={item.label} style={{ borderRadius: 12, border: '1px solid rgba(148,163,184,.24)', background: 'rgba(9,14,28,.72)', padding: '.7rem .8rem' }}>
@@ -441,8 +441,8 @@ export default function ExchangeClient({
                   <AreaChart data={chartData}>
                     <defs>
                       <linearGradient id="navGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#E8AC20" stopOpacity={0.25} />
-                        <stop offset="95%" stopColor="#E8AC20" stopOpacity={0} />
+                        <stop offset="5%" stopColor="#6BA3FF" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#6BA3FF" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.06)" />
@@ -455,7 +455,7 @@ export default function ExchangeClient({
                       contentStyle={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, ...mono, fontSize: '.8rem' }}
                       formatter={(v: unknown) => `$${formatTooltipValue(v)}`}
                     />
-                    <Area type="monotone" dataKey="nav" stroke="#E8AC20" strokeWidth={2}
+                    <Area type="monotone" dataKey="nav" stroke="#6BA3FF" strokeWidth={2}
                       fill="url(#navGrad)" dot={false} isAnimationActive={false} />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -469,11 +469,11 @@ export default function ExchangeClient({
 
           {/* ── KPI strip ── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '.75rem', marginBottom: '1.25rem' }}>
-            <Metric label="SHARPE RATIO" value={sharpe.toFixed(2)} color="#E8AC20" />
+            <Metric label="SHARPE RATIO" value={sharpe.toFixed(2)} color="#6BA3FF" />
             <Metric label="MAX DRAWDOWN" value={`-${maxDD.toFixed(1)}%`} color="var(--red)" />
             <Metric label="WIN RATE" value={`${winRate.toFixed(0)}%`} color="var(--green)" />
             <Metric label="TOTAL TRADES" value={totalTrades.toString()} />
-            <Metric label="CAPITAL" value={fmtUSD(agent.total_aum_cents)} color="var(--gold)" />
+            <Metric label="CAPITAL" value={fmtUSD(agent.total_aum_cents)} color="var(--blue2)" />
             <Metric label="REALIZED P&L" value={realizedPnL >= 0 ? `+${fmtUSD(realizedPnL)}` : fmtUSD(realizedPnL)}
               color={realizedPnL >= 0 ? 'var(--green)' : 'var(--red)'} />
           </div>
@@ -490,7 +490,7 @@ export default function ExchangeClient({
                   fontSize: '.85rem',
                   fontWeight: 700,
                   color: tab === t ? 'var(--white)' : 'var(--muted)',
-                  borderBottom: tab === t ? '2px solid var(--gold)' : '2px solid transparent',
+                  borderBottom: tab === t ? '2px solid var(--blue2)' : '2px solid transparent',
                   cursor: 'pointer',
                   transition: 'color .15s',
                 }}>
@@ -513,7 +513,7 @@ export default function ExchangeClient({
                   return (
                   <div style={{ ...card, borderColor: 'rgba(232,172,32,.2)', background: 'rgba(232,172,32,.03)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.6rem' }}>
-                      <div style={{ ...mono, fontSize: '.65rem', letterSpacing: '.1em', color: 'var(--gold)' }}>LATEST SIGNAL</div>
+                      <div style={{ ...mono, fontSize: '.65rem', letterSpacing: '.1em', color: 'var(--blue2)' }}>LATEST SIGNAL</div>
                       <span style={{ ...mono, fontSize: '.65rem', fontWeight: 800, padding: '.15rem .5rem', borderRadius: 20,
                         color: sig.badge.color, background: sig.badge.bg, border: `1px solid ${sig.badge.color}33` }}>
                         {sig.badge.label}
@@ -528,7 +528,7 @@ export default function ExchangeClient({
                         background: 'rgba(232,172,32,.06)', border: '1px solid rgba(232,172,32,.18)',
                         borderRadius: 10, display: 'flex', alignItems: 'flex-start', gap: '.5rem',
                       }}>
-                        <span style={{ ...mono, fontSize: '.6rem', fontWeight: 800, color: 'var(--gold)', letterSpacing: '.08em', minWidth: 80 }}>
+                        <span style={{ ...mono, fontSize: '.6rem', fontWeight: 800, color: 'var(--blue2)', letterSpacing: '.08em', minWidth: 80 }}>
                           WAITING FOR
                         </span>
                         <span style={{ ...mono, fontSize: '.82rem', color: 'var(--white)', lineHeight: 1.5 }}>
@@ -565,7 +565,7 @@ export default function ExchangeClient({
                             {t.qty.toFixed(6)} @ {fmtUSD(Math.round(t.fill_price * 100))}
                           </div>
                         </div>
-                        <div style={{ ...mono, fontSize: '.75rem', color: 'var(--gold)', fontWeight: 700 }}>
+                        <div style={{ ...mono, fontSize: '.75rem', color: 'var(--blue2)', fontWeight: 700 }}>
                           OPEN
                         </div>
                       </div>
@@ -594,8 +594,8 @@ export default function ExchangeClient({
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '.75rem' }}>
                   <Metric label="TOTAL RETURN" value={`${totalReturn >= 0 ? '+' : ''}${fmtPct(totalReturn)}`}
                     color={totalReturn >= 0 ? 'var(--green)' : 'var(--red)'} />
-                  <Metric label="VOLATILITY (ANN)" value={`${volatility.toFixed(1)}%`} color="#E8AC20" />
-                  <Metric label="SORTINO RATIO" value={sortino.toFixed(2)} color="#E8AC20" />
+                  <Metric label="VOLATILITY (ANN)" value={`${volatility.toFixed(1)}%`} color="#6BA3FF" />
+                  <Metric label="SORTINO RATIO" value={sortino.toFixed(2)} color="#6BA3FF" />
                   <Metric label="CALMAR RATIO" value={calmar.toFixed(2)} color="#9B59B6" />
                   <Metric label="PROFIT FACTOR" value={profitFactor >= 99 ? '∞' : profitFactor.toFixed(2)}
                     color={profitFactor >= 1 ? 'var(--green)' : 'var(--red)'}
@@ -620,7 +620,7 @@ export default function ExchangeClient({
                           tickFormatter={(v) => `${v}%`} />
                         <Tooltip contentStyle={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8 }}
                           formatter={(v: unknown) => formatTooltipValue(v, '%')} />
-                        <Line type="monotone" dataKey="ret" stroke="#E8AC20" strokeWidth={2}
+                        <Line type="monotone" dataKey="ret" stroke="#6BA3FF" strokeWidth={2}
                           dot={false} isAnimationActive={false} />
                       </LineChart>
                     </ResponsiveContainer>
@@ -657,13 +657,13 @@ export default function ExchangeClient({
             {tab === 'Risk' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.75rem' }}>
-                  <Metric label="SHARPE RATIO" value={sharpe.toFixed(2)} color="#E8AC20"
+                  <Metric label="SHARPE RATIO" value={sharpe.toFixed(2)} color="#6BA3FF"
                     sub={sharpe > 1 ? 'Good' : sharpe > 0 ? 'Acceptable' : 'Poor'} />
                   <Metric label="SORTINO RATIO" value={sortino.toFixed(2)} color="#9B59B6"
                     sub="Downside-adjusted" />
                   <Metric label="CALMAR RATIO" value={calmar.toFixed(2)} color="#1ABC9C"
                     sub="Return / MaxDD" />
-                  <Metric label="VOLATILITY" value={`${volatility.toFixed(1)}%`} color="#E8AC20"
+                  <Metric label="VOLATILITY" value={`${volatility.toFixed(1)}%`} color="#6BA3FF"
                     sub="Annualized" />
                   <Metric label="MAX DRAWDOWN" value={`-${maxDD.toFixed(1)}%`} color="var(--red)"
                     sub="Peak-to-trough" />
@@ -975,7 +975,7 @@ export default function ExchangeClient({
       </div>
 
       <style>{`
-        .max-button:hover { color: #E8AC20 !important; border-color: rgba(232,172,32,.25) !important; }
+        .max-button:hover { color: #6BA3FF !important; border-color: rgba(107,163,255,.25) !important; }
 
         @keyframes priceBgUp {
           0% { background: transparent; }

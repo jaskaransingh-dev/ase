@@ -3367,3 +3367,162 @@ export async function runRiskParity(
   }
   return { agent_slug: 'risk-parity', actions, portfolio, signal_summary: signalSummary }
 }
+
+// ── GENERIC CRYPTO MOMENTUM (for custom agents) ───────────────────────────────
+
+export async function runGenericCryptoMomentum(
+  admin: SupabaseClient,
+  agentId: string,
+  alpacaKey: string,
+  alpacaSecret: string,
+  capitalCents = 1_000_000
+): Promise<StrategyResult> {
+  // Get agent's primary symbol from DB
+  const { data: agent } = await admin
+    .from('agents')
+    .select('primary_symbol, backtest_strategy, name')
+    .eq('id', agentId)
+    .single()
+
+  const symbol = agent?.primary_symbol || SYM.BTC
+  const strategyType = agent?.backtest_strategy || 'momentum_crossover'
+  const agentName = agent?.name || 'Generic Agent'
+
+  const bars = await getCryptoBars(symbol, '1Day', 60)
+
+  const emptyPortfolio: StrategyResult['portfolio'] = {
+    cash_cents: capitalCents,
+    invested_cents: 0,
+    total_value_cents: capitalCents,
+    positions: [],
+    exposure_pct: 0,
+  }
+
+  if (bars.length < 30) {
+    return {
+      agent_slug: 'generic-crypto-momentum',
+      actions: [],
+      skipped: true,
+      portfolio: emptyPortfolio,
+      signal_summary: 'SKIP - Insufficient data',
+      thinking: `Need 30+ bars, have ${bars.length}. Waiting for market data.`,
+    }
+  }
+
+  // Calculate indicators
+  const ema8 = calcEMA(bars, 8)
+  const ema21 = calcEMA(bars, 21)
+  const ema50 = calcEMA(bars, 50)
+  const rsi = calcRSI(bars, 14)
+  const atr = calcATR(bars, 14)
+  const currentPrice = bars[bars.length - 1].c
+
+  // Simple momentum logic - buy when EMA8 crosses above EMA21 with positive trend
+  const emaCross = ema8 > ema21 && ema21 > ema50
+  const rsi_ok = rsi > 30 && rsi < 70
+  const trend_up = currentPrice > ema50
+
+  const shouldBuy = emaCross && rsi_ok && trend_up
+  const shouldSell = rsi > 80 || (ema8 < ema21 && ema21 < ema50)
+
+  const positions = await getAgentPositions(admin, agentId)
+  const pos = positions.find(p => p.symbol === symbol)
+  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+
+  const indicators = {
+    ema8: +ema8.toFixed(2),
+    ema21: +ema21.toFixed(2),
+    ema50: +ema50.toFixed(2),
+    rsi: +rsi.toFixed(1),
+    atr: +atr.toFixed(2),
+    price: +currentPrice.toFixed(2),
+    ema_cross: emaCross ? 1 : 0,
+    should_buy: shouldBuy ? 1 : 0,
+    should_sell: shouldSell ? 1 : 0,
+  }
+
+  const actions: TradeAction[] = []
+  let signalSummary = 'HOLD'
+  let thinkingParts: string[] = []
+
+  // Exit logic - take profits or stop loss
+  if (pos) {
+    const pnlPct = (currentPrice - pos.avg_entry) / pos.avg_entry * 100
+    const stopLoss = pos.avg_entry * 0.95
+    const profitTarget = pos.avg_entry * 1.15
+
+    if (shouldSell || currentPrice >= profitTarget || currentPrice <= stopLoss) {
+      actions.push({
+        action: 'SELL',
+        symbol,
+        qty: pos.qty,
+        notional: pos.qty * currentPrice * 100,
+        fill_price: currentPrice,
+        reason: shouldSell ? 'RSI overbought' : (currentPrice >= profitTarget ? 'Profit target' : 'Stop loss'),
+      })
+      signalSummary = shouldSell ? 'SELL - RSI overbought' : (currentPrice >= profitTarget ? 'SELL - Profit target' : 'SELL - Stop loss')
+      thinkingParts.push(`Exiting position at $${currentPrice.toFixed(2)}, PnL: ${pnlPct.toFixed(1)}%`)
+    }
+  }
+
+  // Entry logic
+  if (!pos && shouldBuy && cash > 500) {
+    const maxPosition = capitalCents * 0.25 // 25% max position
+    const riskAmount = capitalCents * 0.02 // 2% risk
+    const stopDistance = Math.max(atr * 1.5, currentPrice * 0.05)
+    const maxQtyByRisk = riskAmount / stopDistance
+    const maxQtyByCapital = maxPosition / currentPrice
+    const qty = Math.min(maxQtyByRisk, maxQtyByCapital)
+
+    if (qty > 0.0001) {
+      actions.push({
+        action: 'BUY',
+        symbol,
+        qty,
+        notional: qty * currentPrice * 100,
+        fill_price: currentPrice,
+        reason: `EMA crossover: EMA8=${ema8.toFixed(2)} > EMA21=${ema21.toFixed(2)}, RSI=${rsi.toFixed(0)}`,
+      })
+      signalSummary = 'BUY - EMA crossover signal'
+      thinkingParts.push(`Entering long at $${currentPrice.toFixed(2)}, qty=${qty.toFixed(6)}, EMA8>EMA21, RSI=${rsi.toFixed(0)}`)
+    }
+  }
+
+  if (!pos && !shouldBuy) {
+    const reasons: string[] = []
+    if (!emaCross) reasons.push('EMA cross not confirmed')
+    if (!rsi_ok) reasons.push(rsi <= 30 ? 'RSI oversold' : 'RSI overbought')
+    if (!trend_up) reasons.push('Price below EMA50')
+    signalSummary = 'HOLD - ' + reasons.join(', ')
+    thinkingParts.push(signalSummary)
+  }
+
+  const investedCents = actions
+    .filter(a => a.action === 'BUY')
+    .reduce((sum, a) => sum + (a.notional || 0), 0)
+
+  const portfolioPositions = pos ? [{
+    symbol: pos.symbol,
+    qty: pos.qty,
+    entry: pos.avg_entry,
+    current: currentPrice,
+    pnl_pct: ((currentPrice - pos.avg_entry) / pos.avg_entry) * 100,
+  }] : []
+
+  const portfolio: StrategyResult['portfolio'] = {
+    cash_cents: pos ? cash : (cash - (actions.find(a => a.action === 'BUY')?.notional || 0)),
+    invested_cents: investedCents,
+    total_value_cents: capitalCents,
+    positions: portfolioPositions,
+    exposure_pct: (investedCents / capitalCents) * 100,
+  }
+
+  return {
+    agent_slug: 'generic-crypto-momentum',
+    actions,
+    portfolio,
+    signal_summary: signalSummary,
+    thinking: thinkingParts.join('. '),
+    indicators,
+  }
+}

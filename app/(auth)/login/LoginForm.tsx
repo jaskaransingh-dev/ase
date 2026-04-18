@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { Apple, Globe } from 'lucide-react'
 
 export default function LoginForm() {
   const router = useRouter()
@@ -16,6 +17,7 @@ export default function LoginForm() {
   const [loading, setLoading] = useState(false)
   const [showResendVerification, setShowResendVerification] = useState(false)
   const [resendLoading, setResendLoading] = useState(false)
+  const [oauthLoading, setOauthLoading] = useState<'google' | 'apple' | null>(null)
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
 
   useEffect(() => {
@@ -58,6 +60,30 @@ export default function LoginForm() {
     } else {
       router.push(redirect)
       router.refresh()
+    }
+  }
+
+  async function handleOAuth(provider: 'google' | 'apple') {
+    setOauthLoading(provider)
+    setError('')
+
+    const supabase = supabaseRef.current
+    if (!supabase) {
+      setError('Application error: Supabase not ready')
+      setOauthLoading(null)
+      return
+    }
+
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: `${window.location.origin}${redirect}`,
+      },
+    })
+
+    if (oauthError) {
+      setError(`Failed to continue with ${provider === 'google' ? 'Google' : 'Apple'}.`)
+      setOauthLoading(null)
     }
   }
 
@@ -149,7 +175,60 @@ export default function LoginForm() {
             Sign in to your ASE account
           </p>
 
-          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.6rem', marginBottom: '1rem' }}>
+            <button
+              type="button"
+              onClick={() => handleOAuth('google')}
+              disabled={!!oauthLoading || loading}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '.5rem',
+                padding: '.72rem .9rem',
+                borderRadius: 12,
+                border: '1px solid var(--border)',
+                background: 'var(--bg3)',
+                color: 'var(--white)',
+                fontSize: '.85rem',
+                fontWeight: 600,
+                cursor: oauthLoading || loading ? 'not-allowed' : 'pointer',
+                opacity: oauthLoading === 'google' ? 0.75 : 1,
+              }}
+            >
+              {oauthLoading === 'google' ? <span className="spinner" /> : <Globe size={16} />}
+              Google
+            </button>
+            <button
+              type="button"
+              onClick={() => handleOAuth('apple')}
+              disabled={!!oauthLoading || loading}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '.5rem',
+                padding: '.72rem .9rem',
+                borderRadius: 12,
+                border: '1px solid var(--border)',
+                background: 'var(--bg3)',
+                color: 'var(--white)',
+                fontSize: '.85rem',
+                fontWeight: 600,
+                cursor: oauthLoading || loading ? 'not-allowed' : 'pointer',
+                opacity: oauthLoading === 'apple' ? 0.75 : 1,
+              }}
+            >
+              {oauthLoading === 'apple' ? <span className="spinner" /> : <Apple size={16} />}
+              Apple
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.7rem', margin: '1rem 0 1.15rem' }}>
+            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.1em' }}>OR USE EMAIL</span>
+            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          </div>
 
           <form
             onSubmit={handleLogin}

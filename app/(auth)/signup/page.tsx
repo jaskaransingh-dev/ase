@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { Apple, Globe } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,6 +24,7 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
   const [passwordStrength, setPasswordStrength] = useState(0)
+  const [oauthLoading, setOauthLoading] = useState<'google' | 'apple' | null>(null)
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
 
   useEffect(() => {
@@ -126,6 +128,30 @@ export default function SignupPage() {
       console.error('Signup error:', error)
       setError('An unexpected error occurred. Please try again.')
       setLoading(false)
+    }
+  }
+
+  async function handleOAuth(provider: 'google' | 'apple') {
+    setOauthLoading(provider)
+    setError('')
+
+    const supabase = supabaseRef.current
+    if (!supabase) {
+      setError('Application error: Supabase not ready')
+      setOauthLoading(null)
+      return
+    }
+
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: `${window.location.origin}/dashboard`,
+      },
+    })
+
+    if (oauthError) {
+      setError(`Failed to continue with ${provider === 'google' ? 'Google' : 'Apple'}.`)
+      setOauthLoading(null)
     }
   }
 
@@ -273,6 +299,61 @@ export default function SignupPage() {
           >
             Start investing in AI agents — connect your trading account
           </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.6rem', marginBottom: '1rem' }}>
+            <button
+              type="button"
+              onClick={() => handleOAuth('google')}
+              disabled={!!oauthLoading || loading}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '.5rem',
+                padding: '.72rem .9rem',
+                borderRadius: 12,
+                border: '1px solid var(--border)',
+                background: 'var(--bg3)',
+                color: 'var(--white)',
+                fontSize: '.85rem',
+                fontWeight: 600,
+                cursor: oauthLoading || loading ? 'not-allowed' : 'pointer',
+                opacity: oauthLoading === 'google' ? 0.75 : 1,
+              }}
+            >
+              {oauthLoading === 'google' ? <span className="spinner" /> : <Globe size={16} />}
+              Google
+            </button>
+            <button
+              type="button"
+              onClick={() => handleOAuth('apple')}
+              disabled={!!oauthLoading || loading}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '.5rem',
+                padding: '.72rem .9rem',
+                borderRadius: 12,
+                border: '1px solid var(--border)',
+                background: 'var(--bg3)',
+                color: 'var(--white)',
+                fontSize: '.85rem',
+                fontWeight: 600,
+                cursor: oauthLoading || loading ? 'not-allowed' : 'pointer',
+                opacity: oauthLoading === 'apple' ? 0.75 : 1,
+              }}
+            >
+              {oauthLoading === 'apple' ? <span className="spinner" /> : <Apple size={16} />}
+              Apple
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.7rem', margin: '1rem 0 1.15rem' }}>
+            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.1em' }}>OR USE EMAIL</span>
+            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          </div>
 
           <form
             onSubmit={handleSignup}

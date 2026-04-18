@@ -12,15 +12,36 @@ import {
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, ComposedChart } from 'recharts'
 
 const C = {
-  bg: '#0D0F14', bg2: '#13151A', bg3: '#181B21', bg4: '#1E2228',
-  border: '#2A2E38', border2: '#3B4250',
-  blue: '#5B8CFF', blue2: '#78A2FF',
-  mint: '#22F0B5', mint2: '#3EF5C5', mintDark: 'rgba(34,240,181,0.12)',
+  bg: '#06111F', bg2: '#0B1728', bg3: '#101A2D', bg4: '#162438',
+  border: '#1E2A3D', border2: '#2A3A50',
+  blue: '#4F8CFF', blue2: '#6BA3FF',
+  mint: '#16C784', mint2: '#2AD89A', mintDark: 'rgba(22,199,132,0.12)',
   red: '#FF5468', red2: '#FF7885',
-  orange: '#FFB648', orange2: '#FFC570',
-  purple: '#A78BFA',
-  text: '#C9D1E0', muted: '#8E9AB0', faint: '#6A7890',
-  white: '#F5F7FB', gold: '#FFD700',
+  orange: '#F5B942', orange2: '#F7C864',
+  purple: '#8B5CF6', purple2: '#A78BFA',
+  text: '#B7C4D5', muted: '#7F8CA3', faint: '#55657A',
+  white: '#F7FAFF', gold: '#8AB8FF',
+}
+
+interface BacktestResult {
+  totalReturnPct: number
+  annualizedReturnPct: number
+  sharpeRatio: number
+  sortinoRatio: number
+  maxDrawdownPct: number
+  maxDrawdownDuration: number
+  winRate: number
+  winRatePct: number
+  totalTrades: number
+  avgWin?: number
+  avgWinPct?: number
+  avgLoss?: number
+  avgLossPct?: number
+  profitFactor: number
+  feeImpactPct?: number
+  tradesPerYear?: number
+  calmarRatio?: number
+  exposureTime?: number
 }
 
 // 20+ Free Data APIs - No API key required
@@ -1356,11 +1377,6 @@ const CRYPTOS = [
   { value: 'AVAX-USD', label: 'Avalanche', icon: '▲' },
 ]
 
-const STOCKS = [
-  { value: 'SPY', label: 'S&P 500', icon: '📈' },
-  { value: 'QQQ', label: 'Nasdaq', icon: '📊' },
-]
-
 const PERIODS = [
   { value: '30d', label: '30 days' },
   { value: '90d', label: '90 days' },
@@ -1406,22 +1422,6 @@ interface FileNode {
   type: 'file' | 'folder'
   content?: string
   children?: FileNode[]
-}
-
-interface BacktestResult {
-  totalReturnPct: number
-  annualizedReturnPct: number
-  sharpeRatio: number
-  sortinoRatio: number
-  maxDrawdownPct: number
-  maxDrawdownDuration: number
-  winRate: number
-  totalTrades: number
-  profitFactor: number
-  calmarRatio: number
-  exposureTime: number
-  avgWin?: number
-  avgLoss?: number
 }
 
 interface ChartPoint {
@@ -1932,32 +1932,34 @@ export default function BuildPage() {
         api.name.toLowerCase().includes(dataSearch.toLowerCase()) ||
         api.description.toLowerCase().includes(dataSearch.toLowerCase()) ||
         api.dataTypes.some(dt => dt.toLowerCase().includes(dataSearch.toLowerCase()))
-      const matchesCategory = dataCategory === 'all' || api.category === dataCategory
+      const matchesCategory = api.category === 'crypto' && (dataCategory === 'all' || dataCategory === 'crypto')
       return matchesSearch && matchesCategory
     })
   }, [dataSearch, dataCategory])
 
   // AI context for data APIs
   const askAIForAPI = (api: DataAPI) => {
-    const prompt = `I want to use ${api.name} in my trading strategy. ${api.description}
+    setView('editor')
+    setRightPanel('ai')
+    setSelectedAPI(api)
+    
+    const prompt = `Integrate ${api.name} data into my trading strategy.
 
-Please help me:
-1. Write the Python code to load data from ${api.name}
-2. Show me how to integrate it with my current strategy
-3. Suggest any parameters I should adjust
+Strategy: ${strategy.name} | Symbol: ${symbol} | Timeframe: ${timeframe}
 
-The API info:
+${api.name}: ${api.description}
 - Endpoint: ${api.endpoint}
-- Auth: ${api.auth}
-- Rate limit: ${api.rateLimit}
-- Data types: ${api.dataTypes.join(', ')}
-- Sample symbols: ${api.sampleSymbol}
+- Auth: ${api.auth} (${api.rateLimit})
+- Data: ${api.dataTypes.join(', ')}
 
-Generate the Python implementation code.`
+Write Python code to:
+1. Load data from ${api.name}
+2. Generate BUY/SELL signals based on this data
+3. Integrate with my current strategy
 
-    // Set AI input and trigger send
-    setAiInput(prompt)
-    setTimeout(() => sendToAi(prompt), 100)
+Signal format: signal: buy, {price} OR signal: sell, {price}`
+
+    setTimeout(() => sendToAi(prompt, true), 100)
   }
 
   const implementAPI = (api: DataAPI) => {
@@ -2202,65 +2204,44 @@ ${api.implementation}
       macd_trend: 'MACD Trend',
     }
     
-    const contextPrompt = `You are an expert quant developer helping users build trading strategies on ASE Quant.
+const contextPrompt = `You are an expert quant developer at ASE Quant - a platform for building and deploying trading agents.
 
-ASE PLATFORM OVERVIEW:
-━━━━━━━━━━━━━━━━━━━━━━
+ROLE: Help users create profitable, risk-aware trading strategies with clean, working Python code.
+
+PLATFORM BASICS:
 • Users write Python code that emits BUY/SELL signals
-• The platform handles: position sizing, fees (0.1%), slippage, equity tracking, analytics
-• After writing code, users click "Sandbox Test" to run 5-year simulation with hourly data
-• Results show: Return, Sharpe, Max DD, Win Rate, Trades, Avg Win/Loss, Profit Factor
-• Strategies need >55% win rate to be profitable after fees
+• Platform handles: position sizing, fees (0.1%), slippage, equity tracking
+• Run "Quick Test" (30d) for fast iteration, "Sandbox Test" (2yr) for validation
+• Results: Return, Sharpe, Max DD, Win Rate, Trades, Avg Win/Loss, Profit Factor
 
-UI CONTROLS:
-━━━━━━━━━━━━━━━━━━━━━━
-• Symbol dropdown: Select crypto (BTC, ETH, SOL) or stock (SPY, QQQ)
-• Timeframe: 1m, 5m, 15m, 1h, 4h, 1d (default 1d)
-• Period: 7d to 5y of historical data
-• Sandbox Test: Runs 5yr hourly simulation (~43k bars) for thorough testing
-• Docs panel: Shows Signal API, Strategies, Indicators, Risk Management docs
+CORE RULES:
+• Always provide working, runnable Python code
+• Use the signal format: signal: buy, {price} OR signal: sell, {price}
+• Keep code clean and well-commented
+• Always apply code automatically when user requests improvements
 
-SIGNAL FORMATS (user code uses these):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Simple comment format (recommended)
-signal: buy, 123.45    # Trigger when RSI < 30
-signal: sell, 125.00   # Trigger when RSI > 70
+RESPONSE STYLE:
+• Be concise but actionable
+• Always explain WHY (e.g., "RSI < 30 catches oversold bounces")
+• Warn about pitfalls (overfitting, lookahead bias, fee impact)
+• End with specific next steps or questions
 
-# Or emit function
-emit_signal('buy', price)
-emit_signal('sell', price)
+CURRENT CONTEXT:
+- Strategy: ${strategyNames[strategy.id] || strategy.name}
+- Symbol: ${symbol}
+- Timeframe: ${timeframe}
 
-INDICATORS AVAILABLE:
-━━━━━━━━━━━━━━━━━━━━━━
-• RSI(14) - Relative Strength Index
-• MACD(12,26,9) - Moving Average Convergence Divergence  
-• EMA/SMA(20) - Exponential/Simple Moving Average
-• Bollinger Bands(20,2) - Price volatility bands
-• ATR(14) - Average True Range for stop losses
-• Stochastic(14,3) - Momentum oscillator
-• ADX(14) - Trend strength
-
-HELPFUL RESPONSE PATTERNS:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. First understand what the user wants (new strategy, improve existing, fix bugs)
-2. If asking for new strategy: Provide complete code with comments explaining each signal
-3. If improving: Suggest specific changes and show the diff
-4. Always explain WHY a change helps (e.g., "RSI < 30 catches oversold bounces")
-5. Suggest relevant timeframes for their goal (intraday = more trades, daily = less noise)
-6. Warn about common pitfalls (overfitting, lookahead bias, fee impact)
-7. End with a question asking if they want to try it or tweak parameters
-
-CURRENT STRATEGY: ${strategyNames[strategy.id] || strategy.name}
-CURRENT SYMBOL: ${symbol}
-CURRENT TIMEFRAME: ${timeframe}
-CURRENT CODE:
+Your code:
 \`\`\`python
 ${code}
 \`\`\`
 
-USER REQUEST: ${userMsg}
+User request: ${userMsg}
 
-Be concise but informative. Give actionable advice with working code examples.`
+Provide your response with:
+1. Brief explanation of approach
+2. Working Python code in markdown blocks
+3. Specific parameter suggestions with rationale`
 
     try {
       const res = await fetch('/api/ai/chat', {
@@ -2278,11 +2259,11 @@ Be concise but informative. Give actionable advice with working code examples.`
         
         // Auto-apply code changes if AI provides new code
         const codeMatch = reply.match(/```python\n([\s\S]*?)```/)?.[1] || reply.match(/```\n([\s\S]*?)```/)?.[1]
-        if (codeMatch && (userMsg.toLowerCase().includes('improve') || userMsg.toLowerCase().includes('strategy') || userMsg.toLowerCase().includes('add') || userMsg.toLowerCase().includes('optimize') || userMsg.toLowerCase().includes('incorporate') || userMsg.toLowerCase().includes('integrate'))) {
+        if (codeMatch && (userMsg.toLowerCase().includes('improve') || userMsg.toLowerCase().includes('strategy') || userMsg.toLowerCase().includes('add') || userMsg.toLowerCase().includes('optimize') || userMsg.toLowerCase().includes('incorporate') || userMsg.toLowerCase().includes('integrate') || userMsg.toLowerCase().includes('rsi') || userMsg.toLowerCase().includes('macd') || userMsg.toLowerCase().includes('bollinger') || userMsg.toLowerCase().includes('stop') || userMsg.toLowerCase().includes('volume'))) {
           const cleanedCode = codeMatch.replace(/^#.*$/gm, '').trim()
           if (cleanedCode.length > 100) {
             setCode(cleanedCode)
-            setTimeout(() => setAiMessages(prev => [...prev, { role: 'user', content: '✓ Auto-applied code changes from AI!' }]), 500)
+            setTimeout(() => setAiMessages(prev => [...prev, { role: 'assistant', content: '✨ Applied code changes automatically!' }]), 500)
           }
         }
       } else {
@@ -2304,7 +2285,7 @@ Be concise but informative. Give actionable advice with working code examples.`
       data: `How could we integrate additional data (volume, volatility, on-chain metrics) to enhance this strategy's signals?`,
       optimize: `Based on the strategy type and market, what parameter values would work best? Provide specific numbers with explanations.`
     }
-    sendToAi(prompts[type])
+    sendToAi(prompts[type], true)
   }
 
   useEffect(() => {
@@ -2436,12 +2417,17 @@ Be concise but informative. Give actionable advice with working code examples.`
           maxDrawdownPct: data.stats.maxDrawdownPct || 0,
           maxDrawdownDuration: data.stats.maxDrawdownDuration || 0,
           winRate: data.stats.winRate || 0,
+          winRatePct: data.stats.winRate || 0,
           totalTrades: data.stats.totalTrades || 0,
           profitFactor: data.stats.profitFactor || 0,
           calmarRatio: data.stats.calmarRatio || 0,
           exposureTime: data.stats.exposureTime || 0,
           avgWin: data.stats.avgWin || 0,
+          avgWinPct: data.stats.avgWin || 0,
           avgLoss: data.stats.avgLoss || 0,
+          avgLossPct: data.stats.avgLoss || 0,
+          feeImpactPct: data.stats.feeImpactPct || 0,
+          tradesPerYear: data.stats.tradesPerYear || 0,
         })
         setTrades(tradeList.slice(-50))
         setChartData(equityPoints)
@@ -2451,6 +2437,134 @@ Be concise but informative. Give actionable advice with working code examples.`
       const msg = e instanceof Error ? e.message : 'Connection failed'
       setError(msg)
       setTerminalOutput(prev => [...prev, `Error: ${msg}`])
+    } finally {
+      setBacktesting(false)
+      setBacktestStatus('')
+    }
+  }
+
+  const runQuickTest = async () => {
+    setBacktesting(true)
+    setBtResult(null)
+    setTrades([])
+    setError('')
+    setBacktestStatus('Quick test...')
+
+    try {
+      const isCustomCode = code && code !== strategy.code
+      
+      const res = await fetch('/api/backtest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol,
+          strategy: isCustomCode ? undefined : strategy.id,
+          code: isCustomCode ? code : undefined,
+          params,
+          simulate: true,
+          simPeriod: '30d',
+          simInterval: '1h',
+          fee: fee / 100,
+          includeTrades: true,
+        }),
+      })
+      
+      setBacktestStatus('Processing...')
+      const data = await res.json()
+
+      if (data.error) {
+        setError(data.error)
+        setTerminalOutput(prev => [...prev, `Error: ${data.error}`])
+        return
+      }
+
+      const INITIAL_CAPITAL = 100000
+      const equityPoints: { date: string; strategy: number; buyHold: number }[] = []
+      const tradeList: TradeStats[] = []
+
+      let strategyEquity = INITIAL_CAPITAL
+      let position = 0
+      let entryPrice = 0
+      const startPrice = data.bars?.[0]?.close || 1
+
+      const bars = data.bars || []
+      const step = Math.max(1, Math.ceil(bars.length / 100))
+
+      bars.forEach((bar: any, i: number) => {
+        if (i > 0 && bars[i-1].position === 1) {
+          strategyEquity *= (bar.close / bars[i-1].close)
+        }
+        const buyHoldEquity = INITIAL_CAPITAL * (bar.close / startPrice)
+
+        if (i % step === 0 || i === bars.length - 1) {
+          equityPoints.push({ date: bar.date, strategy: strategyEquity, buyHold: buyHoldEquity })
+        }
+
+        if (bar.position === 1 && position === 0) {
+          entryPrice = bar.close
+          tradeList.push({ date: bar.date, action: 'BUY', price: bar.close })
+          position = 1
+        } else if (bar.position === 0 && position === 1) {
+          const retPct = ((bar.close - entryPrice) / entryPrice) * 100
+          tradeList.push({ date: bar.date, action: 'SELL', price: bar.close, returnPct: retPct })
+          position = 0
+        }
+      })
+      
+      const feeImpact = data.stats.feeImpactPct || 0
+      const tradesPerYear = data.stats.tradesPerYear || 0
+      
+      const fullResult = {
+        symbol,
+        strategy: strategy.name,
+        period: '30d quick',
+        mode: 'simulation',
+        barsAnalyzed: data.barsAnalyzed,
+        stats: {
+          totalReturnPct: data.stats.netReturnPct || 0,
+          grossReturnPct: data.stats.grossReturnPct || 0,
+          feeImpactPct: feeImpact,
+          annualizedReturnPct: data.stats.annualizedReturnPct || 0,
+          sharpeRatio: data.stats.sharpeRatio || 0,
+          sortinoRatio: data.stats.sortinoRatio || 0,
+          maxDrawdownPct: data.stats.maxDrawdownPct || 0,
+          maxDrawdownDuration: data.stats.maxDrawdownDuration || 0,
+          winRate: data.stats.winRate || 0,
+          totalTrades: data.stats.totalTrades || 0,
+          profitFactor: data.stats.profitFactor || 0,
+          calmarRatio: data.stats.calmarRatio || 0,
+          exposureTime: data.stats.exposureTime || 0,
+          tradesPerYear,
+        },
+        equityCurve: equityPoints,
+        trades: tradeList,
+      }
+
+      setBtResult({
+        totalReturnPct: data.stats.netReturnPct || 0,
+        annualizedReturnPct: data.stats.annualizedReturnPct || 0,
+        sharpeRatio: data.stats.sharpeRatio || 0,
+        sortinoRatio: data.stats.sortinoRatio || 0,
+        maxDrawdownPct: data.stats.maxDrawdownPct || 0,
+        maxDrawdownDuration: data.stats.maxDrawdownDuration || 0,
+        winRate: data.stats.winRate || 0,
+        winRatePct: data.stats.winRate || 0,
+        totalTrades: data.stats.totalTrades || 0,
+        avgWin: data.stats.avgWin || 0,
+        avgWinPct: data.stats.avgWin || 0,
+        avgLoss: data.stats.avgLoss || 0,
+        avgLossPct: data.stats.avgLoss || 0,
+        profitFactor: data.stats.profitFactor || 0,
+        feeImpactPct: feeImpact,
+        tradesPerYear,
+      })
+      setTrades(tradeList)
+      setChartData(equityPoints)
+      setShowChart(true)
+      setTerminalOutput(prev => [...prev, `✓ Quick test complete: ${(data.stats.netReturnPct || 0) >= 0 ? '+' : ''}${(data.stats.netReturnPct || 0).toFixed(1)}% (${(data.stats.totalTrades || 0)} trades)`])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Backtest failed')
+      setTerminalOutput(prev => [...prev, `Error: ${e}`])
     } finally {
       setBacktesting(false)
       setBacktestStatus('')
@@ -2574,12 +2688,17 @@ Be concise but informative. Give actionable advice with working code examples.`
         maxDrawdownPct: data.stats.maxDrawdownPct || 0,
         maxDrawdownDuration: data.stats.maxDrawdownDuration || 0,
         winRate: data.stats.winRate || 0,
+        winRatePct: data.stats.winRate || 0,
         totalTrades: data.stats.totalTrades || 0,
         profitFactor: data.stats.profitFactor || 0,
         calmarRatio: data.stats.calmarRatio || 0,
         exposureTime: data.stats.exposureTime || 0,
         avgWin: data.stats.avgWin || 0,
+        avgWinPct: data.stats.avgWin || 0,
         avgLoss: data.stats.avgLoss || 0,
+        avgLossPct: data.stats.avgLoss || 0,
+        feeImpactPct: feeImpact,
+        tradesPerYear,
       })
       setTrades(tradeList.slice(-100))
       setChartData(equityPoints.filter((_, i) => i % Math.ceil(equityPoints.length / 200) === 0))
@@ -2679,13 +2798,13 @@ Be concise but informative. Give actionable advice with working code examples.`
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ fontSize: '0.65rem', color: C.faint, textTransform: 'uppercase', marginBottom: '0.5rem' }}>Quick Actions</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                <button onClick={() => sendToAi('Give me a simple RSI strategy that buys when oversold and sells when overbought. Show me the code.')} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <button onClick={() => sendToAi('Give me a simple RSI strategy that buys when oversold and sells when overbought. Show me the code.', true)} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <TrendingUp size={12} style={{ color: C.mint }} /> RSI Strategy
                 </button>
-                <button onClick={() => sendToAi('Show me a momentum strategy that uses EMA crossovers to catch trends early')} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <button onClick={() => sendToAi('Show me a momentum strategy that uses EMA crossovers to catch trends early', true)} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <TrendingUp size={12} style={{ color: C.blue }} /> Momentum Strategy
                 </button>
-                <button onClick={() => sendToAi('Add stop losses to my current strategy to limit downside risk')} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <button onClick={() => sendToAi('Add stop losses to my current strategy to limit downside risk', true)} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <Shield size={12} style={{ color: C.red }} /> Add Stop Loss
                 </button>
                 <button onClick={() => setDocsSection('strategies')} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -2698,13 +2817,13 @@ Be concise but informative. Give actionable advice with working code examples.`
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ fontSize: '0.65rem', color: C.faint, textTransform: 'uppercase', marginBottom: '0.5rem' }}>AI Suggestions</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                <button onClick={() => sendToAi('Incorporate additional data sources (like on-chain metrics, sentiment, or alternative data) to improve my strategy signals')} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.purple}40`, background: `${C.purple}10`, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <button onClick={() => sendToAi('Incorporate additional data sources (like on-chain metrics, sentiment, or alternative data) to improve my strategy signals', true)} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.purple}40`, background: `${C.purple}10`, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <Database size={12} style={{ color: C.purple }} /> Incorporate More Data
                 </button>
-                <button onClick={() => sendToAi('Improve my current strategy by optimizing parameters, adding filters, or reducing drawdown')} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.orange}40`, background: `${C.orange}10`, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <button onClick={() => sendToAi('Improve my current strategy by optimizing parameters, adding filters, or reducing drawdown', true)} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.orange}40`, background: `${C.orange}10`, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <Sparkles size={12} style={{ color: C.orange }} /> Improve Strategy
                 </button>
-                <button onClick={() => sendToAi('Analyze my current code and suggest specific improvements for better returns or lower risk')} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.blue}40`, background: `${C.blue}10`, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <button onClick={() => sendToAi('Analyze my current code and suggest specific improvements for better returns or lower risk', true)} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: `1px solid ${C.blue}40`, background: `${C.blue}10`, color: C.text, fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <Code size={12} style={{ color: C.blue }} /> Optimize My Code
                 </button>
               </div>
@@ -2876,10 +2995,8 @@ signal: sell, {price}  # Exit`}
             </div>
             
             <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-              <button onClick={() => setDataCategory('all')} style={{ padding: '0.3rem 0.6rem', borderRadius: 4, border: `1px solid ${dataCategory === 'all' ? C.blue : C.border}`, background: dataCategory === 'all' ? `${C.blue}20` : 'transparent', color: dataCategory === 'all' ? C.blue : C.muted, fontSize: '0.65rem', cursor: 'pointer' }}>All</button>
-              {['crypto', 'stocks', 'forex', 'macro', 'alternative'].map(cat => (
-                <button key={cat} onClick={() => setDataCategory(cat)} style={{ padding: '0.3rem 0.6rem', borderRadius: 4, border: `1px solid ${dataCategory === cat ? C.blue : C.border}`, background: dataCategory === cat ? `${C.blue}20` : 'transparent', color: dataCategory === cat ? C.blue : C.muted, fontSize: '0.65rem', cursor: 'pointer', textTransform: 'capitalize' }}>{cat}</button>
-              ))}
+              <button onClick={() => setDataCategory('all')} style={{ padding: '0.3rem 0.6rem', borderRadius: 4, border: `1px solid ${dataCategory === 'all' ? C.blue : C.border}`, background: dataCategory === 'all' ? `${C.blue}20` : 'transparent', color: dataCategory === 'all' ? C.blue : C.muted, fontSize: '0.65rem', cursor: 'pointer' }}>All Crypto</button>
+              <button onClick={() => setDataCategory('crypto')} style={{ padding: '0.3rem 0.6rem', borderRadius: 4, border: `1px solid ${dataCategory === 'crypto' ? C.blue : C.border}`, background: dataCategory === 'crypto' ? `${C.blue}20` : 'transparent', color: dataCategory === 'crypto' ? C.blue : C.muted, fontSize: '0.65rem', cursor: 'pointer', textTransform: 'capitalize' }}>Crypto</button>
             </div>
             
             <input 
@@ -2968,9 +3085,6 @@ signal: sell, {price}  # Exit`}
                   <optgroup label="Crypto">
                     {CRYPTOS.map(c => <option key={c.value} value={c.value}>{c.icon} {c.label}</option>)}
                   </optgroup>
-                  <optgroup label="Stocks">
-                    {STOCKS.map(s => <option key={s.value} value={s.value}>{s.icon} {s.label}</option>)}
-                  </optgroup>
                 </select>
               </div>
               <div style={{ flex: 1 }}>
@@ -3050,7 +3164,7 @@ signal: sell, {price}  # Exit`}
           </button>
           <div style={{ fontSize: '0.7rem', fontWeight: 600, color: C.white, marginBottom: '0.5rem' }}>Data APIs</div>
           
-          {['crypto', 'stocks', 'forex', 'macro', 'alternative'].map(cat => (
+          {['crypto'].map(cat => (
             <button 
               key={cat}
               onClick={() => setDataCategory(cat)}
@@ -3109,38 +3223,28 @@ signal: sell, {price}  # Exit`}
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 56px)', background: C.bg, color: C.text, overflow: 'hidden' }}>
-      {/* Action Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 1rem', height: 40, borderBottom: `1px solid ${C.border}`, background: C.bg2, gap: '1rem' }}>
+      {/* Strategy Studio Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.6rem 1rem', borderBottom: `1px solid ${C.border}`, background: C.bg2, gap: '1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.75rem', background: 'linear-gradient(135deg, #16C78420, #4F8CFF20)', borderRadius: 6 }}>
             <Rocket size={16} style={{ color: C.mint }} />
-            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: C.white }}>Build Agent</span>
+            <span style={{ fontSize: '0.9rem', fontWeight: 700, color: C.white, letterSpacing: '-0.02em' }}>Strategy Studio</span>
           </div>
 
-          <div style={{ height: 14, width: 1, background: C.border }} />
+          <div style={{ height: 16, width: 1, background: C.border }} />
 
-          <select value={symbol} onChange={e => setSymbol(e.target.value)} style={{ padding: '0.25rem 0.4rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem' }}>
-            <optgroup label="Crypto">
-              {CRYPTOS.map(c => <option key={c.value} value={c.value}>{c.icon} {c.label}</option>)}
-            </optgroup>
-            <optgroup label="Stocks">
-              {STOCKS.map(s => <option key={s.value} value={s.value}>{s.icon} {s.label}</option>)}
-            </optgroup>
-          </select>
-
-          <select value={timeframe} onChange={e => setTimeframe(e.target.value)} style={{ padding: '0.25rem 0.4rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem' }}>
-            {TIMEFRAMES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-
-          <select value={period} onChange={e => setPeriod(e.target.value)} style={{ padding: '0.25rem 0.4rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.text, fontSize: '0.75rem' }}>
-            <option value="7d">7D</option>
-            <option value="30d">30D</option>
-            <option value="90d">90D</option>
-            <option value="180d">180D</option>
-            <option value="1y">1Y</option>
-            <option value="2y">2Y</option>
-            <option value="5y">5Y</option>
-          </select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: C.white }}>{strategy.name}</span>
+            <span style={{ fontSize: '0.75rem', color: C.faint }}>•</span>
+            <span style={{ fontSize: '0.8rem', color: C.muted }}>{symbol}</span>
+            <span style={{ fontSize: '0.75rem', color: C.faint }}>•</span>
+            <select value={period} onChange={e => setPeriod(e.target.value)} style={{ padding: '0.15rem 0.3rem', borderRadius: 3, border: 'none', background: C.bg3, color: C.text, fontSize: '0.7rem' }}>
+              <option value="30d">30D</option>
+              <option value="90d">90D</option>
+              <option value="1y">1Y</option>
+              <option value="2y">2Y</option>
+            </select>
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -3149,79 +3253,79 @@ signal: sell, {price}  # Exit`}
               onClick={() => window.location.href = '/dashboard/build/backtest'}
               style={{ padding: '0.4rem 1rem', borderRadius: 6, border: `1px solid ${C.blue}`, background: `${C.blue}20`, color: C.blue, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
             >
-              <BarChart3 size={14} />View Results
+              <BarChart3 size={14} />Results
             </button>
           )}
-          <button onClick={() => setView('create' as typeof view)} style={{ padding: '0.4rem 1rem', borderRadius: 6, border: 'none', background: C.blue, color: C.white, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Plus size={14} />New Agent
+          
+          {/* Secondary - Paper Trade */}
+          <button onClick={runQuickTest} disabled={backtesting} style={{ padding: '0.45rem 0.85rem', borderRadius: 6, border: `1px solid ${C.blue}50`, background: 'transparent', color: C.blue, fontSize: '0.8rem', fontWeight: 600, cursor: backtesting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, transition: 'all 0.2s' }}>
+            {backtesting ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}{backtesting ? backtestStatus || '...' : 'Paper Trade'}
           </button>
-          <button onClick={runSimulation} disabled={backtesting} style={{ padding: '0.4rem 0.75rem', borderRadius: 6, border: 'none', background: backtesting ? C.border : C.purple, color: C.bg, fontSize: '0.8rem', fontWeight: 600, cursor: backtesting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-            {backtesting ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}{backtesting ? backtestStatus || 'Running...' : 'Sandbox Test'}
+          
+          {/* Primary - Sandbox Test */}
+          <button onClick={runSimulation} disabled={backtesting} style={{ padding: '0.45rem 1rem', borderRadius: 6, border: 'none', background: backtesting ? C.border : C.mint, color: C.bg, fontSize: '0.8rem', fontWeight: 600, cursor: backtesting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 2px 8px rgba(22,199,132,0.3)' }}>
+            {backtesting ? <Loader2 size={14} className="animate-spin" /> : <Rocket size={14} />}{backtesting ? backtestStatus || 'Running...' : 'Sandbox Test'}
           </button>
-          <button onClick={() => setView('docs')} style={{ padding: '0.4rem 0.75rem', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.text, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+          
+          {/* Ghost */}
+          <button onClick={() => setView('docs')} style={{ padding: '0.45rem 0.75rem', borderRadius: 6, border: 'none', background: 'transparent', color: C.muted, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
             <Book size={14} />Docs
           </button>
-          <button onClick={() => setView('data')} style={{ padding: '0.4rem 0.75rem', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.text, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Database size={14} />Data
+          
+          {/* Accent */}
+          <button onClick={() => setView('create' as typeof view)} style={{ padding: '0.45rem 0.85rem', borderRadius: 6, border: 'none', background: C.purple, color: C.white, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 2px 8px rgba(139,92,246,0.3)' }}>
+            <Plus size={14} />Publish
           </button>
-          <button onClick={() => setRightPanel(rightPanel === 'ai' ? 'docs' : 'ai')} style={{ padding: '0.4rem', borderRadius: 4, border: `1px solid ${rightPanel === 'ai' ? C.orange : C.border}`, background: rightPanel === 'ai' ? C.orange : 'transparent', color: rightPanel === 'ai' ? C.bg : C.muted, cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+          
+          {/* AI Panel Toggle */}
+          <button onClick={() => setRightPanel(rightPanel === 'ai' ? 'docs' : 'ai')} style={{ padding: '0.45rem', borderRadius: 6, border: `1px solid ${rightPanel === 'ai' ? C.orange : C.border}`, background: rightPanel === 'ai' ? `${C.orange}20` : 'transparent', color: rightPanel === 'ai' ? C.orange : C.muted, cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
             <Sparkle size={16} />
           </button>
         </div>
       </div>
 
       {btResult && (
-        <div style={{ display: 'flex', gap: '1rem', padding: '0.5rem 1rem', borderBottom: `1px solid ${C.border}`, background: C.bg3, overflowX: 'auto', alignItems: 'center' }}>
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            <div style={{ textAlign: 'center', minWidth: 65 }}>
-              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>Return</div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: btResult.totalReturnPct >= 0 ? C.mint : C.red }}>
+        <div style={{ display: 'flex', gap: '1.5rem', padding: '0.6rem 1rem', borderBottom: `1px solid ${C.border}`, background: 'linear-gradient(180deg, #0B1728 0%, #06111F 100%)', overflowX: 'auto', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '1.5rem' }}>
+            <div style={{ textAlign: 'center', minWidth: 70 }}>
+              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2, letterSpacing: '0.05em' }}>Return</div>
+              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: btResult.totalReturnPct >= 0 ? C.mint : C.red, textShadow: btResult.totalReturnPct >= 0 ? '0 0 10px rgba(22,199,132,0.3)' : 'none' }}>
                 {btResult.totalReturnPct >= 0 ? '+' : ''}{btResult.totalReturnPct.toFixed(1)}%
               </div>
             </div>
             <div style={{ width: 1, background: C.border }} />
-            <div style={{ textAlign: 'center', minWidth: 55 }}>
-              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>Sharpe</div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: btResult.sharpeRatio >= 1 ? C.mint : btResult.sharpeRatio >= 0 ? C.orange : C.red }}>{btResult.sharpeRatio.toFixed(2)}</div>
+            <div style={{ textAlign: 'center', minWidth: 60 }}>
+              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2, letterSpacing: '0.05em' }}>Sharpe</div>
+              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: btResult.sharpeRatio >= 1 ? C.mint : btResult.sharpeRatio >= 0 ? C.orange : C.red }}>{btResult.sharpeRatio.toFixed(2)}</div>
             </div>
             <div style={{ width: 1, background: C.border }} />
-            <div style={{ textAlign: 'center', minWidth: 55 }}>
-              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>Max DD</div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.red }}>-{btResult.maxDrawdownPct.toFixed(1)}%</div>
+            <div style={{ textAlign: 'center', minWidth: 60 }}>
+              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2, letterSpacing: '0.05em' }}>Max DD</div>
+              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: C.red }}>-{btResult.maxDrawdownPct.toFixed(1)}%</div>
             </div>
             <div style={{ width: 1, background: C.border }} />
-            <div style={{ textAlign: 'center', minWidth: 55 }}>
-              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>Win Rate</div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: btResult.winRate >= 55 ? C.mint : btResult.winRate >= 50 ? C.orange : C.red }}>{btResult.winRate.toFixed(0)}%</div>
+            <div style={{ textAlign: 'center', minWidth: 60 }}>
+              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2, letterSpacing: '0.05em' }}>Win Rate</div>
+              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: btResult.winRate >= 55 ? C.mint : btResult.winRate >= 50 ? C.orange : C.red }}>{btResult.winRate.toFixed(0)}%</div>
             </div>
             <div style={{ width: 1, background: C.border }} />
             <div style={{ textAlign: 'center', minWidth: 50 }}>
-              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>Trades</div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.white }}>{btResult.totalTrades}</div>
+              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2, letterSpacing: '0.05em' }}>Trades</div>
+              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: C.white }}>{btResult.totalTrades}</div>
             </div>
             <div style={{ width: 1, background: C.border }} />
-            <div style={{ textAlign: 'center', minWidth: 55 }}>
-              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>Avg Win</div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.mint }}>+{(btResult.avgWin || 0).toFixed(1)}%</div>
-            </div>
-            <div style={{ width: 1, background: C.border }} />
-            <div style={{ textAlign: 'center', minWidth: 55 }}>
-              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>Avg Loss</div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.red }}>{(btResult.avgLoss || 0).toFixed(1)}%</div>
-            </div>
-            <div style={{ width: 1, background: C.border }} />
-            <div style={{ textAlign: 'center', minWidth: 55 }}>
-              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2 }}>PF</div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: btResult.profitFactor >= 1.5 ? C.mint : btResult.profitFactor >= 1 ? C.orange : C.red }}>{btResult.profitFactor.toFixed(2)}</div>
+            <div style={{ textAlign: 'center', minWidth: 60 }}>
+              <div style={{ fontSize: '0.5rem', color: C.faint, textTransform: 'uppercase', marginBottom: 2, letterSpacing: '0.05em' }}>CAGR</div>
+              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: btResult.annualizedReturnPct >= 0 ? C.mint : C.red }}>{btResult.annualizedReturnPct >= 0 ? '+' : ''}{btResult.annualizedReturnPct.toFixed(1)}%</div>
             </div>
           </div>
-          <button onClick={() => setShowChart(!showChart)} style={{ marginLeft: 'auto', padding: '0.4rem 0.75rem', borderRadius: 6, border: `1px solid ${showChart ? C.blue : C.border}`, background: showChart ? C.blue : 'transparent', color: C.text, fontSize: '0.75rem', cursor: 'pointer' }}>
+          <button onClick={() => setShowChart(!showChart)} style={{ marginLeft: 'auto', padding: '0.35rem 0.75rem', borderRadius: 6, border: `1px solid ${showChart ? C.blue : C.border}`, background: showChart ? `${C.blue}20` : 'transparent', color: C.text, fontSize: '0.75rem', cursor: 'pointer' }}>
             {showChart ? 'Hide' : 'Chart'}
           </button>
           {btResult.totalTrades > 0 && (
             <button 
               onClick={() => window.location.href = '/dashboard/build/backtest'}
-              style={{ padding: '0.4rem 0.75rem', borderRadius: 6, border: `1px solid ${C.mint}`, background: `${C.mint}15`, color: C.mint, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
+              style={{ padding: '0.35rem 0.75rem', borderRadius: 6, border: `1px solid ${C.mint}`, background: `${C.mint}15`, color: C.mint, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
             >
               Full Report
             </button>
@@ -3247,30 +3351,41 @@ signal: sell, {price}  # Exit`}
 
       {(view === 'editor' || view === 'docs' || view === 'data' || view === 'create') && (
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-          {/* Left Panel - Docs */}
+          {/* Left Panel - Builder Modules */}
           {!sidebarCollapsed && (
-            <div style={{ width: 280, borderRight: `1px solid ${C.border}`, background: C.bg2, display: 'flex', flexDirection: 'column' }}>
-              <div style={{ display: 'flex', alignItems: 'center', borderBottom: `1px solid ${C.border}`, padding: '0.5rem 0.75rem' }}>
-                <span style={{ fontSize: '0.7rem', fontWeight: 600, color: C.white }}>ASE Quant</span>
-                <button onClick={() => setSidebarCollapsed(true)} style={{ marginLeft: 'auto', padding: '0.25rem', border: 'none', background: 'transparent', color: C.muted, cursor: 'pointer' }}>
+            <div style={{ width: 260, borderRight: `1px solid ${C.border}`, background: 'linear-gradient(180deg, #0B1728 0%, #06111F 100%)', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${C.border}`, padding: '0.6rem 0.75rem', background: C.bg2 }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: C.white, letterSpacing: '-0.02em' }}>Builder Modules</span>
+                <button onClick={() => setSidebarCollapsed(true)} style={{ padding: '0.25rem', border: 'none', borderRadius: 4, background: 'transparent', color: C.muted, cursor: 'pointer' }}>
                   <PanelLeft size={14} />
                 </button>
               </div>
               
-              <div style={{ flex: 1, overflow: 'auto' }}>
+              <div style={{ flex: 1, overflow: 'auto', padding: '0.5rem' }}>
                 {[
-                  { id: 'overview', label: 'Quick Start', icon: Book, color: C.mint },
-                  { id: 'api', label: 'Signal API', icon: Code, color: C.blue },
-                  { id: 'strategies', label: 'Strategies', icon: TrendingUp, color: C.orange },
-                  { id: 'indicators', label: 'Indicators', icon: Activity, color: C.purple },
-                  { id: 'risk', label: 'Risk', icon: Shield, color: C.red },
-                  { id: 'data', label: 'Data Sources', icon: Database, color: C.blue },
+                  { id: 'overview', label: 'Quick Start', icon: Book, color: C.mint, desc: 'Get started building' },
+                  { id: 'api', label: 'Signal API', icon: Code, color: C.blue, desc: 'Signal format & variables' },
+                  { id: 'strategies', label: 'Templates', icon: TrendingUp, color: C.orange, desc: 'Strategy patterns' },
+                  { id: 'indicators', label: 'Indicators', icon: Activity, color: C.purple, desc: 'RSI, MACD, BB...' },
+                  { id: 'risk', label: 'Risk Controls', icon: Shield, color: C.red, desc: 'Stops, position sizing' },
+                  { id: 'data', label: 'Market Data', icon: Database, color: C.blue, desc: 'Data sources' },
                 ].map(doc => (
                   <button 
                     key={doc.id}
                     onClick={() => {
+                      setRightPanel('ai')
                       if (doc.id === 'data') {
                         setView('data')
+                      } else if (doc.id === 'overview') {
+                        sendToAi('Show me how to get started with building a strategy. What are the key concepts I should know?', true)
+                      } else if (doc.id === 'api') {
+                        sendToAi('Explain the signal format and API for writing trading strategies. Show me examples of how to emit buy/sell signals.', true)
+                      } else if (doc.id === 'strategies') {
+                        sendToAi('Show me the different strategy patterns available (momentum, mean reversion, breakout, etc.) and when to use each one.', true)
+                      } else if (doc.id === 'indicators') {
+                        sendToAi('Explain the technical indicators available (RSI, MACD, Bollinger Bands, etc.) and how to use them in strategies.', true)
+                      } else if (doc.id === 'risk') {
+                        sendToAi('Explain risk management best practices - position sizing, stop losses, max drawdown limits, and fee impact calculations.', true)
                       } else {
                         setDocsSection(doc.id as any)
                         setView('editor')
@@ -3280,57 +3395,145 @@ signal: sell, {price}  # Exit`}
                       width: '100%', 
                       padding: '0.6rem 0.75rem', 
                       border: 'none',
-                      background: docsSection === doc.id ? C.bg3 : 'transparent',
+                      borderRadius: 6,
+                      background: docsSection === doc.id ? 'linear-gradient(135deg, rgba(79,140,255,0.15), rgba(139,92,246,0.1))' : 'transparent',
                       color: docsSection === doc.id ? C.white : C.muted, 
                       fontSize: '0.75rem', 
                       cursor: 'pointer', 
                       display: 'flex', 
                       alignItems: 'center', 
-                      gap: 8,
+                      gap: 10,
                       textAlign: 'left',
-                      borderLeft: docsSection === doc.id ? `2px solid ${doc.color}` : '2px solid transparent',
+                      marginBottom: '0.25rem',
+                      transition: 'all 0.2s',
                     }}
                   >
-                    <doc.icon size={13} style={{ color: doc.color }} />
-                    {doc.label}
+                    <div style={{ 
+                      width: 28, 
+                      height: 28, 
+                      borderRadius: 6, 
+                      background: `${doc.color}15`, 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center' 
+                    }}>
+                      <doc.icon size={14} style={{ color: doc.color }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: docsSection === doc.id ? C.white : C.text }}>{doc.label}</div>
+                      <div style={{ fontSize: '0.6rem', color: C.faint }}>{doc.desc}</div>
+                    </div>
+                    <CheckCircle size={12} style={{ color: C.mint, opacity: docsSection === doc.id ? 1 : 0 }} />
                   </button>
                 ))}
               </div>
               
-              {/* Current Context */}
-              <div style={{ padding: '0.75rem', borderTop: `1px solid ${C.border}`, fontSize: '0.65rem', color: C.faint }}>
-                <div style={{ marginBottom: '0.35rem' }}>Strategy: <span style={{ color: C.white }}>{strategy.name}</span></div>
-                <div>Asset: <span style={{ color: C.white }}>{symbol}</span></div>
+              {/* Current Context - Premium Card */}
+              <div style={{ padding: '0.75rem', borderTop: `1px solid ${C.border}`, background: C.bg2 }}>
+                <div style={{ fontSize: '0.6rem', color: C.faint, textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Active Strategy</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', background: C.bg, borderRadius: 6, border: `1px solid ${C.mint}40` }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: C.mint, boxShadow: '0 0 8px rgba(22,199,132,0.5)' }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: C.white }}>{strategy.name}</div>
+                    <div style={{ fontSize: '0.6rem', color: C.muted }}>{symbol} • {timeframe}</div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
-          {/* Center - Code Editor */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', padding: '0.5rem 1rem', borderBottom: `1px solid ${C.border}`, background: C.bg3, gap: '0.5rem' }}>
+          {/* Center - Code Studio */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: C.bg }}>
+            {/* Editor Header with Tabs */}
+            <div style={{ display: 'flex', alignItems: 'center', padding: '0.4rem 0.75rem', borderBottom: `1px solid ${C.border}`, background: 'linear-gradient(180deg, #111D2E 0%, #0B1728 100%)', gap: '0.5rem' }}>
               {sidebarCollapsed && (
-                <button onClick={() => setSidebarCollapsed(false)} style={{ padding: '0.4rem', border: `1px solid ${C.border}`, borderRadius: 4, background: 'transparent', color: C.muted, cursor: 'pointer', marginRight: '0.5rem' }}>
+                <button onClick={() => setSidebarCollapsed(false)} style={{ padding: '0.35rem', border: 'none', borderRadius: 4, background: 'transparent', color: C.muted, cursor: 'pointer' }}>
                   <PanelLeft size={14} />
                 </button>
               )}
-              <Code size={14} style={{ color: C.blue }} />
-              <span style={{ fontSize: '0.85rem', color: C.text, fontFamily: 'var(--font-mono)' }}>{selectedFile || 'untitled.py'}</span>
-              <span style={{ fontSize: '0.75rem', color: C.faint, marginLeft: '0.5rem' }}>• {strategy.name}</span>
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem' }}>
-                <button onClick={copyCode} style={{ fontSize: '0.8rem', color: C.muted, background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  {copied ? <Check size={12} /> : <Copy size={12} />}{copied ? 'Copied!' : 'Copy'}
+              
+              {/* File Tabs */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                {files[0]?.children?.slice(0, 3).map((file: FileNode) => (
+                  <button 
+                    key={file.id}
+                    onClick={() => { setSelectedFile(file.name); setActiveFileContent(file.content || '') }}
+                    style={{ 
+                      padding: '0.35rem 0.75rem', 
+                      borderRadius: 4, 
+                      border: 'none', 
+                      background: selectedFile === file.name ? C.bg : 'transparent', 
+                      color: selectedFile === file.name ? C.white : C.muted, 
+                      fontSize: '0.75rem', 
+                      fontFamily: 'var(--font-mono)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <Code size={10} style={{ color: selectedFile === file.name ? C.blue : C.faint }} />
+                    {file.name}
+                  </button>
+                ))}
+              </div>
+              
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                {/* Save Status */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.65rem', color: C.mint }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: C.mint, boxShadow: '0 0 6px rgba(22,199,132,0.5)' }} />
+                  Saved
+                </div>
+                <button onClick={copyCode} style={{ fontSize: '0.75rem', color: C.muted, background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {copied ? <Check size={12} /> : <Copy size={12} />}{copied ? 'Copied' : 'Copy'}
                 </button>
-                <button onClick={() => setCode(strategy.code)} style={{ fontSize: '0.8rem', color: C.muted, background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <button onClick={() => setCode(strategy.code)} style={{ fontSize: '0.75rem', color: C.muted, background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
                   <RefreshCw size={12} />Reset
                 </button>
               </div>
             </div>
-            <textarea 
-              value={code} 
-              onChange={e => setCode(e.target.value)} 
-              spellCheck={false} 
-              style={{ flex: 1, padding: '1rem', background: C.bg, color: C.text, fontFamily: 'var(--font-mono)', fontSize: '0.95rem', lineHeight: 1.6, border: 'none', outline: 'none', resize: 'none', whiteSpace: 'pre' }} 
-            />
+            
+            {/* Editor with Line Numbers */}
+            <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+              {/* Line Numbers */}
+              <div style={{ 
+                padding: '1rem 0.75rem', 
+                background: C.bg2, 
+                color: C.faint, 
+                fontFamily: 'var(--font-mono)', 
+                fontSize: '0.85rem', 
+                lineHeight: 1.7,
+                textAlign: 'right',
+                userSelect: 'none',
+                borderRight: `1px solid ${C.border}`,
+                minWidth: 50,
+              }}>
+                {code.split('\n').map((_, i) => (
+                  <div key={i} style={{ color: C.faint, opacity: 0.5 }}>{i + 1}</div>
+                ))}
+              </div>
+              
+              {/* Code Area */}
+              <textarea 
+                value={code} 
+                onChange={e => setCode(e.target.value)} 
+                spellCheck={false} 
+                style={{ 
+                  flex: 1, 
+                  padding: '1rem', 
+                  background: C.bg, 
+                  color: C.text, 
+                  fontFamily: 'var(--font-mono)', 
+                  fontSize: '0.9rem', 
+                  lineHeight: 1.7, 
+                  border: 'none', 
+                  outline: 'none', 
+                  resize: 'none', 
+                  whiteSpace: 'pre',
+                  overflow: 'auto',
+                }} 
+              />
+            </div>
           </div>
 
           {/* Right Panel - AI Assistant */}
@@ -3347,14 +3550,16 @@ signal: sell, {price}  # Exit`}
               </div>
               
               {/* Chat Messages */}
-              <div style={{ flex: 1, overflow: 'auto', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div style={{ flex: 1, overflow: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 {aiMessages.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '1.5rem', color: C.faint, fontSize: '0.8rem' }}>
-                    <Sparkle size={24} style={{ margin: '0 auto 0.75rem', opacity: 0.5 }} />
-                    <div style={{ marginBottom: '0.5rem' }}>AI Quant Assistant</div>
-                    <div style={{ fontSize: '0.7rem', lineHeight: 1.5 }}>
-                      Ask me to explain strategies, improve code,<br/>
-                      add indicators, or optimize parameters
+                  <div style={{ textAlign: 'center', padding: '2rem 1rem', color: C.faint }}>
+                    <div style={{ width: 48, height: 48, margin: '0 auto 1rem', borderRadius: '50%', background: 'linear-gradient(135deg, #8B5CF6, #4F8CFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 20px rgba(139,92,246,0.3)' }}>
+                      <Sparkle size={24} style={{ color: C.white }} />
+                    </div>
+                    <div style={{ fontSize: '0.9rem', fontWeight: 600, color: C.white, marginBottom: '0.5rem' }}>AI Quant Copilot</div>
+                    <div style={{ fontSize: '0.75rem', lineHeight: 1.6, color: C.muted }}>
+                      I'll help you build smarter strategies.<br/>
+                      Ask me to explain, improve, or optimize.
                     </div>
                   </div>
                 )}
@@ -3428,48 +3633,56 @@ signal: sell, {price}  # Exit`}
               </div>
               
               {/* Input */}
-              <div style={{ padding: '0.75rem', borderTop: `1px solid ${C.border}` }}>
-                <div style={{ display: 'flex', gap: 8, marginBottom: '0.5rem' }}>
+              <div style={{ padding: '0.75rem', borderTop: `1px solid ${C.border}`, background: 'linear-gradient(0deg, #0B1728 0%, transparent 100%)' }}>
+                {/* Smart Default Message */}
+                {aiMessages.length === 0 && (
+                  <div style={{ marginBottom: '0.75rem', padding: '0.6rem', background: 'linear-gradient(135deg, rgba(245,185,66,0.1), rgba(139,92,246,0.1))', borderRadius: 6, border: `1px solid ${C.orange}30` }}>
+                    <div style={{ fontSize: '0.65rem', color: C.orange, fontWeight: 600, marginBottom: '0.25rem' }}>💡 Your agent has no risk controls</div>
+                    <button onClick={() => sendToAi('Add a 5% stop-loss mechanism to protect against losses', true)} style={{ width: '100%', padding: '0.35rem', borderRadius: 4, border: 'none', background: C.orange, color: C.bg, fontSize: '0.65rem', fontWeight: 600, cursor: 'pointer' }}>
+                      Add Stop-Loss with AI
+                    </button>
+                  </div>
+                )}
+                
+                <div style={{ display: 'flex', gap: 8, marginBottom: '0.6rem' }}>
                   <input 
                     value={aiInput} 
                     onChange={e => setAiInput(e.target.value)} 
                     onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), sendToAi())} 
-                    placeholder="Ask about your strategy..." 
+                    placeholder="Ask AI to improve your strategy..." 
                     style={{ 
                       flex: 1, 
-                      padding: '0.6rem', 
+                      padding: '0.6rem 0.75rem', 
                       borderRadius: 6, 
                       border: `1px solid ${C.border}`, 
                       background: C.bg, 
                       color: C.text, 
-                      fontSize: '0.85rem' 
+                      fontSize: '0.8rem' 
                     }} 
                   />
                   <button 
                     onClick={() => sendToAi()} 
                     disabled={aiLoading || !aiInput.trim()} 
                     style={{ 
-                      padding: '0.6rem 1rem', 
+                      padding: '0.6rem 0.9rem', 
                       borderRadius: 6, 
                       border: 'none', 
                       background: aiLoading ? C.border : C.orange, 
                       color: C.bg, 
                       cursor: aiLoading ? 'not-allowed' : 'pointer', 
-                      fontWeight: 600 
+                      fontWeight: 600,
+                      boxShadow: aiLoading ? 'none' : '0 2px 8px rgba(245,185,66,0.3)'
                     }}
                   >
                     <Sparkle size={14} />
                   </button>
                 </div>
                 
-                {/* Quick Suggestions */}
-                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                  <button onClick={() => sendToAi('Add RSI indicator and create buy/sell signals based on oversold/overbought levels')} style={{ padding: '0.25rem 0.5rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.muted, fontSize: '0.6rem', cursor: 'pointer' }}>+ RSI</button>
-                  <button onClick={() => sendToAi('Add stop loss at 5% to protect against large drawdowns')} style={{ padding: '0.25rem 0.5rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.muted, fontSize: '0.6rem', cursor: 'pointer' }}>+ Stop Loss</button>
-                  <button onClick={() => sendToAi('Add volume filter to only trade when volume is above average')} style={{ padding: '0.25rem 0.5rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.muted, fontSize: '0.6rem', cursor: 'pointer' }}>+ Volume Filter</button>
-                  <button onClick={() => sendToAi('Optimize the parameters for better risk-adjusted returns')} style={{ padding: '0.25rem 0.5rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.muted, fontSize: '0.6rem', cursor: 'pointer' }}>Optimize</button>
-                  <button onClick={() => sendToAi('Add MACD for trend confirmation to improve entry timing')} style={{ padding: '0.25rem 0.5rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.muted, fontSize: '0.6rem', cursor: 'pointer' }}>+ MACD</button>
-                  <button onClick={() => sendToAi('Add Bollinger Bands to capture mean reversion opportunities')} style={{ padding: '0.25rem 0.5rem', borderRadius: 4, border: `1px solid ${C.border}`, background: C.bg3, color: C.muted, fontSize: '0.6rem', cursor: 'pointer' }}>+ Bollinger</button>
+                {/* Quick Action Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.35rem' }}>
+                  <button onClick={() => sendToAi('Improve returns by adding take-profit at 10% to lock in gains', true)} style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: `1px solid ${C.mint}30`, background: `${C.mint}10`, color: C.mint, fontSize: '0.6rem', fontWeight: 600, cursor: 'pointer' }}>↑ Improve Returns</button>
+                  <button onClick={() => sendToAi('Reduce drawdown by adding ATR-based trailing stops', true)} style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: `1px solid ${C.red}30`, background: `${C.red}10`, color: C.red, fontSize: '0.6rem', fontWeight: 600, cursor: 'pointer' }}>↓ Reduce DD</button>
+                  <button onClick={() => sendToAi('Explain how this strategy works and what the key parameters do', true)} style={{ padding: '0.4rem 0.5rem', borderRadius: 4, border: `1px solid ${C.blue}30`, background: `${C.blue}10`, color: C.blue, fontSize: '0.6rem', fontWeight: 600, cursor: 'pointer' }}>📖 Explain</button>
                 </div>
               </div>
             </div>

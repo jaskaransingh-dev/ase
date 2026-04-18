@@ -40,6 +40,7 @@ import {
   runEquityMeanReversion,
   runEquityTrendFollow,
   runRiskParity,
+  runGenericCryptoMomentum,
   StrategyResult,
   getAgentPositions,
 } from '@/lib/agents'
@@ -108,6 +109,7 @@ export async function POST(req: NextRequest) {
     .from('agents')
     .select('id, slug, total_aum_cents, share_price_cents, alert_level')
     .eq('status', 'active')
+    .eq('asset_class', 'crypto')
 
   if (targetAgentId) agentsQuery = agentsQuery.eq('id', targetAgentId)
 
@@ -133,16 +135,6 @@ export async function POST(req: NextRequest) {
       continue
     }
 
-    const runner = STRATEGY_MAP[agent.slug]
-    if (!runner) {
-      results[agent.slug] = { agent_slug: agent.slug, error: 'No strategy runner configured' }
-      const { error: updateError } = await admin.from('agents').update({ last_error: 'No strategy runner configured' }).eq('id', agent.id);
-      if (updateError) {
-        console.error(`[run-agents] Failed to update agent ${agent.slug} with 'no runner' error:`, updateError.message);
-      }
-      continue
-    }
-
     try {
       // Re-fetch latest AUM (may have changed since cron started)
       const { data: freshAgent } = await admin
@@ -156,7 +148,18 @@ export async function POST(req: NextRequest) {
 
       console.log(`[run-agents] ${agent.slug}: capital $${(capitalCents / 100).toFixed(0)} (seed $${(PLATFORM_SEED_CAPITAL_CENTS / 100).toFixed(0)} + AUM $${(aumCents / 100).toFixed(0)})`)
 
-      const result = await runner(admin, agent.id, process.env.ALPACA_KEY_ID || '', process.env.ALPACA_SECRET_KEY || '', capitalCents)
+      // Use built-in strategy or fallback to generic momentum
+      const runner = STRATEGY_MAP[agent.slug]
+      let result: StrategyResult
+
+      if (!runner) {
+        // Fallback: use generic crypto momentum for custom agents
+        console.log(`[run-agents] ${agent.slug}: Using generic crypto momentum fallback`)
+        result = await runGenericCryptoMomentum(admin, agent.id, process.env.ALPACA_KEY_ID || '', process.env.ALPACA_SECRET_KEY || '', capitalCents)
+      } else {
+        result = await runner(admin, agent.id, process.env.ALPACA_KEY_ID || '', process.env.ALPACA_SECRET_KEY || '', capitalCents)
+      }
+
       results[agent.slug] = result
 
       // Distribute equity trades to user accounts
