@@ -972,6 +972,173 @@ h1, h2, h3 { font-family: var(--font-head); }
   gap: 0.5rem;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   PANEL SYSTEM — Terminal-style data panels
+   ══════════════════════════════════════════════════════════════ */
+.panel {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: var(--faint);
+  letter-spacing: 0.12em;
+}
+
+.panel-accent {
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--blue);
+  flex-shrink: 0;
+}
+
+.panel-accent-mint { background: var(--mint); }
+.panel-accent-red  { background: var(--red); }
+
+.panel-body { padding: 1rem; }
+
+/* ── Status indicators ── */
+.status-dot {
+  width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex-shrink: 0;
+}
+.status-dot-live { background: var(--mint); animation: breathe 2.5s ease-in-out infinite; }
+.status-dot-warn { background: var(--orange); }
+.status-dot-off  { background: var(--faint); }
+
+/* ── Terminal output row ── */
+.terminal-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text);
+  border-bottom: 1px solid rgba(30,42,61,0.4);
+}
+.terminal-row:last-child { border-bottom: 0; }
+.terminal-row .prompt { color: var(--mint); margin-right: 0.25rem; }
+.terminal-row .cmd    { color: var(--blue2); }
+.terminal-row .out    { color: var(--muted); }
+
+/* ── Metric strip ── */
+.metric-strip {
+  display: flex;
+  gap: 0;
+  border-top: 1px solid var(--border);
+}
+
+.metric-cell {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border-right: 1px solid var(--border);
+  text-align: center;
+}
+.metric-cell:last-child { border-right: 0; }
+
+.metric-label {
+  font-family: var(--font-mono);
+  font-size: 0.48rem;
+  color: var(--faint);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 0.2rem;
+}
+
+.metric-value {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--white);
+  letter-spacing: -0.02em;
+}
+
+/* ── Toggle switch ── */
+.toggle {
+  position: relative; display: inline-block; width: 42px; height: 24px;
+}
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute; cursor: pointer; inset: 0; border-radius: 12px;
+  background: var(--bg4); border: 1px solid var(--border);
+  transition: 0.2s;
+}
+.toggle-slider::before {
+  position: absolute; content: ''; width: 18px; height: 18px; border-radius: 50%;
+  left: 2px; bottom: 2px; background: var(--muted);
+  transition: transform 0.2s, background 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+input:checked + .toggle-slider { background: var(--mint); border-color: var(--mint); }
+input:checked + .toggle-slider::before { transform: translateX(18px); background: #fff; }
+
+/* ── Tag chips (terminal style) ── */
+.chip {
+  display: inline-flex; align-items: center;
+  padding: 0.12rem 0.5rem; border-radius: 20px;
+  font-family: var(--font-mono); font-size: 0.55rem; font-weight: 600;
+  border: 1px solid var(--border); color: var(--faint); background: transparent;
+  transition: all 0.12s; cursor: pointer;
+}
+.chip:hover, .chip.active {
+  color: var(--blue); border-color: var(--blue);
+  background: rgba(79,140,255,0.1);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   FULL-SCREEN LAYOUT UTILITIES
+   ══════════════════════════════════════════════════════════════ */
+.full-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.content-max {
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ── Section divider ── */
+.section-divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 2rem 0;
+}
+
+/* ── Logo image utility ── */
+.logo-img {
+  height: 32px;
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
+
+/* ── Responsive sidebar behaviour ── */
+@media (max-width: 768px) {
+  .sidebar { display: none !important; }
+  .quant-main { margin-left: 0 !important; }
+}
+
+
 .quant-metric-label {
   font-family: var(--font-mono);
   font-size: 0.6rem;

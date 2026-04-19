@@ -2,16 +2,17 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { Logo } from './Logo'
+import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 export default function PublicNav({ variant = 'default' }: { variant?: 'default' | 'dark' }) {
   const [scrolled, setScrolled] = useState(false)
   const [authed, setAuthed] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const pathname = usePathname()
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24)
+    const onScroll = () => setScrolled(window.scrollY > 20)
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
@@ -23,149 +24,127 @@ export default function PublicNav({ variant = 'default' }: { variant?: 'default'
     return () => subscription.unsubscribe()
   }, [])
 
+  useEffect(() => { setMenuOpen(false) }, [pathname])
+
   const elevated = scrolled || variant === 'dark'
+
+  const LINKS = [
+    { label: 'Marketplace', href: '/dashboard/marketplace' },
+    { label: 'Build', href: '/dashboard/build' },
+    { label: 'Agents', href: '/agents' },
+    { label: 'Builders', href: '/builders' },
+  ]
 
   return (
     <>
       <style>{`
-        .pub-nav-links { display: flex; gap: 0.25rem; align-items: center; }
         .pub-nav-link {
-          color: var(--muted);
-          font-size: 0.84rem;
-          font-weight: 500;
-          padding: 0.45rem 0.75rem;
-          border-radius: 8px;
-          transition: color 0.15s, background 0.15s;
-          white-space: nowrap;
+          color: var(--muted); font-size: 0.84rem; font-weight: 500;
+          padding: 0.42rem 0.75rem; border-radius: 8px;
+          transition: color 0.14s, background 0.14s;
+          white-space: nowrap; text-decoration: none;
+          border: 1px solid transparent;
         }
         .pub-nav-link:hover { color: var(--white); background: rgba(255,255,255,0.06); }
+        .pub-nav-link.active { color: var(--white); background: var(--blue-dim); border-color: rgba(79,140,255,0.18); }
         .pub-nav-cta {
-          display: flex; align-items: center; gap: 0.5rem;
-          padding: 0.55rem 1.15rem;
-          border-radius: 10px;
-          font-size: 0.84rem;
-          font-weight: 600;
+          display: inline-flex; align-items: center; gap: 0.4rem;
+          padding: 0.5rem 1.1rem; border-radius: 9px;
+          font-size: 0.84rem; font-weight: 600;
           background: linear-gradient(135deg, var(--blue3), var(--blue));
-          color: var(--white);
-          border: none;
-          cursor: pointer;
-          transition: opacity 0.15s, transform 0.15s;
-          white-space: nowrap;
+          color: var(--white); border: none; cursor: pointer;
+          transition: opacity 0.14s, transform 0.14s;
+          white-space: nowrap; text-decoration: none;
+          box-shadow: 0 2px 12px rgba(79,140,255,0.3);
         }
         .pub-nav-cta:hover { opacity: 0.88; transform: translateY(-1px); }
-        .pub-nav-mobile-btn {
-          display: none;
-          background: none;
-          border: 1px solid var(--border2);
-          border-radius: 8px;
-          padding: 0.4rem 0.5rem;
-          color: var(--muted);
-          cursor: pointer;
-          align-items: center;
-          justify-content: center;
-        }
-        @media (max-width: 720px) {
-          .pub-nav-links { display: none; }
-          .pub-nav-mobile-btn { display: flex; }
-          .pub-nav-mobile-menu {
-            position: fixed;
-            top: 72px;
-            left: 0; right: 0;
-            background: rgba(6,17,31,0.97);
-            border-bottom: 1px solid var(--border);
-            backdrop-filter: blur(20px);
-            padding: 1rem 1.5rem 1.5rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.25rem;
-            z-index: 99;
-          }
-          .pub-nav-mobile-menu .pub-nav-link {
-            display: block;
-            padding: 0.75rem 1rem;
-            font-size: 0.95rem;
-          }
-          .pub-nav-mobile-menu .pub-nav-cta {
-            margin-top: 0.5rem;
-            justify-content: center;
-            padding: 0.75rem 1rem;
-            font-size: 0.95rem;
-          }
+        @media(max-width:760px){
+          .pub-nav-desktop{display:none!important}
+          .pub-nav-mobile-btn{display:flex!important}
         }
       `}</style>
-      <nav
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 100,
-          height: 68,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 1.75rem',
-          background: elevated ? 'rgba(6,17,31,0.82)' : 'rgba(6,17,31,0.20)',
-          borderBottom: elevated ? '1px solid rgba(79,140,255,0.14)' : '1px solid transparent',
-          backdropFilter: elevated ? 'blur(24px) saturate(160%)' : 'none',
-          transition: 'all 0.25s ease',
-        }}
-      >
-        <Logo size="small" showLink />
 
-        <div className="pub-nav-links">
-          <Link href="/agents" className="pub-nav-link">Marketplace</Link>
-          <Link href="/builders" className="pub-nav-link">Build</Link>
-          <Link href="/agents" className="pub-nav-link">Invest</Link>
+      <nav style={{
+        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
+        height: 66, display: 'flex', alignItems: 'center',
+        padding: '0 1.5rem',
+        background: elevated ? 'rgba(6,17,31,0.86)' : 'rgba(6,17,31,0.12)',
+        borderBottom: elevated ? '1px solid rgba(30,42,61,0.7)' : '1px solid transparent',
+        backdropFilter: elevated ? 'blur(24px) saturate(160%)' : 'none',
+        transition: 'all 0.25s ease',
+      }}>
+        {/* Logo */}
+        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', textDecoration: 'none', flexShrink: 0 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/transparent_logo.png" alt="ASE" style={{ height: 30, width: 'auto', objectFit: 'contain' }} />
+          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.8rem', color: 'var(--white)', letterSpacing: '0.08em' }}>ASE</span>
+        </Link>
+
+        {/* Desktop nav */}
+        <div className="pub-nav-desktop" style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', flex: 1, justifyContent: 'center' }}>
+          {LINKS.map(l => (
+            <Link key={l.href} href={l.href} className={`pub-nav-link ${pathname === l.href ? 'active' : ''}`}>{l.label}</Link>
+          ))}
+        </div>
+
+        {/* Right actions */}
+        <div className="pub-nav-desktop" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
           {authed ? (
-            <Link href="/dashboard" className="pub-nav-cta" style={{ textDecoration: 'none' }}>
+            <Link href="/dashboard" className="pub-nav-cta">
               Dashboard →
             </Link>
           ) : (
             <>
               <Link href="/login" className="pub-nav-link">Sign In</Link>
-              <Link href="/signup" className="pub-nav-cta" style={{ textDecoration: 'none' }}>
+              <Link href="/signup" className="pub-nav-cta">
                 Get Started
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
               </Link>
             </>
           )}
         </div>
 
-        <button
-          className="pub-nav-mobile-btn"
-          onClick={() => setMenuOpen(v => !v)}
-          aria-label="Toggle menu"
-        >
-          {menuOpen ? (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6L6 18M6 6l12 12"/>
-            </svg>
-          ) : (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M4 6h16M4 12h16M4 18h16"/>
-            </svg>
-          )}
-        </button>
+        {/* Mobile hamburger */}
+        <div style={{ marginLeft: 'auto' }}>
+          <button
+            className="pub-nav-mobile-btn"
+            onClick={() => setMenuOpen(v => !v)}
+            style={{ display: 'none', background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '0.4rem 0.5rem', color: 'var(--muted)', cursor: 'pointer', alignItems: 'center', justifyContent: 'center' }}
+            aria-label="Toggle menu"
+          >
+            {menuOpen ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+            )}
+          </button>
+        </div>
       </nav>
 
+      {/* Mobile menu */}
       {menuOpen && (
-        <div className="pub-nav-mobile-menu" onClick={() => setMenuOpen(false)}>
-          <Link href="/agents" className="pub-nav-link">Marketplace</Link>
-          <Link href="/builders" className="pub-nav-link">Build</Link>
-          <Link href="/agents" className="pub-nav-link">Invest</Link>
-          {authed ? (
-            <Link href="/dashboard" className="pub-nav-cta" style={{ textDecoration: 'none' }}>
-              Dashboard →
-            </Link>
-          ) : (
-            <>
-              <Link href="/login" className="pub-nav-link">Sign In</Link>
-              <Link href="/signup" className="pub-nav-cta" style={{ textDecoration: 'none' }}>
-                Get Started
+        <>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 98, backdropFilter: 'blur(4px)' }} onClick={() => setMenuOpen(false)} />
+          <div style={{ position: 'fixed', top: 66, left: 0, right: 0, zIndex: 99, background: 'rgba(6,17,31,0.97)', borderBottom: '1px solid var(--border)', backdropFilter: 'blur(24px)', padding: '0.75rem 1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+            {LINKS.map(l => (
+              <Link key={l.href} href={l.href} style={{ display: 'block', padding: '0.75rem 1rem', borderRadius: 9, fontSize: '0.95rem', fontWeight: 500, color: pathname === l.href ? 'var(--white)' : 'var(--muted)', textDecoration: 'none', background: pathname === l.href ? 'var(--blue-dim)' : 'transparent', transition: 'all 0.12s' }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--white)'; e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = pathname === l.href ? 'var(--white)' : 'var(--muted)'; e.currentTarget.style.background = pathname === l.href ? 'var(--blue-dim)' : 'transparent' }}>
+                {l.label}
               </Link>
-            </>
-          )}
-        </div>
+            ))}
+            <div style={{ marginTop: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {authed ? (
+                <Link href="/dashboard" className="pub-nav-cta" style={{ justifyContent: 'center', padding: '0.75rem 1rem', fontSize: '0.95rem' }}>Dashboard →</Link>
+              ) : (
+                <>
+                  <Link href="/login" style={{ display: 'block', textAlign: 'center', padding: '0.75rem', borderRadius: 9, fontSize: '0.9rem', color: 'var(--muted)', textDecoration: 'none' }}>Sign In</Link>
+                  <Link href="/signup" className="pub-nav-cta" style={{ justifyContent: 'center', padding: '0.75rem 1rem', fontSize: '0.95rem' }}>Get Started</Link>
+                </>
+              )}
+            </div>
+          </div>
+        </>
       )}
     </>
   )

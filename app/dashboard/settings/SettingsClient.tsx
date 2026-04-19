@@ -1,74 +1,56 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
 interface SettingsProps {
   user: { id: string; email: string; name: string }
   walletBalanceCents: number
-  brokerAccount: {
-    alpaca_account_id: string
-    account_number: string
-    status: string
-    trading_enabled: boolean
-  } | null
-  transactions: Array<{
-    id: string
-    type: string
-    amount_cents: number
-    note: string | null
-    created_at: string
-  }>
+  brokerAccount: { alpaca_account_id: string; account_number: string; status: string; trading_enabled: boolean } | null
+  transactions: Array<{ id: string; type: string; amount_cents: number; note: string | null; created_at: string }>
 }
 
-function fmtUSD(cents: number, decimals = 2): string {
-  return `${cents >= 0 ? '+' : '-'}$${(Math.abs(cents) / 100).toFixed(decimals)}`
-}
-function fmtDateTime(date: string | Date): string {
-  return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-function fmtDateTimeFull(date: string | Date): string {
-  return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
+function fmtUSD(cents: number) { return `${cents >= 0 ? '+' : '-'}$${(Math.abs(cents) / 100).toFixed(2)}` }
+function fmtDate(date: string | Date) { return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) }
 
 const TX_LABELS: Record<string, string> = {
-  deposit: 'Credit Deposit',
-  invest: 'Invested in Agent',
-  divest: 'Position Closed',
-  return: 'Return Credited',
-  withdrawal: 'Withdrawal',
-  fee: 'Platform Fee',
+  deposit: 'Deposit', invest: 'Invested in Agent', divest: 'Position Closed',
+  return: 'Return Credited', withdrawal: 'Withdrawal', fee: 'Platform Fee',
 }
+const TX_COLORS: Record<string, string> = {
+  deposit: 'var(--mint)', invest: 'var(--blue)', divest: 'var(--orange)',
+  return: 'var(--mint)', withdrawal: 'var(--red)', fee: 'var(--faint)',
+}
+
+const SECTIONS = [
+  { id: 'profile', label: 'Profile', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' },
+  { id: 'security', label: 'Security', icon: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' },
+  { id: 'brokerage', label: 'Brokerage', icon: 'M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3' },
+  { id: 'notifications', label: 'Notifications', icon: 'M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9' },
+  { id: 'history', label: 'History', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
+]
 
 export default function SettingsClient({ user, walletBalanceCents, brokerAccount, transactions }: SettingsProps) {
   const supabase = createClient()
   const router = useRouter()
 
-  // Profile
   const [name, setName] = useState(user.name)
   const [profileMsg, setProfileMsg] = useState('')
   const [profileLoading, setProfileLoading] = useState(false)
-
-  // Password
   const [password, setPassword] = useState('')
   const [pwConfirm, setPwConfirm] = useState('')
   const [pwMsg, setPwMsg] = useState('')
   const [pwLoading, setPwLoading] = useState(false)
-
-  // Notifications
   const [notifEmail, setNotifEmail] = useState(true)
   const [notifTrade, setNotifTrade] = useState(false)
   const [notifAlert, setNotifAlert] = useState(true)
-  const [notifMsg, setNotifMsg] = useState('')
-
-  // Active section
   const [section, setSection] = useState('profile')
 
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault()
-    setProfileLoading(true)
-    setProfileMsg('')
+    setProfileLoading(true); setProfileMsg('')
     const { error } = await supabase.from('profiles').update({ display_name: name }).eq('id', user.id)
     setProfileMsg(error ? error.message : 'Profile updated successfully')
     setProfileLoading(false)
@@ -78,8 +60,7 @@ export default function SettingsClient({ user, walletBalanceCents, brokerAccount
     e.preventDefault()
     if (password !== pwConfirm) { setPwMsg('Passwords do not match'); return }
     if (password.length < 8) { setPwMsg('Password must be at least 8 characters'); return }
-    setPwLoading(true)
-    setPwMsg('')
+    setPwLoading(true); setPwMsg('')
     const { error } = await supabase.auth.updateUser({ password })
     setPwMsg(error ? error.message : 'Password updated successfully')
     if (!error) { setPassword(''); setPwConfirm('') }
@@ -91,339 +72,296 @@ export default function SettingsClient({ user, walletBalanceCents, brokerAccount
     router.push('/')
   }
 
-  const sections = [
-    { id: 'profile', label: 'Profile' },
-    { id: 'security', label: 'Security' },
-    { id: 'brokerage', label: 'Brokerage' },
-    { id: 'notifications', label: 'Notifications' },
-    { id: 'billing', label: 'Billing' },
-    { id: 'history', label: 'History' },
-  ]
+  const initials = (user.name || user.email || 'U').slice(0, 2).toUpperCase()
 
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto' }}>
       {/* Header */}
       <div style={{ marginBottom: '1.5rem' }}>
-        <div className="eyebrow" style={{ marginBottom: '.25rem' }}>ACCOUNT</div>
-        <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.6rem', fontWeight: 700, letterSpacing: '-.02em' }}>Settings</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
+          <div style={{ width: 3, height: 14, borderRadius: 2, background: 'var(--blue)' }} />
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', fontWeight: 700, color: 'var(--faint)', letterSpacing: '0.12em' }}>ACCOUNT SETTINGS</span>
+        </div>
+        <h1 style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: '1.5rem', color: 'var(--white)', letterSpacing: '-0.03em' }}>Settings</h1>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: '1.5rem', alignItems: 'start' }}>
-        {/* Left nav */}
-        <nav style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '0.75rem', position: 'sticky', top: '1rem' }}>
-          {sections.map(s => (
-            <button
-              key={s.id}
-              onClick={() => setSection(s.id)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.6rem',
-                width: '100%',
-                padding: '0.6rem 0.85rem',
-                borderRadius: 8,
-                border: 'none',
-                background: section === s.id ? 'rgba(59,127,255,0.12)' : 'transparent',
-                color: section === s.id ? 'var(--blue2)' : 'var(--muted)',
-                fontSize: '0.82rem',
-                fontWeight: section === s.id ? 600 : 400,
-                cursor: 'pointer',
-                textAlign: 'left',
-                transition: 'all 0.15s',
-                marginBottom: '0.15rem',
-              }}
-            >
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: section === s.id ? 'var(--blue)' : 'transparent', flexShrink: 0 }} />
-              {s.label}
-            </button>
-          ))}
-        </nav>
+      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: '1.25rem', alignItems: 'start' }} className="settings-grid">
+        {/* Sidebar nav */}
+        <div style={{ position: 'sticky', top: '4rem' }}>
+          {/* User card */}
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '1rem', marginBottom: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
+              <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg,rgba(79,140,255,.3),rgba(22,199,132,.2))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.85rem', color: 'var(--white)', flexShrink: 0 }}>
+                {initials}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--white)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name || 'User'}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.email}</div>
+              </div>
+            </div>
+            {brokerAccount && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.6rem', background: 'var(--bg3)', borderRadius: 7, border: '1px solid var(--border)' }}>
+                <div style={{ width: 5, height: 5, borderRadius: '50%', background: brokerAccount.status === 'ACTIVE' ? 'var(--mint)' : 'var(--orange)', flexShrink: 0 }} />
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: brokerAccount.status === 'ACTIVE' ? 'var(--mint)' : 'var(--orange)', fontWeight: 600 }}>ALPACA {brokerAccount.status}</div>
+              </div>
+            )}
+          </div>
 
-        {/* Right content */}
-        <div>
-          {/* ─── PROFILE ─────────────────────────────────────── */}
+          {/* Nav items */}
+          <nav style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '0.5rem', overflow: 'hidden' }}>
+            {SECTIONS.map(s => (
+              <button key={s.id} onClick={() => setSection(s.id)} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%', padding: '0.6rem 0.75rem', borderRadius: 8, border: 'none', background: section === s.id ? 'rgba(79,140,255,0.12)' : 'transparent', color: section === s.id ? 'var(--blue2)' : 'var(--muted)', fontSize: '0.82rem', fontWeight: section === s.id ? 600 : 400, cursor: 'pointer', textAlign: 'left', transition: 'all 0.14s', marginBottom: '0.1rem' }}
+                onMouseEnter={e => { if (section !== s.id) { e.currentTarget.style.background = 'var(--blue-dim)'; e.currentTarget.style.color = 'var(--white)' } }}
+                onMouseLeave={e => { if (section !== s.id) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--muted)' } }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: section === s.id ? 1 : 0.6 }}><path d={s.icon}/></svg>
+                {s.label}
+              </button>
+            ))}
+          </nav>
+
+          {/* Sign out */}
+          <button onClick={handleSignOut} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', marginTop: '0.75rem', padding: '0.65rem 0.75rem', borderRadius: 10, border: '1px solid rgba(228,88,103,0.2)', background: 'rgba(228,88,103,0.05)', color: 'var(--red)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.14s' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(228,88,103,0.1)'; e.currentTarget.style.borderColor = 'rgba(228,88,103,0.35)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(228,88,103,0.05)'; e.currentTarget.style.borderColor = 'rgba(228,88,103,0.2)' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+            Sign Out
+          </button>
+        </div>
+
+        {/* Content panels */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+          {/* PROFILE */}
           {section === 'profile' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.5rem' }}>
-                <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '1.25rem' }}>Profile Information</h2>
+            <>
+              <Panel title="Profile Information">
                 <form onSubmit={saveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div>
-                    <label style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '.58rem', letterSpacing: '.1em', color: 'var(--faint)', marginBottom: '.4rem' }}>DISPLAY NAME</label>
+                  <Field label="DISPLAY NAME">
                     <input type="text" value={name} onChange={e => setName(e.target.value)} className="input-base" />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '.58rem', letterSpacing: '.1em', color: 'var(--faint)', marginBottom: '.4rem' }}>EMAIL ADDRESS</label>
+                  </Field>
+                  <Field label="EMAIL ADDRESS">
                     <input type="email" value={user.email} readOnly className="input-base" style={{ opacity: 0.5, cursor: 'not-allowed' }} />
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', marginTop: '.3rem' }}>Contact support to change your email address</div>
-                  </div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', marginTop: '-.25rem' }}>
-                    Member since {new Date().getFullYear()} — Account ID: <span style={{ color: 'var(--muted)' }}>{user.id.slice(0, 8)}…</span>
-                  </div>
-                  {profileMsg && (
-                    <div style={{ fontSize: '.82rem', padding: '.6rem .85rem', borderRadius: 8, background: profileMsg.includes('success') ? 'rgba(0,229,153,0.08)' : 'rgba(242,54,69,0.08)', border: `1px solid ${profileMsg.includes('success') ? 'rgba(0,229,153,0.2)' : 'rgba(242,54,69,0.2)'}`, color: profileMsg.includes('success') ? 'var(--mint)' : 'var(--red)' }}>
-                      {profileMsg}
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', color: 'var(--faint)', marginTop: '0.3rem' }}>Contact support to change your email</div>
+                  </Field>
+                  <Field label="ACCOUNT ID">
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--muted)', padding: '0.6rem 0.9rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                      {user.id.slice(0, 8)}…{user.id.slice(-4)}
                     </div>
-                  )}
-                  <div>
-                    <button type="submit" disabled={profileLoading} className="btn-primary" style={{ fontSize: '.82rem', padding: '.55rem 1.4rem' }}>
-                      {profileLoading ? 'Saving...' : 'Save Changes'}
-                    </button>
-                  </div>
+                  </Field>
+                  {profileMsg && <Msg text={profileMsg} />}
+                  <div><button type="submit" disabled={profileLoading} className="btn-primary" style={{ fontSize: '0.82rem', padding: '0.55rem 1.4rem' }}>{profileLoading ? 'Saving…' : 'Save Changes'}</button></div>
                 </form>
-              </section>
+              </Panel>
 
-              {/* Alpaca Account Summary */}
-              <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.5rem' }}>
-                <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '1.25rem' }}>Alpaca Account</h2>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10 }}>
+              <Panel title="Brokerage Balance">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10 }}>
                   <div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.2rem' }}>AVAILABLE BALANCE</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.4rem', fontWeight: 700, color: walletBalanceCents > 0 ? 'var(--mint)' : 'var(--white)' }}>
-                      {fmtUSD(walletBalanceCents)}
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)', letterSpacing: '0.1em', marginBottom: '0.25rem' }}>AVAILABLE CASH</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.35rem', fontWeight: 700, color: walletBalanceCents > 0 ? 'var(--mint)' : 'var(--white)' }}>
+                      ${(Math.abs(walletBalanceCents) / 100).toFixed(2)}
                     </div>
                   </div>
-                  <a href="/dashboard/deposit" style={{ marginLeft: 'auto', padding: '.45rem 1rem', borderRadius: 8, background: 'var(--blue)', color: '#fff', fontSize: '.78rem', fontWeight: 700, textDecoration: 'none' }}>
-                    Add Funds →
-                  </a>
+                  <Link href="#" onClick={() => setSection('brokerage')} style={{ padding: '0.45rem 1rem', borderRadius: 8, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700, textDecoration: 'none' }}>
+                    Manage →
+                  </Link>
                 </div>
-              </section>
+              </Panel>
 
-              {/* Danger Zone */}
-              <section style={{ background: 'var(--bg2)', border: '1px solid rgba(242,54,69,0.2)', borderRadius: 14, padding: '1.5rem' }}>
-                <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '0.75rem', color: 'var(--red)' }}>Danger Zone</h2>
-                <p style={{ fontSize: '.8rem', color: 'var(--muted)', marginBottom: '1rem' }}>Once you delete your account, there is no going back. All your data will be permanently removed.</p>
-                <button style={{ padding: '.5rem 1.2rem', borderRadius: 8, border: '1px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: '.78rem', fontWeight: 600, cursor: 'pointer' }}>
+              <Panel title="Danger Zone" danger>
+                <p style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '1rem', lineHeight: 1.6 }}>Once you delete your account, there is no going back. All data will be permanently removed.</p>
+                <button style={{ padding: '0.5rem 1.2rem', borderRadius: 8, border: '1px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}>
                   Delete Account
                 </button>
-              </section>
-            </div>
+              </Panel>
+            </>
           )}
 
-          {/* ─── SECURITY ─────────────────────────────────────── */}
+          {/* SECURITY */}
           {section === 'security' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.5rem' }}>
-                <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '0.5rem' }}>Change Password</h2>
-                <p style={{ fontSize: '.8rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>Use a strong password with at least 8 characters, including numbers and symbols.</p>
-                <form onSubmit={changePassword} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: 400 }}>
-                  <div>
-                    <label style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '.58rem', letterSpacing: '.1em', color: 'var(--faint)', marginBottom: '.4rem' }}>NEW PASSWORD</label>
-                    <input type="password" value={password} onChange={e => setPassword(e.target.value)} minLength={8} placeholder="••••••••" className="input-base" />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '.58rem', letterSpacing: '.1em', color: 'var(--faint)', marginBottom: '.4rem' }}>CONFIRM PASSWORD</label>
-                    <input type="password" value={pwConfirm} onChange={e => setPwConfirm(e.target.value)} placeholder="••••••••" className="input-base" />
-                  </div>
-                  {pwMsg && (
-                    <div style={{ fontSize: '.82rem', padding: '.6rem .85rem', borderRadius: 8, background: pwMsg.includes('success') ? 'rgba(0,229,153,0.08)' : 'rgba(242,54,69,0.08)', border: `1px solid ${pwMsg.includes('success') ? 'rgba(0,229,153,0.2)' : 'rgba(242,54,69,0.2)'}`, color: pwMsg.includes('success') ? 'var(--mint)' : 'var(--red)' }}>
-                      {pwMsg}
-                    </div>
-                  )}
-                  <div>
-                    <button type="submit" disabled={pwLoading} className="btn-primary" style={{ fontSize: '.82rem', padding: '.55rem 1.4rem' }}>
-                      {pwLoading ? 'Updating...' : 'Update Password'}
-                    </button>
-                  </div>
+            <>
+              <Panel title="Change Password">
+                <p style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '1.25rem', lineHeight: 1.6 }}>Use a strong password with at least 8 characters, including numbers and symbols.</p>
+                <form onSubmit={changePassword} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: 420 }}>
+                  <Field label="NEW PASSWORD"><input type="password" value={password} onChange={e => setPassword(e.target.value)} minLength={8} placeholder="••••••••" className="input-base" /></Field>
+                  <Field label="CONFIRM PASSWORD"><input type="password" value={pwConfirm} onChange={e => setPwConfirm(e.target.value)} placeholder="••••••••" className="input-base" /></Field>
+                  {pwMsg && <Msg text={pwMsg} />}
+                  <div><button type="submit" disabled={pwLoading} className="btn-primary" style={{ fontSize: '0.82rem', padding: '0.55rem 1.4rem' }}>{pwLoading ? 'Updating…' : 'Update Password'}</button></div>
                 </form>
-              </section>
+              </Panel>
 
-              <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.5rem' }}>
-                <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '0.5rem' }}>Two-Factor Authentication</h2>
-                <p style={{ fontSize: '.8rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>Add an extra layer of security to your account using an authenticator app.</p>
-                <button style={{ padding: '.55rem 1.2rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg3)', color: 'var(--muted)', fontSize: '.82rem', fontWeight: 600, cursor: 'pointer' }}>
-                  Enable 2FA →
-                </button>
-              </section>
-
-              <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.5rem' }}>
-                <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '0.5rem' }}>Active Sessions</h2>
-                <p style={{ fontSize: '.8rem', color: 'var(--muted)', marginBottom: '1rem' }}>You are currently logged in on this device.</p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--mint)', flexShrink: 0 }} />
+              <Panel title="Two-Factor Authentication">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div>
-                    <div style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--white)' }}>Current session</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', marginTop: '.1rem' }}>Active now</div>
+                    <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--white)', marginBottom: '0.3rem' }}>Authenticator App</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Add an extra layer of security using an authenticator app.</div>
                   </div>
+                  <button style={{ padding: '0.5rem 1rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg3)', color: 'var(--muted)', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}>Enable 2FA</button>
                 </div>
-              </section>
+              </Panel>
 
-              <section style={{ background: 'var(--bg2)', border: '1px solid rgba(242,54,69,0.15)', borderRadius: 14, padding: '1.5rem' }}>
-                <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '0.75rem' }}>Sign Out</h2>
-                <button onClick={handleSignOut} style={{ padding: '.6rem 1.4rem', borderRadius: 8, border: '1px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: '.82rem', fontWeight: 600, cursor: 'pointer' }}>
-                  Sign Out of All Devices
-                </button>
-              </section>
-            </div>
+              <Panel title="Active Sessions">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--mint)', flexShrink: 0, animation: 'pulse 2s infinite' }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--white)' }}>Current session</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--faint)', marginTop: '0.1rem' }}>Active now · {user.email}</div>
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: 'var(--mint)', fontWeight: 600 }}>ACTIVE</div>
+                </div>
+              </Panel>
+            </>
           )}
 
-          {/* ─── BROKERAGE ─────────────────────────────────────── */}
+          {/* BROKERAGE */}
           {section === 'brokerage' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.5rem' }}>
-                <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '0.5rem' }}>Alpaca Brokerage Account</h2>
-                <p style={{ fontSize: '.8rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>Your connected brokerage account for executing agent trades. ASE uses Alpaca for real-time market execution.</p>
+            <>
+              <Panel title="Alpaca Brokerage Account">
+                <p style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '1.25rem', lineHeight: 1.6 }}>Your connected brokerage account for executing agent trades. ASE uses Alpaca for real-time market execution.</p>
                 {brokerAccount ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                      {[
-                        { label: 'ACCOUNT ID', value: brokerAccount.alpaca_account_id.slice(0, 12) + '…' },
-                        { label: 'ACCOUNT NUMBER', value: '••••' + brokerAccount.account_number.slice(-4) },
-                        { label: 'STATUS', value: brokerAccount.status },
-                        { label: 'TRADING', value: brokerAccount.trading_enabled ? 'Enabled' : 'Disabled' },
-                      ].map(row => (
-                        <div key={row.label} style={{ padding: '0.85rem 1rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10 }}>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.25rem' }}>{row.label}</div>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', fontWeight: 700, color: row.label === 'STATUS' ? (brokerAccount.status === 'ACTIVE' ? 'var(--mint)' : 'var(--yellow)') : 'var(--white)' }}>{row.value}</div>
-                        </div>
-                      ))}
-                    </div>
-                    <a href="/dashboard" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '.55rem 1.2rem', borderRadius: 8, background: 'var(--blue)', color: '#fff', fontSize: '.78rem', fontWeight: 700, textDecoration: 'none', alignSelf: 'flex-start' }}>
-                      Manage Account →
-                    </a>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    {[
+                      { label: 'ACCOUNT ID', value: brokerAccount.alpaca_account_id.slice(0, 12) + '…' },
+                      { label: 'ACCOUNT NUMBER', value: '••••' + brokerAccount.account_number.slice(-4) },
+                      { label: 'STATUS', value: brokerAccount.status, highlight: brokerAccount.status === 'ACTIVE' ? 'var(--mint)' : 'var(--orange)' },
+                      { label: 'TRADING', value: brokerAccount.trading_enabled ? 'Enabled' : 'Disabled', highlight: brokerAccount.trading_enabled ? 'var(--mint)' : 'var(--red)' },
+                    ].map(row => (
+                      <div key={row.label} style={{ padding: '0.85rem 1rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)', letterSpacing: '0.1em', marginBottom: '0.25rem' }}>{row.label}</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', fontWeight: 700, color: (row as { highlight?: string }).highlight ?? 'var(--white)' }}>{row.value}</div>
+                      </div>
+                    ))}
                   </div>
                 ) : (
-                  <div style={{ padding: '1.5rem', border: '1px dashed var(--border)', borderRadius: 12, textAlign: 'center' }}>
-                    <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginBottom: '1rem' }}>No brokerage account connected.</div>
-                    <a href="/dashboard" style={{ display: 'inline-block', padding: '.55rem 1.4rem', borderRadius: 8, background: 'var(--blue)', color: '#fff', fontSize: '.82rem', fontWeight: 700, textDecoration: 'none' }}>
-                      Connect Alpaca →
-                    </a>
+                  <div style={{ padding: '2rem', background: 'var(--bg3)', border: '1px dashed var(--border)', borderRadius: 10, textAlign: 'center' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--faint)', marginBottom: '0.75rem' }}>NO BROKERAGE ACCOUNT</div>
+                    <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '1rem' }}>Connect an Alpaca account to enable live trading.</div>
+                    <button style={{ padding: '0.55rem 1.25rem', borderRadius: 8, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700, border: 'none', cursor: 'pointer' }}>
+                      Connect Alpaca
+                    </button>
                   </div>
                 )}
-              </section>
+              </Panel>
 
-              <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.5rem' }}>
-                <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '0.5rem' }}>Fund Transfer</h2>
-                <p style={{ fontSize: '.8rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>Transfer funds between your ASE wallet and Alpaca trading account.</p>
-                <div style={{ display: 'flex', gap: '0.75rem' }}>
-                  <a href="/dashboard/deposit" style={{ flex: 1, padding: '.75rem', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg3)', color: 'var(--white)', fontSize: '.82rem', fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}>
-                    Add Funds to ASE Wallet
-                  </a>
-                  <a href="/dashboard/withdraw" style={{ flex: 1, padding: '.75rem', borderRadius: 10, border: '1px solid rgba(242,54,69,0.3)', background: 'rgba(242,54,69,0.04)', color: 'var(--red)', fontSize: '.82rem', fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}>
-                    Withdraw from ASE
-                  </a>
+              <Panel title="Balance & Funding">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: '0.75rem' }}>
+                  <div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)', letterSpacing: '0.1em', marginBottom: '0.25rem' }}>AVAILABLE CASH</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.35rem', fontWeight: 700, color: walletBalanceCents > 0 ? 'var(--mint)' : 'var(--white)' }}>
+                      ${(Math.abs(walletBalanceCents) / 100).toFixed(2)}
+                    </div>
+                  </div>
+                  <button style={{ padding: '0.5rem 1.1rem', borderRadius: 8, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700, border: 'none', cursor: 'pointer' }}>
+                    + Deposit
+                  </button>
                 </div>
-              </section>
-            </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--faint)', lineHeight: 1.7 }}>
+                  Funds are held in your Alpaca brokerage account. Deposits typically settle within 1-3 business days. ASE does not hold your funds.
+                </div>
+              </Panel>
+            </>
           )}
 
-          {/* ─── NOTIFICATIONS ───────────────────────────────── */}
+          {/* NOTIFICATIONS */}
           {section === 'notifications' && (
-            <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.5rem' }}>
-              <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '0.5rem' }}>Notification Preferences</h2>
-              <p style={{ fontSize: '.8rem', color: 'var(--muted)', marginBottom: '1.5rem' }}>Choose which emails and alerts you want to receive from ASE.</p>
+            <Panel title="Notification Preferences">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
                 {[
-                  { id: 'email', checked: notifEmail, set: setNotifEmail, title: 'Email Digest', desc: 'Weekly summary of agent performance and market updates' },
-                  { id: 'trade', checked: notifTrade, set: setNotifTrade, title: 'Trade Alerts', desc: 'Get notified when an agent executes a buy or sell order' },
-                  { id: 'alert', checked: notifAlert, set: setNotifAlert, title: 'Portfolio Alerts', desc: 'Critical alerts for drawdown warnings and agent status changes' },
-                ].map((item, i) => (
-                  <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1rem 0', borderBottom: i < 2 ? '1px solid rgba(30,55,100,.2)' : 'none' }}>
-                    <label style={{ position: 'relative', display: 'inline-block', width: 42, height: 22, flexShrink: 0 }}>
-                      <input type="checkbox" checked={item.checked} onChange={e => item.set(e.target.checked)} style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }} />
-                      <span style={{ position: 'absolute', cursor: 'pointer', inset: 0, background: item.checked ? 'var(--blue)' : 'var(--bg3)', borderRadius: 11, border: `1px solid ${item.checked ? 'var(--blue)' : 'var(--border)'}`, transition: 'all 0.2s' }}>
-                        <span style={{ position: 'absolute', top: 2, left: item.checked ? 21 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'all 0.2s' }} />
-                      </span>
-                    </label>
+                  { label: 'Email Notifications', sub: 'Receive account updates and security alerts via email', value: notifEmail, set: setNotifEmail },
+                  { label: 'Trade Confirmations', sub: 'Get notified when agents execute trades on your behalf', value: notifTrade, set: setNotifTrade },
+                  { label: 'Risk Alerts', sub: 'Alert me when drawdown or risk thresholds are breached', value: notifAlert, set: setNotifAlert },
+                ].map((n, i) => (
+                  <div key={n.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 0', borderBottom: i < 2 ? '1px solid var(--border)' : 'none', gap: '1rem' }}>
                     <div>
-                      <div style={{ fontSize: '.88rem', fontWeight: 600, color: 'var(--white)', marginBottom: '.15rem' }}>{item.title}</div>
-                      <div style={{ fontSize: '.75rem', color: 'var(--muted)' }}>{item.desc}</div>
+                      <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--white)', marginBottom: '0.2rem' }}>{n.label}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{n.sub}</div>
                     </div>
+                    <button onClick={() => n.set(!n.value)} style={{ width: 42, height: 24, borderRadius: 12, background: n.value ? 'var(--mint)' : 'var(--bg4)', border: `1px solid ${n.value ? 'var(--mint)' : 'var(--border)'}`, cursor: 'pointer', position: 'relative', transition: 'all 0.2s', flexShrink: 0 }}>
+                      <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 2, left: n.value ? 21 : 2, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+                    </button>
                   </div>
                 ))}
               </div>
-              {notifMsg && (
-                <div style={{ marginTop: '1rem', fontSize: '.82rem', color: 'var(--mint)', padding: '.6rem .85rem', borderRadius: 8, background: 'rgba(0,229,153,0.08)', border: '1px solid rgba(0,229,153,0.2)' }}>
-                  {notifMsg}
-                </div>
-              )}
-            </section>
+              <div style={{ marginTop: '1.25rem' }}>
+                <button className="btn-primary" style={{ fontSize: '0.82rem', padding: '0.55rem 1.4rem' }}>Save Preferences</button>
+              </div>
+            </Panel>
           )}
 
-          {/* ─── BILLING ─────────────────────────────────────── */}
-          {section === 'billing' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.5rem' }}>
-                <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '0.5rem' }}>Current Plan</h2>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1.25rem', background: 'rgba(59,127,255,0.06)', border: '1px solid rgba(59,127,255,0.2)', borderRadius: 12, marginBottom: '1.25rem' }}>
-                  <div style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--blue)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', fontWeight: 700, color: '#fff' }}>PRO</span>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--white)', marginBottom: '.15rem' }}>Pro Plan</div>
-                    <div style={{ fontSize: '.78rem', color: 'var(--muted)' }}>Unlimited agents, backtesting, and priority execution.</div>
-                  </div>
-                  <div style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '1.2rem', fontWeight: 700, color: 'var(--white)' }}>$0</div>
-                </div>
-                <p style={{ fontSize: '.78rem', color: 'var(--faint)' }}>All ASE services are currently free during beta. Billing will be enabled soon.</p>
-              </section>
-
-              <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.5rem' }}>
-                <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '0.5rem' }}>Agent Fees</h2>
-                <p style={{ fontSize: '.8rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>Each agent may have its own performance fee. These are deducted from your NAV gains.</p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {[
-                    { agent: 'BTC Momentum Alpha', fee: '2% performance' },
-                    { agent: 'ETH Statistical Arbitrage', fee: '2% performance' },
-                    { agent: 'S&P 500 Momentum Edge', fee: '1% performance' },
-                  ].map(a => (
-                    <div key={a.agent} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8 }}>
-                      <span style={{ fontSize: '.82rem', color: 'var(--white)' }}>{a.agent}</span>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--faint)' }}>{a.fee}</span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.5rem' }}>
-                <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '0.5rem' }}>Invoices</h2>
-                <p style={{ fontSize: '.8rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>Download invoices for your records.</p>
-                <div style={{ color: 'var(--faint)', fontSize: '.82rem', fontStyle: 'italic' }}>No invoices yet — billing is free during beta.</div>
-              </section>
-            </div>
-          )}
-
-          {/* ─── HISTORY ─────────────────────────────────────── */}
+          {/* HISTORY */}
           {section === 'history' && (
-            <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.5rem' }}>
-              <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', fontWeight: 700, marginBottom: '0.5rem' }}>Transaction History</h2>
-              <p style={{ fontSize: '.8rem', color: 'var(--muted)', marginBottom: '1.5rem' }}>Your complete transaction log including deposits, investments, and returns.</p>
+            <Panel title="Transaction History">
               {transactions.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--muted)' }}>
-                  <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem', opacity: 0.3 }}>📋</div>
-                  <div style={{ fontSize: '.85rem' }}>No transactions yet</div>
-                </div>
+                <div style={{ padding: '2rem', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--faint)' }}>NO TRANSACTIONS YET</div>
               ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                <div style={{ overflowX: 'auto', margin: '0 -1.5rem -1.5rem' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
-                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                        {['DATE', 'TYPE', 'NOTE', 'AMOUNT'].map(h => (
-                          <th key={h} style={{ padding: '0.6rem 0.75rem', textAlign: 'left', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 700, letterSpacing: '0.08em' }}>{h}</th>
+                      <tr>
+                        {['DATE', 'TYPE', 'AMOUNT', 'NOTE'].map(h => (
+                          <th key={h} style={{ padding: '0.65rem 1.5rem', textAlign: 'left', fontFamily: 'var(--font-mono)', fontSize: '0.5rem', fontWeight: 700, color: 'var(--faint)', letterSpacing: '0.1em', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {transactions.map((tx, i) => {
-                        const isPos = ['deposit', 'divest', 'return', 'withdrawal_refund'].includes(tx.type)
-                        return (
-                          <tr key={tx.id} style={{ borderBottom: i === transactions.length - 1 ? 'none' : '1px solid rgba(30,55,100,.15)' }}>
-                            <td style={{ padding: '0.7rem 0.75rem', fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--faint)' }}>{fmtDateTimeFull(tx.created_at)}</td>
-                            <td style={{ padding: '0.7rem 0.75rem', fontFamily: 'var(--font-mono)', fontSize: '.72rem', fontWeight: 600, color: 'var(--muted)' }}>{TX_LABELS[tx.type] || tx.type}</td>
-                            <td style={{ padding: '0.7rem 0.75rem', color: 'var(--muted)', fontSize: '.75rem', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tx.note ?? '—'}</td>
-                            <td style={{ padding: '0.7rem 0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color: isPos ? 'var(--mint)' : 'var(--red)', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                              {isPos ? '+' : ''}{fmtUSD(Math.abs(tx.amount_cents))}
-                            </td>
-                          </tr>
-                        )
-                      })}
+                      {transactions.map((tx, i) => (
+                        <tr key={tx.id} style={{ borderBottom: i < transactions.length - 1 ? '1px solid rgba(30,42,61,0.5)' : 'none' }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(79,140,255,0.03)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                          <td style={{ padding: '0.75rem 1.5rem', fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--faint)', whiteSpace: 'nowrap' }}>{fmtDate(tx.created_at)}</td>
+                          <td style={{ padding: '0.75rem 1.5rem' }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', fontWeight: 600, color: TX_COLORS[tx.type] ?? 'var(--muted)', background: `${TX_COLORS[tx.type] ?? 'var(--muted)'}18`, border: `1px solid ${TX_COLORS[tx.type] ?? 'var(--border)'}28`, borderRadius: 5, padding: '0.15rem 0.5rem' }}>
+                              {TX_LABELS[tx.type] ?? tx.type}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.75rem 1.5rem', fontFamily: 'var(--font-mono)', fontSize: '0.75rem', fontWeight: 700, color: tx.amount_cents >= 0 ? 'var(--mint)' : 'var(--red)', whiteSpace: 'nowrap' }}>
+                            {fmtUSD(tx.amount_cents)}
+                          </td>
+                          <td style={{ padding: '0.75rem 1.5rem', fontSize: '0.78rem', color: 'var(--muted)' }}>{tx.note ?? '—'}</td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
               )}
-            </section>
+            </Panel>
           )}
         </div>
       </div>
+
+      <style>{`
+        @media(max-width:768px){ .settings-grid{grid-template-columns:1fr!important} }
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+      `}</style>
+    </div>
+  )
+}
+
+function Panel({ title, children, danger }: { title: string; children: React.ReactNode; danger?: boolean }) {
+  return (
+    <div style={{ background: 'var(--bg2)', border: `1px solid ${danger ? 'rgba(228,88,103,0.2)' : 'var(--border)'}`, borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ padding: '1rem 1.5rem', borderBottom: `1px solid ${danger ? 'rgba(228,88,103,0.15)' : 'var(--border)'}`, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ width: 3, height: 12, borderRadius: 2, background: danger ? 'var(--red)' : 'var(--blue)' }} />
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', fontWeight: 700, color: danger ? 'var(--red)' : 'var(--faint)', letterSpacing: '0.1em' }}>{title.toUpperCase()}</span>
+      </div>
+      <div style={{ padding: '1.5rem' }}>{children}</div>
+    </div>
+  )
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: '0.52rem', letterSpacing: '0.1em', color: 'var(--faint)', marginBottom: '0.4rem', fontWeight: 700 }}>{label}</label>
+      {children}
+    </div>
+  )
+}
+
+function Msg({ text }: { text: string }) {
+  const ok = text.includes('success') || text.includes('updated')
+  return (
+    <div style={{ fontSize: '0.82rem', padding: '0.6rem 0.85rem', borderRadius: 8, background: ok ? 'rgba(22,199,132,0.08)' : 'rgba(228,88,103,0.08)', border: `1px solid ${ok ? 'rgba(22,199,132,0.2)' : 'rgba(228,88,103,0.2)'}`, color: ok ? 'var(--mint)' : 'var(--red)' }}>
+      {text}
     </div>
   )
 }
