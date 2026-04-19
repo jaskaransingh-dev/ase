@@ -138,8 +138,8 @@ function MacBookScreen() {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5, minHeight: 0 }}>
             <div style={{ fontSize: 5, color: '#3A5070', letterSpacing: '0.12em' }}>MY AGENTS</div>
             {[
-              { ticker: 'SPYM', name: 'S&P 500 Momentum Edge', ret: '+0.10', sharpe: '5.10', pos: true },
-              { ticker: 'CCAL', name: 'Covered Call Overlay', ret: '+0.00', sharpe: '-5.76', pos: true },
+              { ticker: 'BTCM', name: 'BTC Momentum Edge', ret: '+0.10', sharpe: '5.10', pos: true },
+              { ticker: 'ETHD', name: 'ETH DeFi Yield', ret: '+0.00', sharpe: '1.24', pos: true },
               { ticker: 'BEPV', name: 'BTC/ETH Pair Trading', ret: '-13.82', sharpe: '-0.04', pos: false },
             ].map(a => (
               <div key={a.ticker} style={{
@@ -244,8 +244,8 @@ function IPhoneScreen() {
         <div style={{ flex: 1, overflow: 'hidden' }}>
           <div style={{ fontSize: 7, color: '#3A5070', letterSpacing: '0.12em', marginBottom: 5 }}>MY AGENTS</div>
           {[
-            { name: 'S&P Momentum Edge', ret: '+0.10%', pos: true },
-            { name: 'Covered Call Overlay', ret: '+0.00%', pos: true },
+            { name: 'BTC Momentum Edge', ret: '+0.10%', pos: true },
+            { name: 'ETH DeFi Yield', ret: '+0.00%', pos: true },
             { name: 'BTC/ETH Pair Trading', ret: '-13.82%', pos: false },
           ].map((a, i) => (
             <div key={i} style={{
@@ -427,7 +427,7 @@ export default function HeroDevices() {
       }}>
         <div style={{ fontSize: 7, color: '#3A5070', letterSpacing: '0.12em', marginBottom: 3 }}>SHARPE RATIO</div>
         <div style={{ fontSize: 22, fontWeight: 700, color: '#FFFFFF', fontFamily: 'monospace', lineHeight: 1, letterSpacing: '-0.02em' }}>5.10</div>
-        <div style={{ fontSize: 7.5, color: '#5B8CFF', marginTop: 4 }}>S&P Momentum Edge</div>
+        <div style={{ fontSize: 7.5, color: '#5B8CFF', marginTop: 4 }}>BTC Momentum Edge</div>
       </div>
 
       {/* Monthly Return Card */}

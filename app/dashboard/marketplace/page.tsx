@@ -28,7 +28,7 @@ const SORT_OPTIONS = [
   { value: 'drawdown', label: 'Low Drawdown', icon: BarChart3 },
 ]
 
-const TAGS = ['momentum', 'mean-reversion', 'crypto', 'equities', 'low-drawdown', 'high-sharpe', 'multi-asset']
+const TAGS = ['momentum', 'mean-reversion', 'crypto', 'defi', 'low-drawdown', 'high-sharpe', 'multi-chain']
 
 function MiniSparkline({ positive }: { positive: boolean }) {
   const pts = Array.from({ length: 14 }, (_, i) => {

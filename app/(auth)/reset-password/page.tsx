@@ -17,16 +17,34 @@ export default function ResetPasswordPage() {
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      supabaseRef.current = createClient()
-      // Verify there's an active recovery session before showing the form
-      supabaseRef.current.auth.getSession().then(({ data: { session } }) => {
-        if (session) {
-          setSessionReady('ok')
-        } else {
-          setSessionReady('invalid')
-        }
-      })
+    if (typeof window === 'undefined') return
+    supabaseRef.current = createClient()
+    const sb = supabaseRef.current
+
+    // Check for existing session first
+    sb.auth.getSession().then(({ data: { session } }) => {
+      if (session) setSessionReady('ok')
+    })
+
+    // onAuthStateChange catches the PASSWORD_RECOVERY event emitted when
+    // Supabase processes the token from the URL — fires even if getSession
+    // returned null due to a timing race on mount.
+    const { data: { subscription } } = sb.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
+        setSessionReady('ok')
+      } else if (event === 'SIGNED_OUT') {
+        setSessionReady('invalid')
+      }
+    })
+
+    // Fall back to invalid after 5s if still checking
+    const timeout = setTimeout(() => {
+      setSessionReady(prev => prev === 'checking' ? 'invalid' : prev)
+    }, 5000)
+
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(timeout)
     }
   }, [])
 

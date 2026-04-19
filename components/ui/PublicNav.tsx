@@ -29,7 +29,7 @@ export default function PublicNav({ variant = 'default' }: { variant?: 'default'
   const elevated = scrolled || variant === 'dark'
 
   const LINKS = [
-    { label: 'Marketplace', href: '/dashboard/marketplace' },
+    { label: 'Exchange', href: '/dashboard/marketplace' },
     { label: 'Build', href: '/dashboard/build' },
     { label: 'Agents', href: '/agents' },
     { label: 'Builders', href: '/builders' },
@@ -74,10 +74,9 @@ export default function PublicNav({ variant = 'default' }: { variant?: 'default'
         transition: 'all 0.25s ease',
       }}>
         {/* Logo */}
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', textDecoration: 'none', flexShrink: 0 }}>
+        <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none', flexShrink: 0 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/transparent_logo.png" alt="ASE" style={{ height: 30, width: 'auto', objectFit: 'contain' }} />
-          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.8rem', color: 'var(--white)', letterSpacing: '0.08em' }}>ASE</span>
         </Link>
 
         {/* Desktop nav */}

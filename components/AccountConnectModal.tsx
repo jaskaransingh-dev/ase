@@ -154,7 +154,7 @@ export default function AccountConnectModal({ onClose, onSuccess }: Props) {
                 </li>
                 <li style={{ marginTop: '0.75rem' }}>
                   <strong>Connect with Alpaca</strong><br/>
-                  <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>US stocks & crypto trading</span>
+                  <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>Crypto & DeFi trading</span>
                 </li>
               </ol>
             </div>

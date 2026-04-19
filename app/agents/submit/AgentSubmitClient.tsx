@@ -58,7 +58,7 @@ const BACKTEST_STRATEGIES = [
 
 const ASSET_CLASSES = [
   { value: 'crypto', label: 'Crypto', desc: 'BTC, ETH, DeFi tokens' },
-  { value: 'equity', label: 'Equity', desc: 'Stocks and ETFs' },
+  { value: 'defi', label: 'DeFi', desc: 'Protocols and yield' },
   { value: 'multi', label: 'Multi-Asset', desc: 'Cross-asset strategy' },
 ]
 

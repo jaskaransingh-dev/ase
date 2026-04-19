@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, BarChart, Bar } from 'recharts'
-import { Loader2, Play, TrendingUp, Activity, Shield, BookOpen, GitBranch, AlertCircle } from 'lucide-react'
+import { Loader2, Play, TrendingUp, Activity, Shield, BookOpen, AlertCircle, FileText } from 'lucide-react'
 import Link from 'next/link'
 
 const PERIODS = [
@@ -61,9 +61,8 @@ export default function BacktestComparePage() {
   const [mcTrials, setMcTrials] = useState(100)
   const [mcResults, setMcResults] = useState<any>(null)
   const [wfResults, setWfResults] = useState<any>(null)
-  const [activeTab, setActiveTab] = useState<'agents' | 'data'>('agents')
-  const [csvFile, setCsvFile] = useState<File | null>(null)
-  const [csvData, setCsvData] = useState<any[]>([])
+  const [showReport, setShowReport] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
 
   const toBacktestSymbol = (value: string) => value.replace(/\//g, '-')
   
@@ -228,21 +227,26 @@ export default function BacktestComparePage() {
 
   // Auto-run on mount if agents are loaded
   useEffect(() => {
-    if (!loadingAgents && selectedAgents.length > 0 && activeTab === 'agents') {
+    if (!loadingAgents && selectedAgents.length > 0) {
       runBacktest()
     }
-  }, [loadingAgents, activeTab])
+  }, [loadingAgents])
 
-  const handleCsvUpload = async (file: File) => {
-    setCsvFile(file)
-    const text = await file.text()
-    const lines = text.split('\n').filter(l => l.trim())
-    const headers = lines[0].split(',').map(h => h.trim())
-    const data = lines.slice(1).map(line => {
-      const values = line.split(',').map(v => v.trim())
-      return headers.reduce((obj: any, h, i) => ({ ...obj, [h]: isNaN(Number(values[i])) ? values[i] : Number(values[i]) }), {})
-    })
-    setCsvData(data)
+  // Elapsed timer during backtest
+  useEffect(() => {
+    if (!loading) { setElapsed(0); return }
+    const start = Date.now()
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 500)
+    return () => clearInterval(id)
+  }, [loading])
+
+  const estimateSeconds = () => {
+    const periodMap: Record<string, number> = { '14d': 2, '30d': 3, '90d': 5, '180d': 8, '270d': 11, '1y': 14, '2y': 22, '5y': 45 }
+    const base = periodMap[period] || 10
+    const agentMult = Math.max(1, selectedAgents.length)
+    const mcMult = enableMonteCarlo ? 1 + mcTrials / 50 : 1
+    const wfMult = enableWalkForward ? 2.5 : 1
+    return Math.ceil(base * agentMult * mcMult * wfMult)
   }
 
   const toggleAgent = (slug: string) => {
@@ -303,10 +307,23 @@ export default function BacktestComparePage() {
             <BookOpen size={12} />Guide
           </Link>
         </div>
-        <button onClick={runBacktest} disabled={loading || selectedAgents.length === 0} style={{ padding: '.45rem 1rem', borderRadius: 8, border: 'none', background: loading ? colors.bg3 : colors.blue, color: '#fff', fontSize: '.7rem', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-          {loading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-          {loading ? 'Running...' : 'Run Backtest'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {loading && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: colors.muted, textAlign: 'right' }}>
+              <div>{elapsed}s elapsed</div>
+              <div style={{ color: colors.faint }}>~{estimateSeconds()}s est.</div>
+            </div>
+          )}
+          {Object.keys(results).length > 0 && !loading && (
+            <button onClick={() => setShowReport(true)} style={{ padding: '.4rem .8rem', borderRadius: 8, border: `1px solid ${colors.border}`, background: colors.bg3, color: colors.muted, fontSize: '.7rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <FileText size={13} />Full Report
+            </button>
+          )}
+          <button onClick={runBacktest} disabled={loading || selectedAgents.length === 0} style={{ padding: '.45rem 1rem', borderRadius: 8, border: 'none', background: loading ? colors.bg3 : colors.blue, color: '#fff', fontSize: '.7rem', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+            {loading ? 'Running...' : 'Run Backtest'}
+          </button>
+        </div>
       </header>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.75rem', padding: '1rem 1.5rem', borderBottom: `1px solid ${colors.border}`, background: 'linear-gradient(180deg, rgba(79,140,255,.06), rgba(11,23,40,.98))' }}>
@@ -324,14 +341,8 @@ export default function BacktestComparePage() {
         ))}
       </div>
 
-      {/* Tab Navigation */}
-      <div style={{ display: 'flex', gap: '0.25rem', padding: '0.75rem 1.5rem', borderBottom: `1px solid ${colors.border}`, background: colors.bg2 }}>
-        <button onClick={() => setActiveTab('agents')} style={{ padding: '0.5rem 1rem', borderRadius: 6, border: 'none', background: activeTab === 'agents' ? colors.blue : 'transparent', color: activeTab === 'agents' ? colors.white : colors.muted, cursor: 'pointer', fontSize: '0.8rem', fontWeight: activeTab === 'agents' ? 600 : 400 }}>Agents</button>
-        <button onClick={() => setActiveTab('data')} style={{ padding: '0.5rem 1rem', borderRadius: 6, border: 'none', background: activeTab === 'data' ? colors.blue : 'transparent', color: activeTab === 'data' ? colors.white : colors.muted, cursor: 'pointer', fontSize: '0.8rem', fontWeight: activeTab === 'data' ? 600 : 400 }}>Data</button>
-      </div>
-
       {/* Controls */}
-      {activeTab === 'agents' && (
+      {(
       <div style={{ display: 'flex', gap: '.75rem', padding: '1rem 1.5rem', borderBottom: `1px solid ${colors.border}`, background: colors.bg2, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
           <span style={{ fontSize: '.55rem', color: colors.faint, letterSpacing: '.1em' }}>PERIOD</span>
@@ -379,74 +390,6 @@ export default function BacktestComparePage() {
       </div>
       )}
 
-      {/* Data Tab */}
-      {activeTab === 'data' && (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1.5rem', background: colors.bg2, borderBottom: `1px solid ${colors.border}` }}>
-        <div>
-          <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem', color: colors.white }}>CSV Data Upload</h3>
-          <p style={{ margin: '0 0 1rem', fontSize: '0.75rem', color: colors.muted }}>Upload historical price data (date, open, high, low, close, volume)</p>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <label style={{
-            display: 'flex', alignItems: 'center', gap: '0.5rem',
-            padding: '0.75rem 1.5rem', borderRadius: 8,
-            border: `2px dashed ${colors.border}`,
-            background: colors.bg3,
-            color: colors.muted,
-            cursor: 'pointer',
-            fontSize: '0.8rem',
-            fontWeight: 600,
-            transition: 'all 0.2s'
-          }}>
-            <input
-              type="file"
-              accept=".csv"
-              onChange={(e) => e.target.files?.[0] && handleCsvUpload(e.target.files[0])}
-              style={{ display: 'none' }}
-            />
-            📤 Choose CSV File
-          </label>
-          {csvFile && <span style={{ fontSize: '0.8rem', color: colors.mint }}>{csvFile.name}</span>}
-        </div>
-
-        {csvData.length > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
-            <div style={{ padding: '0.75rem', background: colors.bg3, borderRadius: 6, border: `1px solid ${colors.border}` }}>
-              <div style={{ fontSize: '0.65rem', color: colors.faint }}>Rows</div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: colors.white }}>{csvData.length}</div>
-            </div>
-            <div style={{ padding: '0.75rem', background: colors.bg3, borderRadius: 6, border: `1px solid ${colors.border}` }}>
-              <div style={{ fontSize: '0.65rem', color: colors.faint }}>Columns</div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: colors.white }}>{Object.keys(csvData[0]).length}</div>
-            </div>
-            <div style={{ padding: '0.75rem', background: colors.bg3, borderRadius: 6, border: `1px solid ${colors.border}` }}>
-              <div style={{ fontSize: '0.65rem', color: colors.faint }}>Date Range</div>
-              <div style={{ fontSize: '0.85rem', fontWeight: 600, color: colors.white }}>{csvData[0]?.date || 'N/A'} → {csvData[csvData.length-1]?.date || 'N/A'}</div>
-            </div>
-          </div>
-        )}
-
-        {csvData.length > 0 && (
-          <div style={{ maxHeight: 300, overflowY: 'auto', background: colors.bg3, border: `1px solid ${colors.border}`, borderRadius: 8 }}>
-            <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
-              <thead style={{ position: 'sticky', top: 0, background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                <tr>
-                  {Object.keys(csvData[0]).map(k => <th key={k} style={{ padding: '0.5rem', textAlign: 'left', color: colors.muted, fontWeight: 500 }}>{k}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {csvData.slice(0, 10).map((row, i) => <tr key={i} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  {Object.values(row).map((v: any, j) => <td key={j} style={{ padding: '0.5rem', color: colors.text }}>{typeof v === 'number' ? v.toFixed(2) : v}</td>)}
-                </tr>)}
-              </tbody>
-            </table>
-            {csvData.length > 10 && <div style={{ padding: '0.5rem', textAlign: 'center', fontSize: '0.7rem', color: colors.muted }}>... {csvData.length - 10} more rows</div>}
-          </div>
-        )}
-      </div>
-      )}
-
       {/* Error */}
       {error && (
         <div style={{ margin: '1rem 1.5rem', padding: '.75rem 1rem', background: 'rgba(255,107,122,.1)', border: '1px solid rgba(255,107,122,.3)', borderRadius: 8, color: colors.red, fontSize: '.75rem' }}>
@@ -454,8 +397,94 @@ export default function BacktestComparePage() {
         </div>
       )}
 
-      {/* Main Content - Agents Tab */}
-      {activeTab === 'agents' && (
+      {/* Full Report Modal */}
+      {showReport && results[selectedAgents[0]]?.stats && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(8px)' }} onClick={() => setShowReport(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 16, padding: '2rem', width: 640, maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.6)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <div>
+                <div style={{ fontSize: '1rem', fontWeight: 700, color: colors.white }}>Full Backtest Report</div>
+                <div style={{ fontSize: '0.65rem', color: colors.muted, marginTop: 2 }}>{period} · {selectedAgents.length} agent{selectedAgents.length !== 1 ? 's' : ''}</div>
+              </div>
+              <button onClick={() => setShowReport(false)} style={{ background: 'none', border: 'none', color: colors.faint, cursor: 'pointer', fontSize: '1.2rem' }}>✕</button>
+            </div>
+            {selectedAgents.map((slug, idx) => {
+              const agent = agents.find(a => a.slug === slug)
+              const s = results[slug]?.stats
+              if (!s) return null
+              return (
+                <div key={slug} style={{ marginBottom: '1.5rem', padding: '1rem', background: colors.bg3, borderRadius: 12, borderLeft: `3px solid ${agentColors[idx % agentColors.length]}` }}>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: colors.white, marginBottom: '1rem' }}>{agent?.name || slug} ({agent?.ticker || slug})</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                    {[
+                      ['Total Return', `${s.totalReturnPct?.toFixed(2)}%`, (s.totalReturnPct ?? 0) >= 0 ? colors.mint : colors.red],
+                      ['CAGR', `${s.annualizedReturnPct?.toFixed(2)}%`, (s.annualizedReturnPct ?? 0) >= 0 ? colors.mint : colors.red],
+                      ['Sharpe Ratio', s.sharpeRatio?.toFixed(3), colors.blue2],
+                      ['Sortino Ratio', s.sortinoRatio?.toFixed(3), colors.blue2],
+                      ['Calmar Ratio', s.calmarRatio?.toFixed(3), colors.blue2],
+                      ['Max Drawdown', `${Math.abs(s.maxDrawdownPct ?? 0).toFixed(2)}%`, colors.red],
+                      ['Avg Drawdown', `${Math.abs(s.averageDrawdownPct ?? 0).toFixed(2)}%`, colors.orange],
+                      ['Downside Vol', `${(s.downsideVolatility * 100)?.toFixed(2)}%`, colors.text],
+                      ['Win Rate', `${s.winRate?.toFixed(1)}%`, colors.text],
+                      ['Profit Factor', s.profitFactor?.toFixed(3), colors.text],
+                      ['Total Trades', s.totalTrades, colors.text],
+                      ['Exposure', `${s.exposureTime?.toFixed(1)}%`, colors.text],
+                      ['Turnover', `${s.turnover?.toFixed(2)}x`, colors.text],
+                      ['Pos. Months', `${s.positiveMonthRatio?.toFixed(1)}%`, colors.text],
+                      ['Roll Sharpe μ', s.rolling63dSharpeMean?.toFixed(3), colors.text],
+                      ['Roll Sharpe σ', s.rolling63dSharpeStd?.toFixed(3), colors.text],
+                    ].map(([label, val, color]) => (
+                      <div key={label as string} style={{ padding: '0.6rem', background: colors.bg, borderRadius: 8 }}>
+                        <div style={{ fontSize: '0.5rem', color: colors.faint, marginBottom: 4, letterSpacing: '0.06em' }}>{label as string}</div>
+                        <div style={{ fontSize: '0.82rem', fontWeight: 700, color: color as string }}>{val ?? '—'}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+            {mcResults && (
+              <div style={{ padding: '1rem', background: colors.bg3, borderRadius: 12, marginBottom: '1rem' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.white, marginBottom: '0.75rem' }}>Monte Carlo Results ({mcResults.nTrials} trials)</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                  {[
+                    ['Median Return', `${mcResults.medianReturn?.toFixed(2)}%`, (mcResults.medianReturn ?? 0) >= 0 ? colors.mint : colors.red],
+                    ['p10 Return', `${mcResults.p10Return?.toFixed(2)}%`, colors.red],
+                    ['p90 Return', `${mcResults.p90Return?.toFixed(2)}%`, colors.mint],
+                    ['Median Max DD', `${Math.abs(mcResults.medianMaxDrawdown ?? 0).toFixed(2)}%`, colors.orange],
+                    ['Beat B&H Rate', `${((mcResults.beatRate ?? 0) * 100).toFixed(1)}%`, colors.blue2],
+                  ].map(([label, val, color]) => (
+                    <div key={label as string} style={{ padding: '0.6rem', background: colors.bg, borderRadius: 8 }}>
+                      <div style={{ fontSize: '0.5rem', color: colors.faint, marginBottom: 4 }}>{label as string}</div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: color as string }}>{val}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {wfResults && (
+              <div style={{ padding: '1rem', background: colors.bg3, borderRadius: 12 }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.white, marginBottom: '0.75rem' }}>Walk-Forward Analysis ({wfResults.nWindows} windows)</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                  {[
+                    ['Avg Return', `${wfResults.avgReturn?.toFixed(2)}%`, (wfResults.avgReturn ?? 0) >= 0 ? colors.mint : colors.red],
+                    ['Avg Sharpe', wfResults.avgSharpe?.toFixed(3), colors.blue2],
+                    ['Consistency', `${((wfResults.consistencyRatio ?? 0) * 100).toFixed(1)}%`, colors.mint],
+                  ].map(([label, val, color]) => (
+                    <div key={label as string} style={{ padding: '0.6rem', background: colors.bg, borderRadius: 8 }}>
+                      <div style={{ fontSize: '0.5rem', color: colors.faint, marginBottom: 4 }}>{label as string}</div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: color as string }}>{val ?? '—'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Main Content */}
+      {(
       <div style={{ flex: 1, display: 'flex', gap: '1.5rem', padding: '1.5rem', overflow: 'auto' }}>
         
         {/* Chart Section */}

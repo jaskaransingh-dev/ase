@@ -83,7 +83,7 @@ const FEATURES = [
   { color: '#8B5CF6', icon: 'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', title: 'Quant Lab', desc: 'Build and backtest your own algorithmic strategies using 20+ free data APIs, AI-assisted signal generation, and live deployment.' },
   { color: '#F5B942', icon: 'M13 10V3L4 14h7v7l9-11h-7z', title: 'One-Click Deploy', desc: 'Browse the marketplace, review backtested results, and subscribe to strategies. Capital allocated in seconds.' },
   { color: '#6DD3FF', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', title: 'Real-Time Monitoring', desc: 'Track every trade, NAV change, and signal in real time. Full visibility into what every agent is doing.' },
-  { color: '#E45867', icon: 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6', title: 'Multi-Market', desc: 'Crypto, equities, DeFi — access diverse strategies across asset classes from one unified terminal.' },
+  { color: '#E45867', icon: 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6', title: 'Multi-Chain', desc: 'Crypto, DeFi, on-chain — access diverse strategies across L1s, L2s, and DeFi protocols from one unified terminal.' },
 ]
 
 const HOW_STEPS = [
