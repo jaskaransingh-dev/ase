@@ -45,7 +45,6 @@ export async function GET(request: NextRequest) {
         agent_stats(*)
       `)
       .eq('slug', slug)
-      .eq('owner_id', user.id)
       .single()
 
     if (error || !agent) {

@@ -14,7 +14,6 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ sl
     .from('agents')
     .select('id, name, slug, description, strategy_type, status, asset_class, alert_level, drawdown_pct, monthly_fee_cents, subscriber_count, primary_symbol, backtest_strategy, signal_summary, backtest_stats')
     .eq('slug', slug)
-    .eq('asset_class', 'crypto')
     .single()
 
   if (!agent) notFound()
@@ -47,7 +46,35 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ sl
   const latestStats = statsRows && statsRows.length > 0 ? statsRows[statsRows.length - 1] : null
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const backtestStats = (agent as any).backtest_stats ?? null
+  const rawBacktestStats = (agent as any).backtest_stats ?? null
+
+  let backtestStats = null
+  if (rawBacktestStats) {
+    if (rawBacktestStats.stats) {
+      backtestStats = rawBacktestStats
+    } else {
+      const s = rawBacktestStats as Record<string, unknown>
+      backtestStats = {
+        symbol: s.primary_symbol ? String(s.primary_symbol).replace('/', '-') : s.symbols ? String((s.symbols as string[])[0]) : 'BTC-USD',
+        strategy: String(s.strategy_type ?? 'crypto_momentum'),
+        period: String(s.period ?? '1y'),
+        computed_at: String(s.computed_at ?? new Date().toISOString()),
+        stats: {
+          totalReturnPct: Number(s.totalReturnPct ?? 0),
+          annualizedReturnPct: Number(s.cagr ?? s.totalReturnPct ?? 0),
+          sharpeRatio: Number(s.sharpeRatio ?? 0),
+          maxDrawdownPct: Number(s.maxDrawdownPct ?? 0),
+          winRate: Number(s.winRatePct ?? s.winRate ?? 0),
+          totalTrades: Number(s.totalTrades ?? 0),
+          bestTradePct: 0,
+          worstTradePct: 0,
+          calmarRatio: Number(s.calmarRatio ?? 0),
+        },
+        equityCurve: Array.isArray(s.equityCurve) ? s.equityCurve : [],
+        buyHoldCurve: Array.isArray(s.buyHoldCurve) ? s.buyHoldCurve : [],
+      }
+    }
+  }
 
   // Compute holding value
   let initialHolding = null

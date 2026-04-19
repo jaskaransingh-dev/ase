@@ -969,11 +969,13 @@ export default function AgentDetailClient({
                   <div>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.45rem' }}>LIVE TRADING</div>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: 'var(--muted)', lineHeight: 1.62, marginBottom: '.65rem' }}>
-                      Invest real USD from your Alpaca account to activate live trading.
+                      Browse all trading agents on the exchange and allocate capital.
                     </div>
-                    <button onClick={() => setShowInvestModal(true)} disabled={agent.alert_level === 'hard'} style={{ width: '100%', padding: '.62rem', borderRadius: 8, border: 0, background: 'linear-gradient(135deg, #3b7eff 0%, #7c5cff 100%)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.84rem', fontWeight: 700, cursor: agent.alert_level === 'hard' ? 'not-allowed' : 'pointer', letterSpacing: '-.01em', opacity: agent.alert_level === 'hard' ? .4 : 1 }}>
-                      Invest USD
-                    </button>
+                    <Link href="/agents" style={{ textDecoration: 'none' }}>
+                      <button disabled={agent.alert_level === 'hard'} style={{ width: '100%', padding: '.62rem', borderRadius: 8, border: 0, background: 'linear-gradient(135deg, #3b7eff 0%, #7c5cff 100%)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.84rem', fontWeight: 700, cursor: agent.alert_level === 'hard' ? 'not-allowed' : 'pointer', letterSpacing: '-.01em', opacity: agent.alert_level === 'hard' ? .4 : 1 }}>
+                        View on Exchange
+                      </button>
+                    </Link>
                     {!isSubscribed && (
                       <button onClick={toggleWatchlist} style={{ marginTop: '.5rem', width: '100%', padding: '.45rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: isWatched ? 'var(--muted)' : 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.7rem', cursor: 'pointer' }}>
                         {isWatched ? '★ Remove from watchlist' : '☆ Add to watchlist'}

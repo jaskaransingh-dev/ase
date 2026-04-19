@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Loader2, TrendingUp, TrendingDown, Star, Search, Filter, Check, ExternalLink } from 'lucide-react'
+import { Loader2, Star, Search } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
 const C = {
   bg: '#06111F', bg2: '#0B1728', bg3: '#101A2D', bg4: '#162438',
@@ -11,6 +12,37 @@ const C = {
   blue: '#4F8CFF', mint: '#16C784', red: '#FF5468', orange: '#F5B942',
   text: '#B7C4D5', muted: '#7F8CA3', faint: '#55657A', white: '#F7FAFF',
   gold: '#F7C864',
+}
+
+interface AgentListing {
+  id: string
+  slug: string
+  name: string
+  ticker: string
+  description: string | null
+  strategy_type: string
+  asset_class: string
+  primary_symbol: string | null
+  status: string
+  share_price_cents: number
+  subscriber_count: number
+  return30d: number | null
+  sharpe: number | null
+  maxDD: number | null
+  winRate: number | null
+  isLive: boolean
+}
+
+const inputStyle = {
+  background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 8,
+  padding: '0.5rem 0.75rem', color: C.white, fontSize: '0.85rem',
+  outline: 'none', width: '100%', fontFamily: 'inherit',
+}
+
+const selectStyle = {
+  background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 8,
+  padding: '0.5rem 0.7rem', color: C.white, fontSize: '0.8rem',
+  outline: 'none', cursor: 'pointer',
 }
 
 const SORT_OPTIONS = [
@@ -24,20 +56,21 @@ const TAGS = ['momentum', 'mean-reversion', 'crypto', 'low-drawdown', 'high-shar
 
 interface Listing {
   id: string
-  tagline: string | null
-  tags: string[]
-  price_cents: number
-  is_free: boolean
-  rank_score: number
-  sharpe: number
-  max_drawdown: number
-  total_return: number
-  win_rate: number
-  backtest_period: string
+  slug: string
+  name: string
+  ticker: string
+  description: string | null
+  strategy_type: string
+  asset_class: string
+  primary_symbol: string | null
+  status: string
+  share_price_cents: number
   subscriber_count: number
-  listed_at: string
-  strategy: { id: string; slug: string; name: string; description: string | null; symbol: string; interval: string }
-  owner: { display_name: string | null }
+  return30d: number | null
+  sharpe: number | null
+  maxDD: number | null
+  winRate: number | null
+  isLive: boolean
 }
 
 export default function MarketplacePage() {
@@ -51,16 +84,18 @@ export default function MarketplacePage() {
   const [subscribing, setSubscribing] = useState<string | null>(null)
   const [subscribed, setSubscribed] = useState<Set<string>>(new Set())
 
-  useEffect(() => { fetchListings() }, [sort, tag])
+  useEffect(() => { fetchAgents() }, [sort, tag])
 
-  async function fetchListings() {
+  async function fetchAgents() {
     setLoading(true)
-    const params = new URLSearchParams({ sort, limit: '30' })
-    if (tag) params.set('tag', tag)
-    const res = await fetch(`/api/marketplace?${params}`)
-    if (res.ok) {
-      const json = await res.json()
-      setListings(json.listings ?? [])
+    try {
+      const res = await fetch('/api/agents')
+      if (res.ok) {
+        const json = await res.json()
+        setListings(json.data ?? [])
+      }
+    } catch (e) {
+      console.error('Failed to fetch agents:', e)
     }
     setLoading(false)
   }
@@ -68,9 +103,13 @@ export default function MarketplacePage() {
   async function handleSubscribe(listing: Listing) {
     setSubscribing(listing.id)
     const { data: { session } } = await supabase.auth.getSession()
-    const res = await fetch(`/api/marketplace/${listing.id}/subscribe`, {
+    const res = await fetch(`/api/subscribe`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${session?.access_token}` },
+      headers: { 
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session?.access_token}` 
+      },
+      body: JSON.stringify({ agent_id: listing.id, amount_cents: 10000 }),
     })
     if (res.ok) {
       setSubscribed(prev => new Set([...prev, listing.id]))
@@ -79,9 +118,15 @@ export default function MarketplacePage() {
   }
 
   const displayed = listings.filter(l =>
-    !search || l.strategy.name.toLowerCase().includes(search.toLowerCase()) ||
-    (l.tagline ?? '').toLowerCase().includes(search.toLowerCase())
-  )
+    !search || l.name?.toLowerCase().includes(search.toLowerCase()) ||
+    l.ticker?.toLowerCase().includes(search.toLowerCase()) ||
+    l.description?.toLowerCase().includes(search.toLowerCase())
+  ).sort((a, b) => {
+    if (sort === 'return') return ((b.return30d ?? 0) - (a.return30d ?? 0))
+    if (sort === 'sharpe') return ((b.sharpe ?? 0) - (a.sharpe ?? 0))
+    if (sort === 'drawdown') return ((a.maxDD ?? 999) - (b.maxDD ?? 999))
+    return ((b.sharpe ?? 0) + (b.return30d ?? 0) * 0.1) - ((a.sharpe ?? 0) + (a.return30d ?? 0) * 0.1)
+  })
 
   return (
     <div style={{ padding: '2rem', maxWidth: 1100 }}>
@@ -142,12 +187,16 @@ export default function MarketplacePage() {
       ) : displayed.length === 0 ? (
         <div style={{ background: C.bg2, border: `1px dashed ${C.border2}`, borderRadius: 12, padding: '3rem', textAlign: 'center' }}>
           <Star size={28} color={C.faint} style={{ marginBottom: '1rem' }} />
-          <div style={{ fontWeight: 700, color: C.white, marginBottom: '0.5rem' }}>No strategies listed yet</div>
+          <div style={{ fontWeight: 700, color: C.white, marginBottom: '0.5rem' }}>No agents available yet</div>
           <div style={{ color: C.muted, fontSize: '0.8rem', marginBottom: '1.5rem' }}>
-            Be the first to list your validated strategy.
+            Be the first to create and list your trading agent.
           </div>
-          <button onClick={() => router.push('/dashboard/strategies')} style={btnPrimaryStyle}>
-            My Strategies
+          <button onClick={() => router.push('/agents/submit')} style={{
+            background: C.blue, border: 'none', borderRadius: 7,
+            padding: '0.55rem 1rem', color: '#fff', fontWeight: 700,
+            fontSize: '0.8rem', cursor: 'pointer',
+          }}>
+            Create Agent
           </button>
         </div>
       ) : (
@@ -200,75 +249,72 @@ function ListingCard({
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, color: C.white, fontSize: '0.9rem', marginBottom: '0.2rem' }}>
-            {listing.strategy.name}
+            {listing.name}
           </div>
-          {listing.tagline && (
+          {listing.description && (
             <div style={{ color: C.muted, fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {listing.tagline}
+              {listing.description}
             </div>
           )}
         </div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: C.faint, whiteSpace: 'nowrap' }}>
-          {listing.strategy.symbol}
+          {listing.primary_symbol || listing.ticker}
         </div>
       </div>
 
       {/* Key metrics */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
-        <MetricCell label="Sharpe" value={listing.sharpe?.toFixed(2) ?? '—'} color={listing.sharpe > 1 ? C.mint : C.orange} />
-        <MetricCell label="Return" value={`${listing.total_return?.toFixed(0)}%`} color={listing.total_return > 0 ? C.mint : C.red} />
-        <MetricCell label="Max DD" value={`${listing.max_drawdown?.toFixed(0)}%`} color={listing.max_drawdown > 30 ? C.red : C.muted} />
-        <MetricCell label="Win Rate" value={`${((listing.win_rate ?? 0) * 100).toFixed(0)}%`} color={listing.win_rate > 0.5 ? C.mint : C.muted} />
+        <MetricCell label="Sharpe" value={(listing.sharpe ?? 0) > 0 ? listing.sharpe!.toFixed(2) : '—'} color={(listing.sharpe ?? 0) > 1 ? C.mint : C.orange} />
+        <MetricCell label="Return" value={typeof (listing as any).return30d === 'number' ? `${(listing as any).return30d >= 0 ? '+' : ''}${(listing as any).return30d.toFixed(0)}%` : '—'} color={(listing as any).return30d > 0 ? C.mint : C.red} />
+        <MetricCell label="Max DD" value={listing.maxDD != null ? `${listing.maxDD.toFixed(0)}%` : '—'} color={(listing.maxDD ?? 0) > 30 ? C.red : C.muted} />
+        <MetricCell label="Win Rate" value={listing.winRate != null ? `${listing.winRate.toFixed(0)}%` : '—'} color={(listing.winRate ?? 0) > 50 ? C.mint : C.muted} />
       </div>
 
-      {/* Tags */}
-      {listing.tags.length > 0 && (
-        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-          {listing.tags.slice(0, 4).map(t => (
-            <span key={t} style={{
-              background: C.bg3, border: `1px solid ${C.border}`,
-              borderRadius: 20, padding: '0.15rem 0.55rem',
-              fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: C.faint,
-            }}>{t}</span>
-          ))}
-        </div>
-      )}
+      {/* Tags - show strategy type as tag */}
+      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+        <span style={{
+          background: C.blue + '18', border: `1px solid ${C.blue}30`,
+          borderRadius: 20, padding: '0.15rem 0.55rem',
+          fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: C.blue,
+        }}>{listing.asset_class || 'crypto'}</span>
+        <span style={{
+          background: C.muted + '18', border: `1px solid ${C.muted}30`,
+          borderRadius: 20, padding: '0.15rem 0.55rem',
+          fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: C.muted,
+        }}>{listing.isLive ? 'LIVE' : 'BACKTEST'}</span>
+      </div>
 
       {/* Footer */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: 'auto', paddingTop: '0.5rem', borderTop: `1px solid ${C.border}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto', paddingTop: '0.5rem', borderTop: `1px solid ${C.border}` }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 800, color: C.white, fontSize: '0.95rem' }}>
-            {listing.is_free ? (
-              <span style={{ color: C.mint }}>Free</span>
-            ) : (
-              `$${(listing.price_cents / 100).toFixed(2)}/mo`
-            )}
+            ${((listing.share_price_cents ?? 10000) / 100).toFixed(2)}
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: C.faint }}>
-            {listing.subscriber_count} subscriber{listing.subscriber_count !== 1 ? 's' : ''} · {listing.backtest_period}
+            {listing.subscriber_count} subscriber{(listing.subscriber_count ?? 0) !== 1 ? 's' : ''}
           </div>
         </div>
-        <button
-          onClick={onSubscribe}
-          disabled={subscribing || isSubscribed}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '0.4rem',
-            background: isSubscribed ? C.bg3 : C.blue,
-            border: `1px solid ${isSubscribed ? C.border2 : C.blue}`,
-            borderRadius: 7, padding: '0.5rem 1rem',
-            color: isSubscribed ? C.mint : '#fff',
-            fontWeight: 700, fontSize: '0.8rem', cursor: isSubscribed ? 'default' : 'pointer',
-            transition: 'all 0.15s',
-          }}
-        >
-          {subscribing ? (
-            <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
-          ) : isSubscribed ? (
-            <><Check size={13} /> Subscribed</>
-          ) : (
-            'Subscribe'
-          )}
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <Link href={`/agents/${listing.slug}`} target="_blank" rel="noopener noreferrer" style={{ padding: '.35rem .75rem', borderRadius: 8, border: `1px solid ${C.border}`, background: 'transparent', color: C.muted, fontSize: '.7rem', fontWeight: 600, textDecoration: 'none' }}>
+            View
+          </Link>
+          <button
+            onClick={onSubscribe}
+            disabled={subscribing || isSubscribed}
+            style={{
+              padding: '.35rem .85rem',
+              borderRadius: 8,
+              border: 0,
+              background: isSubscribed ? 'rgba(0,229,153,.15)' : C.blue,
+              color: isSubscribed ? C.mint : '#fff',
+              fontSize: '.7rem',
+              fontWeight: 700,
+              cursor: isSubscribed ? 'default' : 'pointer',
+            }}
+          >
+            {isSubscribed ? 'Manage' : 'View on Exchange'}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -281,23 +327,4 @@ function MetricCell({ label, value, color }: { label: string; value: string; col
       <div style={{ fontWeight: 700, color, fontSize: '0.85rem' }}>{value}</div>
     </div>
   )
-}
-
-const inputStyle: React.CSSProperties = {
-  background: '#0B1728', border: '1px solid #1E2A3D', borderRadius: 7,
-  padding: '0.5rem 0.85rem', color: '#B7C4D5', fontSize: '0.8rem',
-  outline: 'none', boxSizing: 'border-box',
-}
-
-const selectStyle: React.CSSProperties = {
-  background: '#0B1728', border: '1px solid #1E2A3D', borderRadius: 7,
-  padding: '0.5rem 0.7rem', color: '#B7C4D5', fontSize: '0.8rem',
-  outline: 'none', cursor: 'pointer',
-}
-
-const btnPrimaryStyle: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-  background: '#4F8CFF', border: 'none', borderRadius: 7,
-  padding: '0.55rem 1rem', color: '#fff', fontWeight: 700,
-  fontSize: '0.8rem', cursor: 'pointer',
 }

@@ -411,7 +411,7 @@ export default function AIChatbot() {
                 <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#28C840' }} />
               </div>
               <span style={{ marginLeft: '0.4rem', fontSize: '0.72rem', color: '#3A5A72' }}>
-                ase-quant-ai
+                ASE Quant
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>

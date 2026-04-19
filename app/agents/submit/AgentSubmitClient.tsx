@@ -365,7 +365,7 @@ export default function AgentSubmitClient() {
           </p>
           <div style={{ display: 'flex', gap: '.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
             <Link href="/builders" className="btn-secondary">Back to Builders</Link>
-            {createdSlug && <Link href={`/agents/${createdSlug}`} className="btn-primary">View Agent</Link>}
+            {createdSlug && <Link href={`/agents/${createdSlug}`} target="_blank" rel="noopener noreferrer" className="btn-primary">View Agent</Link>}
           </div>
         </div>
       ) : (

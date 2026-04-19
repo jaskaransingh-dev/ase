@@ -3,19 +3,95 @@
  *
  * THE single editable source-of-truth for all ASE quant documentation.
  *
- * Edit this file to:
- *  - Add/remove data sources (DATA_SOURCES)
- *  - Add/remove technical indicators (INDICATORS)
- *  - Add/remove strategy templates (STRATEGY_DOCS)
- *  - Add/remove risk metrics (RISK_METRICS)
- *
  * This file is consumed by:
  *  - app/dashboard/build/docs/page.tsx   → renders the docs UI
  *  - app/api/ai/chat/route.ts            → injects into AI system prompt
  *  - lib/market-data.ts                  → source registry
+ *
+ * Structure:
+ *  - quantDocs.hero (page header & badges)
+ *  - quantDocs.sections (all docs sections with content)
+ *  - quantDocs.examples (4 reference strategy examples)
+ *  - quantDocs.metrics (core performance metrics)
+ *  - quantDocs.dataSources (crypto data sources)
+ *  - quantDocs.indicators (technical indicators)
  */
 
-// ─── Data Sources ────────────────────────────────────────────────────────────
+// ─── Hero Configuration ───────────────────────────────────────────────────────────────
+
+export interface Badge {
+  label: string
+  color: string
+}
+
+export const quantDocs = {
+  hero: {
+    title: 'Quant Builder Docs',
+    subtitle: 'Crypto agent strategy reference for ASE. Build portfolio-aware agents that return BUY, SELL, or HOLD decisions and produce auditable ledger events.',
+    badges: [
+      { label: 'Crypto Only', color: '#16C784' },
+      { label: 'Portfolio Aware', color: '#4F8CFF' },
+      { label: 'Ledger-Based', color: '#8B5CF6' },
+      { label: 'Standardized Backtests', color: '#F5B942' },
+      { label: 'No Exchange Keys Required', color: '#22F0B5' },
+    ] as Badge[],
+  },
+
+  sections: [
+    {
+      id: 'overview',
+      title: 'Overview',
+      description: 'How ASE strategies work end to end.',
+    },
+    {
+      id: 'strategy-api',
+      title: 'Strategy API',
+      description: 'The exact contract every strategy must implement.',
+    },
+    {
+      id: 'portfolio-context',
+      title: 'Portfolio Context',
+      description: 'What your agent knows about current holdings and equity.',
+    },
+    {
+      id: 'market-data',
+      title: 'Market Data',
+      description: 'Crypto data fields and source notes.',
+    },
+    {
+      id: 'indicators',
+      title: 'Indicators',
+      description: 'Common features available to strategy authors.',
+    },
+    {
+      id: 'decision-model',
+      title: 'Decision Model',
+      description: 'How BUY, SELL, and HOLD are interpreted.',
+    },
+    {
+      id: 'ledger-execution',
+      title: 'Ledger & Execution',
+      description: 'How decisions become auditable events.',
+    },
+    {
+      id: 'validation-backtests',
+      title: 'Validation & Backtests',
+      description: 'How ASE evaluates strategies without exposing private internals.',
+    },
+    {
+      id: 'metrics-publish-rules',
+      title: 'Metrics & Publish Rules',
+      description: 'Performance interpretation and publish guidance.',
+    },
+    {
+      id: 'examples',
+      title: 'Examples',
+      description: 'Reference strategies and sample outputs.',
+    },
+  ],
+}
+
+// ─── Data Sources ───────────────────────────────────────────────────────────────
 
 export interface DataSource {
   id: string
@@ -61,76 +137,12 @@ const candles = await res.json()
 // Available intervals: 1m 3m 5m 15m 30m 1h 2h 4h 6h 12h 1d 3d 1w 1M`,
   },
   {
-    id: 'yahoo',
-    name: 'Yahoo Finance',
-    badge: 'PRIMARY · EQUITIES',
-    badgeColor: '#5B8CFF',
-    noKey: true,
-    description: 'Covers 30,000+ global equities, ETFs, indices, forex, futures, and crypto. The unofficial Chart API v8 is used in production by many quant libraries. No authentication required. Supports intraday down to 1-minute intervals.',
-    endpoint: 'https://query1.finance.yahoo.com/v8/finance/chart/{symbol}',
-    rateLimit: '~100 req/min (no hard limit)',
-    historyDepth: '20+ years for daily data',
-    assetClasses: ['equities','etfs','indices','forex','futures','crypto'],
-    symbols: ['SPY','QQQ','TLT','GLD','IWM','VXX','AAPL','MSFT','GOOGL','NVDA','META','AMZN','TSLA','XLK','XLV','XLF','SPLV','BTC-USD','ETH-USD','^VIX','^GSPC','^DJI','^IXIC','GC=F','CL=F'],
-    intervals: ['1m','2m','5m','15m','30m','60m','90m','1h','1d','5d','1wk','1mo','3mo'],
-    dataFields: ['timestamp','open','high','low','close','adjclose','volume'],
-    fetchExample: `// Fetch AAPL daily bars for the last year
-const end   = Math.floor(Date.now() / 1000)
-const start = end - 365 * 86400
-const url   = \`https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1d&period1=\${start}&period2=\${end}\`
-
-const res  = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
-const json = await res.json()
-const q    = json.chart.result[0]
-const bars = q.timestamp.map((t: number, i: number) => ({
-  date:   new Date(t * 1000).toISOString().slice(0, 10),
-  open:   q.indicators.quote[0].open[i],
-  high:   q.indicators.quote[0].high[i],
-  low:    q.indicators.quote[0].low[i],
-  close:  q.indicators.quote[0].close[i],
-  volume: q.indicators.quote[0].volume[i],
-}))
-
-// Symbols: AAPL, MSFT, SPY, QQQ, BTC-USD, etc.
-// Crypto: symbol-USD format (BTC-USD, ETH-USD, SOL-USD)`,
-  },
-  {
-    id: 'coingecko',
-    name: 'CoinGecko',
-    badge: 'CRYPTO · FUNDAMENTALS',
-    badgeColor: '#22F0B5',
-    noKey: true,
-    description: 'Comprehensive crypto market data covering 10,000+ coins. Free tier requires no API key. Provides OHLC bars, market cap, circulating supply, all-time highs, and exchange data. Rate limited to ~10–50 req/min on the public tier.',
-    endpoint: 'https://api.coingecko.com/api/v3',
-    rateLimit: '10–50 req/min (free tier)',
-    historyDepth: 'Full history for major coins',
-    assetClasses: ['crypto'],
-    symbols: ['bitcoin','ethereum','solana','binancecoin','ripple','cardano','dogecoin','polkadot','matic-network','chainlink','uniswap','avalanche-2','cosmos','litecoin'],
-    intervals: ['daily (OHLC)'],
-    dataFields: ['timestamp','open','high','low','close','market_cap','total_volume','price_change_pct'],
-    fetchExample: `// Fetch BTC OHLC — no API key needed
-const res  = await fetch(
-  'https://api.coingecko.com/api/v3/coins/bitcoin/ohlc?vs_currency=usd&days=90'
-)
-const data = await res.json()
-// [[timestamp_ms, open, high, low, close], ...]
-
-// Market cap + volume history (200 days)
-const mktRes  = await fetch(
-  'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=200&interval=daily'
-)
-const mktData = await mktRes.json()
-// { prices: [[ts,price],...], market_caps: [[ts,cap],...], total_volumes: [[ts,vol],...] }
-
-// Coin IDs: bitcoin, ethereum, solana, binancecoin, ripple, cardano, etc.`,
-  },
-  {
     id: 'kraken',
     name: 'Kraken',
     badge: 'CRYPTO · RELIABLE',
     badgeColor: '#8B5CF6',
     noKey: true,
-    description: 'Professional crypto exchange with clean public OHLC API. Excellent reliability and data quality. OHLC endpoint returns up to 720 candles per request. Useful as a cross-reference or fallback for major crypto pairs.',
+    description: 'Professional crypto exchange with clean public OHLC API. Excellent reliability and data quality. Used as a fallback or comparison source for supported assets.',
     endpoint: 'https://api.kraken.com/0/public/OHLC',
     rateLimit: '1 req/s (conservative)',
     historyDepth: '5+ years',
@@ -155,69 +167,34 @@ const bars = json.result['XXBTZUSD'].map((k: number[]) => ({
 // Intervals (minutes): 1, 5, 15, 30, 60, 240, 1440 (1d), 10080 (1w), 21600 (15d)`,
   },
   {
-    id: 'stooq',
-    name: 'Stooq',
-    badge: 'EQUITIES · FREE',
-    badgeColor: '#FFB648',
+    id: 'coingecko',
+    name: 'CoinGecko',
+    badge: 'CRYPTO · FUNDAMENTALS',
+    badgeColor: '#22F0B5',
     noKey: true,
-    description: 'Free CSV-based market data covering US stocks, global indices, forex, and commodities. Returns clean OHLCV data in CSV format with no authentication. Particularly useful for S&P 500 components, global indices, and Polish stocks.',
-    endpoint: 'https://stooq.com/q/d/l/',
-    rateLimit: 'Moderate (no hard limit)',
-    historyDepth: '10+ years for major symbols',
-    assetClasses: ['equities','indices','forex','crypto'],
-    symbols: ['AAPL.US','MSFT.US','GOOGL.US','NVDA.US','^SPX (S&P500)','^NDX (Nasdaq)','^DJI (Dow Jones)','BTC.USD','ETH.USD','EURUSD','GBPUSD'],
-    intervals: ['d (daily)','w (weekly)','m (monthly)'],
-    dataFields: ['Date','Open','High','Low','Close','Volume'],
-    fetchExample: `// AAPL daily — no API key needed, returns CSV
-const res  = await fetch('https://stooq.com/q/d/l/?s=AAPL.US&i=d')
-const csv  = await res.text()
-const rows = csv.trim().split('\\n').slice(1) // skip header
-const bars = rows.map(row => {
-  const [date, open, high, low, close, volume] = row.split(',')
-  return { date, open: +open, high: +high, low: +low, close: +close, volume: +volume }
-})
+    description: 'Comprehensive crypto market data covering 10,000+ coins. Free tier requires no API key. Used for broad crypto asset coverage and supplemental market information.',
+    endpoint: 'https://api.coingecko.com/api/v3',
+    rateLimit: '10–50 req/min (free tier)',
+    historyDepth: 'Full history for major coins',
+    assetClasses: ['crypto'],
+    symbols: ['bitcoin','ethereum','solana','binancecoin','ripple','cardano','dogecoin','polkadot','matic-network','chainlink','uniswap','avalanche-2','cosmos','litecoin'],
+    intervals: ['daily (OHLC)'],
+    dataFields: ['timestamp','open','high','low','close','market_cap','total_volume','price_change_pct'],
+    fetchExample: `// Fetch BTC OHLC — no API key needed
+const res  = await fetch(
+  'https://api.coingecko.com/api/v3/coins/bitcoin/ohlc?vs_currency=usd&days=90'
+)
+const data = await res.json()
+// [[timestamp_ms, open, high, low, close], ...]
 
-// Symbol formats:
-//   US stocks:      AAPL.US, MSFT.US, GOOGL.US
-//   Indices:        ^SPX, ^NDX, ^DJI, ^FTSE, ^N225
-//   Forex:          EURUSD, GBPUSD, USDJPY
-//   Crypto (daily): BTC.USD, ETH.USD
-// Date range: ?d1=YYYYMMDD&d2=YYYYMMDD`,
-  },
-  {
-    id: 'fred',
-    name: 'FRED (St. Louis Fed)',
-    badge: 'MACRO · ECONOMIC',
-    badgeColor: '#FF5468',
-    noKey: true,
-    description: 'Federal Reserve Economic Data — 800,000+ macro time series. The graph CSV endpoint requires zero authentication. Essential for macro factor models: Fed Funds Rate, Treasury yields, CPI, GDP, unemployment, VIX, and credit spreads.',
-    endpoint: 'https://fred.stlouisfed.org/graph/fredgraph.csv',
-    rateLimit: 'Generous (no hard limit on CSV)',
-    historyDepth: 'Decades for most series',
-    assetClasses: ['macro','rates','economic'],
-    symbols: ['FEDFUNDS (Fed Funds Rate)','DGS10 (10yr Treasury)','DGS2 (2yr Treasury)','T10Y2Y (Yield Curve)','VIXCLS (VIX)','CPIAUCSL (CPI)','UNRATE (Unemployment)','INDPRO (Industrial Prod)','BAMLH0A0HYM2 (HY Spread)','M2SL (Money Supply M2)'],
-    intervals: ['daily (most series)','monthly','quarterly'],
-    dataFields: ['DATE','VALUE'],
-    fetchExample: `// 10-year Treasury yield — no API key needed
-const res  = await fetch('https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10')
-const csv  = await res.text()
-const rows = csv.trim().split('\\n').slice(1)
-const data = rows
-  .filter(r => !r.includes('.'))  // filter missing values
-  .map(r => {
-    const [date, value] = r.split(',')
-    return { date, yield10yr: parseFloat(value) }
-  })
+// Market cap + volume history (200 days)
+const mktRes  = await fetch(
+  'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=200&interval=daily'
+)
+const mktData = await mktRes.json()
+// { prices: [[ts,price],...], market_caps: [[ts,cap],...], total_volumes: [[ts,vol],...] }
 
-// Key series IDs:
-//   FEDFUNDS  — Federal Funds Rate (monthly)
-//   DGS10     — 10-Year Treasury (daily)
-//   DGS2      — 2-Year Treasury (daily)
-//   T10Y2Y    — Yield Curve Spread (daily)
-//   VIXCLS    — CBOE VIX Index (daily)
-//   CPIAUCSL  — Consumer Price Index (monthly)
-//   UNRATE    — Unemployment Rate (monthly)
-//   M2SL      — M2 Money Supply (monthly)`,
+// Coin IDs: bitcoin, ethereum, solana, binancecoin, ripple, cardano, etc.`,
   },
 ]
 
@@ -430,707 +407,465 @@ df['obv_div'] = df['obv'] - df['obv_ema']        # divergence from trend`,
   },
 ]
 
-// ─── Strategy Documentation ───────────────────────────────────────────────────
+// ─── Strategy API Contract ────────────────────────────────────────────────────
 
-export interface StrategyDoc {
-  id: string
-  name: string
-  type: 'momentum' | 'mean-reversion' | 'breakout' | 'multi-factor' | 'arbitrage'
-  description: string
-  bestFor: string
-  avoid: string
-  params: { name: string; default: number; min: number; max: number; description: string }[]
-  code: string
+export const STRATEGY_API_CODE = `export type Decision = 'BUY' | 'SELL' | 'HOLD'
+
+export type AssetDecision = {
+  asset: string
+  decision: Decision
+  conviction: number
+  targetPositionPct?: number
+  thesis: string
+  riskNotes?: string
 }
 
-export const STRATEGY_DOCS: StrategyDoc[] = [
+export type StrategyOutput = {
+  timestamp: string
+  decisions: AssetDecision[]
+  globalCommentary?: string
+}
+
+export type StrategyConfig = {
+  name: string
+  version: string
+  universe: string[]
+  rebalanceFreq: 'daily' | 'weekly' | 'monthly'
+  longOnly: boolean
+  maxPositionPct: number
+  maxNewPositionsPerRun: number
+  minCashPct: number
+}
+
+export type StrategyContext = {
+  features: FeatureRow[]
+  portfolio: PortfolioState
+}
+
+export interface StrategyModule {
+  config: StrategyConfig
+  evaluate(context: StrategyContext): StrategyOutput
+}`
+
+// ─── Portfolio Context ────────────────────────────────────────────────
+
+export const PORTFOLIO_CONTEXT_CODE = `export type Position = {
+  asset: string
+  quantity: number
+  marketValue: number
+  avgEntryPrice: number
+  unrealizedPnlPct: number
+  weight: number
+}
+
+export type PortfolioState = {
+  timestamp: string
+  equity: number
+  cash: number
+  drawdownPct: number
+  grossExposurePct: number
+  netExposurePct: number
+  positions: Position[]
+  maxPositionPct: number
+  longOnly: boolean
+}`
+
+// ─── Ledger Event Schema ────────────────────────────────────────────────
+
+export const LEDGER_SCHEMA_CODE = `export type LedgerEvent = {
+  timestamp: string
+  asset: string
+  action: 'BUY' | 'SELL' | 'HOLD'
+  requestedTargetPositionPct?: number
+  executedTargetPositionPct?: number
+  requestedQuantity?: number
+  executedQuantity?: number
+  fillPrice?: number
+  feePaid?: number
+  slippagePaid?: number
+  status: 'EXECUTED' | 'PARTIAL' | 'SKIPPED' | 'REJECTED'
+  reason: string
+  thesis?: string
+  riskNotes?: string
+}
+
+// Common status meanings:
+//   EXECUTED: request was applied as intended
+//   PARTIAL: request was only partly filled under constraints
+//   SKIPPED: request was valid but resulted in no change
+//   REJECTED: request could not be processed`
+
+// ─── Strategy Examples ────────────────────────────────────────────
+
+export interface StrategyExample {
+  id: string
+  name: string
+  description: string
+  whenItWorks: string
+  whenItFails: string
+  code: string
+  sampleOutput: string
+}
+
+export const STRATEGY_EXAMPLES: StrategyExample[] = [
   {
-    id: 'mean_reversion',
-    name: 'Mean Reversion (Z-Score)',
-    type: 'mean-reversion',
-    description: 'Buys when price falls more than N standard deviations below the rolling mean, and sells when it reverts. Based on the statistical tendency of prices to return to their mean.',
-    bestFor: 'Range-bound assets, low-volatility regimes, pairs trading, crypto in consolidation phases',
-    avoid: 'Trending markets — strong trends will trigger false buy signals on every new low',
-    params: [
-      { name: 'window', default: 20, min: 5, max: 60, description: 'Rolling mean/std lookback' },
-      { name: 'z_threshold', default: 2.0, min: 0.5, max: 4.0, description: 'Z-score entry threshold' },
-      { name: 'exit_z', default: 0.5, min: 0.0, max: 2.0, description: 'Z-score exit threshold' },
-    ],
+    id: 'momentum-with-trend',
+    name: 'Momentum with Trend Filter',
+    description: 'Uses medium-term returns and moving-average confirmation to increase exposure only when trend and momentum align.',
+    whenItWorks: 'Trending markets with strong directional momentum. Works well in crypto bull runs and clear trending phases.',
+    whenItFails: 'Choppy, ranging markets where trend signals flip frequently. Mean reversion during trend reversals.',
     code: `import pandas as pd
 import numpy as np
 
-class MeanReversionStrategy:
-    """
-    Z-score mean reversion.
-    Enter long when z < -threshold, exit when z > -exit_z.
-    Enter short when z > +threshold, exit when z < +exit_z.
-    """
-    def __init__(self, window=20, z_threshold=2.0, exit_z=0.5):
-        self.window      = window
-        self.z_threshold = z_threshold
-        self.exit_z      = exit_z
-
-    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        rolling_mean = df['close'].rolling(self.window).mean()
-        rolling_std  = df['close'].rolling(self.window).std()
-        df['zscore']  = (df['close'] - rolling_mean) / rolling_std.replace(0, np.nan)
-
-        df['signal'] = 0
-        df.loc[df['zscore'] < -self.z_threshold, 'signal'] =  1  # oversold → buy
-        df.loc[df['zscore'] >  self.z_threshold, 'signal'] = -1  # overbought → sell
-
-        # Hold position until z-score reverts to exit threshold
-        position = 0
-        signals  = []
-        for _, row in df.iterrows():
-            z = row['zscore']
-            if np.isnan(z):
-                signals.append(0)
-                continue
-            if position == 0:
-                if z < -self.z_threshold:
-                    position = 1
-                elif z > self.z_threshold:
-                    position = -1
-            elif position == 1 and z > -self.exit_z:
-                position = 0
-            elif position == -1 and z < self.exit_z:
-                position = 0
-            signals.append(position)
-
-        df['signal'] = signals
-        return df`,
+def evaluate(context):
+    features = context['features']
+    portfolio = context['portfolio']
+    
+    decisions = []
+    
+    for feat in features:
+        asset = feat['asset']
+        price = feat['close']
+        returns_20d = feat.get('returns_20d', 0)
+        sma_50 = feat.get('sma_50', price)
+        sma_200 = feat.get('sma_200', price)
+        
+        # Current position weight
+        current_weight = 0
+        for pos in portfolio['positions']:
+            if pos['asset'] == asset:
+                current_weight = pos['weight']
+                break
+        
+        # Trend filter: price above 200-day SMA
+        in_uptrend = price > sma_200
+        
+        # Momentum: 20d return > 0
+        has_momentum = returns_20d > 0
+        
+        # Only buy when trend is up AND momentum positive
+        if in_uptrend and has_momentum:
+            # Add to position if underweight
+            target = 0.20  # 20% target
+            if current_weight < target:
+                decisions.append({
+                    'asset': asset,
+                    'decision': 'BUY',
+                    'conviction': 0.75,
+                    'targetPositionPct': target,
+                    'thesis': 'Momentum positive and price above 200-day SMA'
+                })
+        elif current_weight > 0:
+            # Exit if trend breaks
+            if price < sma_200 * 0.95:
+                decisions.append({
+                    'asset': asset,
+                    'decision': 'SELL',
+                    'conviction': 0.85,
+                    'targetPositionPct': 0,
+                    'thesis': 'Trend broken — price below 200-day SMA'
+                })
+            elif not has_momentum:
+                # Trim if momentum weakens but trend intact
+                decisions.append({
+                    'asset': asset,
+                    'decision': 'SELL',
+                    'conviction': 0.5,
+                    'targetPositionPct': current_weight * 0.5,
+                    'thesis': 'Momentum softened — reducing exposure'
+                })
+        else:
+            decisions.append({
+                'asset': asset,
+                'decision': 'HOLD',
+                'conviction': 0,
+                'thesis': 'No signal — waiting for alignment'
+            })
+    
+    return {
+        'timestamp': features[0]['timestamp'],
+        'decisions': decisions
+    }`,
+    sampleOutput: `{
+  "timestamp": "2024-01-15T00:00:00Z",
+  "decisions": [
+    {
+      "asset": "BTC-USD",
+      "decision": "BUY",
+      "conviction": 0.75,
+      "targetPositionPct": 0.20,
+      "thesis": "Momentum positive and price above 200-day SMA"
+    },
+    {
+      "asset": "ETH-USD",
+      "decision": "HOLD",
+      "conviction": 0,
+      "thesis": "No signal — waiting for alignment"
+    }
+  ]
+}`,
   },
   {
-    id: 'momentum_crossover',
-    name: 'Momentum Crossover (EMA)',
-    type: 'momentum',
-    description: 'Dual EMA crossover strategy. Enters long on golden cross (fast EMA crosses above slow), exits on death cross. Forward-fills position to stay in trend. Classic trend-following system.',
-    bestFor: 'Trending markets, crypto bull runs, macro trends, medium to long-term holding',
-    avoid: 'Choppy/sideways markets — frequent whipsaws erode returns',
-    params: [
-      { name: 'fast_window', default: 20, min: 5, max: 60, description: 'Fast EMA period' },
-      { name: 'slow_window', default: 50, min: 20, max: 150, description: 'Slow EMA period' },
-    ],
+    id: 'mean-reversion-aware',
+    name: 'Mean Reversion with Position Awareness',
+    description: 'Buys oversold pullbacks only when the portfolio is underweight and risk conditions are acceptable.',
+    whenItWorks: 'Range-bound markets, consolidating phases, crypto volatility compressions.',
+    whenItFails: 'Strong trending markets where oversold conditions continue to worsen. May buy the dip in a downtrend.',
     code: `import pandas as pd
 import numpy as np
 
-class MomentumCrossoverStrategy:
-    """
-    Dual EMA crossover.
-    Buy on golden cross (fast > slow), sell on death cross (fast < slow).
-    Holds position between crossovers.
-    """
-    def __init__(self, fast_window=20, slow_window=50):
-        self.fast = fast_window
-        self.slow = slow_window
-
-    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        df['ema_fast'] = df['close'].ewm(span=self.fast, adjust=False).mean()
-        df['ema_slow'] = df['close'].ewm(span=self.slow, adjust=False).mean()
-
-        cross_up   = (df['ema_fast'] > df['ema_slow']) & \\
-                     (df['ema_fast'].shift(1) <= df['ema_slow'].shift(1))
-        cross_down = (df['ema_fast'] < df['ema_slow']) & \\
-                     (df['ema_fast'].shift(1) >= df['ema_slow'].shift(1))
-
-        df['signal'] = 0
-        df.loc[cross_up,   'signal'] =  1
-        df.loc[cross_down, 'signal'] = -1
-        # Forward-fill to maintain position between crosses
-        df['signal'] = df['signal'].replace(0, np.nan).ffill().fillna(0).astype(int)
-        return df`,
+def evaluate(context):
+    features = context['features']
+    portfolio = context['portfolio']
+    
+    decisions = []
+    
+    # Calculate portfolio-level risk
+    drawdown = portfolio.get('drawdownPct', 0)
+    
+    for feat in features:
+        asset = feat['asset']
+        price = feat['close']
+        rsi = feat.get('rsi_14', 50)
+        
+        # Get current position
+        current_weight = 0
+        for pos in portfolio['positions']:
+            if pos['asset'] == asset:
+                current_weight = pos['weight']
+                break
+        
+        # Only buy if oversold and portfolio not in high drawdown
+        oversold = rsi < 35
+        acceptable_risk = drawdown < 0.15  # < 15% drawdown
+        
+        if oversold and acceptable_risk and current_weight < 0.15:
+            # Underweight — add position
+            target = 0.15
+            decisions.append({
+                'asset': asset,
+                'decision': 'BUY',
+                'conviction': 0.7,
+                'targetPositionPct': target,
+                'thesis': f'RSI oversold at {rsi:.0f}, position underweight'
+            })
+        elif rsi > 65 and current_weight > 0:
+            # Overbought — trim/exit
+            decisions.append({
+                'asset': asset,
+                'decision': 'SELL',
+                'conviction': 0.8,
+                'targetPositionPct': 0,
+                'thesis': f'RSI overbought at {rsi:.0f}'
+            })
+        elif drawdown >= 0.20:
+            # High drawdown — reduce all exposure
+            decisions.append({
+                'asset': asset,
+                'decision': 'SELL',
+                'conviction': 0.9,
+                'targetPositionPct': current_weight * 0.5,
+                'thesis': f'Portfolio drawdown elevated at {drawdown*100:.0f}% — reducing risk'
+            })
+        else:
+            decisions.append({
+                'asset': asset,
+                'decision': 'HOLD',
+                'conviction': 0.3,
+                'thesis': 'Signal neutral'
+            })
+    
+    return {
+        'timestamp': features[0]['timestamp'],
+        'decisions': decisions
+    }`,
+    sampleOutput: `{
+  "timestamp": "2024-01-15T00:00:00Z",
+  "decisions": [
+    {
+      "asset": "SOL-USD",
+      "decision": "BUY",
+      "conviction": 0.7,
+      "targetPositionPct": 0.15,
+      "thesis": "RSI oversold at 28, position underweight"
+    }
+  ]
+}`,
   },
   {
-    id: 'breakout_trend',
-    name: 'Breakout Trend (Donchian)',
-    type: 'breakout',
-    description: 'Enters long when price breaks above the N-day high (Donchian channel). Exits when price drops below the M-day low. Popularized by Richard Dennis and the Turtle Trading system.',
-    bestFor: 'Volatile markets with strong trending tendencies, commodities, crypto',
-    avoid: 'Low-volatility stocks, very tight ranges — false breakouts are common',
-    params: [
-      { name: 'breakout_window', default: 20, min: 10, max: 150, description: 'Lookback for entry high' },
-      { name: 'exit_window', default: 10, min: 5, max: 60, description: 'Lookback for exit low' },
-    ],
+    id: 'breakout-volatility-cap',
+    name: 'Breakout with Volatility Cap',
+    description: 'Adds exposure during range breaks but limits position size when volatility expands.',
+    whenItWorks: 'Volatile crypto markets with clear range breaks. Captures large moves after consolidation.',
+    whenItFails: 'False breakouts in ranging markets. Tight ranges with low volume.',
     code: `import pandas as pd
 import numpy as np
 
-class BreakoutTrendStrategy:
-    """
-    Donchian channel breakout (Turtle Trading style).
-    Enter when close exceeds N-bar high.
-    Exit when close drops below M-bar low.
-    """
-    def __init__(self, breakout_window=20, exit_window=10):
-        self.breakout = breakout_window
-        self.exit_w   = exit_window
-
-    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        df['upper'] = df['high'].rolling(self.breakout).max()
-        df['lower'] = df['low'].rolling(self.exit_w).min()
-
-        df['signal'] = 0
-        # Entry: breakout above N-bar high
-        df.loc[df['close'] >= df['upper'].shift(1), 'signal'] =  1
-        # Exit: drop below M-bar low
-        df.loc[df['close'] <= df['lower'].shift(1), 'signal'] = -1
-        df['signal'] = df['signal'].replace(0, np.nan).ffill().fillna(0).astype(int)
-        return df`,
+def evaluate(context):
+    features = context['features']
+    portfolio = context['portfolio']
+    
+    decisions = []
+    
+    for feat in features:
+        asset = feat['asset']
+        price = feat['close']
+        high_20 = feat.get('high_20', price)
+        atr = feat.get('atr_14', 0)
+        atr_pct = atr / price  # ATR as % of price
+        
+        # Current position
+        current_weight = 0
+        for pos in portfolio['positions']:
+            if pos['asset'] == asset:
+                current_weight = pos['weight']
+                break
+        
+        # Breakout: price breaks 20-day high
+        breakout = price > high_20
+        
+        # Volatility cap: cap position at 10% if ATR > 5%
+        max_position = 0.10 if atr_pct > 0.05 else 0.20
+        
+        if breakout and current_weight < max_position:
+            decisions.append({
+                'asset': asset,
+                'decision': 'BUY',
+                'conviction': 0.8,
+                'targetPositionPct': max_position,
+                'thesis': f'Breakout above 20d high, volatility {atr_pct*100:.1f}%'
+            })
+        elif not breakout and current_weight > 0:
+            # Exit if range breaks fail
+            decisions.append({
+                'asset': asset,
+                'decision': 'SELL',
+                'conviction': 0.6,
+                'targetPositionPct': 0,
+                'thesis': 'Range breakout failed'
+            })
+        else:
+            decisions.append({
+                'asset': asset,
+                'decision': 'HOLD',
+                'conviction': 0,
+                'thesis': 'Waiting for breakout'
+            })
+    
+    return {
+        'timestamp': features[0]['timestamp'],
+        'decisions': decisions
+    }`,
+    sampleOutput: `{
+  "timestamp": "2024-01-15T00:00:00Z",
+  "decisions": [
+    {
+      "asset": "BTC-USD",
+      "decision": "BUY",
+      "conviction": 0.8,
+      "targetPositionPct": 0.10,
+      "thesis": "Breakout above 20d high, volatility 6.2%"
+    }
+  ]
+}`,
   },
   {
-    id: 'rsi_trend_filter',
-    name: 'RSI + Trend Filter',
-    type: 'mean-reversion',
-    description: 'RSI mean-reversion entries filtered by long-period moving average trend. Only buys oversold RSI readings in an uptrend; only sells overbought in a downtrend. Reduces false signals in strong trends.',
-    bestFor: 'Swing trading, pullback entries in trending markets, equities in bull markets',
-    avoid: 'Using without the trend filter in choppy markets — unfiltered RSI reversal signals are unreliable',
-    params: [
-      { name: 'rsi_period', default: 14, min: 5, max: 30, description: 'RSI calculation period' },
-      { name: 'trend_ma', default: 200, min: 50, max: 300, description: 'Long-term trend MA period' },
-      { name: 'oversold', default: 30, min: 10, max: 45, description: 'RSI buy threshold' },
-      { name: 'overbought', default: 70, min: 55, max: 90, description: 'RSI sell threshold' },
-    ],
+    id: 'relative-strength-rotation',
+    name: 'Relative Strength Rotation',
+    description: 'Ranks a small crypto universe and allocates toward the strongest candidates while enforcing diversification rules.',
+    whenItWorks: 'Bull markets with leadership rotation. Works well in crypto market cycles.',
+    whenItFails: 'Bear markets where everything declines. Highly correlated moves.',
     code: `import pandas as pd
 import numpy as np
 
-class RSITrendFilterStrategy:
-    """
-    RSI mean-reversion gated by a trend-following MA.
-    Long signals: price above trend_ma AND rsi < oversold.
-    Short signals: price below trend_ma AND rsi > overbought.
-    """
-    def __init__(self, rsi_period=14, trend_ma=200, oversold=30, overbought=70):
-        self.rsi_p      = rsi_period
-        self.trend_ma   = trend_ma
-        self.oversold   = oversold
-        self.overbought = overbought
-
-    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        delta  = df['close'].diff()
-        gain   = delta.clip(lower=0).ewm(com=self.rsi_p-1, adjust=False).mean()
-        loss   = (-delta.clip(upper=0)).ewm(com=self.rsi_p-1, adjust=False).mean()
-        df['rsi']      = 100 - (100 / (1 + gain / loss))
-        df['trend_ma'] = df['close'].rolling(self.trend_ma).mean()
-
-        in_uptrend   = df['close'] > df['trend_ma']
-        in_downtrend = df['close'] < df['trend_ma']
-
-        df['signal'] = 0
-        df.loc[in_uptrend   & (df['rsi'] < self.oversold),   'signal'] =  1
-        df.loc[in_downtrend & (df['rsi'] > self.overbought), 'signal'] = -1
-        return df`,
-  },
-  {
-    id: 'volatility_breakout',
-    name: 'Volatility Breakout (ATR)',
-    type: 'breakout',
-    description: 'Enters on range breakout and uses ATR-based trailing stops for risk management. Adapts stop distance to current volatility — wider stops in volatile markets, tighter in calm ones.',
-    bestFor: 'Highly volatile assets like crypto, commodities, earnings plays',
-    avoid: 'Low-volatility assets where ATR stops are too tight and whipsaw frequently',
-    params: [
-      { name: 'breakout_window', default: 20, min: 10, max: 120, description: 'High breakout lookback' },
-      { name: 'atr_period', default: 14, min: 5, max: 40, description: 'ATR calculation period' },
-      { name: 'atr_mult', default: 2.5, min: 1.0, max: 6.0, description: 'ATR stop multiplier' },
-    ],
-    code: `import pandas as pd
-import numpy as np
-
-class VolatilityBreakoutStrategy:
-    """
-    Range breakout entry with ATR-based trailing stops.
-    Enter long: close > N-bar high.
-    Exit: close < close[prev] - (atr_mult × ATR).
-    """
-    def __init__(self, breakout_window=20, atr_period=14, atr_mult=2.5):
-        self.breakout = breakout_window
-        self.atr_p    = atr_period
-        self.mult     = atr_mult
-
-    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        df['tr'] = pd.concat([
-            df['high'] - df['low'],
-            (df['high'] - df['close'].shift(1)).abs(),
-            (df['low']  - df['close'].shift(1)).abs()
-        ], axis=1).max(axis=1)
-        df['atr']     = df['tr'].ewm(com=self.atr_p-1, adjust=False).mean()
-        df['high_n']  = df['high'].rolling(self.breakout).max()
-        df['atr_stop']= df['close'].shift(1) - self.mult * df['atr']
-
-        df['signal'] = 0
-        # Breakout entry
-        df.loc[df['close'] > df['high_n'].shift(1), 'signal'] =  1
-        # ATR trailing stop exit
-        df.loc[df['close'] < df['atr_stop'],        'signal'] = -1
-        df['signal'] = df['signal'].replace(0, np.nan).ffill().fillna(0).astype(int)
-        return df`,
-  },
-  {
-    id: 'dual_momentum',
-    name: 'Dual Momentum (Antonacci)',
-    type: 'momentum',
-    description: "Gary Antonacci's Dual Momentum: absolute momentum (asset vs cash) AND relative momentum (asset vs other assets). Only holds when BOTH absolute and relative momentum are positive. Historically strong risk-adjusted returns.",
-    bestFor: 'Long-term allocation, portfolio-level strategy, equities + bonds rotation',
-    avoid: 'Short-term trading — monthly rebalancing frequency, significant lag',
-    params: [
-      { name: 'lookback', default: 252, min: 20, max: 252, description: 'Return lookback for momentum score' },
-      { name: 'ma_window', default: 100, min: 50, max: 300, description: 'Trend confirmation MA' },
-    ],
-    code: `import pandas as pd
-import numpy as np
-
-class DualMomentumStrategy:
-    """
-    Antonacci's Dual Momentum:
-    1. Absolute momentum: N-period return must be positive (asset beats cash)
-    2. Relative momentum: price above long-term MA (trend filter)
-    Long only — cash when neither condition is met.
-    """
-    def __init__(self, lookback=252, ma_window=100):
-        self.lookback = lookback
-        self.ma       = ma_window
-
-    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        df['abs_mom'] = df['close'].pct_change(self.lookback)
-        df['ma']      = df['close'].rolling(self.ma).mean()
-
-        # Both conditions must hold for long position
-        abs_positive  = df['abs_mom'] > 0
-        trend_confirm = df['close'] > df['ma']
-
-        df['signal'] = 0
-        df.loc[abs_positive & trend_confirm, 'signal'] = 1
-        return df`,
-  },
-  {
-    id: 'pairs_mean_reversion',
-    name: 'Pairs Mean Reversion',
-    type: 'arbitrage',
-    description: 'Statistical arbitrage on correlated asset pairs. Trades the z-score of the price spread. When the spread widens beyond the threshold, buys the underperformer and sells the outperformer, expecting the spread to converge.',
-    bestFor: 'Correlated pairs (BTC/ETH, SPY/QQQ, gold/silver), market-neutral strategies',
-    avoid: 'Uncorrelated pairs, regime changes that break historical correlations',
-    params: [
-      { name: 'short_window', default: 5, min: 3, max: 30, description: 'Fast spread mean (not used in z-score form)' },
-      { name: 'long_window', default: 60, min: 20, max: 120, description: 'Slow spread mean/std lookback' },
-      { name: 'z_entry', default: 2.0, min: 0.5, max: 4.0, description: 'Z-score entry threshold' },
-      { name: 'z_exit', default: 0.5, min: 0.0, max: 2.0, description: 'Z-score exit threshold' },
-    ],
-    code: `import pandas as pd
-import numpy as np
-
-class PairsMeanReversionStrategy:
-    """
-    Statistical arbitrage on correlated pairs.
-    Requires 'close2' column for the second asset.
-    Trades z-score of price ratio (asset1 / asset2).
-    z < -entry → long spread; z > +entry → short spread.
-    """
-    def __init__(self, long_window=60, z_entry=2.0, z_exit=0.5):
-        self.long_w  = long_window
-        self.z_entry = z_entry
-        self.z_exit  = z_exit
-
-    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        if 'close2' not in df.columns:
-            df['signal'] = 0
-            return df
-
-        spread          = np.log(df['close']) - np.log(df['close2'])
-        df['spread_mean']= spread.rolling(self.long_w).mean()
-        df['spread_std'] = spread.rolling(self.long_w).std()
-        df['zscore']     = (spread - df['spread_mean']) / df['spread_std'].replace(0, np.nan)
-
-        position = 0
-        signals  = []
-        for z in df['zscore']:
-            if np.isnan(z):
-                signals.append(0); continue
-            if position == 0:
-                if z < -self.z_entry:   position =  1
-                elif z > self.z_entry:  position = -1
-            elif position ==  1 and z > -self.z_exit: position = 0
-            elif position == -1 and z <  self.z_exit: position = 0
-            signals.append(position)
-        df['signal'] = signals
-        return df`,
-  },
-  {
-    id: 'factor_rotation',
-    name: 'Factor Rotation',
-    type: 'multi-factor',
-    description: 'Ranks assets by risk-adjusted momentum (return / volatility). Rotates into top performers and exits bottom performers. Adapts to changing market leadership across assets or sectors.',
-    bestFor: 'Multi-asset portfolios, sector rotation, crypto market cycles',
-    avoid: 'Single-asset backtests — this strategy requires multiple assets to compare',
-    params: [
-      { name: 'momentum_window', default: 90, min: 20, max: 252, description: 'Return lookback for scoring' },
-      { name: 'vol_window', default: 20, min: 5, max: 60, description: 'Volatility normalization period' },
-      { name: 'top_quantile', default: 0.7, min: 0.5, max: 0.9, description: 'Score percentile for entry' },
-    ],
-    code: `import pandas as pd
-import numpy as np
-
-class FactorRotationStrategy:
-    """
-    Risk-adjusted momentum rotation.
-    Score = N-period return / N-period volatility (Sharpe-like).
-    Long when score is in the top quantile vs its own history.
-    """
-    def __init__(self, momentum_window=90, vol_window=20, top_quantile=0.7):
-        self.mom   = momentum_window
-        self.vol   = vol_window
-        self.top_q = top_quantile
-
-    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        returns    = df['close'].pct_change(self.mom)
-        volatility = df['close'].pct_change().rolling(self.vol).std()
-        df['score']= returns / (volatility + 1e-9)
-
-        # Dynamic percentile threshold (rolling)
-        df['threshold'] = df['score'].rolling(self.mom).quantile(self.top_q)
-
-        df['signal'] = 0
-        df.loc[df['score'] > df['threshold'], 'signal'] = 1
-        return df`,
-  },
-  {
-    id: 'rsi_mean_reversion',
-    name: 'RSI Mean Reversion',
-    type: 'mean-reversion',
-    description: 'Pure RSI-based mean reversion without trend filter. Buys extreme oversold conditions (RSI < 30), sells extreme overbought (RSI > 70). Uses Wilder smoothing for authentic RSI calculation.',
-    bestFor: 'Range-bound markets, stable high-cap equities, short-term swing trading',
-    avoid: 'Strong trending markets (will buy every dip in a downtrend)',
-    params: [
-      { name: 'period', default: 14, min: 5, max: 30, description: 'RSI period (Wilder smoothing)' },
-      { name: 'buy_below', default: 30, min: 10, max: 45, description: 'RSI oversold entry threshold' },
-      { name: 'sell_above', default: 70, min: 55, max: 90, description: 'RSI overbought exit threshold' },
-    ],
-    code: `import pandas as pd
-import numpy as np
-
-class RSIMeanReversionStrategy:
-    """
-    Pure RSI mean reversion using Wilder smoothing.
-    Enter long: RSI < buy_below.
-    Exit long:  RSI > sell_above.
-    """
-    def __init__(self, period=14, buy_below=30, sell_above=70):
-        self.period    = period
-        self.buy_below = buy_below
-        self.sell_above= sell_above
-
-    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        delta = df['close'].diff()
-        gain  = delta.clip(lower=0).ewm(com=self.period-1, adjust=False).mean()
-        loss  = (-delta.clip(upper=0)).ewm(com=self.period-1, adjust=False).mean()
-        df['rsi'] = 100 - (100 / (1 + gain / loss))
-
-        position = 0
-        signals  = []
-        for rsi in df['rsi']:
-            if np.isnan(rsi):
-                signals.append(0); continue
-            if position == 0 and rsi < self.buy_below:
-                position = 1
-            elif position == 1 and rsi > self.sell_above:
-                position = 0
-            signals.append(position)
-        df['signal'] = signals
-        return df`,
-  },
-  {
-    id: 'macd_trend',
-    name: 'MACD Trend',
-    type: 'momentum',
-    description: 'MACD line / signal line crossover. Enters long when MACD crosses above signal (bullish), exits on bearish cross. Holds position between crosses. Classic trend-following momentum strategy.',
-    bestFor: 'Trending assets, medium-term holding, momentum regimes',
-    avoid: 'Ranging markets — MACD generates many false crossovers in consolidation',
-    params: [
-      { name: 'fast', default: 12, min: 5, max: 30, description: 'Fast EMA period' },
-      { name: 'slow', default: 26, min: 15, max: 60, description: 'Slow EMA period' },
-      { name: 'signal', default: 9, min: 3, max: 20, description: 'Signal line EMA period' },
-    ],
-    code: `import pandas as pd
-import numpy as np
-
-class MACDTrendStrategy:
-    """
-    MACD signal line crossover.
-    Enter long:  MACD crosses above signal line.
-    Exit long:   MACD crosses below signal line.
-    """
-    def __init__(self, fast=12, slow=26, signal=9):
-        self.fast   = fast
-        self.slow   = slow
-        self.signal = signal
-
-    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        ema_f       = df['close'].ewm(span=self.fast,   adjust=False).mean()
-        ema_s       = df['close'].ewm(span=self.slow,   adjust=False).mean()
-        df['macd']  = ema_f - ema_s
-        df['sig']   = df['macd'].ewm(span=self.signal,  adjust=False).mean()
-        df['hist']  = df['macd'] - df['sig']
-
-        cross_up   = (df['macd'] > df['sig']) & (df['macd'].shift(1) <= df['sig'].shift(1))
-        cross_down = (df['macd'] < df['sig']) & (df['macd'].shift(1) >= df['sig'].shift(1))
-
-        df['signal'] = 0
-        df.loc[cross_up,   'signal'] =  1
-        df.loc[cross_down, 'signal'] = -1
-        df['signal'] = df['signal'].replace(0, np.nan).ffill().fillna(0).astype(int)
-        return df`,
+def evaluate(context):
+    features = context['features']
+    portfolio = context['portfolio']
+    
+    # Score all assets by momentum
+    scores = []
+    for feat in features:
+        returns_20d = feat.get('returns_20d', 0)
+        volatility = feat.get('vol_20d', 0.01)
+        # Risk-adjusted momentum
+        score = returns_20d / (volatility + 0.001)
+        scores.append({
+            'asset': feat['asset'],
+            'score': score,
+            'returns_20d': returns_20d,
+            'price': feat['close']
+        })
+    
+    # Rank by score
+    scores.sort(key=lambda x: x['score'], reverse=True)
+    
+    # Current portfolio positions
+    current_positions = {pos['asset']: pos['weight'] 
+                    for pos in portfolio['positions']}
+    
+    decisions = []
+    top_n = 3  # Top 3 positions
+    position_size = 0.20  # 20% each
+    
+    for i, item in enumerate(scores):
+        asset = item['asset']
+        current_w = current_positions.get(asset, 0)
+        
+        if i < top_n:
+            # Top performers — add/keep
+            if current_w < position_size:
+                decisions.append({
+                    'asset': asset,
+                    'decision': 'BUY',
+                    'conviction': 0.8,
+                    'targetPositionPct': position_size,
+                    'thesis': f'Rank #{i+1} by momentum, score {item["score"]:.2f}'
+                })
+        else:
+            # Lower performers — exit
+            if current_w > 0:
+                decisions.append({
+                    'asset': asset,
+                    'decision': 'SELL',
+                    'conviction': 0.7,
+                    'targetPositionPct': 0,
+                    'thesis': f'Rank #{i+1} — rotating out'
+                })
+    
+    return {
+        'timestamp': features[0]['timestamp'],
+        'decisions': decisions
+    }`,
+    sampleOutput: `{
+  "timestamp": "2024-01-15T00:00:00Z",
+  "decisions": [
+    {
+      "asset": "SOL-USD",
+      "decision": "BUY",
+      "conviction": 0.8,
+      "targetPositionPct": 0.20,
+      "thesis": "Rank #1 by momentum, score 3.42"
+    },
+    {
+      "asset": "ETH-USD",
+      "decision": "BUY",
+      "conviction": 0.8,
+      "targetPositionPct": 0.20,
+      "thesis": "Rank #2 by momentum, score 2.18"
+    },
+    {
+      "asset": "BNB-USD",
+      "decision": "SELL",
+      "conviction": 0.7,
+      "targetPositionPct": 0,
+      "thesis": "Rank #6 — rotating out"
+    }
+  ]
+}`,
   },
 ]
 
-// ─── Standardized Quant File Structure ───────────────────────────────────────
-
-export const QUANT_FILE_GUIDE = `## Quant File Structure
-
-Quants use ONE file per strategy. Each file contains:
-- A class that implements the trading logic
-- A main function that runs the backtest
-- Ledger API calls for buy/sell signals
-
-### Sandbox Environment
-
-All sandbox accounts start with **$100,000 USD** in simulated capital.
-- This is paper trading with fake money
-- No real money is at risk
-- Use this to test strategies before going live
-
-### Required Interface: Ledger
-
-Your quant sends signals via ledger calls:
-\`\`\`javascript
-ledger.buy(symbol, amount, price)   // Open long position
-ledger.sell(symbol, amount, price)  // Close long / open short
-ledger.exit(symbol)                   // Flat position (close all)
-\`\`\`
-
-### Position Tracking
-
-The agent must know what it currently owns. Use ledger.position(symbol):
-\`\`\`javascript
-const position = ledger.position(PARAMS.symbol)
-// Returns: { open: bool, amount: number, entryPrice: number, pnl: number }
-// - open: true if currently holding position
-// - amount: number of units owned
-// - entryPrice: average entry price
-// - pnl: unrealized profit/loss in dollars
-\`\`\`
-
-### Posting Trades to Ledger
-
-ALL trades MUST be posted to the ledger for tracking. Use ledger.post():
-\`\`\`javascript
-// After executing a trade, post to ledger
-await ledger.post({
-  symbol: 'BTC-USD',
-  type: 'buy',           // 'buy' or 'sell'
-  amount: 0.5,         // units bought/sold
-  price: 45000,          // execution price
-  agentId: 'agent-slug',  // your agent identifier
-  timestamp: Date.now()
-})
-\`\`\`
-This ensures all trades are recorded in ledger_entries table.
-
-### Required Main Function Signature
-
-Every quant file MUST export this structure:
-
-\`\`\`javascript
-// quant.js - Single file containing full strategy
-
-// ─── Strategy Parameters ──────────────────────────────────────────────────────
-const PARAMS = {
-  symbol: 'BTC-USD',
-  timeframe: '1d',
-  // Add strategy-specific params here
-}
-
-// ─── Indicators ───────────────────────────────────────────────────────────────
-function computeIndicators(df) {
-  // Compute your indicators here
-  // df = { timestamp, open, high, low, close, volume }
-  return df
-}
-
-// ─── Signal Generation ────────────────────────────────────────────────────────
-function generateSignals(df, ledger) {
-  // df contains price data + your indicators
-  // ledger tracks current positions
-  
-  const signals = []
-  
-  for (let i = 0; i < df.length; i++) {
-    const bar = df[i]
-    const position = ledger.position(PARAMS.symbol)
-    
-    // Example: Simple RSI mean reversion
-    if (!position.open && bar.rsi < 30) {
-      signals.push({
-        type: 'buy',
-        symbol: PARAMS.symbol,
-        amount: 1,
-        price: bar.close,
-        timestamp: bar.timestamp
-      })
-      ledger.buy(PARAMS.symbol, 1, bar.close)
-    }
-    else if (position.open && bar.rsi > 70) {
-      signals.push({
-        type: 'sell',
-        symbol: PARAMS.symbol,
-        amount: position.amount,
-        price: bar.close,
-        timestamp: bar.timestamp
-      })
-      ledger.sell(PARAMS.symbol, position.amount, bar.close)
-    }
-  }
-  
-  return signals
-}
-
-// ─── Backtest Entry Point ─────────────────────────────────────────────────────
-async function main(ledger, dataFetcher) {
-  // 1. Fetch historical data
-  const df = await dataFetcher(PARAMS.symbol, PARAMS.timeframe)
-  
-  // 2. Compute indicators
-  const data = computeIndicators(df)
-  
-  // 3. Generate signals
-  const signals = generateSignals(data, ledger)
-  
-  // 4. Return results for backtest engine
-  return {
-    signals,
-    metrics: {
-      totalTrades: signals.length,
-      equityCurve: ledger.equity
-    }
-  }
-}
-
-module.exports = { main, PARAMS, computeIndicators, generateSignals }
-\`\`\`
-
-### Ledger API Reference
-
-\`\`\`javascript
-// Initialize ledger with $100k sandbox capital
-const ledger = new Ledger(100_000)
-
-// Position check
-ledger.position(symbol)        // Returns { open: bool, amount, entryPrice, pnl }
-
-// Trading signals
-ledger.buy(symbol, amount, price)
-ledger.sell(symbol, amount, price)
-ledger.exit(symbol)            // Closes all positions
-
-// Account info
-ledger.equity                  // Current portfolio value
-ledger.cash                    // Available cash
-ledger.positions               // All open positions
-ledger.closedTrades            // Trade history
-ledger.tradeLog                // Detailed trade log
-
-// Post trade to ledger_entries (REQUIRED for all trades)
-await ledger.post({
-  symbol: 'BTC-USD',
-  type: 'buy',
-  amount: 0.5,
-  price: 45000,
-  agentId: 'my-agent',
-  timestamp: Date.now()
-})
-\`\`\`
-
-**All sandbox accounts get $100,000 USD to start.**
-
-### Complete Example: RSI Mean Reversion
-
-\`\`\`javascript
-// rsi-mean-reversion.js
-
-const PARAMS = {
-  symbol: 'BTC-USD',
-  timeframe: '1d',
-  rsiPeriod: 14,
-  oversold: 30,
-  overbought: 70,
-  positionSize: 0.95  // Use 95% of equity per trade
-}
-
-function computeIndicators(df) {
-  const closes = df.map(b => b.close)
-  const deltas = closes.map((c, i) => i === 0 ? 0 : c - closes[i - 1])
-  const gains = deltas.map(d => Math.max(0, d))
-  const losses = deltas.map(d => Math.abs(Math.min(0, d)))
-  
-  let avgGain = 0, avgLoss = 0
-  const rsi = []
-  
-  for (let i = 0; i < closes.length; i++) {
-    if (i < PARAMS.rsiPeriod) {
-      rsi.push(null)
-      continue
-    }
-    
-    if (i === PARAMS.rsiPeriod) {
-      avgGain = gains.slice(0, PARAMS.rsiPeriod).reduce((a, b) => a + b, 0) / PARAMS.rsiPeriod
-      avgLoss = losses.slice(0, PARAMS.rsiPeriod).reduce((a, b) => a + b, 0) / PARAMS.rsiPeriod
-    } else {
-      avgGain = (avgGain * (PARAMS.rsiPeriod - 1) + gains[i]) / PARAMS.rsiPeriod
-      avgLoss = (avgLoss * (PARAMS.rsiPeriod - 1) + losses[i]) / PARAMS.rsiPeriod
-    }
-    
-    const rs = avgLoss === 0 ? 100 : avgGain / avgLoss
-    rsi.push(100 - (100 / (1 + rs)))
-  }
-  
-  return df.map((bar, i) => ({ ...bar, rsi: rsi[i] }))
-}
-
-function generateSignals(df, ledger) {
-  const signals = []
-  
-  for (let i = 1; i < df.length; i++) {
-    const bar = df[i]
-    const prevBar = df[i - 1]
-    const position = ledger.position(PARAMS.symbol)
-    
-    // Buy: RSI crosses below oversold threshold
-    if (!position.open && bar.rsi !== null && prevBar.rsi !== null) {
-      if (prevBar.rsi >= PARAMS.oversold && bar.rsi < PARAMS.oversold) {
-        const amount = (ledger.cash * PARAMS.positionSize) / bar.close
-        signals.push({ type: 'buy', symbol: PARAMS.symbol, amount, price: bar.close, timestamp: bar.timestamp })
-        ledger.buy(PARAMS.symbol, amount, bar.close)
-      }
-      // Sell: RSI crosses above overbought threshold
-      else if (prevBar.rsi <= PARAMS.overbought && bar.rsi > PARAMS.overbought) {
-        signals.push({ type: 'sell', symbol: PARAMS.symbol, amount: position.amount, price: bar.close, timestamp: bar.timestamp })
-        ledger.sell(PARAMS.symbol, position.amount, bar.close)
-      }
-    }
-  }
-  
-  return signals
-}
-
-async function main(ledger, dataFetcher) {
-  const df = await dataFetcher(PARAMS.symbol, PARAMS.timeframe)
-  const data = computeIndicators(df)
-  const signals = generateSignals(data, ledger)
-  return { signals, equityCurve: ledger.equity }
-}
-
-module.exports = { main, PARAMS, computeIndicators, generateSignals }
-\`\`\`
-`
-
-// ─── Risk Metrics ─────────────────────────────────────────────────────────────
+// ─── Risk Metrics ─────────────────────────────────────────────────────────
 
 export interface RiskMetric {
   id: string
@@ -1165,223 +900,380 @@ sharpe = np.sqrt(252) * excess.mean() / excess.std()`,
     abbrev: 'Sortino',
     category: 'ratio',
     description: 'Like Sharpe but only penalizes downside volatility (returns below target), not total volatility. Better for strategies with asymmetric return distributions or positive skew.',
-    formula: 'Sortino = (R_p − R_f) / σ_downside\nσ_downside = std of returns < target (usually 0)',
-    interpretation: '< 1.0 = poor | 1.0–2.0 = acceptable | 2.0–3.0 = good | > 3.0 = excellent',
-    goodRange: '≥ 1.5 for live trading consideration',
-    code: `daily_returns  = df['equity'].pct_change().dropna()
-downside       = daily_returns[daily_returns < 0]
-downside_std   = np.sqrt((downside**2).mean()) * np.sqrt(252)
-annual_return  = (1 + daily_returns.mean())**252 - 1
-sortino        = annual_return / (downside_std + 1e-10)`,
+    formula: 'Sortino = (R_p − R_f) / σ_down\nDownside = std(negative returns only)',
+    interpretation: '< 0.5 = poor | 0.5–1.0 = acceptable | 1.0–2.0 = good | > 2.0 = excellent',
+    goodRange: '≥ 1.0 for publication; ≥ 1.5 for live trading',
+    code: `daily_returns = df['equity'].pct_change().dropna()
+target_return = 0.0  # or MAR (minimum acceptable return)
+downside = daily_returns[daily_returns < target_return]
+sortino = np.sqrt(252) * (daily_returns.mean() - target_return) / downside.std()`,
   },
   {
-    id: 'max_drawdown',
+    id: 'max-drawdown',
     name: 'Maximum Drawdown',
     abbrev: 'Max DD',
     category: 'risk',
-    description: 'Largest peak-to-trough decline in portfolio value. The most important risk metric for strategy survival. Always report as a percentage. Duration (how long to recover) is equally important.',
-    formula: 'MaxDD = min(Equity_t / Peak_t − 1)  for all t\nDuration = longest time from peak to new peak',
-    interpretation: '< 10% = low risk | 10–20% = moderate | 20–30% = high | > 30% = extreme',
-    goodRange: '< 20% for most retail strategies; < 15% for conservative',
-    code: `equity    = df['equity']
-peak      = equity.expanding().max()
-drawdown  = (equity - peak) / peak
-max_dd    = drawdown.min()
-# DD duration
-underwater = (drawdown < 0).astype(int)
-dd_periods = underwater.groupby((underwater != underwater.shift()).cumsum()).cumsum()
-max_dd_duration = dd_periods.max()  # in bars`,
-  },
-  {
-    id: 'calmar',
-    name: 'Calmar Ratio',
-    abbrev: 'Calmar',
-    category: 'ratio',
-    description: 'CAGR divided by maximum drawdown. Measures how much annual return you get per unit of worst-case risk. Higher is better. Preferred by many CTAs and fund managers over Sharpe.',
-    formula: 'Calmar = CAGR / |Max Drawdown|',
-    interpretation: '< 0.5 = poor | 0.5–1.0 = acceptable | 1.0–2.0 = good | > 2.0 = excellent',
-    goodRange: '≥ 1.0 for live trading; ≥ 2.0 exceptional',
-    code: `years       = len(df) / 252
-total_ret   = df['equity'].iloc[-1] / df['equity'].iloc[0] - 1
-cagr        = (1 + total_ret)**(1/years) - 1
-peak        = df['equity'].expanding().max()
-max_dd      = ((df['equity'] - peak) / peak).min()
-calmar      = cagr / abs(max_dd)`,
-  },
-  {
-    id: 'win_rate',
-    name: 'Win Rate',
-    abbrev: 'Win%',
-    category: 'trade',
-    description: 'Percentage of trades that are profitable. Does NOT tell you the strategy is good in isolation — a 30% win rate can be highly profitable with good risk/reward. Must be paired with average win/loss ratio.',
-    formula: 'Win Rate = N_winning / N_total × 100',
-    interpretation: 'Trend following: 35–45% typical | Mean reversion: 55–70% typical',
-    goodRange: 'Win Rate × Avg Win > (1-Win Rate) × Avg Loss → positive expectancy',
-    code: `trade_returns = []  # list of individual trade return %
-wins = sum(r > 0 for r in trade_returns)
-win_rate = wins / len(trade_returns)
-avg_win  = np.mean([r for r in trade_returns if r > 0])
-avg_loss = abs(np.mean([r for r in trade_returns if r < 0]))
-profit_factor = (win_rate * avg_win) / ((1 - win_rate) * avg_loss)`,
-  },
-  {
-    id: 'profit_factor',
-    name: 'Profit Factor',
-    abbrev: 'PF',
-    category: 'trade',
-    description: 'Ratio of gross profit to gross loss across all trades. Values above 1.5 suggest a good system. Very sensitive to outlier trades — check for large single wins that skew the result.',
-    formula: 'PF = Σ(winning trades) / Σ(losing trades)',
-    interpretation: '< 1.0 = losing system | 1.0–1.5 = marginal | 1.5–2.5 = good | > 2.5 = excellent',
-    goodRange: '≥ 1.5 for live consideration; > 2.0 with 30+ trades is robust',
-    code: `gross_profit = sum(r for r in trade_returns if r > 0)
-gross_loss   = abs(sum(r for r in trade_returns if r < 0))
-profit_factor = gross_profit / (gross_loss + 1e-10)`,
+    description: 'Largest peak-to-trough decline over the test period. Most important risk metric — measures worst-case survival scenario.',
+    formula: 'Max DD = (Trough − Peak) / Peak\nacross all peaks',
+    interpretation: '< 5% = minimal | 5–10% = low | 10–20% = moderate | 20–30% = elevated | > 30% = severe',
+    goodRange: '≤ 20% for conservative; ≤ 30% for aggressive',
+    code: `equity = df['equity']
+running_max = equity.cummax()
+drawdown = (equity - running_max) / running_max
+max_drawdown = drawdown.min()`,
   },
   {
     id: 'cagr',
-    name: 'CAGR — Compound Annual Growth Rate',
+    name: 'Compound Annual Growth Rate',
     abbrev: 'CAGR',
     category: 'return',
-    description: 'Annualized geometric return, accounting for compounding. The standard way to compare returns across strategies with different holding periods. Always report net of all fees and slippage.',
-    formula: 'CAGR = (End Value / Start Value)^(1/Years) − 1',
-    interpretation: 'Broad market: 8–10% | Good strategy: 15–30% | Exceptional: > 30%',
-    goodRange: 'CAGR / Max DD ≥ 1.0 is a basic quality gate',
-    code: `years = len(df) / 252  # assumes daily bars
-cagr  = (df['equity'].iloc[-1] / df['equity'].iloc[0])**(1/years) - 1`,
+    description: 'Annualized geometric return. Smooths the equity curve into a consistent annual growth rate.',
+    formula: 'CAGR = (End / Start)^(252/N) − 1\nwhere N = trading days',
+    interpretation: '< 5% = poor | 5–10% = modest | 10–20% = good | 20–50% = strong | > 50% = exceptional',
+    goodRange: '≥ 10% for publication; ≥ 15% for competitive',
+    code: `start_val = equity.iloc[0]
+end_val = equity.iloc[-1]
+n_days = len(equity)
+cagr = (end_val / start_val) ** (252 / n_days) - 1`,
+  },
+  {
+    id: 'profit-factor',
+    name: 'Profit Factor',
+    abbrev: 'PF',
+    category: 'trade',
+    description: 'Gross profits divided by gross losses. Best interpreted alongside trade count.',
+    formula: 'PF = Σ(gross profits) / Σ(gross losses)\n(ignores win rate)',
+    interpretation: '< 1.0 = losing | 1.0–1.5 = marginal | 1.5–2.0 = good | > 2.0 = excellent',
+    goodRange: '≥ 1.5 for publication',
+    code: `trades = ledger.closedTrades
+gross_profit = trades[trades['pnl'] > 0]['pnl'].sum()
+gross_loss = abs(trades[trades['pnl'] < 0]['pnl'].sum())
+profit_factor = gross_profit / gross_loss if gross_loss > 0 else np.inf`,
+  },
+  {
+    id: 'win-rate',
+    name: 'Win Rate',
+    abbrev: 'WR',
+    category: 'trade',
+    description: 'Percentage of profitable trades. Should never be interpreted in isolation — a 90% win rate with tiny wins and rare huge losses can be a losing strategy.',
+    formula: 'Win Rate = Winning Trades / Total Trades\n(percentage)',
+    interpretation: '< 40% = low | 40–50% = moderate | 50–60% = good | > 60% = high',
+    goodRange: 'Context-dependent; interpret with profit factor',
+    code: `trades = ledger.closedTrades
+winning_trades = (trades['pnl'] > 0).sum()
+total_trades = len(trades)
+win_rate = winning_trades / total_trades if total_trades > 0 else 0`,
+  },
+  {
+    id: 'turnover',
+    name: 'Turnover',
+    abbrev: 'Turnover',
+    category: 'trade',
+    description: 'How aggressively the strategy changes positions. High turnover can make results fragile under fees and slippage.',
+    formula: 'Turnover = Σ|bought| + Σ|sold| / (2 × equity × days)\n(annualized)',
+    interpretation: '< 1x = low turnover | 1–5x = moderate | 5–10x = high | > 10x = very high',
+    goodRange: '≤ 5x for publication; ≤ 10x for live',
+    code: `trades = ledger.closedTrades
+total_volume = trades['amount'].sum()
+avg_equity = df['equity'].mean()
+n_days = len(df)
+turnover = total_volume / (2 * avg_equity * n_days / 252)`,
   },
   {
     id: 'exposure',
-    name: 'Market Exposure',
-    abbrev: 'Exposure%',
-    category: 'trade',
-    description: 'Percentage of time the strategy is invested (position != 0). Low exposure reduces market risk but reduces opportunities. Very high exposure on a long-only strategy provides little market timing benefit.',
-    formula: 'Exposure = (bars with position ≠ 0) / total bars × 100',
-    interpretation: 'Trend following: 60–80% | Mean reversion: 20–50% | Buy-and-hold: 100%',
-    goodRange: 'Evaluate alongside return — high return at low exposure is efficient capital usage',
-    code: `exposure_pct = (df['position'] != 0).mean() * 100  # % of time invested`,
+    name: 'Exposure',
+    abbrev: 'Exposure',
+    category: 'risk',
+    description: 'Average amount of capital actually deployed. Important for contextualizing returns.',
+    formula: 'Exposure = mean(equity × weight) / mean(total equity)\n(percentage of time in market)',
+    interpretation: '< 20% = low | 20–50% = partial | 50–80% = moderate | > 80% = high',
+    goodRange: '≥ 50% indicates active strategy',
+    code: `positions = df['positions']
+avg_weight = positions.apply(
+  lambda p: sum(pos['weight'] for pos in p)
+).mean()
+exposure = avg_weight`,
   },
 ]
 
-// ─── Backtesting Best Practices ───────────────────────────────────────────────
+// ─── Decision Flow ─────────────────────────────────────────────────
+
+export const DECISION_FLOW = [
+  { step: 'Data', description: 'ASE loads normalized crypto data and derived features' },
+  { step: 'Strategy', description: 'Your strategy receives features and portfolio state' },
+  { step: 'Request', description: 'Strategy returns BUY/SELL/HOLD decisions' },
+  { step: 'Execution', description: 'ASE applies platform risk rules and constraints' },
+  { step: 'Ledger', description: 'ASE writes decision and execution events to ledger' },
+  { step: 'Metrics', description: 'ASE updates positions, equity, and validation status' },
+]
+
+// ─── Publish Guidance ────────────────────────────────────────────────
+
+export const PUBLISH_GUIDANCE = [
+  'Return is concentrated in a narrow period',
+  'Costs materially degrade results',
+  'Out-of-sample behavior is unstable',
+  'Drawdowns are too severe for the strategy profile',
+  'Sample size is too small to trust',
+]
+
+// ─── Validation Philosophy ─────────────────────────────────────────
+
+export const VALIDATION_PHILOSOPHY = {
+  intro: 'ASE evaluates strategies under standardized conditions to ensure fair comparison and prevent overfitting.',
+  contract: 'ASE checks that the strategy exports required fields, returns valid decisions, keeps conviction in bounds, and handles portfolio context correctly.',
+  baseline: 'ASE simulates strategy behavior over historical crypto data with standardized accounting and execution assumptions.',
+  robustness: 'ASE evaluates strategies across multiple stress conditions, including out-of-sample windows, cost sensitivity, unstable concentration, insufficient history, and poor behavior under noisy periods.',
+  publish: 'A strategy may be blocked from publishing if validation quality is too weak, even when one backtest window looks strong.',
+  principle: 'Users can understand the methodology and categories of tests, but ASE retains private implementation details to keep evaluation fair and harder to game.',
+}
+
+// ─── Legacy Backtest Guide ───────────────────────────────────────────
 
 export const BACKTEST_GUIDE = {
   pitfalls: [
     {
-      name: 'Look-Ahead Bias',
+      name: 'Lookahead Bias',
       severity: 'CRITICAL',
-      description: 'Using future data in signal calculation. Occurs when indicators are computed on the full dataset before signal generation. Always use .shift(1) to ensure signals use only past data.',
-      fix: 'Ensure entry signals are based on previous bar data: df.loc[condition.shift(1), "signal"] = 1',
+      description: 'Using future information in signal generation.',
+      fix: 'Always shift signals by 1 bar. Compute indicators on lagged data.',
     },
     {
       name: 'Survivorship Bias',
       severity: 'HIGH',
-      description: 'Only backtesting on assets that survived (winners). Assets that went bankrupt or were delisted are excluded, inflating returns. Major issue when selecting stocks from today\'s index.',
-      fix: 'Use point-in-time constituent lists, not current index membership. Accept that crypto backtests on "top 100" have survivorship bias.',
+      description: 'Only backtesting assets that survived to today.',
+      fix: 'Include all assets historically available, not just current survivors.',
     },
     {
-      name: 'Overfitting / Data Snooping',
+      name: 'Over-fitting',
       severity: 'HIGH',
-      description: 'Optimizing parameters on all available data, then reporting those in-sample results as realistic. The more parameters you test, the more likely you find spurious fits.',
-      fix: 'Use walk-forward analysis. Reserve the last 20–30% of data as out-of-sample test set, never optimize on it.',
+      description: 'Optimizing parameters too heavily on in-sample data.',
+      fix: 'Use walk-forward validation or out-of-sample testing.',
     },
     {
-      name: 'Ignoring Transaction Costs',
-      severity: 'HIGH',
-      description: 'Most strategies look excellent without fees. Crypto: ~0.1% per trade, Equities: ~0.01-0.05% + slippage. High-frequency strategies with 100+ trades/year are particularly sensitive.',
-      fix: 'Include realistic fee + slippage. For crypto: 0.1% + 0.1% slippage = 0.2% round-trip. For equities: 0.05% + 0.05% slippage.',
-    },
-    {
-      name: 'Insufficient History',
+      name: 'Transaction Costs Ignored',
       severity: 'MEDIUM',
-      description: 'Backtesting only on bull markets or a single regime. Strategies must survive different market conditions: bull runs, bear markets, crashes, and sideways periods.',
-      fix: 'Minimum 2 years of data; prefer 5+ years covering at least one full market cycle.',
+      description: 'Backtests excluding fees, slippage, or spread.',
+      fix: 'Apply realistic costs: 0.1% per trade + spread.',
     },
     {
-      name: 'Ignoring Slippage',
+      name: 'Liquidity Ignored',
       severity: 'MEDIUM',
-      description: 'Market impact from large orders or illiquid assets causes executed price to differ from signal price. More severe on smaller-cap assets and larger position sizes.',
-      fix: 'Add 0.05–0.2% slippage per trade depending on asset liquidity. For crypto < top 20, use 0.3%+.',
+      description: 'Assuming any position size can be filled.',
+      fix: 'Cap position size based on average volume.',
     },
   ],
-  walkForward: `Walk-Forward Analysis splits data into rolling train/test windows:
-
-# Example: 252-bar train, 63-bar test (1yr train, 1 quarter test)
-train_size = 252
-test_size  = 63
-results    = []
-
-for start in range(0, len(df) - train_size - test_size, test_size):
-    train = df.iloc[start : start + train_size]
-    test  = df.iloc[start + train_size : start + train_size + test_size]
-
-    # Optimize on train
-    best_params = optimize_strategy(train)
-
-    # Evaluate on test (out-of-sample)
-    test_result = run_strategy(test, best_params)
-    results.append(test_result)
-
-# Aggregate out-of-sample results
-oos_sharpe = np.mean([r.sharpe for r in results])
-consistency = sum(1 for r in results if r.total_return > 0) / len(results)`,
-  monteCarlo: `Monte Carlo simulation tests strategy robustness by running many random samples:
-
-import numpy as np
-
-def monte_carlo_backtest(daily_returns, n_sims=1000, sample_days=252):
-    results = []
-    returns_array = daily_returns.values
-
-    for _ in range(n_sims):
-        # Random contiguous time window
-        start = np.random.randint(0, len(returns_array) - sample_days)
-        sample = returns_array[start : start + sample_days]
-
-        # Compute equity curve
-        equity = np.cumprod(1 + sample)
-        total_ret = equity[-1] - 1
-
-        peak = np.maximum.accumulate(equity)
-        max_dd = ((equity - peak) / peak).min()
-
-        results.append({'return': total_ret, 'max_dd': max_dd})
-
-    p5, p50, p95 = np.percentile([r['return'] for r in results], [5, 50, 95])
-    return { 'p5': p5, 'median': p50, 'p95': p95,
-             'beat_rate': sum(1 for r in results if r['return'] > 0) / n_sims }`,
+  walkForward: `train, test = data[:split], data[split:]
+params = optimize(train)
+performance = backtest(test, params)`,
+  monteCarlo: `returns = []
+for _ in range(1000):
+    sample = resample(returns)
+    returns.append(calc(sample))`,
 }
 
-// ─── Exports for AI system prompt ─────────────────────────────────────────────
+// ─── Strategy Docs (Legacy - for backward compatibility) ─────────────
+
+export interface StrategyDoc {
+  id: string
+  name: string
+  type: 'momentum' | 'mean-reversion' | 'breakout' | 'multi-factor' | 'arbitrage'
+  description: string
+  bestFor: string
+  avoid: string
+  params: { name: string; default: number; min: number; max: number; description: string }[]
+  code: string
+}
+
+export const STRATEGY_DOCS: StrategyDoc[] = [
+  {
+    id: 'mean_reversion',
+    name: 'Mean Reversion (Z-Score)',
+    type: 'mean-reversion',
+    description: 'Buys when price falls more than N standard deviations below the rolling mean, and sells when it reverts.',
+    bestFor: 'Range-bound assets, low-volatility regimes, crypto in consolidation phases',
+    avoid: 'Trending markets — strong trends will trigger false buy signals on every new low',
+    params: [
+      { name: 'window', default: 20, min: 5, max: 60, description: 'Rolling mean/std lookback' },
+      { name: 'z_threshold', default: 2.0, min: 0.5, max: 4.0, description: 'Z-score entry threshold' },
+    ],
+    code: `def generate_signals(self, df):
+    rolling_mean = df['close'].rolling(self.window).mean()
+    rolling_std  = df['close'].rolling(self.window).std()
+    df['zscore']  = (df['close'] - rolling_mean) / rolling_std
+    
+    df['signal'] = 0
+    df.loc[df['zscore'] < -self.z_threshold, 'signal'] =  1
+    df.loc[df['zscore'] >  self.z_threshold, 'signal'] = -1
+    return df`,
+  },
+  {
+    id: 'momentum_crossover',
+    name: 'Momentum Crossover (EMA)',
+    type: 'momentum',
+    description: 'Dual EMA crossover strategy. Enters long on golden cross, exits on death cross.',
+    bestFor: 'Trending markets, crypto bull runs, medium to long-term holding',
+    avoid: 'Choppy/sideways markets — frequent whipsaws erode returns',
+    params: [
+      { name: 'fast_window', default: 20, min: 5, max: 60, description: 'Fast EMA period' },
+      { name: 'slow_window', default: 50, min: 20, max: 150, description: 'Slow EMA period' },
+    ],
+    code: `def generate_signals(self, df):
+    df['ema_fast'] = df['close'].ewm(span=self.fast).mean()
+    df['ema_slow'] = df['close'].ewm(span=self.slow).mean()
+    cross_up   = (df['ema_fast'] > df['ema_slow']) & (df['ema_fast'].shift(1) <= df['ema_slow'].shift(1))
+    cross_down = (df['ema_fast'] < df['ema_slow']) & (df['ema_fast'].shift(1) >= df['ema_slow'].shift(1))
+    df.loc[cross_up,   'signal'] =  1
+    df.loc[cross_down, 'signal'] = -1
+    return df`,
+  },
+  {
+    id: 'breakout_trend',
+    name: 'Breakout Trend (Donchian)',
+    type: 'breakout',
+    description: 'Enters long when price breaks above the N-day high. Exits when price drops below the M-day low.',
+    bestFor: 'Volatile markets with strong trending tendencies, crypto',
+    avoid: 'Low-volatility markets — false breakouts are common',
+    params: [
+      { name: 'breakout_window', default: 20, min: 10, max: 150, description: 'Lookback for entry high' },
+      { name: 'exit_window', default: 10, min: 5, max: 60, description: 'Lookback for exit low' },
+    ],
+    code: `def generate_signals(self, df):
+    df['upper'] = df['high'].rolling(self.breakout).max()
+    df['lower'] = df['low'].rolling(self.exit_w).min()
+    df.loc[df['close'] >= df['upper'].shift(1), 'signal'] =  1
+    df.loc[df['close'] <= df['lower'].shift(1), 'signal'] = -1
+    return df`,
+  },
+  {
+    id: 'rsi_trend_filter',
+    name: 'RSI + Trend Filter',
+    type: 'mean-reversion',
+    description: 'RSI mean-reversion entries filtered by long-period moving average trend.',
+    bestFor: 'Swing trading, pullback entries in trending markets',
+    avoid: 'Using without the trend filter in choppy markets',
+    params: [
+      { name: 'rsi_period', default: 14, min: 5, max: 30, description: 'RSI calculation period' },
+      { name: 'trend_ma', default: 200, min: 50, max: 300, description: 'Long-term trend MA period' },
+    ],
+    code: `def generate_signals(self, df):
+    df['rsi'] = self.calc_rsi(df, self.rsi_p)
+    df['trend_ma'] = df['close'].rolling(self.trend_ma).mean()
+    in_uptrend = df['close'] > df['trend_ma']
+    df.loc[in_uptrend & (df['rsi'] < 30),  'signal'] =  1
+    df.loc[~in_uptrend & (df['rsi'] > 70), 'signal'] = -1
+    return df`,
+  },
+  {
+    id: 'volatility_breakout',
+    name: 'Volatility Breakout (ATR)',
+    type: 'breakout',
+    description: 'Enters on range breakout and uses ATR-based trailing stops.',
+    bestFor: 'Highly volatile assets like crypto',
+    avoid: 'Low-volatility assets where ATR stops are too tight',
+    params: [
+      { name: 'breakout_window', default: 20, min: 10, max: 120, description: 'High breakout lookback' },
+      { name: 'atr_mult', default: 2.5, min: 1.0, max: 6.0, description: 'ATR stop multiplier' },
+    ],
+    code: `def generate_signals(self, df):
+    df['atr'] = self.calc_atr(df)
+    df['high_n'] = df['high'].rolling(self.breakout).max()
+    df.loc[df['close'] > df['high_n'].shift(1), 'signal'] =  1
+    df.loc[df['close'] < df['close'].shift(1) - self.mult * df['atr'], 'signal'] = -1
+    return df`,
+  },
+  {
+    id: 'dual_momentum',
+    name: 'Dual Momentum (Antonacci)',
+    type: 'momentum',
+    description: "Gary Antonacci's Dual Momentum: absolute AND relative momentum.",
+    bestFor: 'Long-term allocation, portfolio-level strategy',
+    avoid: 'Short-term trading — significant lag',
+    params: [
+      { name: 'lookback', default: 252, min: 20, max: 252, description: 'Return lookback for momentum score' },
+    ],
+    code: `def generate_signals(self, df):
+    df['abs_mom'] = df['close'].pct_change(self.lookback)
+    df['ma'] = df['close'].rolling(100).mean()
+    abs_positive = df['abs_mom'] > 0
+    trend_confirm = df['close'] > df['ma']
+    df.loc[abs_positive & trend_confirm, 'signal'] = 1
+    return df`,
+  },
+  {
+    id: 'factor_rotation',
+    name: 'Factor Rotation',
+    type: 'multi-factor',
+    description: 'Ranks assets by risk-adjusted momentum and rotates positions.',
+    bestFor: 'Multi-asset portfolios, crypto market cycles',
+    avoid: 'Single-asset backtests',
+    params: [
+      { name: 'momentum_window', default: 90, min: 20, max: 252, description: 'Return lookback for scoring' },
+    ],
+    code: `def evaluate(self, context):
+    returns = context['features'].pct_change(self.momentum_window)
+    volatility = context['features'].pct_change().rolling(20).std()
+    scores = returns / (volatility + 1e-9)
+    # Rank and allocate to top performers
+    return decisions`,
+  },
+  {
+    id: 'rsi_mean_reversion',
+    name: 'RSI Mean Reversion',
+    type: 'mean-reversion',
+    description: 'Pure RSI-based mean reversion. Buys oversold, sells overbought.',
+    bestFor: 'Range-bound markets, stable high-cap crypto',
+    avoid: 'Strong trending markets',
+    params: [
+      { name: 'period', default: 14, min: 5, max: 30, description: 'RSI period' },
+    ],
+    code: `def generate_signals(self, df):
+    df['rsi'] = self.calc_rsi(df, self.period)
+    df.loc[df['rsi'] < 30, 'signal'] =  1
+    df.loc[df['rsi'] > 70, 'signal'] = -1
+    return df`,
+  },
+  {
+    id: 'macd_trend',
+    name: 'MACD Trend',
+    type: 'momentum',
+    description: 'MACD signal line crossover.',
+    bestFor: 'Trending assets, medium-term holding',
+    avoid: 'Ranging markets — many false crossovers',
+    params: [
+      { name: 'fast', default: 12, min: 5, max: 30, description: 'Fast EMA period' },
+      { name: 'slow', default: 26, min: 15, max: 60, description: 'Slow EMA period' },
+    ],
+    code: `def generate_signals(self, df):
+    df['macd']  = df['close'].ewm(span=self.fast).mean() - df['close'].ewm(span=self.slow).mean()
+    df['signal'] = df['macd'].ewm(span=9).mean()
+    cross_up   = (df['macd'] > df['signal']) & (df['macd'].shift(1) <= df['signal'].shift(1))
+    cross_down = (df['macd'] < df['signal']) & (df['macd'].shift(1) >= df['signal'].shift(1))
+    df.loc[cross_up,   'signal'] =  1
+    df.loc[cross_down, 'signal'] = -1
+    return df`,
+  },
+]
+
+// ─── Backward Compatibility ───────────────────────────────────────────────
 
 export function buildAIContext(): string {
-  const sources = DATA_SOURCES.map(s =>
-    `- ${s.name}: ${s.description} Endpoint: ${s.endpoint} Rate limit: ${s.rateLimit}`
-  ).join('\n')
+  const dataSources = DATA_SOURCES.map(s => s.name).join(', ')
+  const indicators = INDICATORS.map(i => i.name).join(', ')
+  const metrics = RISK_METRICS.map(m => m.name).join(', ')
+  
+  return `
+ASE Quant Builder Documentation Summary:
 
-  const strategies = STRATEGY_DOCS.map(s =>
-    `- ${s.name} (${s.type}): ${s.description} Params: ${s.params.map(p => p.name).join(', ')}`
-  ).join('\n')
+Data Sources: ${dataSources}
+Indicators: ${indicators}
+Metrics: ${metrics}
 
-  const metrics = RISK_METRICS.map(m =>
-    `- ${m.name} (${m.abbrev}): ${m.goodRange}`
-  ).join('\n')
-
-  return `DATA SOURCES (all no-API-key required):
-${sources}
-
-STRATEGIES:
-${strategies}
-
-KEY METRICS:
-${metrics}
-
-SEAMLESS DATA INTEGRATION:
-Use these APIs directly in code examples. All endpoints support CORS and return JSON:
-- Binance: https://api.binance.com/api/v3/klines
-- Yahoo: https://query1.finance.yahoo.com/v8/finance/chart/{symbol}
-- CoinGecko: https://api.coingecko.com/api/v3/coins/{id}/ohlc
-- Kraken: https://api.kraken.com/0/public/OHLC
-- FRED: https://fred.stlouisfed.org/graph/fredgraph.csv
-Example: const res = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=365')
-}`
+Key Points:
+- Crypto-only platform (BTC, ETH, SOL, etc.)
+- Strategies return BUY/SELL/HOLD decisions
+- Portfolio-aware evaluation
+- Standardized backtests with ledger events
+- Risk metrics: Sharpe, Sortino, Max Drawdown, CAGR
+`
 }

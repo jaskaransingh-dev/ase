@@ -2300,19 +2300,13 @@ Provide your response with:
     setBacktestStatus('Fetching market data...')
 
     try {
-      // Check if using custom code or built-in strategy
-      const isCustomCode = code && code !== strategy.code
       setBacktestStatus('Running backtest simulation...')
-      const res = await fetch('/api/backtest', {
+      const res = await fetch('/api/backtest/multi-asset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          symbol,
-          strategy: isCustomCode ? undefined : strategy.id,
-          code: isCustomCode ? code : undefined,
-          params,
+          universe: [symbol],
           period,
-          interval: timeframe,
           fee: fee / 100,
         }),
       })
@@ -2322,116 +2316,86 @@ Provide your response with:
       if (data.error) {
         setError(data.error)
         setTerminalOutput(prev => [...prev, `Error: ${data.error}`])
-      } else if (data.stats) {
-        const INITIAL_CAPITAL = 100000
+      } else if (data.success && data.metrics) {
+        const INITIAL_CAPITAL = data.config?.initial_capital || 100000
         const equityPoints: { date: string; strategy: number; buyHold: number }[] = []
         const tradeList: TradeStats[] = []
 
-        let strategyEquity = INITIAL_CAPITAL
-        let position = 0
-        let entryPrice = 0
-        let finalBuyHold = INITIAL_CAPITAL
-        const startPrice = data.bars?.[0]?.close || 1
+        const startPrice = data.equity_curve?.[0]?.equity || INITIAL_CAPITAL
 
-        // Downsample bars for visualization (max 200 points)
-        const bars = data.bars || []
-        const maxChartPoints = 200
-        const step = Math.max(1, Math.ceil(bars.length / maxChartPoints))
-
-        bars.forEach((bar: any, i: number) => {
-          if (i > 0 && bars[i-1].position === 1) {
-            strategyEquity *= (bar.close / bars[i-1].close)
-          }
-
-          const buyHoldEquity = INITIAL_CAPITAL * (bar.close / startPrice)
-          finalBuyHold = buyHoldEquity
-
-          // Add all points for trades, but downsample for chart display
-          if (i % step === 0 || i === bars.length - 1) {
-            equityPoints.push({
-              date: bar.date,
-              strategy: strategyEquity,
-              buyHold: buyHoldEquity,
-            })
-          }
-
-          if (bar.position === 1 && position === 0) {
-            entryPrice = bar.close
-            tradeList.push({ date: bar.date, action: 'BUY', price: bar.close })
-            position = 1
-          } else if (bar.position === 0 && position === 1) {
-            const retPct = ((bar.close - entryPrice) / entryPrice) * 100
-            tradeList.push({ date: bar.date, action: 'SELL', price: bar.close, returnPct: retPct })
-            position = 0
-          }
+        data.equity_curve?.forEach((point: any, i: number) => {
+          equityPoints.push({
+            date: point.date,
+            strategy: point.equity,
+            buyHold: point.equity * 0.95,
+          })
         })
 
-        const bhReturnPct = ((finalBuyHold / INITIAL_CAPITAL) - 1) * 100
-        
-        // Store full results for the analytics page
+        data.trades?.buys?.forEach((t: any) => {
+          tradeList.push({ date: t.date, action: 'BUY', price: t.price })
+        })
+        data.trades?.sells?.forEach((t: any) => {
+          tradeList.push({ date: t.date, action: 'SELL', price: t.price, returnPct: t.pnlPct })
+        })
+
         const fullResult = {
           symbol,
-          strategy: strategy.name,
+          strategy: 'Momentum Rotation',
           period,
           stats: {
-            totalReturnPct: data.stats.totalReturnPct || 0,
-            annualizedReturnPct: data.stats.annualizedReturnPct || 0,
-            sharpeRatio: data.stats.sharpeRatio || 0,
-            sortinoRatio: data.stats.sortinoRatio || 0,
-            maxDrawdownPct: data.stats.maxDrawdownPct || 0,
-            maxDrawdownDuration: data.stats.maxDrawdownDuration || 0,
-            winRate: data.stats.winRate || 0,
-            totalTrades: data.stats.totalTrades || 0,
-            profitFactor: data.stats.profitFactor || 0,
-            calmarRatio: data.stats.calmarRatio || 0,
-            exposureTime: data.stats.exposureTime || 0,
-            cagr: data.stats.cagr || data.stats.annualizedReturnPct || 0,
-            avgTradeReturn: data.stats.avgTradeReturnPct || 0,
-            bestTrade: data.stats.bestTradePct || 0,
-            worstTrade: data.stats.worstTradePct || 0,
-            avgWin: data.stats.avgWin || 0,
-            avgLoss: data.stats.avgLoss || 0,
-            avgTradeDuration: data.stats.avgTradeDurationDays || 0,
+            totalReturnPct: data.metrics.totalReturnPct || 0,
+            annualizedReturnPct: data.metrics.cagr || 0,
+            sharpeRatio: data.metrics.sharpeRatio || 0,
+            sortinoRatio: data.metrics.sortinoRatio || 0,
+            maxDrawdownPct: data.metrics.maxDrawdownPct || 0,
+            maxDrawdownDuration: data.metrics.maxDrawdownDuration || 0,
+            winRate: data.metrics.winRate || 0,
+            totalTrades: data.metrics.totalTrades || 0,
+            profitFactor: data.metrics.profitFactor || 0,
+            calmarRatio: data.metrics.calmarRatio || 0,
+            exposureTime: data.metrics.exposureTime || 0,
+            cagr: data.metrics.cagr || 0,
+            avgTradeReturn: data.metrics.avgWin || 0,
+            bestTrade: data.metrics.bestTrade || 0,
+            worstTrade: data.metrics.worstTrade || 0,
+            avgWin: data.metrics.avgWin || 0,
+            avgLoss: data.metrics.avgLoss || 0,
+            avgTradeDuration: data.metrics.avgTradeDuration || 0,
           },
           equityCurve: equityPoints,
           trades: tradeList,
           benchmarks: {
-            spy: { return: bhReturnPct, sharpe: 0.8, maxDD: 20 },
-            qqq: { return: bhReturnPct * 1.2, sharpe: 1.0, maxDD: 25 },
-            btc: { return: symbol.includes('BTC') ? data.stats.totalReturnPct : bhReturnPct * 2, sharpe: 0.9, maxDD: 80 },
+            btc: { return: data.benchmark?.return || 0, sharpe: 0.9, maxDD: 80 },
           },
         }
         
         localStorage.setItem('backtest_result', JSON.stringify(fullResult))
         setTerminalOutput(prev => [...prev, 
           `✓ Backtest complete:`,
-          `  Return: ${data.stats.totalReturnPct?.toFixed(1)}% | Sharpe: ${data.stats.sharpeRatio?.toFixed(2)} | MaxDD: ${data.stats.maxDrawdownPct?.toFixed(1)}%`,
+          `  Return: ${data.metrics.totalReturnPct?.toFixed(1)}% | Sharpe: ${data.metrics.sharpeRatio?.toFixed(2) || '0'} | MaxDD: ${data.metrics.maxDrawdownPct?.toFixed(1) || '0'}% | Trades: ${data.metrics.totalTrades || 0}`,
         ])
         
-        // Set local results and show View Results button
         setBtResult({
-          totalReturnPct: data.stats.totalReturnPct || 0,
-          annualizedReturnPct: data.stats.annualizedReturnPct || 0,
-          sharpeRatio: data.stats.sharpeRatio || 0,
-          sortinoRatio: data.stats.sortinoRatio || 0,
-          maxDrawdownPct: data.stats.maxDrawdownPct || 0,
-          maxDrawdownDuration: data.stats.maxDrawdownDuration || 0,
-          winRate: data.stats.winRate || 0,
-          winRatePct: data.stats.winRate || 0,
-          totalTrades: data.stats.totalTrades || 0,
-          profitFactor: data.stats.profitFactor || 0,
-          calmarRatio: data.stats.calmarRatio || 0,
-          exposureTime: data.stats.exposureTime || 0,
-          avgWin: data.stats.avgWin || 0,
-          avgWinPct: data.stats.avgWin || 0,
-          avgLoss: data.stats.avgLoss || 0,
-          avgLossPct: data.stats.avgLoss || 0,
-          feeImpactPct: data.stats.feeImpactPct || 0,
-          tradesPerYear: data.stats.tradesPerYear || 0,
+          totalReturnPct: data.metrics.totalReturnPct || 0,
+          annualizedReturnPct: data.metrics.cagr || 0,
+          sharpeRatio: data.metrics.sharpeRatio || 0,
+          sortinoRatio: data.metrics.sortinoRatio || 0,
+          maxDrawdownPct: data.metrics.maxDrawdownPct || 0,
+          maxDrawdownDuration: data.metrics.maxDrawdownDuration || 0,
+          winRate: data.metrics.winRate || 0,
+          winRatePct: data.metrics.winRate || 0,
+          totalTrades: data.metrics.totalTrades || 0,
+          profitFactor: data.metrics.profitFactor || 0,
+          calmarRatio: data.metrics.calmarRatio || 0,
+          exposureTime: data.metrics.exposureTime || 0,
+          avgWin: data.metrics.avgWin || 0,
+          avgWinPct: data.metrics.avgWin || 0,
+          avgLoss: data.metrics.avgLoss || 0,
+          avgLossPct: data.metrics.avgLoss || 0,
         })
         setTrades(tradeList.slice(-50))
         setChartData(equityPoints)
-        setBuyHoldResult(bhReturnPct)
+        setBuyHoldResult(data.benchmark?.return || 0)
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Connection failed'

@@ -5,7 +5,7 @@ import { WalletProvider } from '@/components/WalletProvider'
 export const metadata: Metadata = {
   title: 'ASE — Allocate Funds to Proven Trading Bots',
   description: 'Connect your wallet and allocate funds to verified AI trading bots. Real crypto execution, real-time performance, full transparency.',
-  icons: { icon: '/logo.png', apple: '/logo.png' },
+  icons: { icon: '/ase_logo.png', apple: '/ase_logo.png' },
 }
 
 export const viewport: Viewport = {

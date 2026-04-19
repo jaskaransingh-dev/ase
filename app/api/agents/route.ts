@@ -72,16 +72,25 @@ export async function GET() {
 
   const { data } = await supabase
     .from('agents')
-    .select('id, name, slug, ticker, description, strategy_type, asset_class, status, total_aum_cents, share_price_cents, signal_summary, last_run_at, agent_stats(nav_cents, bid_cents, ask_cents, total_return_pct, sharpe_ratio, max_drawdown_pct, win_rate_pct, total_trades, snapshot_at)')
+    .select('id, name, slug, ticker, description, strategy_type, asset_class, status, total_aum_cents, share_price_cents, signal_summary, last_run_at, primary_symbol, subscriber_count, backtest_stats, agent_stats(nav_cents, bid_cents, ask_cents, total_return_pct, sharpe_ratio, max_drawdown_pct, win_rate_pct, total_trades, snapshot_at)')
     .eq('status', 'active')
-    .eq('asset_class', 'crypto')
     .order('created_at')
 
-  const agentsWithTicker = (data as unknown as AgentData[] ?? []).map(agent => ({
-    ...agent,
-    ticker: agent.ticker || agent.slug.toUpperCase().replace(/-/g, '').slice(0, 4),
-    total_aum_cents: calculateTradingCapitalCents(agent.total_aum_cents),
-  }))
+  const agentsWithTicker = (data as unknown as AgentData[] ?? []).map(agent => {
+    const stats = Array.isArray((agent as any).agent_stats) ? (agent as any).agent_stats[0] : (agent as any).agent_stats
+    const backtestStats = (agent as any).backtest_stats as Record<string, number> | null
+    return {
+      ...agent,
+      ticker: agent.ticker || agent.slug.toUpperCase().replace(/-/g, '').slice(0, 4),
+      total_aum_cents: calculateTradingCapitalCents(agent.total_aum_cents),
+      sharpe: stats?.sharpe_ratio ?? backtestStats?.sharpeRatio ?? null,
+      maxDD: stats?.max_drawdown_pct ?? backtestStats?.maxDrawdownPct ?? null,
+      winRate: stats?.win_rate_pct ?? backtestStats?.winRatePct ?? backtestStats?.winRate ?? null,
+      return30d: stats?.total_return_pct ?? backtestStats?.totalReturnPct ?? null,
+      isLive: agent.status === 'active',
+      subscriber_count: (agent as any).subscriber_count ?? 0,
+    }
+  })
 
   return NextResponse.json({ data: agentsWithTicker })
 }

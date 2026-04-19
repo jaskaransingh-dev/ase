@@ -6,22 +6,18 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Logo } from '@/components/ui/Logo'
 import { useWallet } from '@/components/WalletProvider'
-import AIChatbot from '@/components/AIChatbot'
+
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Home', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
-  { href: '/agents', label: 'Exchange', icon: 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9' },
-  { href: '/dashboard/activity', label: 'Activity', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
-  { href: '/dashboard/strategies', label: 'Strategies', icon: 'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4' },
   { href: '/dashboard/marketplace', label: 'Market', icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z' },
-  { href: '/dashboard/quant', label: 'Quant Lab', icon: 'M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18' },
-  { href: '/dashboard/build', label: 'Builder', icon: 'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+  { href: '/builders', label: 'Builder', icon: 'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
   { href: '/dashboard/settings', label: 'Settings', icon: 'M10.325 18.693l3.768-1.458.767 1.458 3.83.788-1.458 1.458-3.768.831 1.458 3.768-1.458.767-1.458-.831-3.768-.831zM12 12a4 4 0 110-8 4 4 0 010 8z' },
 ]
 
 const NAV_SECTIONS = [
-  { label: 'MAIN', items: ['/dashboard', '/agents', '/dashboard/activity'] },
-  { label: 'STRATEGIES', items: ['/dashboard/strategies', '/dashboard/marketplace', '/dashboard/quant', '/dashboard/build'] },
+  { label: 'MAIN', items: ['/dashboard'] },
+  { label: 'STRATEGIES', items: ['/dashboard/marketplace', '/builders'] },
   { label: 'ACCOUNT', items: ['/dashboard/settings'] },
 ]
 
@@ -34,7 +30,7 @@ export default function DashboardShell({ user, children }: { user: { id: string;
   const [accountConnected, setAccountConnected] = useState(false)
   const [accountStatus, setAccountStatus] = useState<string | null>(null)
   const [accountNumber, setAccountNumber] = useState<string | null>(null)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   useEffect(() => {
     const fetchAccount = () =>
@@ -90,12 +86,15 @@ export default function DashboardShell({ user, children }: { user: { id: string;
       </button>
 
       {/* Sidebar */}
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <div className="sidebar-brand">
-          <Link href="/" onClick={() => setSidebarOpen(false)} style={{ textDecoration: 'none' }}>
-            <Logo size="medium" variant="full" showLink={false} />
-          </Link>
-        </div>
+      <aside className={`sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
+<div className="sidebar-brand" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+            <Link href="/" onClick={() => setSidebarOpen(false)} style={{ textDecoration: 'none' }}>
+              <Logo size="medium" variant="icon" showLink={false} />
+            </Link>
+            <button onClick={() => setSidebarOpen(false)} style={{ background: 'transparent', border: 'none', color: 'var(--faint)', cursor: 'pointer', padding: '0.25rem' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
 
         <nav className="sidebar-nav">
           {NAV_SECTIONS.map(section => (
@@ -188,8 +187,11 @@ export default function DashboardShell({ user, children }: { user: { id: string;
       </aside>
 
       {/* Main Content */}
-      <main className="quant-main">
+      <main className={`quant-main ${sidebarOpen ? '' : 'quant-main-expanded'}`}>
         <header className="quant-header">
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{ background: 'transparent', border: 'none', color: 'var(--faint)', cursor: 'pointer', padding: '0.25rem 0.5rem 0.25rem 0', marginRight: '0.5rem', display: 'flex', alignItems: 'center' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d={sidebarOpen ? "M3 12h18M3 6h18M3 18h18" : "M4 6h16M4 12h16M4 18h16"}/></svg>
+          </button>
           <div className="quant-breadcrumbs">
             <Link href="/dashboard">Home</Link>
             {getBreadcrumbs().map((crumb) => (
@@ -273,9 +275,11 @@ export default function DashboardShell({ user, children }: { user: { id: string;
         </div>
       </main>
 
-      <AIChatbot />
-
       <style>{`
+        .sidebar { transition: transform 0.2s; transform: translateX(0); }
+        @media (min-width: 769px) {
+          .sidebar.closed { transform: translateX(-100%); }
+        }
         @media (max-width: 768px) {
           .mobile-menu-toggle { display: flex !important; }
           .sidebar { transform: translateX(-100%); }

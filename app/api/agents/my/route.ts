@@ -19,20 +19,20 @@ export async function GET() {
       .from('agents')
       .select(`
         *,
-        agent_stats(nav_cents,total_return_pct,sharpe_ratio,max_drawdown_pct,win_rate_pct,total_trades,snapshot_at),
-        agent_submissions(status)
+        agent_stats(nav_cents,total_return_pct,sharpe_ratio,max_drawdown_pct,win_rate_pct,total_trades,snapshot_at)
       `)
-      .eq('owner_id', user.id)
       .order('created_at', { ascending: false })
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    const agentsWithStatus = (agents ?? []).map(agent => {
-      const latestStats = Array.isArray(agent.agent_stats)
+    const myAgents = (agents ?? []).filter((a: any) => a.owner_id === user.id || !a.owner_id)
+
+    const agentsWithStatus = (myAgents ?? []).map((agent: any) => {
+      const latestStats = Array.isArray(agent.agent_stats) && agent.agent_stats.length > 0
         ? agent.agent_stats.sort((a: any, b: any) => new Date(b.snapshot_at).getTime() - new Date(a.snapshot_at).getTime())[0]
-        : agent.agent_stats
+        : (agent.agent_stats && !Array.isArray(agent.agent_stats) ? agent.agent_stats : null)
 
       let displayStatus = 'unknown'
       if (agent.status === 'active') {
@@ -42,10 +42,6 @@ export async function GET() {
       } else if (agent.status === 'pending_review') {
         displayStatus = 'pending'
       }
-
-      const submission = Array.isArray(agent.agent_submissions)
-        ? agent.agent_submissions[0]
-        : agent.agent_submissions
 
       return {
         id: agent.id,
@@ -59,9 +55,10 @@ export async function GET() {
         primary_symbol: agent.primary_symbol,
         backtest_stats: agent.backtest_stats,
         latest_stats: latestStats,
-        submission_status: submission?.status || agent.status,
+        submission_status: agent.status,
         total_aum_cents: agent.total_aum_cents,
         subscriber_count: agent.subscriber_count || 0,
+        monthly_fee_cents: agent.monthly_fee_cents,
         created_at: agent.created_at,
       }
     })

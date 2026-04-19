@@ -13,15 +13,15 @@ import {
 } from 'lucide-react'
 
 const C = {
-  bg: '#0D0F14', bg2: '#13151A', bg3: '#181B21', bg4: '#1E2228',
-  border: '#2A2E38', border2: '#3B4250',
-  blue: '#5B8CFF', blue2: '#78A2FF',
-  mint: '#22F0B5', mint2: '#3EF5C5', mintDark: 'rgba(34,240,181,0.12)',
-  red: '#FF5468', red2: '#FF7885',
-  orange: '#FFB648', orange2: '#FFC570',
-  purple: '#A78BFA',
-  text: '#C9D1E0', muted: '#8E9AB0', faint: '#6A7890',
-  white: '#F5F7FB', gold: '#FFD700',
+  bg: '#06111F', bg2: '#0B1728', bg3: '#101A2D', bg4: '#162438',
+  border: '#1E2A3D', border2: '#2A3A50',
+  blue: '#4F8CFF', blue2: '#6BA3FF',
+  mint: '#16C784', mint2: '#2AD89A', mintDark: 'rgba(22,199,132,0.12)',
+  red: '#FF5468', red2: '#FF7B88',
+  orange: '#F5B942', orange2: '#FBBF24',
+  purple: '#8B5CF6',
+  text: '#B7C4D5', muted: '#7F8CA3', faint: '#55657A',
+  white: '#F7FAFF', gold: '#FFD700',
 }
 
 interface BacktestResult {

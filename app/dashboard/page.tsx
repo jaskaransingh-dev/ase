@@ -321,8 +321,11 @@ export default function DashboardPage() {
           <button onClick={() => setShowFunding(true)} style={{ padding: '.5rem 1.1rem', borderRadius: 100, border: '1px solid rgba(59,127,255,.3)', background: 'rgba(59,127,255,.08)', color: 'var(--blue2)', fontSize: '.78rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '-.01em', transition: 'all .15s' }}>
             + Add Funds
           </button>
-          <Link href="/agents" style={{ padding: '.5rem 1.1rem', borderRadius: 100, border: 0, background: 'var(--blue)', color: '#fff', fontSize: '.78rem', fontWeight: 700, textDecoration: 'none', letterSpacing: '-.01em', transition: 'all .15s' }}>
-            Browse Agents →
+          <Link href="/dashboard/quant" style={{ padding: '.5rem 1.1rem', borderRadius: 100, border: '1px solid var(--mint)', background: 'rgba(22,199,132,.1)', color: 'var(--mint)', fontSize: '.78rem', fontWeight: 700, textDecoration: 'none', letterSpacing: '-.01em', transition: 'all .15s' }}>
+            + Create Strategy
+          </Link>
+          <Link href="/agents" style={{ padding: '.5rem 1.1rem', borderRadius: 100, border: '0', background: 'var(--blue)', color: '#fff', fontSize: '.78rem', fontWeight: 700, textDecoration: 'none', letterSpacing: '-.01em', transition: 'all .15s' }}>
+            Browse Agents
           </Link>
         </div>
       </div>
@@ -375,17 +378,29 @@ export default function DashboardPage() {
           { label: 'Active Agents', value: `${subscriptions.length}`, sub: `${activeCount} running now`, color: activeCount > 0 ? 'var(--mint)' : 'var(--faint)', onClick: undefined },
           { label: 'Risk Score', value: totalPnL < -totalInvested * 0.1 ? 'HIGH' : totalPnL < 0 ? 'MED' : 'LOW', sub: totalInvested > 0 ? fmtPct(totalPnL / totalInvested * 100) : '', color: totalPnL < -totalInvested * 0.1 ? 'var(--red)' : totalPnL < 0 ? 'var(--yellow)' : 'var(--mint)', onClick: undefined },
         ].map(item => (
-          <div
-            key={item.label}
-            onClick={item.onClick}
-            style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.1rem 1.25rem', cursor: item.onClick ? 'pointer' : 'default', transition: 'border-color .15s' }}
-          >
+          <div key={item.label} onClick={item.onClick} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: '1.1rem 1.25rem', cursor: item.onClick ? 'pointer' : 'default', transition: 'border-color .15s' }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.4rem' }}>{item.label.toUpperCase()}</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.25rem', color: item.color, letterSpacing: '-.02em' }}>{item.value}</div>
             {item.sub && <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--faint)', marginTop: '.2rem' }}>{item.sub}</div>}
           </div>
         ))}
       </div>
+
+      {/* ── CREATE STRATEGY CARD ───────────────────────────── */}
+      {subscriptions.length === 0 && (
+        <Link href="/dashboard/quant" style={{ display: 'block', marginBottom: '1.5rem', padding: '1.5rem', background: 'linear-gradient(135deg, rgba(22,199,132,.12) 0%, rgba(139,92,246,.08) 100%)', border: '1px solid rgba(22,199,132,.25)', borderRadius: 16, textDecoration: 'none', transition: 'all .2s' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--mint)', fontWeight: 700, letterSpacing: '.08em', marginBottom: '.35rem' }}>NEW: AI-POWERED STRATEGY BUILDER</div>
+              <div style={{ fontFamily: 'var(--font-serif)', fontSize: '1.35rem', fontWeight: 700, color: 'var(--white)', marginBottom: '.35rem' }}>Build Your First Quant Strategy</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', color: 'var(--faint)' }}>Use AI to generate signals, backtest, and deploy to the exchange in minutes.</div>
+            </div>
+            <div style={{ padding: '.65rem 1.25rem', borderRadius: 100, background: 'var(--mint)', color: '#000', fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '.75rem' }}>
+              Get Started →
+            </div>
+          </div>
+        </Link>
+      )}
 
       {/* ── BROKERAGE CTA ─────────────────────────────────── */}
       {!brokerAccount?.has_account && (

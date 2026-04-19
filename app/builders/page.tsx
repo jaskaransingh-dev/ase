@@ -151,13 +151,12 @@ function EditAgentModal({ agent, onClose, onSaved }: { agent: MyAgent; onClose: 
               <label style={LABEL_STYLE}>Strategy Type</label>
               <select value={strategyType} onChange={e => setStrategyType(e.target.value)} style={INPUT_STYLE}>
                 <option value="">Select type</option>
+                <option value="crypto_momentum">Crypto Momentum</option>
                 <option value="momentum">Momentum</option>
                 <option value="mean_reversion">Mean Reversion</option>
+                <option value="crypto_mean_reversion">Crypto Mean Reversion</option>
                 <option value="trend_following">Trend Following</option>
                 <option value="composite">Composite</option>
-                <option value="ml">Machine Learning</option>
-                <option value="arbitrage">Arbitrage</option>
-                <option value="dca">DCA</option>
               </select>
             </div>
             <div>
@@ -254,10 +253,13 @@ function EditAgentModal({ agent, onClose, onSaved }: { agent: MyAgent; onClose: 
   )
 }
 
-function AgentCard({ agent, onEdit }: { agent: MyAgent; onEdit: () => void }) {
+function AgentCard({ agent, onEdit, onLoadQuant }: { agent: MyAgent; onEdit: () => void; onLoadQuant: () => void }) {
   const stats = agent.latest_stats
-  const returnPct = stats?.total_return_pct ?? agent.backtest_stats?.stats?.totalReturnPct ?? null
-  const sharpe = stats?.sharpe_ratio ?? agent.backtest_stats?.stats?.sharpeRatio ?? null
+  const bs = agent.backtest_stats as Record<string, any> | null
+  const returnPct = stats?.total_return_pct ?? bs?.totalReturnPct ?? bs?.stats?.totalReturnPct ?? null
+  const sharpe = stats?.sharpe_ratio ?? bs?.sharpeRatio ?? bs?.stats?.sharpeRatio ?? null
+  const maxDD = stats?.max_drawdown_pct ?? bs?.maxDrawdownPct ?? bs?.stats?.maxDrawdownPct ?? null
+  const winRate = stats?.win_rate_pct ?? bs?.winRatePct ?? bs?.winRate ?? bs?.stats?.winRate ?? bs?.stats?.winRatePct ?? null
 
   return (
     <div className="card" style={{ padding: '1.25rem', transition: 'border-color .15s' }}
@@ -266,9 +268,9 @@ function AgentCard({ agent, onEdit }: { agent: MyAgent; onEdit: () => void }) {
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '.75rem' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <Link href={`/agents/${agent.slug}`} style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--white)', textDecoration: 'none' }}>
+          <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--white)', cursor: 'pointer' }} onClick={onLoadQuant}>
             {agent.name}
-          </Link>
+          </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--faint)', marginTop: '.2rem', display: 'flex', gap: '.75rem', flexWrap: 'wrap' }}>
             <span>{agent.primary_symbol}</span>
             {agent.ticker && <span>{agent.ticker}</span>}
@@ -278,10 +280,12 @@ function AgentCard({ agent, onEdit }: { agent: MyAgent; onEdit: () => void }) {
         <StatusBadge status={agent.display_status} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.5rem', marginBottom: '.85rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '.5rem', marginBottom: '.85rem' }}>
         {[
           { label: 'Return', value: returnPct !== null ? `${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(1)}%` : '—', color: returnPct !== null ? (returnPct >= 0 ? 'var(--mint)' : 'var(--red)') : 'var(--faint)' },
-          { label: 'Sharpe', value: sharpe !== null ? sharpe.toFixed(2) : '—', color: 'var(--white)' },
+          { label: 'Sharpe', value: sharpe !== null ? sharpe.toFixed(2) : '—', color: sharpe !== null ? (sharpe >= 1 ? 'var(--mint)' : 'var(--orange)') : 'var(--faint)' },
+          { label: 'Max DD', value: maxDD !== null ? `${maxDD.toFixed(1)}%` : '—', color: maxDD !== null ? (maxDD > 30 ? 'var(--red)' : 'var(--white)') : 'var(--faint)' },
+          { label: 'Win Rate', value: winRate !== null ? `${winRate.toFixed(0)}%` : '—', color: winRate !== null ? (winRate >= 55 ? 'var(--mint)' : 'var(--white)') : 'var(--faint)' },
           { label: 'Subs', value: String(agent.subscriber_count), color: 'var(--white)' },
         ].map(m => (
           <div key={m.label} style={{ background: 'var(--bg3)', borderRadius: 8, padding: '.5rem', textAlign: 'center' }}>
@@ -291,28 +295,15 @@ function AgentCard({ agent, onEdit }: { agent: MyAgent; onEdit: () => void }) {
         ))}
       </div>
 
-      {/* Prod restrictions summary if set */}
-      {(agent.prod_max_allocation_cents || agent.prod_stop_loss_pct) && (
-        <div style={{ background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.18)', borderRadius: 8, padding: '.5rem .75rem', marginBottom: '.75rem', display: 'flex', flexWrap: 'wrap', gap: '.75rem' }}>
-          {agent.prod_max_allocation_cents && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--orange)' }}>
-              Max alloc: ${(agent.prod_max_allocation_cents / 100).toLocaleString()}
-            </span>
-          )}
-          {agent.prod_stop_loss_pct && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--orange)' }}>
-              Stop: {agent.prod_stop_loss_pct}%
-            </span>
-          )}
-          {agent.prod_max_position_pct && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: 'var(--orange)' }}>
-              Max pos: {agent.prod_max_position_pct}%
-            </span>
-          )}
-        </div>
-      )}
-
       <div style={{ display: 'flex', gap: '.5rem' }}>
+        <button onClick={onLoadQuant} style={{
+          flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.35rem',
+          padding: '.5rem', borderRadius: 9, border: 0,
+          background: 'var(--blue)', color: '#fff',
+          fontSize: '.75rem', fontWeight: 600, cursor: 'pointer', transition: 'all .15s',
+        }}>
+          <BarChart3 size={13} /> Open in Quant Lab
+        </button>
         <button onClick={onEdit} style={{
           flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.35rem',
           padding: '.5rem', borderRadius: 9, border: '1px solid var(--border)',
@@ -324,17 +315,6 @@ function AgentCard({ agent, onEdit }: { agent: MyAgent; onEdit: () => void }) {
         >
           <Settings size={13} /> Edit
         </button>
-        <Link href={`/agents/${agent.slug}`} style={{
-          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: '.5rem', borderRadius: 9, border: 0,
-          background: 'var(--blue-dim)', color: 'var(--blue2)',
-          fontSize: '.75rem', fontWeight: 600, textDecoration: 'none', transition: 'background .15s',
-        }}
-          onMouseEnter={e => e.currentTarget.style.background = 'rgba(79,140,255,.18)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'var(--blue-dim)'}
-        >
-          View →
-        </Link>
       </div>
     </div>
   )
@@ -345,6 +325,10 @@ export default function BuildersPage() {
   const [agents, setAgents] = useState<MyAgent[]>([])
   const [loading, setLoading] = useState(true)
   const [editingAgent, setEditingAgent] = useState<MyAgent | null>(null)
+
+  useEffect(() => {
+    loadMyAgents()
+  }, [])
 
   useEffect(() => {
     if (activeTab === 'manage') loadMyAgents()
@@ -360,9 +344,23 @@ export default function BuildersPage() {
     setLoading(false)
   }
 
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+
+  const filteredAgents = statusFilter === 'all' 
+    ? agents 
+    : agents.filter(a => a.status === statusFilter || a.display_status === statusFilter)
+
+  const STATUS_TABS = [
+    { key: 'all', label: 'All' },
+    { key: 'active', label: 'Live' },
+    { key: 'pending_review', label: 'In Progress' },
+    { key: 'paused', label: 'Paused' },
+    { key: 'delisted', label: 'Delisted' },
+  ] as const
+
   const TABS = [
-    { key: 'create', label: 'Create Agent', icon: Plus },
-    { key: 'manage', label: 'Manage Agents', icon: List },
+    { key: 'create', label: 'Create', icon: Plus },
+    { key: 'manage', label: 'Manage', icon: List },
   ] as const
 
   return (
@@ -409,26 +407,26 @@ export default function BuildersPage() {
         {activeTab === 'create' && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }} className="steps-grid">
             <div>
-              <h2 style={{ fontFamily: 'var(--font-body)', fontSize: '1.15rem', fontWeight: 700, marginBottom: '.75rem' }}>Quick Create</h2>
+              <h2 style={{ fontFamily: 'var(--font-body)', fontSize: '1.15rem', fontWeight: 700, marginBottom: '.75rem' }}>Open Quant Lab</h2>
               <p style={{ color: 'var(--muted)', fontSize: '.88rem', marginBottom: '1.5rem', lineHeight: 1.65 }}>
-                Create a new agent with basic info. You'll need to pass backtest validation before publishing to the marketplace.
+                Build and backtest your strategy using the Quant Lab. Save in-progress agents and manage them here.
               </p>
-              <Link href="/agents/submit" style={{
+              <Link href="/dashboard/quant" style={{
                 display: 'inline-flex', alignItems: 'center', gap: '.5rem',
                 padding: '.7rem 1.4rem', borderRadius: 10,
                 background: 'linear-gradient(135deg, var(--blue3), var(--blue))',
                 color: '#fff', fontWeight: 700, fontSize: '.88rem', textDecoration: 'none',
               }}>
-                <Plus size={15} /> New Agent
+                <BarChart3 size={15} /> Open Quant Lab
               </Link>
             </div>
 
             <div>
-              <h2 style={{ fontFamily: 'var(--font-body)', fontSize: '1.15rem', fontWeight: 700, marginBottom: '.75rem' }}>From Quant Lab</h2>
+              <h2 style={{ fontFamily: 'var(--font-body)', fontSize: '1.15rem', fontWeight: 700, marginBottom: '.75rem' }}>Documentation</h2>
               <p style={{ color: 'var(--muted)', fontSize: '.88rem', marginBottom: '1.5rem', lineHeight: 1.65 }}>
-                Build and backtest strategies in the Quant Lab, then publish directly to the exchange once validation passes.
+                Learn how to build, backtest, and publish trading agents.
               </p>
-              <Link href="/dashboard/quant" style={{
+              <Link href="/dashboard/build/docs" style={{
                 display: 'inline-flex', alignItems: 'center', gap: '.5rem',
                 padding: '.7rem 1.4rem', borderRadius: 10,
                 border: '1px solid var(--border2)', background: 'transparent',
@@ -438,7 +436,7 @@ export default function BuildersPage() {
                 onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(79,140,255,.3)'}
                 onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border2)'}
               >
-                <BarChart3 size={15} /> Quant Lab
+                <Plus size={15} /> View Docs
               </Link>
             </div>
 
@@ -466,6 +464,30 @@ export default function BuildersPage() {
 
         {activeTab === 'manage' && (
           <div>
+            {/* Status Filter Bar */}
+            <div style={{ display: 'flex', gap: '.5rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '.75rem' }}>
+              {STATUS_TABS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setStatusFilter(key)}
+                  style={{
+                    padding: '.45rem .85rem', borderRadius: 8, border: '1px solid',
+                    borderColor: statusFilter === key ? 'var(--blue)' : 'var(--border)',
+                    background: statusFilter === key ? 'var(--blue-dim)' : 'transparent',
+                    color: statusFilter === key ? 'var(--blue)' : 'var(--muted)',
+                    fontSize: '.72rem', fontWeight: 600, cursor: 'pointer',
+                  }}
+                >
+                  {label}
+                  {key !== 'all' && (
+                    <span style={{ marginLeft: '.35rem', opacity: 0.7 }}>
+                      ({agents.filter(a => a.status === key || a.display_status === key).length})
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
             {loading ? (
               <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--muted)' }}>Loading your agents...</div>
             ) : agents.length === 0 ? (
@@ -473,23 +495,27 @@ export default function BuildersPage() {
                 <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>📊</div>
                 <h3 style={{ fontFamily: 'var(--font-body)', fontWeight: 700, marginBottom: '.5rem' }}>No agents yet</h3>
                 <p style={{ color: 'var(--muted)', fontSize: '.88rem', marginBottom: '1.5rem' }}>
-                  Create your first agent to start trading on the exchange.
+                  Build your first agent in the Quant Lab and save it here.
                 </p>
-                <Link href="/agents/submit" style={{
+                <Link href="/dashboard/quant" style={{
                   display: 'inline-flex', alignItems: 'center', gap: '.5rem',
                   padding: '.7rem 1.4rem', borderRadius: 10,
                   background: 'var(--blue)', color: '#fff', fontWeight: 700, fontSize: '.88rem', textDecoration: 'none',
                 }}>
-                  <Plus size={15} /> Create Agent
+                  <Plus size={15} /> Open Quant Lab
                 </Link>
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem' }}>
-                {agents.map(agent => (
+                {filteredAgents.map(agent => (
                   <AgentCard
                     key={agent.id}
                     agent={agent}
                     onEdit={() => setEditingAgent(agent)}
+                    onLoadQuant={() => {
+                      const params = new URLSearchParams({ load_agent: agent.slug })
+                      window.location.href = `/dashboard/quant?${params.toString()}`
+                    }}
                   />
                 ))}
               </div>

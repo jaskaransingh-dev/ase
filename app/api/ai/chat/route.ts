@@ -1,7 +1,7 @@
 /**
  * POST /api/ai/chat
  *
- * Groq-powered strategy assistant chatbot.
+ * Gemini-powered strategy assistant chatbot.
  * Answers questions about backtesting, trading strategies, and ASE platform features.
  */
 
@@ -37,91 +37,83 @@ RESPONSE STYLE:
 - Reference the Scorecard when discussing strategy quality — remind users of minimum thresholds (Composite ≥60, Sharpe ≥0.5, Max DD <50%)
 
 CRITICAL CODE RESPONSE FORMAT:
-When returning Python code, use this EXACT marker format:
-___CODE_START___
-# Complete Python code here
-___CODE_END___
+When returning code edits, ALWAYS separate code from text.
 
-Code rules:
-1. Complete and working — no partial snippets
-2. Import pandas as pd and numpy as np
-3. Class with generate_signals(df) method that adds a 'signal' column (+1/-1/0)
-4. Use Wilder smoothing (ewm com=period-1) for RSI/ATR, not simple rolling mean
-5. Forward-fill positions between signals: df['signal'].replace(0, np.nan).ffill().fillna(0)`
+CODE: use markdown code blocks like:
+${'```'}typescript
+// file: strategy.ts
+// Complete code here...
+${'```'}
 
-interface GroqResponse {
-  choices?: Array<{
-    message?: {
-      content?: string
+EXPLANATION: use ## Summary heading after code blocks.
+ALWAYS use this format. Never mix code in the middle of text explanation.`
+
+interface GeminiResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string
+      }>
     }
   }>
-  error?: {
-    message?: string
+  promptFeedback?: {
+    blockReason?: string
   }
 }
 
 export async function POST(req: NextRequest) {
-  const apiKey = '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'
+  const apiKey = process.env.GEMINI_API_KEY
   
   if (!apiKey) {
-    return NextResponse.json(
-      { error: 'AI assistant not configured.' },
-      { status: 503 }
-    )
+    return NextResponse.json({ error: 'AI not configured' }, { status: 503 })
   }
 
   try {
-    const body = await req.json() as {
-      messages: Array<{ role: 'user' | 'model'; content: string }>
-    }
-
+    const body = await req.json() as { messages: Array<{ role: string; content: string }> }
     const { messages } = body
+
     if (!messages?.length) {
       return NextResponse.json({ error: 'No messages provided' }, { status: 400 })
     }
 
-    const groqRes = await fetch(
-      'https://api.groq.com/openai/v1/chat/completions',
+    const contents = messages.map(m => ({
+      role: m.role === 'user' ? 'user' : 'model',
+      parts: [{ text: m.content }]
+    }))
+
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            ...messages
-          ],
-          temperature: 0.7,
-          max_completion_tokens: 1024,
-        }),
-        signal: AbortSignal.timeout(30000),
+          systemInstruction: { role: 'system', parts: [{ text: SYSTEM_PROMPT }] },
+          contents,
+          generationConfig: { temperature: 0.7, maxOutputTokens: 8192 }
+        })
       }
     )
 
-    const groqData = await groqRes.json() as GroqResponse
+    const geminiData = await geminiRes.json() as GeminiResponse
 
-    if (groqData.error) {
-      console.error('[AI Chat] Groq error:', groqData.error)
-      return NextResponse.json(
-        { error: `AI service error: ${groqData.error.message || 'Unknown'}` },
-        { status: 500 }
-      )
+    if (!geminiRes.ok) {
+      const errData = geminiData as { error?: { message?: string } } | undefined
+      const err = errData?.error?.message || 'API request failed'
+      console.error('[AI Chat] Gemini error:', geminiRes.status, err)
+      return NextResponse.json({ error: err, message: err }, { status: geminiRes.status })
     }
 
-    const reply = groqData.choices?.[0]?.message?.content
+    if (geminiData.promptFeedback?.blockReason) {
+      return NextResponse.json({ error: `AI blocked: ${geminiData.promptFeedback.blockReason}` }, { status: 400 })
+    }
+
+    const reply = geminiData.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
     if (!reply) {
-      return NextResponse.json({ error: 'Empty response from AI' }, { status: 500 })
+      return NextResponse.json({ error: 'Empty response from AI', message: 'Rate limit may be exceeded. Try again later.' }, { status: 500 })
     }
-
-    return NextResponse.json({ reply })
+    return NextResponse.json({ content: reply, message: reply })
   } catch (err) {
     console.error('[AI Chat] Error:', err)
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to generate response' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 500 })
   }
 }

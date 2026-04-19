@@ -129,6 +129,9 @@ export default async function AgentsPage() {
         <Link href="/dashboard/backtest" style={{ padding: '.5rem 1rem', borderRadius: 100, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontSize: '.78rem', fontWeight: 600, textDecoration: 'none', transition: 'all .15s' }}>
           Backtest →
         </Link>
+        <Link href="/agents/submit" style={{ padding: '.5rem 1rem', borderRadius: 100, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontSize: '.78rem', fontWeight: 600, textDecoration: 'none', transition: 'all .15s' }}>
+          + Create Agent
+        </Link>
       </div>
 
       <AgentsGrid agents={displayAgents} />

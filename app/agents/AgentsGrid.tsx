@@ -169,11 +169,13 @@ function AgentCard({ agent }: { agent: AgentDisplay }) {
           <span style={{ color: 'var(--muted)' }}>{agent.subscriber_count}</span> subscribers
         </div>
         <div style={{ display: 'flex', gap: '.5rem' }}>
-          <Link href={`/agents/${agent.slug}`} style={{ padding: '.35rem .75rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontSize: '.7rem', fontWeight: 600, textDecoration: 'none' }}>
+          <Link href={`/agents/${agent.slug}`} target="_blank" rel="noopener noreferrer" style={{ padding: '.35rem .75rem', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontSize: '.7rem', fontWeight: 600, textDecoration: 'none' }}>
             View
           </Link>
           <Link
             href={`/agents/${agent.slug}`}
+            target="_blank"
+            rel="noopener noreferrer"
             style={{
               padding: '.35rem .85rem',
               borderRadius: 8,
@@ -185,7 +187,7 @@ function AgentCard({ agent }: { agent: AgentDisplay }) {
               textDecoration: 'none',
             }}
           >
-            {agent.isSubscribed ? 'Manage' : 'Allocate'}
+            {agent.isSubscribed ? 'Manage' : 'View on Exchange'}
           </Link>
         </div>
       </div>

@@ -426,6 +426,7 @@ export default function QuantLabPage() {
   // ── Publish ───────────────────────────────────────────────────────────────────
   async function handlePublish() {
     if (!btResult) { setPublishMsg('Run a backtest before publishing.'); return }
+    if (published) { setPublishMsg('Already published. Check your agents in the builders page.'); return }
     setPublishing(true); setPublishMsg('')
     await new Promise(r => setTimeout(r, 1500))
     setPublished(true); setPublishMsg('Agent published to the exchange!')
