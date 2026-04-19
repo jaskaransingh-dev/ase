@@ -11,6 +11,7 @@ import {
   BarChart3, PieChart, Activity, DollarSign, Percent, Clock,
   RefreshCw, Download, Maximize2, X, ChevronDown
 } from 'lucide-react'
+import { BENCHMARKS as BENCHMARKS_CONFIG } from '@/lib/backtest-config'
 
 const C = {
   bg: '#06111F', bg2: '#0B1728', bg3: '#101A2D', bg4: '#162438',
@@ -66,11 +67,12 @@ const RISK_RANGES = [
   { label: 'Profit Factor', value: 'profitFactor', good: '> 1.5', color: C.mint },
 ]
 
-const BENCHMARKS = [
-  { id: 'spy', name: 'S&P 500', color: C.blue, icon: '📈' },
-  { id: 'qqq', name: 'NASDAQ', color: C.purple, icon: '💻' },
-  { id: 'btc', name: 'Bitcoin', color: C.orange, icon: '₿' },
-]
+const BENCHMARKS = Object.entries(BENCHMARKS_CONFIG).map(([id, b]) => ({
+  id,
+  name: b.label,
+  color: b.color,
+  icon: id === 'BTC-USD' ? '₿' : id === 'ETH-USD' ? 'Ξ' : '◎',
+}))
 
 export default function BacktestResultsPage() {
   const router = useRouter()
@@ -144,7 +146,7 @@ export default function BacktestResultsPage() {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: C.bg }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: C.bg }}>
         <div style={{ color: C.muted }}>Loading results...</div>
       </div>
     )
@@ -152,7 +154,7 @@ export default function BacktestResultsPage() {
 
   if (!result) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: C.bg }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: C.bg }}>
         <div style={{ color: C.muted, marginBottom: '1rem' }}>No backtest results found</div>
         <button 
           onClick={() => router.push('/dashboard/build')}
@@ -173,7 +175,7 @@ export default function BacktestResultsPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: C.bg, color: C.text }}>
+    <div style={{ minHeight: '100%', background: C.bg, color: C.text }}>
       {/* Header */}
       <header style={{ 
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',

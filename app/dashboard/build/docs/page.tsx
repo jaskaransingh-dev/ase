@@ -383,7 +383,7 @@ export default function QuantDocsPage() {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: C.bg, color: C.text, fontFamily: 'var(--font-sans, system-ui)' }}>
+    <div style={{ display: 'flex', height: '100%', background: C.bg, color: C.text, fontFamily: 'var(--font-sans, system-ui)', overflow: 'hidden' }}>
       {/* Sidebar */}
       <aside style={{
         width: 240,

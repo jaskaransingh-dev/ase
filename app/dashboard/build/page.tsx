@@ -2,304 +2,20 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-
-// ── Palette ──────────────────────────────────────────────────────────────────
-const C = {
-  bg: '#06111F', bg2: '#0B1728', bg3: '#101A2D', bg4: '#162438',
-  border: '#1E2A3D', border2: '#2A3A50',
-  blue: '#4F8CFF', blue2: '#6BA3FF',
-  mint: '#16C784', red: '#FF5468', orange: '#F5B942', purple: '#8B5CF6',
-  text: '#B7C4D5', muted: '#7F8CA3', faint: '#55657A', white: '#F7FAFF',
-}
+import {
+  C, TEMPLATES, UNIVERSES, CONFIG_FIELD_META, DATA_APIS, ML_TOOLS,
+  AGENT_ICONS, GRADE_CLR, DEFAULT_FILES,
+} from '@/lib/backtest-config'
+import { STRATEGIES } from '@/lib/backtest'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-interface Strategy { id: string; name: string; files: Record<string, string>; createdAt: number }
 interface ChatMsg { role: 'user' | 'ai'; text: string; edits?: FileEdit[] }
 interface FileEdit { filename: string; content: string; lang: string }
 
-// ── Default files ─────────────────────────────────────────────────────────────
-const DEFAULT_STRATEGY_TS = `// ─── ASE Quant Strategy ─────────────────────────────────────────────────────
-// This file defines your alpha signal logic.
-// generate_signals() receives cross-sectional features for every
-// asset and returns a raw conviction score (higher = stronger long).
-//
-// The ASE engine handles: portfolio optimization, position sizing,
-// rebalancing, transaction costs, risk controls & live execution.
-
-import type { FeatureRow } from '@ase/quant'
-
-export const config = {
-  name:          'Crypto Momentum',
-  universe:      ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'ADA-USD'],
-  rebalanceFreq: 'daily' as const,
-  riskAversion:  7,         // λ: higher = more risk-averse (1–20)
-  maxWeight:     0.30,      // max allocation per asset
-  feeBps:        7,         // round-trip fee in basis points
-  killSwitch:    0.20,      // halt trading if drawdown exceeds 20%
-}
-
-export function generateSignals(features: FeatureRow[]): Record<string, number> {
-  const signals: Record<string, number> = {}
-
-  for (const row of features) {
-    // ── Momentum ─────────────────────────────────────────────────────────────
-    const mom20  = row.ret_20d  ?? 0
-    const mom60  = row.ret_60d  ?? 0
-    const mom120 = row.ret_120d ?? 0
-
-    // Blend short, medium, and long-term momentum (decay-weighted)
-    const momentum = mom20 * 0.50 + mom60 * 0.35 + mom120 * 0.15
-
-    // ── Volume confirmation ───────────────────────────────────────────────────
-    const volShock  = row.vol_shock ?? 1
-    const volBoost  = volShock > 1.25 ? 1.20 : volShock > 1.10 ? 1.08 : 1.0
-
-    // ── Volatility regime filter ─────────────────────────────────────────────
-    const vol20     = row.vol_20d ?? 0
-    const volPenalty = vol20 > 2.0 ? 0.65 : vol20 > 1.5 ? 0.85 : 1.0
-
-    // ── On-chain signal (if available) ───────────────────────────────────────
-    const onChain  = row.nupl ?? 0      // NUPL: Net Unrealized Profit/Loss
-    const onChainBoost = onChain > 0 ? 1.0 + (onChain * 0.15) : 1.0
-
-    signals[row.symbol] = momentum * volBoost * volPenalty * onChainBoost
-  }
-
-  return signals
-}
-`
-
-const DEFAULT_CONFIG = `{
-  "template":       "composite_balanced",
-  "alpha_type":     "momentum",
-  "symbols":        ["BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "ADA-USD"],
-  "rebalanceFreq":  "daily",
-  "riskAversion":   7,
-  "maxWeight":      0.30,
-  "walkForward":    true,
-  "initialCapital": 1000000,
-  "feeBps":         7,
-  "killSwitch":     0.20,
-  "benchmark":      "BTC-USD"
-}`
-
-const DEFAULT_DOCS = `# ASE Quant Engine — Developer Reference
-
-## Overview
-The ASE backtest engine is a 9-layer institutional pipeline:
-\`\`\`
-Data Ingestion → Feature Engineering → Signal Generation →
-Portfolio Optimization → Risk Controls → Execution Simulation →
-Performance Attribution → Walk-Forward Validation → Live Deployment
-\`\`\`
-
-## generate_signals(features: FeatureRow[])
-Returns a score per symbol (no normalization needed — engine handles it).
-
-### Available Features (FeatureRow)
-| Field         | Description                        | Type   |
-|---------------|------------------------------------|--------|
-| symbol        | Asset ticker (e.g. BTC-USD)        | string |
-| ret_1d        | 1-day return                        | number |
-| ret_5d        | 5-day return                        | number |
-| ret_20d       | 20-day return                       | number |
-| ret_60d       | 60-day return                       | number |
-| ret_120d      | 120-day return                      | number |
-| vol_20d       | 20-day realized volatility (ann.)   | number |
-| vol_shock     | Volume relative to 30-day avg       | number |
-| rsi_14        | 14-period RSI (0–100)               | number |
-| bb_pct        | Bollinger Band %B (0–1)             | number |
-| nupl          | Net Unrealized Profit/Loss          | number |
-| sopr          | Spent Output Profit Ratio           | number |
-| mvrv          | Market Value / Realized Value       | number |
-| fear_greed    | Fear & Greed index (0–100)          | number |
-| defi_tvl_chg  | DeFi TVL 7d change                  | number |
-
-## config.json Fields
-| Field          | Type              | Default            |
-|----------------|-------------------|--------------------|
-| template       | string            | composite_balanced |
-| symbols        | string[]          | Top-5 crypto       |
-| rebalanceFreq  | daily/weekly/monthly | daily           |
-| riskAversion   | 1–20              | 7                  |
-| maxWeight      | 0.05–0.60         | 0.30               |
-| walkForward    | boolean           | true               |
-| initialCapital | number            | 1000000            |
-| feeBps         | number            | 7                  |
-| killSwitch     | 0–1               | 0.20               |
-
-## Templates
-- **momentum_conservative** — trend-following, low turnover
-- **mean_reversion_active** — buy dips, sell rips, higher freq
-- **composite_balanced** — blends momentum + mean-reversion
-- **ml_aggressive** — gradient-boosted signals, higher Sharpe target
-- **risk_parity** — equal volatility contribution per asset
-
-## Keyboard Shortcuts
-| Shortcut   | Action              |
-|------------|---------------------|
-| ⌘ Enter    | Run backtest        |
-| ⌘ S        | Save current file   |
-| ⌘ K        | Focus AI chat       |
-
-## Data Sources
-Load free market data via the built-in connectors in \`data_loaders.py\`.
-Add new sources by importing from the Data panel → Add to project.
-`
-
-const DEFAULT_DATA_LOADERS = `"""
-ASE Data Connectors — free & open data sources for crypto strategies.
-Import these functions in strategy.py or signal generators.
-"""
-import requests, pandas as pd
-
-# ── Binance (klines, no auth) ─────────────────────────────────────────────────
-def binance(symbol='BTCUSDT', interval='1d', limit=1000):
-    r = requests.get('https://api.binance.com/api/v3/klines',
-        params={'symbol': symbol, 'interval': interval, 'limit': limit}).json()
-    df = pd.DataFrame(r, columns=['ts','open','high','low','close','volume',
-                                   'close_ts','q_vol','n_trades','tb_base','tb_quote','_'])
-    for c in ['open','high','low','close','volume']:
-        df[c] = df[c].astype(float)
-    return df[['open','high','low','close','volume']]
-
-# ── CoinGecko (market data, no auth) ─────────────────────────────────────────
-def coingecko_ohlc(coin_id='bitcoin', days=365):
-    r = requests.get(f'https://api.coingecko.com/api/v3/coins/{coin_id}/ohlc',
-        params={'vs_currency': 'usd', 'days': days}).json()
-    df = pd.DataFrame(r, columns=['ts','open','high','low','close'])
-    df['ts'] = pd.to_datetime(df['ts'], unit='ms')
-    return df.set_index('ts')
-
-# ── CoinCap (free, no auth) ───────────────────────────────────────────────────
-def coincap(asset='bitcoin', interval='d1', limit=365):
-    r = requests.get(f'https://api.coincap.io/v2/assets/{asset}/history',
-        params={'interval': interval, 'limit': limit}).json()
-    df = pd.DataFrame(r['data'])
-    df['date'] = pd.to_datetime(df['time'], unit='ms')
-    df['price'] = df['priceUsd'].astype(float)
-    return df[['date','price']].set_index('date')
-
-# ── FRED (macro data, optional API key) ──────────────────────────────────────
-def fred(series_id='DGS10', api_key=None):
-    params = {'series_id': series_id, 'file_type': 'json'}
-    if api_key:
-        params['api_key'] = api_key
-    r = requests.get('https://api.stlouisfed.org/fred/series/observations', params=params).json()
-    df = pd.DataFrame(r['observations'])[['date','value']]
-    df['value'] = pd.to_numeric(df['value'], errors='coerce')
-    df['date'] = pd.to_datetime(df['date'])
-    return df.set_index('date').dropna()
-
-# ── Fear & Greed Index (free, unlimited) ──────────────────────────────────────
-def fear_greed(limit=365):
-    r = requests.get('https://api.alternative.me/fng/', params={'limit': limit}).json()
-    df = pd.DataFrame(r['data'])
-    df['date'] = pd.to_datetime(df['timestamp'].astype(int), unit='s')
-    df['fg'] = df['value'].astype(int)
-    return df[['date','fg']].set_index('date')
-
-# ── DeFiLlama (TVL data, free) ────────────────────────────────────────────────
-def defillama_tvl(protocol='uniswap'):
-    r = requests.get(f'https://api.llama.fi/protocol/{protocol}').json()
-    df = pd.DataFrame(r['tvl'])
-    df['date'] = pd.to_datetime(df['date'], unit='s')
-    df['tvl'] = df['totalLiquidityUSD'].astype(float)
-    return df[['date','tvl']].set_index('date')
-
-# ── Kraken OHLC (free, no auth) ──────────────────────────────────────────────
-def kraken(pair='XBTUSD', interval=1440):
-    r = requests.get('https://api.kraken.com/0/public/OHLC',
-        params={'pair': pair, 'interval': interval}).json()
-    bars = list(r['result'].values())[0]
-    df = pd.DataFrame(bars, columns=['ts','open','high','low','close','vwap','volume','count'])
-    for c in ['open','high','low','close','volume']:
-        df[c] = df[c].astype(float)
-    df['date'] = pd.to_datetime(df['ts'].astype(int), unit='s')
-    return df.set_index('date')[['open','high','low','close','volume']]
-`
-
-const DEFAULT_FILES: Record<string, string> = {
-  'strategy.ts':    DEFAULT_STRATEGY_TS,
-  'config.json':    DEFAULT_CONFIG,
-  'data_loaders.py': DEFAULT_DATA_LOADERS,
-  'DOCS.md':        DEFAULT_DOCS,
-}
-
-// ── Data APIs ─────────────────────────────────────────────────────────────────
-const DATA_APIS = [
-  // Crypto Price/OHLCV
-  { id: 'binance',    name: 'Binance',       cat: 'crypto',  auth: 'none',     limit: '1200/hr',   desc: "World's largest exchange — OHLCV, orderbook, funding" },
-  { id: 'coingecko',  name: 'CoinGecko',     cat: 'crypto',  auth: 'none',     limit: '50/min',    desc: 'Market data, DeFi, NFTs — 13k+ coins' },
-  { id: 'coincap',    name: 'CoinCap',       cat: 'crypto',  auth: 'none',     limit: 'unlimited', desc: 'Real-time prices, history, markets for 3000+ assets' },
-  { id: 'kraken',     name: 'Kraken',        cat: 'crypto',  auth: 'none',     limit: 'unlimited', desc: 'OHLCV, orderbook, trades — institutional-grade data' },
-  { id: 'coinbase',   name: 'Coinbase Adv.', cat: 'crypto',  auth: 'optional', limit: '10/s',      desc: 'Level 2 orderbook, candles, portfolio data' },
-  { id: 'bybit',      name: 'Bybit',         cat: 'crypto',  auth: 'none',     limit: '120/min',   desc: 'Perps, spot OHLCV, open interest, funding rates' },
-  { id: 'okx',        name: 'OKX',           cat: 'crypto',  auth: 'none',     limit: '20/2s',     desc: 'Spot + derivatives OHLCV, funding, liquidations' },
-  { id: 'huobi',      name: 'HTX / Huobi',   cat: 'crypto',  auth: 'none',     limit: '100/s',     desc: 'Deep historical data, klines, market depth' },
-  { id: 'bitfinex',   name: 'Bitfinex',      cat: 'crypto',  auth: 'none',     limit: '90/min',    desc: 'OHLCV, margin, lending rates, order flow' },
-  { id: 'dydx',       name: 'dYdX',          cat: 'defi',    auth: 'none',     limit: 'unlimited', desc: 'Perpetual futures — funding, OI, liquidations on-chain' },
-  // DeFi / On-chain
-  { id: 'defillama',  name: 'DeFiLlama',     cat: 'defi',    auth: 'none',     limit: 'unlimited', desc: 'TVL, fees, volume across 3000+ protocols' },
-  { id: 'uniswap',    name: 'Uniswap',       cat: 'defi',    auth: 'none',     limit: 'unlimited', desc: 'Pool liquidity, volume, price impact via The Graph' },
-  { id: 'aave',       name: 'Aave',          cat: 'defi',    auth: 'none',     limit: 'unlimited', desc: 'Lending/borrowing rates, utilization, reserves' },
-  { id: 'curve',      name: 'Curve',         cat: 'defi',    auth: 'none',     limit: 'unlimited', desc: 'Stablecoin pool balances, volume, APY' },
-  { id: 'thegraph',   name: 'The Graph',     cat: 'defi',    auth: 'optional', limit: '1000/day',  desc: 'Query any indexed contract via GraphQL — free tier' },
-  // On-chain analytics
-  { id: 'glassnode',  name: 'Glassnode',     cat: 'onchain', auth: 'optional', limit: '100/day',   desc: 'SOPR, NUPL, MVRV, active addresses, miner flows' },
-  { id: 'coinmetrics', name: 'CoinMetrics',  cat: 'onchain', auth: 'optional', limit: '1000/day',  desc: 'Community API — realized cap, NVT, hash rate' },
-  { id: 'santiment',  name: 'Santiment',     cat: 'onchain', auth: 'optional', limit: '200/day',   desc: 'Social volume, dev activity, whale transactions' },
-  { id: 'lunarcrush', name: 'LunarCrush',   cat: 'social',  auth: 'optional', limit: '10/min',    desc: 'Social engagement, influencer metrics, altrank' },
-  // Sentiment
-  { id: 'fng',        name: 'Fear & Greed',  cat: 'sentiment', auth: 'none',   limit: 'unlimited', desc: 'Crypto F&G index — 365-day history, daily updates' },
-  { id: 'messari',    name: 'Messari',       cat: 'research', auth: 'optional', limit: '20/min',   desc: 'Fundamentals, asset profiles, market data' },
-  { id: 'alternative', name: 'Alternative.me', cat: 'sentiment', auth: 'none', limit: 'unlimited', desc: 'F&G index, trending coins, exchange volumes' },
-  // Macro
-  { id: 'fred',       name: 'FRED',          cat: 'macro',   auth: 'optional', limit: '120/hr',    desc: 'GDP, CPI, rates, DXY — Federal Reserve data' },
-  { id: 'worldbank',  name: 'World Bank',    cat: 'macro',   auth: 'none',     limit: 'unlimited', desc: 'Global economic indicators, country data' },
-  // Derivatives
-  { id: 'tardis',     name: 'Tardis',        cat: 'deriv',   auth: 'optional', limit: 'delay-free', desc: 'Options, perps — historical tick data with delay' },
-  { id: 'coinglass',  name: 'CoinGlass',     cat: 'deriv',   auth: 'none',     limit: '30/min',    desc: 'Open interest, liquidations, long/short ratio' },
-  { id: 'laevitas',   name: 'Laevitas',      cat: 'deriv',   auth: 'optional', limit: '60/min',    desc: 'Options flow, implied vol, put/call ratio' },
-  // Network / Infrastructure
-  { id: 'etherscan',  name: 'Etherscan',     cat: 'network', auth: 'optional', limit: '5/s',       desc: 'Gas prices, contract calls, wallet balances' },
-  { id: 'mempool',    name: 'Mempool.space', cat: 'network', auth: 'none',     limit: 'unlimited', desc: 'Bitcoin mempool, fee rates, block data' },
-]
-
-const TEMPLATES = [
-  { id: 'momentum_conservative', name: 'Momentum Conservative', dot: C.blue },
-  { id: 'mean_reversion_active', name: 'Mean Reversion Active', dot: C.mint },
-  { id: 'composite_balanced',    name: 'Composite Balanced',    dot: C.purple },
-  { id: 'ml_aggressive',         name: 'ML Aggressive',         dot: C.orange },
-  { id: 'risk_parity',           name: 'Risk Parity',           dot: C.red },
-]
-
-const UNIVERSES: Record<string, string[]> = {
-  crypto_top5:  ['BTC-USD','ETH-USD','SOL-USD','BNB-USD','ADA-USD'],
-  crypto_top10: ['BTC-USD','ETH-USD','SOL-USD','BNB-USD','XRP-USD','ADA-USD','AVAX-USD','DOT-USD','LINK-USD','UNI-USD'],
-  crypto_defi:  ['UNI-USD','LINK-USD','AVAX-USD','DOT-USD','ATOM-USD','MKR-USD','AAVE-USD'],
-  crypto_l1:    ['ETH-USD','SOL-USD','ADA-USD','AVAX-USD','DOT-USD','NEAR-USD'],
-  crypto_l2:    ['MATIC-USD','ARB-USD','OP-USD','IMX-USD','METIS-USD'],
-  btc_eth:      ['BTC-USD','ETH-USD'],
-}
-
-const GRADE_CLR: Record<string, string> = {
-  'A+': C.mint, A: C.mint, B: C.blue, C: C.orange, D: '#F59E0B', F: C.red,
-}
-
-const DEFAULT_CONFIG_JSON = `{
-  "template":       "composite_balanced",
-  "alpha_type":     "momentum",
-  "symbols":        ["BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "ADA-USD"],
-  "rebalanceFreq":  "daily",
-  "riskAversion":   7,
-  "maxWeight":      0.30,
-  "walkForward":    true,
-  "initialCapital": 1000000,
-  "feeBps":         7,
-  "killSwitch":    0.20,
-  "benchmark":     "BTC-USD"
-}`
+// Universe symbols lookup (flat arrays for runtime)
+const UNIVERSE_SYMBOLS: Record<string, string[]> = Object.fromEntries(
+  Object.entries(UNIVERSES).map(([k, v]) => [k, v.symbols])
+)
 
 function extractConfigFields(jsonStr: string): Record<string, { value: string | number | boolean; type: 'string' | 'number' | 'boolean' | 'array' }> {
   const fields: Record<string, { value: string | number | boolean; type: 'string' | 'number' | 'boolean' | 'array' }> = {}
@@ -320,29 +36,9 @@ function extractConfigFields(jsonStr: string): Record<string, { value: string | 
   return fields
 }
 
-const CONFIG_FIELD_META: Record<string, { label: string; min?: number; max?: number; step?: number; options?: Record<string, string>; fmt?: (v: unknown) => string }> = {
-  template: { label: 'TEMPLATE', options: { momentum_conservative: 'Momentum Conservative', mean_reversion_active: 'Mean Reversion', composite_balanced: 'Composite Balanced', ml_aggressive: 'ML Aggressive', risk_parity: 'Risk Parity' } },
-  symbols: { label: 'SYMBOLS', fmt: (v: unknown) => Array.isArray(v) ? `${(v as string[]).length} assets` : '—' },
-  rebalanceFreq: { label: 'REBALANCE', options: { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' } },
-  riskAversion: { label: 'RISK AVERSION (λ)', min: 1, max: 20, fmt: (v: unknown) => String(v) },
-  maxWeight: { label: 'MAX WEIGHT / ASSET', min: 5, max: 60, fmt: (v: unknown) => `${Number(v) * 100}%` },
-  walkForward: { label: 'WALK-FORWARD' },
-  initialCapital: { label: 'INITIAL CAPITAL', min: 10000, max: 100000000, step: 10000 },
-  feeBps: { label: 'FEE (BPS)', min: 0, max: 100 },
-  killSwitch: { label: 'KILL SWITCH', min: 0, max: 1, fmt: (v: unknown) => `${Number(v) * 100}%` },
-  benchmark: { label: 'BENCHMARK' },
-}
-
-const AGENT_ICONS = ['◉', '◎', '⟐', '◈', '⬡', '⬢', '◆', '◇', '◉', '◎']
-
-const ML_TOOLS = [
-  { id: 'sklearn', name: 'scikit-learn', desc: 'RandomForest, XGBoost signals', icon: '🤖' },
-  { id: 'lightgbm', name: 'LightGBM', desc: 'Fast gradient boosting', icon: '⚡' },
-  { id: 'pytorch', name: 'PyTorch', desc: 'LSTM, Transformer price models', icon: '🔥' },
-  { id: 'statsmodels', name: 'statsmodels', desc: 'GARCH, VAR, cointegration', icon: '📊' },
-  { id: 'hurst', name: 'Hurst Exponent', desc: 'Mean-reversion detection', icon: '📈' },
-  { id: 'pyportfolioopt', name: 'PyPortfolioOpt', desc: 'Black-Litterman, HRP', icon: '⚖️' },
-]
+// CONFIG_FIELD_META, AGENT_ICONS, ML_TOOLS, DATA_APIS, TEMPLATES, 
+// UNIVERSES, GRADE_CLR, DEFAULT_FILES are all imported from @/lib/backtest-config
+// STRATEGIES is imported from @/lib/backtest for codebase-aware config
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fP = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
@@ -487,10 +183,6 @@ function TerminalPanel({ lines, input, onInput, onSubmit, loading }: { lines: st
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function QuantLabPage() {
-  // Strategy manager
-  const [strategies, setStrategies] = useState<Strategy[]>([])
-  const [activeStrategyId, setActiveStrategyId] = useState<string>('')
-
   // Editor state
   const [openFiles, setOpenFiles]       = useState(['strategy.ts', 'config.json'])
   const [activeFile, setActiveFile]     = useState('strategy.ts')
@@ -547,6 +239,13 @@ export default function QuantLabPage() {
   const [configFields, setConfigFields] = useState<Record<string, { value: string | number | boolean; type: string }>>({})
   const [agentIconIdx, setAgentIconIdx]   = useState(Math.floor(Math.random() * AGENT_ICONS.length))
 
+  // Strategy list derived from codebase STRATEGIES
+  const strategyList = useMemo(() =>
+    Object.entries(STRATEGIES).filter(([id]) => id !== 'custom').map(([id, meta]) => ({
+      id, name: meta.name, description: meta.description,
+    })),
+  [])
+
   // Update config fields from config.json
   useEffect(() => {
     const cfg = fileContents['config.json']
@@ -554,72 +253,6 @@ export default function QuantLabPage() {
       setConfigFields(extractConfigFields(cfg))
     }
   }, [fileContents['config.json']])
-
-  // ── Load strategies from localStorage ────────────────────────────────────────
-  useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('ase-strategies') || '[]') as Strategy[]
-      if (saved.length > 0) {
-        setStrategies(saved)
-        const first = saved[0]
-        setActiveStrategyId(first.id)
-        setFileContents(first.files)
-        setAgentName(first.name)
-      } else {
-        const id = Date.now().toString()
-        const defaultStrat: Strategy = { id, name: 'Crypto Momentum', files: DEFAULT_FILES, createdAt: Date.now() }
-        setStrategies([defaultStrat])
-        setActiveStrategyId(id)
-        localStorage.setItem('ase-strategies', JSON.stringify([defaultStrat]))
-      }
-    } catch {}
-  }, [])
-
-  const saveStrategies = useCallback((strats: Strategy[]) => {
-    setStrategies(strats)
-    try { localStorage.setItem('ase-strategies', JSON.stringify(strats)) } catch {}
-  }, [])
-
-  const switchStrategy = useCallback((id: string) => {
-    const strat = strategies.find(s => s.id === id)
-    if (!strat) return
-    setActiveStrategyId(id)
-    setFileContents(strat.files)
-    setAgentName(strat.name)
-    setOpenFiles(['strategy.ts', 'config.json'])
-    setActiveFile('strategy.ts')
-    setSaved(true)
-    setBtResult(null)
-  }, [strategies])
-
-  const createStrategy = useCallback(() => {
-    const name = prompt('Strategy name:')
-    if (!name) return
-    const id = Date.now().toString()
-    const strat: Strategy = { id, name, files: { ...DEFAULT_FILES }, createdAt: Date.now() }
-    const updated = [...strategies, strat]
-    saveStrategies(updated)
-    switchStrategy(id)
-  }, [strategies, saveStrategies, switchStrategy])
-
-  const deleteStrategy = useCallback((id: string) => {
-    if (!confirm('Delete this strategy?')) return
-    const updated = strategies.filter(s => s.id !== id)
-    if (updated.length === 0) {
-      const newId = Date.now().toString()
-      const strat: Strategy = { id: newId, name: 'Crypto Momentum', files: { ...DEFAULT_FILES }, createdAt: Date.now() }
-      saveStrategies([strat])
-      switchStrategy(newId)
-    } else {
-      saveStrategies(updated)
-      if (id === activeStrategyId) switchStrategy(updated[0].id)
-    }
-  }, [strategies, activeStrategyId, saveStrategies, switchStrategy])
-
-  const persistCurrentFiles = useCallback((files: Record<string, string>) => {
-    const updated = strategies.map(s => s.id === activeStrategyId ? { ...s, files } : s)
-    saveStrategies(updated)
-  }, [strategies, activeStrategyId, saveStrategies])
 
   // ── Config.json → backtest sync ───────────────────────────────────────────────
   useEffect(() => {
@@ -630,7 +263,7 @@ export default function QuantLabPage() {
       if (cfg.template) setTemplate(cfg.template)
       if (Array.isArray(cfg.symbols)) {
         const syms = cfg.symbols.join(',')
-        const found = Object.entries(UNIVERSES).find(([, v]) => v.join(',') === syms)
+        const found = Object.entries(UNIVERSE_SYMBOLS).find(([, v]) => v.join(',') === syms)
         setUniverse(found ? found[0] : 'crypto_top5')
       }
       if (cfg.rebalanceFreq) setRebalFreq(cfg.rebalanceFreq)
@@ -669,7 +302,7 @@ export default function QuantLabPage() {
   // ── File helpers ──────────────────────────────────────────────────────────────
   const handleSave = () => {
     setSaved(true)
-    persistCurrentFiles(fileContents)
+    try { localStorage.setItem('ase-files', JSON.stringify(fileContents)) } catch {}
     addTerm(`✓ ${activeFile} saved`)
   }
 
@@ -722,7 +355,7 @@ export default function QuantLabPage() {
     setBtLoading(true); setBtError(''); setBtResult(null)
     setBtStartTime(Date.now()); setBtElapsed(0)
     addTerm('● Running backtest…')
-    const syms = UNIVERSES[universe] ?? UNIVERSES.crypto_top5
+    const syms = UNIVERSE_SYMBOLS[universe] ?? UNIVERSE_SYMBOLS.crypto_top5
     try {
       const res = await fetch('/api/quant/run', {
         method: 'POST',
@@ -836,7 +469,7 @@ Focus exclusively on crypto, DeFi, and macro signals. Be technical and precise.`
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <>
-      <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 80px)', margin: '-1.5rem', width: 'calc(100% + 3rem)', background: C.bg, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: C.bg, overflow: 'hidden' }}>
 
         {/* ── TOP BAR ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.4rem .75rem', borderBottom: `1px solid ${C.border}`, background: C.bg2, flexShrink: 0, height: 42 }}>
@@ -881,27 +514,6 @@ Focus exclusively on crypto, DeFi, and macro signals. Be technical and precise.`
           {/* LEFT SIDEBAR */}
           {sideOpen && (
             <div style={{ width: 210, flexShrink: 0, borderRight: `1px solid ${C.border}`, background: C.bg2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-              {/* Strategy list */}
-              <div style={{ borderBottom: `1px solid ${C.border}`, padding: '.45rem .65rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.3rem' }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, letterSpacing: '.1em' }}>STRATEGIES</span>
-                  <button onClick={createStrategy} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontSize: '.85rem', lineHeight: 1, padding: '0 .15rem' }} title="New strategy">+</button>
-                </div>
-                {strategies.map(s => (
-                  <div key={s.id} onClick={() => switchStrategy(s.id)}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '.22rem .38rem', borderRadius: 5, cursor: 'pointer', background: s.id === activeStrategyId ? `${C.blue}14` : 'transparent', marginBottom: '.05rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', minWidth: 0 }}>
-                      <div style={{ width: 5, height: 5, borderRadius: '50%', background: s.id === activeStrategyId ? C.blue : C.faint, flexShrink: 0 }} />
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: s.id === activeStrategyId ? C.white : C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
-                    </div>
-                    {strategies.length > 1 && (
-                      <button onClick={e => { e.stopPropagation(); deleteStrategy(s.id) }}
-                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontSize: '.65rem', opacity: 0.6, lineHeight: 1, padding: '0 .1rem', flexShrink: 0 }}>×</button>
-                    )}
-                  </div>
-                ))}
-              </div>
 
               {/* File explorer */}
               <div style={{ padding: '.4rem .65rem .3rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1284,7 +896,7 @@ Focus exclusively on crypto, DeFi, and macro signals. Be technical and precise.`
                     <button onClick={() => { openFile('DOCS.md') }} style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.blue2, background: 'transparent', border: 'none', cursor: 'pointer' }}>Open in editor</button>
                   </div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: C.text, lineHeight: 1.75, whiteSpace: 'pre-wrap' }}>
-                    <MdText text={fileContents['DOCS.md'] ?? DEFAULT_DOCS} />
+                    <MdText text={fileContents['DOCS.md'] ?? DEFAULT_FILES['DOCS.md']} />
                   </div>
                 </div>
               )}

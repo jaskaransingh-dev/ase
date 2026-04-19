@@ -17,7 +17,8 @@ const NAV = [
   {
     section: 'TRADING',
     items: [
-      { href: '/dashboard/marketplace', label: 'Exchange', icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z', exact: false },
+      { href: '/dashboard/marketplace', label: 'Exchange', icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z', exact: false },
+      { href: '/dashboard/agents', label: 'Agents', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0z', exact: false, iconOnly: true },
     ],
   },
   {
@@ -31,7 +32,7 @@ const NAV = [
   {
     section: 'ACCOUNT',
     items: [
-      { href: '/dashboard/settings', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z', exact: false },
+      { href: '/dashboard/settings', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-.543-.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z', exact: false },
     ],
   },
 ]
@@ -102,6 +103,8 @@ export default function DashboardShell({ user, children }: { user: { id: string;
 
   const initials = (user.name || user.email || 'U').slice(0, 2).toUpperCase()
 
+  const isFullscreenContent = (pathname ?? '') === '/dashboard/backtest' || (pathname ?? '').startsWith('/dashboard/build')
+
   return (
     <div className="quant-terminal">
       {/* ── Sidebar ── */}
@@ -167,50 +170,53 @@ export default function DashboardShell({ user, children }: { user: { id: string;
                 {group.section}
               </div>
               {group.items.map(item => {
-                const active = isActive(item.href, item.exact)
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setMobileOpen(false)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.65rem',
-                      padding: '0.6rem 0.75rem',
-                      borderRadius: 8,
-                      color: active ? 'var(--white)' : 'var(--muted)',
-                      fontSize: '0.82rem',
-                      fontWeight: active ? 600 : 400,
-                      textDecoration: 'none',
-                      background: active ? 'rgba(79,140,255,0.12)' : 'transparent',
-                      border: active ? '1px solid rgba(79,140,255,0.18)' : '1px solid transparent',
-                      transition: 'all 0.14s',
-                      marginBottom: '0.1rem',
-                    }}
-                    onMouseEnter={e => {
-                      if (!active) {
-                        e.currentTarget.style.color = 'var(--white)'
-                        e.currentTarget.style.background = 'var(--blue-dim)'
-                      }
-                    }}
-                    onMouseLeave={e => {
-                      if (!active) {
-                        e.currentTarget.style.color = 'var(--muted)'
-                        e.currentTarget.style.background = 'transparent'
-                      }
-                    }}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: active ? 1 : 0.7 }}>
-                      <path d={item.icon} />
-                    </svg>
-                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
-                    {active && (
-                      <div style={{ marginLeft: 'auto', width: 4, height: 4, borderRadius: '50%', background: 'var(--blue)', flexShrink: 0 }} />
-                    )}
-                  </Link>
-                )
-              })}
+                  const active = isActive(item.href, item.exact)
+                  const iconOnly = (item as any).iconOnly
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setMobileOpen(false)}
+                      title={iconOnly ? item.label : undefined}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: iconOnly ? 0 : '0.65rem',
+                        justifyContent: iconOnly ? 'center' : undefined,
+                        padding: iconOnly ? '0.6rem' : '0.6rem 0.75rem',
+                        borderRadius: 8,
+                        color: active ? 'var(--white)' : 'var(--muted)',
+                        fontSize: '0.82rem',
+                        fontWeight: active ? 600 : 400,
+                        textDecoration: 'none',
+                        background: active ? 'rgba(79,140,255,0.12)' : 'transparent',
+                        border: active ? '1px solid rgba(79,140,255,0.18)' : '1px solid transparent',
+                        transition: 'all 0.14s',
+                        marginBottom: '0.1rem',
+                      }}
+                      onMouseEnter={e => {
+                        if (!active) {
+                          e.currentTarget.style.color = 'var(--white)'
+                          e.currentTarget.style.background = 'var(--blue-dim)'
+                        }
+                      }}
+                      onMouseLeave={e => {
+                        if (!active) {
+                          e.currentTarget.style.color = 'var(--muted)'
+                          e.currentTarget.style.background = 'transparent'
+                        }
+                      }}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: active ? 1 : 0.7 }}>
+                        <path d={item.icon} />
+                      </svg>
+                      {!iconOnly && <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>}
+                      {active && !iconOnly && (
+                        <div style={{ marginLeft: 'auto', width: 4, height: 4, borderRadius: '50%', background: 'var(--blue)', flexShrink: 0 }} />
+                      )}
+                    </Link>
+                  )
+                })}
             </div>
           ))}
         </nav>
@@ -343,7 +349,24 @@ export default function DashboardShell({ user, children }: { user: { id: string;
                 {group.items.map(item => {
                   const active = isActive(item.href, item.exact)
                   return (
-                    <Link key={item.href} href={item.href} onClick={() => setMobileOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.65rem 0.75rem', borderRadius: 8, color: active ? 'var(--white)' : 'var(--muted)', fontSize: '0.85rem', fontWeight: active ? 600 : 400, textDecoration: 'none', background: active ? 'rgba(79,140,255,0.12)' : 'transparent', marginBottom: '0.1rem' }}>
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setMobileOpen(false)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.6rem',
+                        padding: '0.65rem 0.75rem',
+                        borderRadius: 8,
+                        color: active ? 'var(--white)' : 'var(--muted)',
+                        fontSize: '0.85rem',
+                        fontWeight: active ? 600 : 400,
+                        textDecoration: 'none',
+                        background: active ? 'rgba(79,140,255,0.12)' : 'transparent',
+                        marginBottom: '0.1rem',
+                      }}
+                    >
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={item.icon} /></svg>
                       {item.label}
                     </Link>
@@ -465,7 +488,7 @@ export default function DashboardShell({ user, children }: { user: { id: string;
         </header>
 
         {/* Page content */}
-        <div className="quant-content" style={{ flex: 1, padding: '1.5rem' }}>
+        <div className="quant-content" style={{ flex: 1, padding: isFullscreenContent ? 0 : undefined, overflow: isFullscreenContent ? 'hidden' : undefined, display: 'flex', flexDirection: 'column' }}>
           {children}
         </div>
 

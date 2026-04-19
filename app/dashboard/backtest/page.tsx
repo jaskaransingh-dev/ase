@@ -5,31 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, BarChart, Bar } from 'recharts'
 import { Loader2, Play, TrendingUp, Activity, Shield, BookOpen, AlertCircle, FileText } from 'lucide-react'
 import Link from 'next/link'
-
-const PERIODS = [
-  { value: '14d', label: '2 Weeks' },
-  { value: '30d', label: '30 Days' },
-  { value: '90d', label: '3 Months' },
-  { value: '180d', label: '6 Months' },
-  { value: '270d', label: '9 Months' },
-  { value: '1y', label: '1 Year' },
-  { value: '2y', label: '2 Years' },
-  { value: '5y', label: '5 Years' },
-]
-
-const BENCHMARKS: Record<string, { label: string; color: string }> = {
-  'BTC-USD': { label: 'Bitcoin', color: '#f7931a' },
-  'ETH-USD': { label: 'Ethereum', color: '#627eea' },
-  'SOL-USD': { label: 'Solana', color: '#19E6A7' },
-}
-
-const STRATEGIES = [
-  { id: 'momentum_crossover', label: 'Momentum' },
-  { id: 'mean_reversion', label: 'Mean Reversion' },
-  { id: 'rsi_trend_filter', label: 'RSI' },
-  { id: 'volatility_breakout', label: 'Breakout' },
-  { id: 'dual_momentum', label: 'Dual Momentum' },
-]
+import { PERIODS, BENCHMARKS, BACKTEST_STRATEGIES } from '@/lib/backtest-config'
 
 interface AgentData {
   slug: string
@@ -294,7 +270,7 @@ export default function BacktestComparePage() {
   const agentColors = ['#5B8CFF', '#19E6A7', '#FFB648', '#FF6B7A', '#8B5CF6', '#F472B6', '#34D399', '#FBBF24']
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 100px)', background: colors.bg, color: colors.text }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: colors.bg, color: colors.text }}>
       
       {/* Header */}
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: `1px solid ${colors.border}`, background: colors.bg2 }}>
