@@ -647,7 +647,7 @@ export function runCustomBacktest(
 // Statistics
 // ──────────────────────────────────────────────────────────────
 
-function computeStats(equityCurve: number[], positions: number[], bars: OHLCV[]): BacktestStats {
+export function computeStats(equityCurve: number[], positions: number[], bars: OHLCV[]): BacktestStats {
   const n = equityCurve.length
   if (n < 2) {
     return {
@@ -1027,7 +1027,6 @@ export function runBacktest(
   const stratMeta = STRATEGIES[strategyId]
   if (!stratMeta) throw new Error(`Unknown strategy: ${strategyId}`)
 
-  // Get positions from strategy
   let positions: number[]
   switch (strategyId) {
     case 'mean_reversion':        positions = stratMeanReversion(bars, params); break
@@ -1044,23 +1043,24 @@ export function runBacktest(
     default: throw new Error(`No runner for ${strategyId}`)
   }
 
-  // Simulate equity curve with trading fees and slippage
   const equityCurve: number[] = []
   let equity = INITIAL_CAPITAL
   let prevPosition = 0
+  let totalFeesPaid = 0
+  let totalSlippageCost = 0
 
   for (let i = 0; i < bars.length; i++) {
     const pos = positions[i]
 
-    // Apply fee + slippage on position change
     if (pos !== prevPosition && i > 0) {
-      equity *= (1 - fee)
-      // Slippage: buy at higher price, sell at lower price
-      // Model as a percentage cost on each trade
-      equity *= (1 - slippage)
+      const notional = equity * Math.abs(pos - prevPosition)
+      const feeCost = notional * fee
+      const slipCost = notional * slippage
+      equity -= feeCost + slipCost
+      totalFeesPaid += feeCost
+      totalSlippageCost += slipCost
     }
 
-    // Daily return when in position
     if (i > 0 && positions[i - 1] === 1) {
       const dailyReturn = (bars[i].close - bars[i - 1].close) / bars[i - 1].close
       equity *= (1 + dailyReturn)
@@ -1704,24 +1704,69 @@ function calculateStats(
     : 0
   const sortinoRatio = downsideStd > 0 ? (avgReturn * 252) / downsideStd : 0
   
-  // Profit factor
   const grossProfit = winningTrades.reduce((a, t) => a + t.ret, 0)
   const grossLoss = trades.filter(t => t.ret <= 0).reduce((a, t) => a + Math.abs(t.ret), 0)
   const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 999 : 0
   
-  // Calmar ratio
   const calmarRatio = Math.abs(maxDrawdown) > 0 ? cagr / Math.abs(maxDrawdown) : 0
   
-  // Exposure time
   const exposureTime = returns.length / bars.length
   
-  // Average trade
   const avgTradeReturn = trades.length > 0 ? trades.reduce((a, t) => a + t.ret, 0) / trades.length : 0
   const avgWin = winningTrades.length > 0 ? winningTrades.reduce((a, t) => a + t.ret, 0) / winningTrades.length : 0
   const avgLoss = trades.filter(t => t.ret < 0).reduce((a, t) => a + t.ret, 0) / (trades.length - winningTrades.length) || 0
   const bestTrade = trades.length > 0 ? Math.max(...trades.map(t => t.ret)) : 0
   const worstTrade = trades.length > 0 ? Math.min(...trades.map(t => t.ret)) : 0
-  
+
+  let tradeDurations: number[] = []
+  let tradeEntryIdx = -1
+  for (let i = 1; i < positions.length; i++) {
+    if (positions[i] === 1 && positions[i - 1] === 0) tradeEntryIdx = i
+    if (positions[i] === 0 && positions[i - 1] === 1 && tradeEntryIdx >= 0) {
+      tradeDurations.push(i - tradeEntryIdx)
+      tradeEntryIdx = -1
+    }
+  }
+  const avgTradeDurationDays = tradeDurations.length > 0 ? tradeDurations.reduce((a, b) => a + b, 0) / tradeDurations.length : 0
+
+  let totalPositionChanges = 0
+  for (let i = 1; i < positions.length; i++) {
+    if (positions[i] !== positions[i - 1]) totalPositionChanges++
+  }
+  const turnover = bars.length > 0 ? totalPositionChanges / (bars.length / 252) : 0
+
+  const monthlyEquity: Record<string, number[]> = {}
+  for (let i = 1; i < bars.length; i++) {
+    const monthKey = bars[i].date.slice(0, 7)
+    if (!monthlyEquity[monthKey]) monthlyEquity[monthKey] = []
+    const monthlyRet = (equityCurve[i] - equityCurve[i - 1]) / equityCurve[i - 1]
+    monthlyEquity[monthKey].push(monthlyRet)
+  }
+  const monthlyReturns = Object.values(monthlyEquity).map(returns => returns.reduce((a, b) => a + b, 0))
+  const positiveMonthRatio = monthlyReturns.length > 0 ? (monthlyReturns.filter(r => r > 0).length / monthlyReturns.length) * 100 : 0
+
+  const windowSize = 63
+  const rollingSharpes: number[] = []
+  for (let i = windowSize; i < returns.length; i++) {
+    const window = returns.slice(i - windowSize, i)
+    if (window.length < 30) continue
+    const wMean = window.reduce((a, b) => a + b, 0) / window.length
+    const wVar = window.reduce((a, b) => a + (b - wMean) ** 2, 0) / window.length
+    const wStd = Math.sqrt(wVar)
+    if (wStd > 0) rollingSharpes.push((wMean * 252) / (wStd * Math.sqrt(252)))
+  }
+  const rolling63dSharpeMean = rollingSharpes.length > 0 ? rollingSharpes.reduce((a, b) => a + b, 0) / rollingSharpes.length : 0
+  const rolling63dSharpeStd = rollingSharpes.length > 1 ? Math.sqrt(rollingSharpes.reduce((a, b) => a + (b - rolling63dSharpeMean) ** 2, 0) / rollingSharpes.length) : 0
+
+  const drawdowns: number[] = []
+  peak = initialCapital
+  for (const equity of equityCurve) {
+    if (equity > peak) peak = equity
+    const dd = ((equity - peak) / peak) * 100
+    drawdowns.push(dd)
+  }
+  const avgDrawdownPct = drawdowns.length > 0 ? Math.abs(drawdowns.reduce((a, b) => a + b, 0) / drawdowns.length) : 0
+
   return {
     totalReturnPct,
     annualizedReturnPct: cagr,
@@ -1731,12 +1776,12 @@ function calculateStats(
     sortinoRatio,
     maxDrawdownPct: Math.abs(maxDrawdown),
     maxDrawdownDuration: 0,
-    averageDrawdownPct: Math.abs(maxDrawdown) / 2,
+    averageDrawdownPct: avgDrawdownPct,
     downsideVolatility: downsideStd,
     winRate,
     totalTrades: trades.length,
     profitableTrades: winningTrades.length,
-    avgTradeDurationDays: 0,
+    avgTradeDurationDays,
     avgTradeReturnPct: avgTradeReturn,
     bestTradePct: bestTrade,
     worstTradePct: worstTrade,
@@ -1744,10 +1789,10 @@ function calculateStats(
     avgLoss,
     profitFactor,
     exposureTime,
-    turnover: 0,
+    turnover,
     calmarRatio,
-    positiveMonthRatio: 0,
-    rolling63dSharpeMean: sharpeRatio,
-    rolling63dSharpeStd: 0,
+    positiveMonthRatio,
+    rolling63dSharpeMean,
+    rolling63dSharpeStd,
   }
 }

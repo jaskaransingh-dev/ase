@@ -6,36 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Logo } from '@/components/ui/Logo'
 import { useWallet } from '@/components/WalletProvider'
-
-const NAV = [
-  {
-    section: 'MAIN',
-    items: [
-      { href: '/dashboard', label: 'Overview', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6', exact: true },
-    ],
-  },
-  {
-    section: 'TRADING',
-    items: [
-      { href: '/dashboard/marketplace', label: 'Exchange', icon: 'M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z', exact: false },
-      { href: '/dashboard/agents', label: 'Agents', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0z', exact: false, iconOnly: true },
-    ],
-  },
-  {
-    section: 'BUILD',
-    items: [
-      { href: '/dashboard/build', label: 'Quant Lab', icon: 'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z', exact: false },
-      { href: '/dashboard/backtest', label: 'Backtest', icon: 'M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z', exact: false },
-      { href: '/dashboard/geo', label: 'Geo Explorer', icon: 'M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z', exact: false },
-    ],
-  },
-  {
-    section: 'ACCOUNT',
-    items: [
-      { href: '/dashboard/settings', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-.543-.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z', exact: false },
-    ],
-  },
-]
+import { NAV_CONFIG } from '@/lib/nav-config'
 
 export default function DashboardShell({ user, children }: { user: { id: string; email: string; name: string }; children: React.ReactNode }) {
   const pathname = usePathname()
@@ -87,7 +58,7 @@ export default function DashboardShell({ user, children }: { user: { id: string;
     router.push('/')
   }
 
-  function isActive(href: string, exact: boolean) {
+  function isActive(href: string, exact?: boolean) {
     if (exact) return pathname === href
     return pathname === href || pathname.startsWith(href + '/')
   }
@@ -156,7 +127,7 @@ export default function DashboardShell({ user, children }: { user: { id: string;
 
         {/* Nav */}
         <nav className="sidebar-nav" style={{ overflowY: 'auto', padding: '0.75rem 0.65rem' }}>
-          {NAV.map(group => (
+          {NAV_CONFIG.map(group => (
             <div key={group.section} style={{ marginBottom: '0.5rem' }}>
               <div style={{
                 fontFamily: 'var(--font-mono)',
@@ -343,7 +314,7 @@ export default function DashboardShell({ user, children }: { user: { id: string;
             </button>
           </div>
           <nav style={{ flex: 1, padding: '0.75rem', overflowY: 'auto' }}>
-            {NAV.map(group => (
+{NAV_CONFIG.map(group => (
               <div key={group.section} style={{ marginBottom: '0.5rem' }}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)', letterSpacing: '0.14em', padding: '0.4rem 0.6rem 0.2rem' }}>{group.section}</div>
                 {group.items.map(item => {
