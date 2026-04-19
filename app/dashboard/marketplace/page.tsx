@@ -100,10 +100,10 @@ export default function MarketplacePage() {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
             <div style={{ width: 3, height: 14, borderRadius: 2, background: 'var(--blue)' }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', fontWeight: 700, color: 'var(--faint)', letterSpacing: '0.12em' }}>STRATEGY MARKETPLACE</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', fontWeight: 700, color: 'var(--faint)', letterSpacing: '0.12em' }}>EXCHANGE</span>
           </div>
           <h1 style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: '1.5rem', color: C.white, letterSpacing: '-0.03em', margin: 0 }}>
-            Verified Trading Agents
+            Crypto &amp; DeFi Agents
           </h1>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: C.muted, marginTop: '0.3rem' }}>
             Ranked by risk-adjusted performance · Hidden test set verified · Real-time P&L

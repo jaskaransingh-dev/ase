@@ -235,6 +235,9 @@ export default function QuantLabPage() {
   const [publishing, setPublishing]   = useState(false)
   const [published, setPublished]     = useState(false)
 
+  // AI pending edits (cursor-like apply)
+  const [pendingEdits, setPendingEdits] = useState<FileEdit[]>([])
+
   // Dynamic config fields (from codebase)
   const [configFields, setConfigFields] = useState<Record<string, { value: string | number | boolean; type: string }>>({})
   const [agentIconIdx, setAgentIconIdx]   = useState(Math.floor(Math.random() * AGENT_ICONS.length))
@@ -327,6 +330,18 @@ export default function QuantLabPage() {
 
   const addTerm = useCallback((line: string) => setTermLines(p => [...p, line]), [])
 
+  // ── Config.json ← UI controls (bidirectional) ────────────────────────────────
+  const updateConfigJson = useCallback((changes: Record<string, unknown>) => {
+    setFileContents(prev => {
+      try {
+        const parsed = JSON.parse(prev['config.json'] ?? '{}')
+        const merged = { ...parsed, ...changes }
+        return { ...prev, 'config.json': JSON.stringify(merged, null, 2) }
+      } catch { return prev }
+    })
+    setSaved(false)
+  }, [])
+
   // ── Terminal commands ─────────────────────────────────────────────────────────
   const handleTermSubmit = useCallback(() => {
     const cmd = termInput.trim()
@@ -392,27 +407,83 @@ export default function QuantLabPage() {
     setChatMsgs(p => [...p, { role: 'user', text: msg }])
     setChatLoading(true)
     const ts = (btResult?.tear_sheet ?? {}) as Record<string, number>
-    const context = `You are an expert quant strategy AI for the ASE platform (crypto & DeFi trading only — NO stocks).
 
-Current file: ${activeFile}
---- FILE CONTENT ---
-${fileContents[activeFile] ?? '(empty)'}
----
+    // Build full codebase context
+    const allFilesCtx = Object.entries(fileContents).map(([name, content]) =>
+      `### ${name}\n\`\`\`\n${content}\n\`\`\``
+    ).join('\n\n')
 
-Config:
-${fileContents['config.json'] ?? '(none)'}
+    const btCtx = btResult
+      ? `**Grade:** ${btResult.grade} | **CAGR:** ${((ts.cagr??0)*100).toFixed(1)}% | **Sharpe:** ${(ts.sharpeRatio??0).toFixed(2)} | **MaxDD:** ${(ts.maxDrawdownPct??0).toFixed(1)}% | **Sortino:** ${(ts.sortinoRatio??0).toFixed(2)} | **Calmar:** ${(ts.calmarRatio??0).toFixed(2)} | **WinRate:** ${(ts.winRatePct??0).toFixed(1)}%`
+      : 'No backtest run yet.'
 
-Backtest results: ${btResult ? `Grade: ${btResult.grade}, CAGR: ${((ts.cagr??0)*100).toFixed(1)}%, Sharpe: ${(ts.sharpeRatio??0).toFixed(2)}, MaxDD: ${(ts.maxDrawdownPct??0).toFixed(1)}%` : 'No backtest run yet.'}
+    const context = `You are an **expert quantitative researcher and algo trader** for the ASE platform — crypto & DeFi only, no stocks.
 
-Used APIs: ${Array.from(usedAPIIds).join(', ') || 'none detected'}
+## Your Role
+You help users build institutional-quality crypto trading strategies. You understand:
+- **Cross-sectional momentum** (rank by trailing return, z-score signals)
+- **Mean reversion** (Ornstein-Uhlenbeck, Bollinger, RSI-based)
+- **On-chain alpha** (NUPL, SOPR, MVRV, NVT, exchange flows, miner data)
+- **DeFi signals** (TVL, funding rates, liquidation cascades, AMM flow)
+- **Portfolio optimization** (mean-variance, risk parity, Black-Litterman)
+- **Risk management** (Kelly criterion, drawdown limits, kill switches)
+- **Transaction cost modeling** (slippage bps, market impact, participation rate)
 
-IMPORTANT: When suggesting code changes, output them with this exact format so the user can apply with one click:
+## ASE Engine Architecture
+The platform runs a **9-layer quant pipeline**:
+\`Data Ingestion → Feature Engineering → Alpha → Forecast → Risk Model → Portfolio Optimizer → Risk Manager → Execution Simulation → Metrics\`
+
+Key parameters in **config.json**:
+- \`template\`: strategy template (momentum_conservative | composite_balanced | mean_reversion_active | ml_aggressive | risk_parity)
+- \`riskAversion\`: lambda λ (1–20); higher = less risk, smaller positions
+- \`maxWeight\`: per-asset cap (e.g. 0.30 = 30% max)
+- \`feeBps\`: round-trip fee in basis points (7 bps = 0.07%)
+- \`killSwitch\`: halt if drawdown exceeds this fraction (e.g. 0.20 = 20%)
+- \`walkForward\`: run out-of-sample validation windows
+- \`rebalanceFreq\`: daily | weekly | monthly
+
+## Active File
+**${activeFile}**
+
+## Full Codebase
+${allFilesCtx}
+
+## Backtest Results
+${btCtx}
+
+## Live APIs Detected in Code
+${Array.from(usedAPIIds).join(', ') || 'none'}
+
+## Available Free APIs
+Crypto: Binance, CoinGecko, CoinCap, Kraken, Bybit, OKX
+DeFi: DeFiLlama, Uniswap, Aave, Curve, The Graph, dYdX
+On-chain: Glassnode (free tier), CoinMetrics (community), Santiment
+Derivatives: CoinGlass, Laevitas, Tardis (delayed)
+Sentiment: Fear & Greed Index, LunarCrush, Alternative.me
+Macro: FRED (rates, DXY, CPI), World Bank
+
+## Response Format Rules
+- Use **markdown** throughout: \`**bold**\` for key terms, \`*italic*\` for emphasis, code blocks for all code
+- Structure responses with \`## headers\` for sections
+- Use bullet lists for options/ideas
+- **Never skip markdown** — formatted output only
+- When writing code, always include the FILE directive so users can apply with one click:
+
 \`\`\`typescript
 // FILE: strategy.ts
-// [complete file content here]
+[complete file content]
 \`\`\`
 
-Focus exclusively on crypto, DeFi, and macro signals. Be technical and precise.`
+- For config changes use:
+\`\`\`json
+// FILE: config.json
+{ ... }
+\`\`\`
+
+- Always explain **why** before showing code
+- Cite specific metrics from backtest when analyzing (Sharpe, CAGR, MaxDD)
+- If Sharpe < 1.0, diagnose root cause before suggesting fixes`
+
     try {
       const res = await fetch('/api/ai/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -423,9 +494,25 @@ Focus exclusively on crypto, DeFi, and macro signals. Be technical and precise.`
       })
       const d = await res.json()
       const aiText = d.content ?? d.message ?? d.text ?? "I'm ready to help optimize your strategy. What would you like to improve?"
-      setChatMsgs(p => [...p, { role: 'ai', text: aiText }])
+
+      // Extract pending edits from AI response
+      const codeBlockRe = /```(\w+)?\n([\s\S]*?)```/g
+      const extracted: FileEdit[] = []
+      let m: RegExpExecArray | null
+      const re = new RegExp(codeBlockRe.source, 'g')
+      while ((m = re.exec(aiText)) !== null) {
+        const lang = m[1] || 'text'
+        const code = m[2]
+        const fileMatch = code.match(/^\/\/ FILE: ([^\n]+)\n/)
+        if (fileMatch) {
+          extracted.push({ filename: fileMatch[1].trim(), content: code.slice(fileMatch[0].length), lang })
+        }
+      }
+      if (extracted.length > 0) setPendingEdits(extracted)
+
+      setChatMsgs(p => [...p, { role: 'ai', text: aiText, edits: extracted }])
     } catch {
-      setChatMsgs(p => [...p, { role: 'ai', text: "I'm ready to help with alpha research, signal design, and strategy optimization." }])
+      setChatMsgs(p => [...p, { role: 'ai', text: "**Connection error.** I'm ready to help with alpha research, signal design, and strategy optimization.\n\nTry:\n- *Improve my Sharpe ratio*\n- *Add on-chain alpha signals*\n- *Reduce max drawdown*" }])
     } finally { setChatLoading(false) }
   }
 
@@ -433,8 +520,19 @@ Focus exclusively on crypto, DeFi, and macro signals. Be technical and precise.`
     updateFile(edit.filename, edit.content)
     if (!openFiles.includes(edit.filename)) setOpenFiles(p => [...p, edit.filename])
     setActiveFile(edit.filename)
+    setPendingEdits(p => p.filter(e => e.filename !== edit.filename))
     addTerm(`✓ Applied edit to ${edit.filename}`)
   }, [openFiles, addTerm])
+
+  const applyAllEdits = useCallback(() => {
+    pendingEdits.forEach(edit => {
+      updateFile(edit.filename, edit.content)
+      if (!openFiles.includes(edit.filename)) setOpenFiles(p => [...p, edit.filename])
+    })
+    if (pendingEdits.length > 0) setActiveFile(pendingEdits[0].filename)
+    addTerm(`✓ Applied ${pendingEdits.length} AI edit${pendingEdits.length !== 1 ? 's' : ''}`)
+    setPendingEdits([])
+  }, [pendingEdits, openFiles, addTerm])
 
   // ── Derived ───────────────────────────────────────────────────────────────────
   const ts       = (btResult?.tear_sheet ?? {}) as Record<string, number>
@@ -525,10 +623,12 @@ Focus exclusively on crypto, DeFi, and macro signals. Be technical and precise.`
                   const ext = name.split('.').pop() ?? ''
                   const clr = { ts: C.blue, py: C.mint, json: C.orange, md: C.muted }[ext] ?? C.faint
                   const isActive = activeFile === name
+                  const hasPending = pendingEdits.some(e => e.filename === name)
                   return (
-                    <button key={name} onClick={() => openFile(name)} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', width: '100%', padding: '.25rem .45rem', borderRadius: 5, background: isActive ? `${C.blue}12` : 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', marginBottom: '.03rem' }}>
+                    <button key={name} onClick={() => openFile(name)} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', width: '100%', padding: '.25rem .45rem', borderRadius: 5, background: isActive ? `${C.blue}12` : hasPending ? `${C.blue}07` : 'transparent', border: `1px solid ${hasPending ? C.blue + '30' : 'transparent'}`, cursor: 'pointer', textAlign: 'left', marginBottom: '.03rem' }}>
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: clr, fontWeight: 700, flexShrink: 0, width: 16 }}>{ext.toUpperCase().slice(0,2)}</span>
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.63rem', color: isActive ? C.white : C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{name}</span>
+                      {hasPending && <div style={{ width: 5, height: 5, borderRadius: '50%', background: C.blue, flexShrink: 0, boxShadow: `0 0 4px ${C.blue}` }} />}
                     </button>
                   )
                 })}
@@ -567,6 +667,19 @@ Focus exclusively on crypto, DeFi, and macro signals. Be technical and precise.`
 
           {/* CODE EDITOR */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+            {/* Apply Changes Banner */}
+            {pendingEdits.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem', padding: '.35rem .85rem', background: `linear-gradient(90deg, ${C.blue}18, ${C.mint}10)`, borderBottom: `1px solid ${C.blue}30`, flexShrink: 0 }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: C.blue, boxShadow: `0 0 6px ${C.blue}`, animation: 'pulse 1.5s infinite', flexShrink: 0 }} />
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: C.blue2, flex: 1 }}>
+                  AI suggested changes to <strong style={{ color: C.white }}>{pendingEdits.map(e => e.filename).join(', ')}</strong>
+                </span>
+                <button onClick={applyAllEdits} style={{ padding: '.22rem .65rem', borderRadius: 6, border: `1px solid ${C.mint}50`, background: `${C.mint}15`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  ✓ Apply All
+                </button>
+                <button onClick={() => setPendingEdits([])} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', fontSize: '.75rem', padding: '0 .2rem', lineHeight: 1 }}>✕</button>
+              </div>
+            )}
             {/* File tabs */}
             <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, background: C.bg2, flexShrink: 0, overflowX: 'auto' }}>
               {openFiles.map(name => (
@@ -699,8 +812,8 @@ Focus exclusively on crypto, DeFi, and macro signals. Be technical and precise.`
                   {/* Sliders */}
                   <div style={{ marginBottom: '.65rem' }}>
                     {[
-                      { label: 'RISK AVERSION (λ)', value: riskAversion, min: 1, max: 20, set: setRiskAversion, fmt: (v: number) => String(v) },
-                      { label: 'MAX WEIGHT / ASSET', value: maxWeight * 100, min: 5, max: 60, set: (v: number) => setMaxWeight(v / 100), fmt: (v: number) => `${v.toFixed(0)}%` },
+                      { label: 'RISK AVERSION (λ)', value: riskAversion, min: 1, max: 20, set: (v: number) => { setRiskAversion(v); updateConfigJson({ riskAversion: v }) }, fmt: (v: number) => String(v) },
+                      { label: 'MAX WEIGHT / ASSET', value: maxWeight * 100, min: 5, max: 60, set: (v: number) => { setMaxWeight(v / 100); updateConfigJson({ maxWeight: v / 100 }) }, fmt: (v: number) => `${v.toFixed(0)}%` },
                     ].map(s => (
                       <div key={s.label} style={{ marginBottom: '.45rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '.15rem' }}>
@@ -714,7 +827,7 @@ Focus exclusively on crypto, DeFi, and macro signals. Be technical and precise.`
 
                   <div style={{ display: 'flex', gap: '.65rem', marginBottom: '.65rem' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={walkFwd} onChange={e => setWalkFwd(e.target.checked)} style={{ accentColor: C.blue }} />
+                      <input type="checkbox" checked={walkFwd} onChange={e => { setWalkFwd(e.target.checked); updateConfigJson({ walkForward: e.target.checked }) }} style={{ accentColor: C.blue }} />
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: C.muted }}>Walk-forward</span>
                     </label>
                   </div>

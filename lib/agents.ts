@@ -429,11 +429,13 @@ interface AgentPosition {
   qty: number
   avg_entry: number
   total_cost: number
+  open_date?: string  // ISO date of first buy — used for time-based exits
 }
 
 interface PositionLot {
   qty: number
   price: number
+  date?: string
 }
 
 function consumeLots(lots: PositionLot[], qtyToSell: number): number {
@@ -471,6 +473,7 @@ export async function getAgentPositions(admin: SupabaseClient, agentId: string):
   }
 
   const map: Record<string, PositionLot[]> = {}
+  const firstBuyDate: Record<string, string> = {}
 
   for (const t of data || []) {
     const sym = String(t.symbol || '').toUpperCase()
@@ -482,9 +485,14 @@ export async function getAgentPositions(admin: SupabaseClient, agentId: string):
     const price = Math.max(0, parseFloat(String(t.fill_price)) || 0)
 
     if (t.side === 'buy') {
-      map[sym].push({ qty, price })
+      map[sym].push({ qty, price, date: t.filled_at })
+      if (!firstBuyDate[sym]) firstBuyDate[sym] = t.filled_at
     } else if (t.side === 'sell') {
       consumeLots(map[sym], qty)
+      // If no lots remain, reset first-buy date so next entry tracks fresh
+      if (map[sym].reduce((s, l) => s + l.qty, 0) < 0.000001) {
+        delete firstBuyDate[sym]
+      }
     }
   }
 
@@ -497,6 +505,7 @@ export async function getAgentPositions(admin: SupabaseClient, agentId: string):
         qty: Math.max(0, netQty),
         avg_entry: netQty > 0 ? totalCost / netQty : 0,
         total_cost: totalCost,
+        open_date: firstBuyDate[symbol],
       }
     })
     .filter(p => p.qty > 0.000001)
@@ -539,6 +548,12 @@ export async function getCurrentHoldings(admin: SupabaseClient, agentId: string)
   }
 
   return holdings
+}
+
+// How many calendar days a position has been open (0 if unknown)
+function daysHeld(pos: AgentPosition): number {
+  if (!pos.open_date) return 0
+  return Math.floor((Date.now() - new Date(pos.open_date).getTime()) / 86_400_000)
 }
 
 // Get available cash for an agent
@@ -881,6 +896,13 @@ export async function runBtcMomentum(
       actions.push(action)
       signalSummary = `SELL ▲ +12% target reached, MACD decelerating`
 
+    } else if (daysHeld(pos) >= 14 && macd.histogram < 0) {
+      // Time-based exit: 14-day max hold if MACD has turned negative — avoid dead money
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, `14-day max hold, MACD<0`, indicators)
+      actions.push(action)
+      const pnlPct = calcPositionPnL(pos, currentPrice)
+      signalSummary = `SELL ⏱ 14-day max hold · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%`
+
     } else {
       // Hold with detailed status
       const nextExit = currentPrice >= profitTarget12
@@ -1026,6 +1048,12 @@ export async function runEthMeanRevert(
       const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, '+8% quick exit: Z neutral', indicators)
       actions.push(action)
       signalSummary = `SELL ▲ +8% quick take · Z-score neutral (${zScore.toFixed(2)})`
+
+    } else if (daysHeld(pos) >= 10 && zScore > -0.5) {
+      // Time-based exit: 10-day mean-revert deadline — if not reverted, cut and reset
+      const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, `10-day mean-revert timeout`, indicators)
+      actions.push(action)
+      signalSummary = `SELL ⏱ 10-day timeout · Z=${zScore.toFixed(2)} · P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%`
 
     } else {
       // Still below mean — hold position, track progress
