@@ -80,6 +80,7 @@ export async function POST(req: Request) {
     save?:           boolean
     forecast_horizon?: number
     signal_scale_bps?: number
+    benchmark?:      string
   }
 
   const template = body.template ?? 'composite_balanced'
@@ -88,40 +89,43 @@ export async function POST(req: Request) {
   }
 
   // Build strategy package
+  const overrides: Partial<Omit<QuantStrategyPackage, 'id' | 'name'>> = {
+    alphaType:       (body.alpha_type as QuantStrategyPackage['alphaType']) ?? undefined,
+    alphaWeights:    body.alpha_weights,
+    rebalanceFreq:   body.rebalance_freq,
+    forecastHorizon: body.forecast_horizon,
+    signalScaleBps:  body.signal_scale_bps,
+    universeConfig: body.symbols ? {
+      symbols:       body.symbols,
+      minAdvUsd:     500_000,
+      minPriceUsd:   0.001,
+      maxAssets:     body.symbols.length,
+      rebalanceFreq: body.rebalance_freq ?? 'daily',
+    } : undefined,
+    optimizerConfig: {
+      ...body.risk_aversion != null && { riskAversion: body.risk_aversion },
+      ...body.max_weight != null && { maxWeight: body.max_weight },
+    } as Partial<QuantStrategyPackage['optimizerConfig']> as QuantStrategyPackage['optimizerConfig'],
+  }
   const pkg: QuantStrategyPackage = buildStrategyPackage(
     body.strategy_id ?? 'adhoc',
     template,
     template as keyof typeof STRATEGY_TEMPLATES,
-    {
-      alphaType:       (body.alpha_type as QuantStrategyPackage['alphaType']) ?? undefined,
-      alphaWeights:    body.alpha_weights,
-      rebalanceFreq:   body.rebalance_freq,
-      forecastHorizon: body.forecast_horizon,
-      signalScaleBps:  body.signal_scale_bps,
-      universeConfig: body.symbols ? {
-        symbols:       body.symbols,
-        minAdvUsd:     500_000,
-        minPriceUsd:   0.001,
-        maxAssets:     body.symbols.length,
-        rebalanceFreq: body.rebalance_freq ?? 'daily',
-      } : undefined,
-      optimizerConfig: {
-        riskAversion: body.risk_aversion,
-        maxWeight:    body.max_weight,
-      } as Partial<QuantStrategyPackage['optimizerConfig']> as QuantStrategyPackage['optimizerConfig'],
-    },
+    overrides,
   )
 
   const endDate   = body.end_date   ?? new Date().toISOString().slice(0, 10)
   const startDate = body.start_date ?? new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10)
   const capital   = body.initial_capital ?? 1_000_000
+  const benchmark = body.benchmark ?? 'BTC-USD'
 
   const symbols = pkg.universeConfig.symbols
   if (!symbols.length) return NextResponse.json({ error: 'No symbols in universe' }, { status: 400 })
 
-  // Fetch data for all symbols
+  // Fetch data for all symbols + benchmark
+  const allSymbols = [...new Set([benchmark, ...symbols])]
   const panelEntries = await Promise.allSettled(
-    symbols.map(async sym => {
+    allSymbols.map(async sym => {
       const raw = await fetchYahooFinance(sym, '2y', '1d')
       const bars: Bar[] = raw.map(b => ({
         date:   b.date,
@@ -148,8 +152,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Not enough symbols with sufficient data (need ≥2 with ≥60 bars)' }, { status: 422 })
   }
 
-  // Update pkg universe to only include symbols we have data for
-  pkg.universeConfig.symbols = Object.keys(panel)
+  // Update pkg universe to only include symbols we have data for (exclude benchmark)
+  pkg.universeConfig.symbols = Object.keys(panel).filter(s => s !== benchmark)
 
   const startMs = Date.now()
 
@@ -237,6 +241,11 @@ export async function POST(req: Request) {
       // Allocation history (sampled)
       allocation_history: sampledAllocations,
       final_positions:    result.finalPositions,
+
+      // Trade ledger
+      fills:              result.fills,
+      orders:             result.orders,
+      signal_history:      sampledSignals,
 
       // Walk-forward
       walk_forward:       walkForwardResult,

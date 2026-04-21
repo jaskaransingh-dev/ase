@@ -114,10 +114,10 @@ function classifyVolRegime(vol: number, vols: number[]): 'low' | 'medium' | 'hig
   return 'extreme'
 }
 
-function classifyTrend(close: number, ma50: number, ma200: number): 'up' | 'down' | 'flat' {
-  if (!isFinite(ma50) || !isFinite(ma200)) return 'flat'
-  if (close > ma50 && ma50 > ma200) return 'up'
-  if (close < ma50 && ma50 < ma200) return 'down'
+function classifyTrend(ma_fast: number, ma_slow: number): 'up' | 'down' | 'flat' {
+  if (!isFinite(ma_fast) || !isFinite(ma_slow)) return 'flat'
+  if (ma_fast > ma_slow) return 'up'
+  if (ma_fast < ma_slow) return 'down'
   return 'flat'
 }
 
@@ -177,7 +177,7 @@ export class FeatureEngine {
           rank_vol_20d:  rankVol[symbol] ?? 0,
           rank_vol_shock: rankVS[symbol] ?? 0,
           regime_vol:    classifyVolRegime(base.vol_20d ?? NaN, allVols),
-          regime_trend:  classifyTrend(base.ma_fast ?? NaN, base.ma_slow ?? NaN, base.ma_slow ?? NaN),
+          regime_trend:  classifyTrend(base.ma_fast ?? NaN, base.ma_slow ?? NaN),
         } as FeatureRow)
       }
     }

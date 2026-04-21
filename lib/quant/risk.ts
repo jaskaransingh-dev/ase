@@ -253,9 +253,11 @@ export function computePortfolioRisk(
   const portVol = Math.sqrt(portVar * 252)
 
   // VaR & CVaR (parametric normal, 95% confidence)
+  // varPct: daily VaR as percentage of portfolio (e.g. 3.5 means 3.5% at risk)
   const Z_95 = 1.645
-  const varPct = portVol / Math.sqrt(252) * Z_95 * 100
-  const cvarPct = varPct * 1.25 // ≈ normal CVaR
+  const dailyVol = Math.sqrt(portVar)
+  const varPct = dailyVol * Z_95 * 100
+  const cvarPct = varPct * 1.25
 
   const absWeights = wVec.map(Math.abs)
   const gross = absWeights.reduce((a, b) => a + b, 0)
@@ -283,7 +285,7 @@ export function computePortfolioRisk(
     grossExposure:   gross,
     netExposure:     net,
     concentrationHHI: hhi,
-    portfolioVol:    portVol * 100,
+    portfolioVol:    Math.sqrt(portVar) * Math.sqrt(252) * 100,
     varPct,
     cvarPct,
     topHolding:      top,

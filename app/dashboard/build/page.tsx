@@ -40,6 +40,14 @@ function extractConfigFields(jsonStr: string): Record<string, { value: string | 
 // UNIVERSES, GRADE_CLR, DEFAULT_FILES are all imported from @/lib/backtest-config
 // STRATEGIES is imported from @/lib/backtest for codebase-aware config
 
+const STRATEGY_MAP: Record<string, string> = {
+  'momentum_conservative': 'crypto_momentum',
+  'mean_reversion_active': 'crypto_mean_reversion',
+  'composite_balanced': 'crypto_momentum',
+  'ml_aggressive': 'crypto_momentum',
+  'risk_parity': 'trend_following',
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fP = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
 const col = (v: number) => v >= 0 ? C.mint : C.red
@@ -186,7 +194,16 @@ export default function QuantLabPage() {
   // Editor state
   const [openFiles, setOpenFiles]       = useState(['strategy.ts', 'config.json'])
   const [activeFile, setActiveFile]     = useState('strategy.ts')
-  const [fileContents, setFileContents] = useState<Record<string, string>>(DEFAULT_FILES)
+  const [fileContents, setFileContents] = useState<Record<string, string>>(() => {
+    try {
+      const stored = localStorage.getItem('ase-files')
+      if (stored) {
+        const parsed = JSON.parse(stored) as Record<string, string>
+        if (parsed['strategy.ts'] || parsed['config.json']) return { ...DEFAULT_FILES, ...parsed }
+      }
+    } catch {}
+    return DEFAULT_FILES
+  })
   const [saved, setSaved]               = useState(true)
 
   // Layout
@@ -237,6 +254,12 @@ export default function QuantLabPage() {
 
   // AI pending edits (cursor-like apply)
   const [pendingEdits, setPendingEdits] = useState<FileEdit[]>([])
+  const [autoApply, setAutoApply] = useState<boolean>(() => {
+    try { return localStorage.getItem('ase-auto-apply') !== '0' } catch { return true }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('ase-auto-apply', autoApply ? '1' : '0') } catch {}
+  }, [autoApply])
 
   // Dynamic config fields (from codebase)
   const [configFields, setConfigFields] = useState<Record<string, { value: string | number | boolean; type: string }>>({})
@@ -323,6 +346,7 @@ export default function QuantLabPage() {
   const updateFile = (name: string, content: string) => {
     setFileContents(p => {
       const updated = { ...p, [name]: content }
+      try { localStorage.setItem('ase-files', JSON.stringify(updated)) } catch {}
       return updated
     })
     setSaved(false)
@@ -392,11 +416,36 @@ export default function QuantLabPage() {
   // ── Publish ───────────────────────────────────────────────────────────────────
   async function handlePublish() {
     if (!btResult) { addTerm('✗ Run a backtest first before publishing.'); return }
-    if (published) { addTerm('✓ Already live.'); return }
     setPublishing(true)
-    await new Promise(r => setTimeout(r, 1400))
-    setPublished(true); setPublishing(false)
-    addTerm(`✓ "${agentName}" published to exchange`)
+    try {
+      const res = await fetch('/api/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: agentName,
+          description: `${template.replace(/_/g, ' ')} agent — published from Quant Lab. Grade ${btResult.grade}.`,
+          strategy_type: STRATEGY_MAP[template] ?? 'crypto_momentum',
+          primary_symbol: 'BTC/USD',
+          backtest_strategy: template,
+          asset_class: 'crypto',
+          slug: agentName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+          ticker: agentName.slice(0, 4).toUpperCase(),
+          strategy_code: fileContents['strategy.ts'],
+          config_json: fileContents['config.json'],
+          publish: true,
+        }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        addTerm(`✗ Publish failed: ${d.error ?? res.statusText}`)
+      } else {
+        setPublished(true)
+        addTerm(`✓ "${agentName}" ${published ? 'republished' : 'published'} to exchange`)
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Network error'
+      addTerm(`✗ Publish failed: ${msg}`)
+    } finally { setPublishing(false) }
   }
 
   // ── AI Chat ───────────────────────────────────────────────────────────────────
@@ -508,7 +557,23 @@ Macro: FRED (rates, DXY, CPI), World Bank
           extracted.push({ filename: fileMatch[1].trim(), content: code.slice(fileMatch[0].length), lang })
         }
       }
-      if (extracted.length > 0) setPendingEdits(extracted)
+      if (extracted.length > 0) {
+        if (autoApply) {
+          extracted.forEach(edit => {
+            setFileContents(prev => {
+              const updated = { ...prev, [edit.filename]: edit.content }
+              try { localStorage.setItem('ase-files', JSON.stringify(updated)) } catch {}
+              return updated
+            })
+            setOpenFiles(p => p.includes(edit.filename) ? p : [...p, edit.filename])
+          })
+          setActiveFile(extracted[0].filename)
+          addTerm(`✓ Auto-applied ${extracted.length} AI edit${extracted.length !== 1 ? 's' : ''}`)
+          setSaved(false)
+        } else {
+          setPendingEdits(extracted)
+        }
+      }
 
       setChatMsgs(p => [...p, { role: 'ai', text: aiText, edits: extracted }])
     } catch {
@@ -667,6 +732,31 @@ Macro: FRED (rates, DXY, CPI), World Bank
 
           {/* CODE EDITOR */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+            {/* Auto-apply toggle (Cursor-style) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.25rem .85rem', background: C.bg2, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: C.faint, letterSpacing: '.06em', textTransform: 'uppercase' }}>AI MODE</span>
+              <button
+                onClick={() => setAutoApply(v => !v)}
+                title="Toggle Cursor-style auto-apply of AI code edits"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '.35rem',
+                  padding: '.18rem .55rem',
+                  borderRadius: 5,
+                  background: autoApply ? `${C.mint}18` : 'transparent',
+                  border: `1px solid ${autoApply ? C.mint + '55' : C.border}`,
+                  color: autoApply ? C.mint : C.muted,
+                  fontFamily: 'var(--font-mono)', fontSize: '.56rem', fontWeight: 700,
+                  cursor: 'pointer', letterSpacing: '.06em',
+                }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: autoApply ? C.mint : C.faint, boxShadow: autoApply ? `0 0 5px ${C.mint}` : 'none' }} />
+                {autoApply ? 'AUTO-APPLY ON' : 'AUTO-APPLY OFF'}
+              </button>
+              <span style={{ flex: 1 }} />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint }}>
+                {autoApply ? 'AI edits apply instantly' : 'Review before apply'}
+              </span>
+            </div>
             {/* Apply Changes Banner */}
             {pendingEdits.length > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem', padding: '.35rem .85rem', background: `linear-gradient(90deg, ${C.blue}18, ${C.mint}10)`, borderBottom: `1px solid ${C.blue}30`, flexShrink: 0 }}>

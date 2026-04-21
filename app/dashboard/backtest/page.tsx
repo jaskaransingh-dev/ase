@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, BarChart, Bar } from 'recharts'
-import { Loader2, Play, TrendingUp, Activity, Shield, BookOpen, AlertCircle, FileText, Plus, X, ChevronDown, Zap, BarChart3, Target, Layers, HelpCircle, ArrowRight, CheckCircle2 } from 'lucide-react'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, BarChart, Bar, ReferenceLine, Scatter, ScatterChart } from 'recharts'
+import { Loader2, Play, TrendingUp, Activity, Shield, AlertCircle, Plus, X, ChevronDown, Zap, BarChart3, Target, Layers, ArrowRight, CheckCircle2 } from 'lucide-react'
 import Link from 'next/link'
 import { PERIODS, BENCHMARKS, BACKTEST_STRATEGIES } from '@/lib/backtest-config'
+import { createClient } from '@/lib/supabase/client'
+import { AGENT_CONFIGS } from '@/lib/agents'
 
 interface AgentData {
   slug: string
@@ -16,7 +18,7 @@ interface AgentData {
   backtest_stats: any
 }
 
-type TabId = 'overview' | 'compare' | 'robustness' | 'agents'
+type TabId = 'overview' | 'compare' | 'robustness' | 'agents' | 'trades'
 
 export default function BacktestComparePage() {
   const searchParams = useSearchParams()
@@ -26,8 +28,8 @@ export default function BacktestComparePage() {
   const [loadingAgents, setLoadingAgents] = useState(true)
   const [selectedAgents, setSelectedAgents] = useState<string[]>([])
   const [symbol, setSymbol] = useState(searchParams.get('symbol') || 'BTC-USD')
-  const [strategy, setStrategy] = useState(searchParams.get('strategy') || 'momentum_crossover')
-  const [period, setPeriod] = useState('1y')
+  const [strategy, setStrategy] = useState(searchParams.get('strategy') || 'active_swing')
+  const [period, setPeriod] = useState('2y')
   const [feeBps, setFeeBps] = useState(10)
   const [slippageBps, setSlippageBps] = useState(3)
   const [loading, setLoading] = useState(false)
@@ -39,10 +41,18 @@ export default function BacktestComparePage() {
   const [mcTrials, setMcTrials] = useState(100)
   const [mcResults, setMcResults] = useState<any>(null)
   const [wfResults, setWfResults] = useState<any>(null)
-  const [showReport, setShowReport] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [showStrategyPicker, setShowStrategyPicker] = useState(false)
+  const [goodStrategies, setGoodStrategies] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('ase_good_strategies') ?? '[]') } catch { return [] }
+  })
+  const [compareInput, setCompareInput] = useState('')
+  const [compareSymbols, setCompareSymbols] = useState<string[]>([])
+  const [compareData, setCompareData] = useState<Record<string, { date: string; returnPct: number }[]>>({})
+  const [compareLoading, setCompareLoading] = useState<Record<string, boolean>>({})
+  const [userAgents, setUserAgents] = useState<Array<{ id: string; name: string; ticker: string; strategy?: string; symbol?: string }>>([])
+  const [userId, setUserId] = useState('')
 
   const toBacktestSymbol = (value: string) => value.replace(/\//g, '-')
 
@@ -81,6 +91,54 @@ export default function BacktestComparePage() {
     }
     fetchAgents()
   }, [])
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data }) => {
+      const id = data.user?.id ?? 'anonymous'
+      setUserId(id)
+      try {
+        const saves = JSON.parse(localStorage.getItem(`ase_agent_saves_${id}`) ?? '{}') as Record<string, { id: string; name: string; ticker: string; status: string }>
+        const merged = AGENT_CONFIGS.map(base => {
+          const save = saves[base.id]
+          return {
+            id: base.id,
+            name: save?.name ?? base.name,
+            ticker: save?.ticker ?? base.ticker,
+            strategy: base.strategyType,
+            symbol: base.asset === 'crypto' ? 'BTC-USD' : 'SPY',
+          }
+        })
+        setUserAgents(merged)
+      } catch {}
+    })
+  }, [])
+
+  const fetchBenchmark = async (symbol: string) => {
+    if (compareData[symbol]) return
+    setCompareLoading(p => ({ ...p, [symbol]: true }))
+    try {
+      const res = await fetch(`/api/benchmark?symbol=${encodeURIComponent(symbol)}&period=${period}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data)) setCompareData(p => ({ ...p, [symbol]: data }))
+      }
+    } catch {}
+    setCompareLoading(p => ({ ...p, [symbol]: false }))
+  }
+
+  const addCompareSymbol = async () => {
+    const sym = compareInput.toUpperCase().trim().replace(/\s/g, '')
+    if (!sym || compareSymbols.includes(sym)) return
+    setCompareSymbols(p => [...p, sym])
+    setCompareInput('')
+    await fetchBenchmark(sym)
+  }
+
+  const removeCompareSymbol = (sym: string) => {
+    setCompareSymbols(p => p.filter(s => s !== sym))
+    setCompareData(p => { const n = { ...p }; delete n[sym]; return n })
+  }
 
   const runBacktest = useCallback(async () => {
     setLoading(true)
@@ -202,8 +260,12 @@ export default function BacktestComparePage() {
     const firstBars = results[firstAgent].bars
     if (!firstBars?.length) return []
     const startEquity = firstBars[0]?.equity || 10000
+
+    const primaryBars = results[firstAgent].bars as any[]
+    let prevPos = 0
+
     return firstBars.map((bar: any, i: number) => {
-      const point: any = { date: bar.date?.slice(5) || '' }
+      const point: any = { date: bar.date?.slice(5) || '', barIndex: i }
       selectedAgents.forEach(slug => {
         if (results[slug]?.bars?.[i]) {
           point[slug] = ((results[slug].bars[i].equity - startEquity) / startEquity) * 100
@@ -214,9 +276,20 @@ export default function BacktestComparePage() {
           point[bench] = ((benchmarks[bench].bars[i].equity - startEquity) / startEquity) * 100
         }
       })
+      const curPos = primaryBars[i]?.position ?? 0
+      if (prevPos === 0 && curPos === 1) point._entry = point[firstAgent]
+      if (prevPos === 1 && curPos === 0) point._exit = point[firstAgent]
+      compareSymbols.forEach(sym => {
+        const cData = compareData[sym]
+        if (!cData?.length) return
+        const dateStr = bar.date?.slice(0, 10) || ''
+        const match = cData.find((d: any) => d.date === dateStr)
+        if (match != null) point[`cmp_${sym}`] = match.returnPct
+      })
+      prevPos = curPos
       return point
     })
-  }, [results, benchmarks, selectedAgents])
+  }, [results, benchmarks, selectedAgents, compareData, compareSymbols])
 
   const fmtPct = (v: number) => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : '\u2014'
   const fmtNum = (v: number, d = 2) => v != null ? v.toFixed(d) : '\u2014'
@@ -244,14 +317,51 @@ export default function BacktestComparePage() {
     return { perfScore, riskScore, robustScore, execScore, composite, grade: getGrade(composite) }
   }
 
+  const toggleGoodStrategy = (slug: string) => {
+    setGoodStrategies(prev => {
+      const next = prev.includes(slug) ? prev.filter(s => s !== slug) : [...prev, slug]
+      try { localStorage.setItem('ase_good_strategies', JSON.stringify(next)) } catch {}
+      return next
+    })
+  }
+
+  const extractTrades = (slug: string) => {
+    const bars = results[slug]?.bars
+    if (!bars?.length) return []
+    const trades: Array<{ entry: string; exit: string; entryPrice: number; exitPrice: number; returnPct: number; bars: number }> = []
+    let inTrade = false; let entryIdx = 0; let entryPrice = 0
+    for (let i = 0; i < bars.length; i++) {
+      if (!inTrade && bars[i].position === 1) {
+        inTrade = true; entryIdx = i; entryPrice = bars[i].close
+      } else if (inTrade && (bars[i].position === 0 || i === bars.length - 1)) {
+        inTrade = false
+        const exitPrice = bars[i].close
+        trades.push({ entry: bars[entryIdx].date, exit: bars[i].date, entryPrice, exitPrice, returnPct: ((exitPrice - entryPrice) / entryPrice) * 100, bars: i - entryIdx })
+      }
+    }
+    return trades
+  }
+
   const tabs: { id: TabId; label: string; icon: any }[] = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
     { id: 'compare', label: 'Compare', icon: Layers },
     { id: 'robustness', label: 'Robustness', icon: Target },
+    { id: 'trades', label: 'Trades', icon: Activity },
     { id: 'agents', label: 'Agents', icon: Zap },
   ]
 
   const hasResults = Object.keys(results).length > 0
+
+  const CustomDot = (props: any) => {
+    const { cx, cy, payload } = props
+    if (payload._entry != null) {
+      return <circle cx={cx} cy={cy} r={3.5} fill={colors.mint} stroke={colors.bg} strokeWidth={1} />
+    }
+    if (payload._exit != null) {
+      return <circle cx={cx} cy={cy} r={3.5} fill={colors.red} stroke={colors.bg} strokeWidth={1} />
+    }
+    return null
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: colors.bg, color: colors.text }}>
@@ -273,14 +383,6 @@ export default function BacktestComparePage() {
               <div style={{ color: colors.faint }}>~{estimateSeconds()}s est.</div>
             </div>
           )}
-          {hasResults && !loading && (
-            <button onClick={() => setShowReport(true)} style={{ padding: '.35rem .7rem', borderRadius: 8, border: `1px solid ${colors.border}`, background: colors.bg3, color: colors.muted, fontSize: '.65rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <FileText size={12} />Report
-            </button>
-          )}
-          <Link href="/dashboard/backtest/guide" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '.35rem .6rem', borderRadius: 8, border: `1px solid ${colors.border}`, background: colors.bg3, color: colors.faint, fontSize: '.6rem', textDecoration: 'none' }}>
-            <HelpCircle size={12} />Guide
-          </Link>
           <button onClick={runBacktest} disabled={loading || selectedAgents.length === 0} style={{ padding: '.4rem 1rem', borderRadius: 8, border: 'none', background: loading ? colors.bg3 : `linear-gradient(135deg, ${colors.blue}, #3B7BEE)`, color: '#fff', fontSize: '.7rem', fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 5, boxShadow: loading ? 'none' : `0 2px 12px ${colors.blue}40` }}>
             {loading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
             {loading ? 'Running...' : 'Run Backtest'}
@@ -328,12 +430,31 @@ export default function BacktestComparePage() {
           {loadingAgents ? (
             <span style={{ fontSize: '.6rem', color: colors.muted }}>Loading...</span>
           ) : (
-            agents.slice(0, 6).map((agent, idx) => (
+            agents.map((agent, idx) => (
               <button key={agent.slug} onClick={() => toggleAgent(agent.slug)} style={{ padding: '.2rem .45rem', borderRadius: 4, border: `1px solid ${selectedAgents.includes(agent.slug) ? agentColors[idx % agentColors.length] : colors.border}`, background: selectedAgents.includes(agent.slug) ? `${agentColors[idx % agentColors.length]}20` : 'transparent', color: selectedAgents.includes(agent.slug) ? agentColors[idx % agentColors.length] : colors.muted, fontSize: '.5rem', cursor: 'pointer' }}>
                 {agent.ticker || agent.slug}
               </button>
             ))
           )}
+        </div>
+        <div style={{ borderLeft: `1px solid ${colors.border}`, paddingLeft: '.5rem', display: 'flex', alignItems: 'center', gap: '.3rem', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '.55rem', color: colors.faint, letterSpacing: '.08em', fontFamily: 'var(--font-mono)' }}>COMPARE</span>
+          {compareSymbols.map((sym, idx) => (
+            <div key={sym} style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '.15rem .35rem', borderRadius: 4, background: `${['#a78bfa','#fb923c','#38bdf8','#f472b6','#facc15'][idx % 5]}18`, border: `1px solid ${['#a78bfa','#fb923c','#38bdf8','#f472b6','#facc15'][idx % 5]}50` }}>
+              <span style={{ fontSize: '.5rem', color: ['#a78bfa','#fb923c','#38bdf8','#f472b6','#facc15'][idx % 5] }}>{sym}</span>
+              <button onClick={() => removeCompareSymbol(sym)} style={{ background: 'none', border: 'none', color: colors.faint, cursor: 'pointer', fontSize: '.6rem', lineHeight: 1, padding: 0 }}>×</button>
+            </div>
+          ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <input
+              value={compareInput}
+              onChange={e => setCompareInput(e.target.value.toUpperCase())}
+              onKeyDown={e => e.key === 'Enter' && addCompareSymbol()}
+              placeholder="SPY, QQQ, AAPL..."
+              style={{ width: 110, padding: '.2rem .35rem', borderRadius: 4, border: `1px solid ${colors.border}`, background: colors.bg3, color: colors.text, fontSize: '.5rem', fontFamily: 'var(--font-mono)', outline: 'none' }}
+            />
+            <button onClick={addCompareSymbol} style={{ padding: '.2rem .4rem', borderRadius: 4, border: `1px solid ${colors.border}`, background: colors.bg3, color: colors.muted, fontSize: '.5rem', cursor: 'pointer' }}>+</button>
+          </div>
         </div>
       </div>
 
@@ -352,106 +473,34 @@ export default function BacktestComparePage() {
         </div>
       )}
 
-      {showReport && results[selectedAgents[0]]?.stats && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(8px)' }} onClick={() => setShowReport(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 16, padding: '2rem', width: 640, maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.6)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-              <div>
-                <div style={{ fontSize: '1rem', fontWeight: 700, color: colors.white }}>Full Backtest Report</div>
-                <div style={{ fontSize: '0.65rem', color: colors.muted, marginTop: 2 }}>{period}  |  Fee: {feeBps}bps  |  Slippage: {slippageBps}bps  |  {selectedAgents.length} agent{selectedAgents.length !== 1 ? 's' : ''}</div>
-              </div>
-              <button onClick={() => setShowReport(false)} style={{ background: 'none', border: 'none', color: colors.faint, cursor: 'pointer', fontSize: '1.2rem' }}>\u2715</button>
-            </div>
-            {selectedAgents.map((slug, idx) => {
-              const agent = agents.find(a => a.slug === slug)
-              const s = results[slug]?.stats
-              if (!s) return null
-              return (
-                <div key={slug} style={{ marginBottom: '1.5rem', padding: '1rem', background: colors.bg3, borderRadius: 12, borderLeft: `3px solid ${agentColors[idx % agentColors.length]}` }}>
-                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: colors.white, marginBottom: '1rem' }}>{agent?.name || slug} ({agent?.ticker || slug})</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
-                    {[
-                      ['Total Return', fmtPct(s.totalReturnPct), (s.totalReturnPct ?? 0) >= 0 ? colors.mint : colors.red],
-                      ['CAGR', fmtPct(s.annualizedReturnPct), (s.annualizedReturnPct ?? 0) >= 0 ? colors.mint : colors.red],
-                      ['Sharpe', fmtNum(s.sharpeRatio, 3), colors.blue2],
-                      ['Sortino', fmtNum(s.sortinoRatio, 3), colors.blue2],
-                      ['Calmar', fmtNum(s.calmarRatio, 3), colors.blue2],
-                      ['Max DD', fmtPct(-s.maxDrawdownPct), colors.red],
-                      ['Avg DD', fmtPct(-s.averageDrawdownPct), colors.orange],
-                      ['Downside Vol', `${(s.downsideVolatility * 100)?.toFixed(2)}%`, colors.text],
-                      ['Win Rate', `${s.winRate?.toFixed(1)}%`, colors.text],
-                      ['Profit Factor', fmtNum(s.profitFactor, 3), colors.text],
-                      ['Trades', String(s.totalTrades), colors.text],
-                      ['Exposure', `${s.exposureTime?.toFixed(1)}%`, colors.text],
-                      ['Turnover', `${s.turnover?.toFixed(2)}x`, colors.text],
-                      ['Pos. Months', `${s.positiveMonthRatio?.toFixed(1)}%`, colors.text],
-                      ['Roll Sharpe', `${s.rolling63dSharpeMean?.toFixed(3)} \u00b1 ${s.rolling63dSharpeStd?.toFixed(3)}`, colors.text],
-                    ].map(([label, val, color]) => (
-                      <div key={label as string} style={{ padding: '0.5rem', background: colors.bg, borderRadius: 6 }}>
-                        <div style={{ fontSize: '0.48rem', color: colors.faint, marginBottom: 3, letterSpacing: '0.04em' }}>{label as string}</div>
-                        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: color as string }}>{val ?? '\u2014'}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
-            {mcResults && (
-              <div style={{ padding: '1rem', background: colors.bg3, borderRadius: 12, marginBottom: '1rem' }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.white, marginBottom: '0.75rem' }}>Monte Carlo ({mcResults.nTrials} trials)</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
-                  {[
-                    ['Median Return', fmtPct(mcResults.medianReturn), (mcResults.medianReturn ?? 0) >= 0 ? colors.mint : colors.red],
-                    ['p10 Return', fmtPct(mcResults.p10Return), colors.red],
-                    ['p90 Return', fmtPct(mcResults.p90Return), colors.mint],
-                    ['Median Max DD', fmtPct(-(mcResults.medianMaxDrawdown ?? 0)), colors.orange],
-                    ['Beat B&H Rate', `${((mcResults.beatRate ?? 0) * 100).toFixed(1)}%`, colors.blue2],
-                  ].map(([label, val, color]) => (
-                    <div key={label as string} style={{ padding: '0.5rem', background: colors.bg, borderRadius: 6 }}>
-                      <div style={{ fontSize: '0.48rem', color: colors.faint }}>{label as string}</div>
-                      <div style={{ fontSize: '0.78rem', fontWeight: 700, color: color as string }}>{val}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {wfResults && (
-              <div style={{ padding: '1rem', background: colors.bg3, borderRadius: 12 }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.white, marginBottom: '0.75rem' }}>Walk-Forward ({wfResults.nWindows} windows)</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
-                  {[
-                    ['Avg Return', fmtPct(wfResults.avgReturn), (wfResults.avgReturn ?? 0) >= 0 ? colors.mint : colors.red],
-                    ['Avg Sharpe', fmtNum(wfResults.avgSharpe, 3), colors.blue2],
-                    ['Consistency', `${((wfResults.consistencyRatio ?? 0) * 100).toFixed(1)}%`, colors.mint],
-                  ].map(([label, val, color]) => (
-                    <div key={label as string} style={{ padding: '0.5rem', background: colors.bg, borderRadius: 6 }}>
-                      <div style={{ fontSize: '0.48rem', color: colors.faint }}>{label as string}</div>
-                      <div style={{ fontSize: '0.78rem', fontWeight: 700, color: color as string }}>{val ?? '\u2014'}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       <div style={{ flex: 1, display: 'flex', gap: '1rem', padding: '1rem 1.5rem', overflow: 'auto' }}>
 
         {activeTab === 'overview' && (
           <>
             <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: '.75rem' }}>
-              <div style={{ flex: 1, background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 12, padding: '1rem', minHeight: 280 }}>
+              <div style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 12, padding: '1rem', minHeight: 280 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
                   <div style={{ fontWeight: 600, fontSize: '.82rem', color: colors.white }}>Performance</div>
-                  <div style={{ display: 'flex', gap: '.75rem', fontFamily: 'var(--font-mono)', fontSize: '.5rem', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '.75rem', fontFamily: 'var(--font-mono)', fontSize: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                     {selectedAgents.map((slug, idx) => {
                       const agent = agents.find(a => a.slug === slug)
-                      return <span key={slug} style={{ color: agentColors[idx % agentColors.length] }}>\u25CF {agent?.ticker || agent?.name || slug}</span>
+                      return <span key={slug} style={{ color: agentColors[idx % agentColors.length] }}>{'\u25CF'} {agent?.ticker || agent?.name || slug}</span>
                     })}
                     {Object.keys(benchmarks).map(bench => (
-                      <span key={bench} style={{ color: BENCHMARKS[bench as keyof typeof BENCHMARKS]?.color || colors.muted }}>\u25CF {BENCHMARKS[bench as keyof typeof BENCHMARKS]?.label || bench}</span>
+                      <span key={bench} style={{ color: BENCHMARKS[bench as keyof typeof BENCHMARKS]?.color || colors.muted }}>{'\u25CF'} {BENCHMARKS[bench as keyof typeof BENCHMARKS]?.label || bench}</span>
                     ))}
+                    {compareSymbols.map((sym, idx) => (
+                      <span key={sym} style={{ color: ['#a78bfa','#fb923c','#38bdf8','#f472b6','#facc15'][idx % 5] }}>
+                        {'\u25A0'} {sym}
+                        {compareLoading[sym] && <span style={{ color: colors.faint }}> ...</span>}
+                      </span>
+                    ))}
+                    {chartData.length > 0 && (
+                      <span style={{ color: colors.faint, marginLeft: '.5rem' }}>
+                        <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: colors.mint, marginRight: 3 }} />entry
+                        <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: colors.red, marginLeft: 8, marginRight: 3 }} />exit
+                      </span>
+                    )}
                   </div>
                 </div>
                 {loading ? (
@@ -465,10 +514,21 @@ export default function BacktestComparePage() {
                       <YAxis tick={{ fill: colors.faint, fontSize: 9 }} tickFormatter={v => `${v.toFixed(0)}%`} domain={['auto', 'auto']} />
                       <Tooltip contentStyle={{ background: colors.bg3, border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: '.62rem' }} />
                       {selectedAgents.map((slug, idx) => (
-                        <Line key={slug} type="monotone" dataKey={slug} stroke={agentColors[idx % agentColors.length]} strokeWidth={2} dot={false} />
+                        <Line
+                          key={slug}
+                          type="monotone"
+                          dataKey={slug}
+                          stroke={agentColors[idx % agentColors.length]}
+                          strokeWidth={2}
+                          dot={idx === 0 ? <CustomDot /> : false}
+                          activeDot={{ r: 4 }}
+                        />
                       ))}
                       {Object.keys(benchmarks).map(bench => (
                         <Line key={bench} type="monotone" dataKey={bench} stroke={BENCHMARKS[bench as keyof typeof BENCHMARKS]?.color || colors.muted} strokeWidth={1.5} strokeDasharray="4 2" dot={false} />
+                      ))}
+                      {compareSymbols.map((sym, idx) => (
+                        <Line key={`cmp_${sym}`} type="monotone" dataKey={`cmp_${sym}`} stroke={['#a78bfa','#fb923c','#38bdf8','#f472b6','#facc15'][idx % 5]} strokeWidth={1.5} strokeDasharray="2 3" dot={false} name={sym} />
                       ))}
                     </LineChart>
                   </ResponsiveContainer>
@@ -480,9 +540,9 @@ export default function BacktestComparePage() {
                 )}
               </div>
 
-              {results[selectedAgents[0]]?.bars && (
-                <div style={{ height: 130, background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 12, padding: '.75rem' }}>
-                  <div style={{ fontWeight: 600, fontSize: '.7rem', color: colors.white, marginBottom: '.35rem' }}>Drawdown</div>
+              <div style={{ height: 130, background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 12, padding: '.75rem' }}>
+                <div style={{ fontWeight: 600, fontSize: '.7rem', color: colors.white, marginBottom: '.35rem' }}>Drawdown</div>
+                {results[selectedAgents[0]]?.bars ? (
                   <ResponsiveContainer width="100%" height={95}>
                     <AreaChart data={(() => {
                       const bars = results[selectedAgents[0]]?.bars || []
@@ -498,12 +558,14 @@ export default function BacktestComparePage() {
                       <Area type="monotone" dataKey="drawdown" stroke={colors.red} fill={colors.red} fillOpacity={0.15} strokeWidth={1.5} />
                     </AreaChart>
                   </ResponsiveContainer>
-                </div>
-              )}
+                ) : (
+                  <div style={{ height: 95, display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.faint, fontSize: '.6rem' }}>No data</div>
+                )}
+              </div>
 
-              {results[selectedAgents[0]]?.bars && (
-                <div style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 12, padding: '.75rem' }}>
-                  <div style={{ fontWeight: 600, fontSize: '.7rem', color: colors.white, marginBottom: '.5rem' }}>Monthly Returns</div>
+              <div style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 12, padding: '.75rem' }}>
+                <div style={{ fontWeight: 600, fontSize: '.7rem', color: colors.white, marginBottom: '.5rem' }}>Monthly Returns</div>
+                {results[selectedAgents[0]]?.bars ? (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 2 }}>
                     {(() => {
                       const bars = results[selectedAgents[0]]?.bars || []
@@ -530,6 +592,69 @@ export default function BacktestComparePage() {
                       })
                     })()}
                   </div>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '1rem', color: colors.faint, fontSize: '.6rem' }}>No data</div>
+                )}
+              </div>
+
+              {hasResults && selectedAgents[0] && extractTrades(selectedAgents[0]).length > 0 && (
+                <div style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 12, padding: '.75rem' }}>
+                  <div style={{ fontWeight: 600, fontSize: '.7rem', color: colors.white, marginBottom: '.5rem' }}>Full Trade Log — {agents.find(a => a.slug === selectedAgents[0])?.name || selectedAgents[0]}</div>
+                  {(() => {
+                    const trades = extractTrades(selectedAgents[0])
+                    const wins = trades.filter(t => t.returnPct >= 0)
+                    const losses = trades.filter(t => t.returnPct < 0)
+                    const winRate = trades.length > 0 ? (wins.length / trades.length) * 100 : 0
+                    const avgReturn = trades.length > 0 ? trades.reduce((a, t) => a + t.returnPct, 0) / trades.length : 0
+                    const best = trades.length > 0 ? Math.max(...trades.map(t => t.returnPct)) : 0
+                    const worst = trades.length > 0 ? Math.min(...trades.map(t => t.returnPct)) : 0
+                    const totalPnL = trades.reduce((a, t) => a + t.returnPct, 0)
+                    return (
+                      <>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '.3rem', marginBottom: '.6rem' }}>
+                          {[
+                            ['Trades', String(trades.length), colors.text],
+                            ['Win Rate', `${winRate.toFixed(1)}%`, winRate >= 50 ? colors.mint : colors.red],
+                            ['Avg Return', `${avgReturn >= 0 ? '+' : ''}${avgReturn.toFixed(2)}%`, avgReturn >= 0 ? colors.mint : colors.red],
+                            ['Best', `+${best.toFixed(2)}%`, colors.mint],
+                            ['Worst', `${worst.toFixed(2)}%`, colors.red],
+                          ].map(([label, val, color]) => (
+                            <div key={label as string} style={{ padding: '.35rem .4rem', background: colors.bg3, borderRadius: 6, textAlign: 'center' }}>
+                              <div style={{ fontSize: '.42rem', color: colors.faint, marginBottom: 2 }}>{label as string}</div>
+                              <div style={{ fontSize: '.65rem', fontWeight: 700, color: color as string }}>{val}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ overflowX: 'auto', maxHeight: 260, overflowY: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.55rem' }}>
+                            <thead style={{ position: 'sticky', top: 0, background: colors.bg2 }}>
+                              <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+                                {['#', 'Entry', 'Exit', 'Entry $', 'Exit $', 'Return', 'Bars'].map(h => (
+                                  <th key={h} style={{ textAlign: h === '#' ? 'left' : 'right', padding: '.2rem .35rem', color: colors.faint, fontWeight: 600, fontSize: '.45rem' }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {trades.map((t, i) => {
+                                const isWin = t.returnPct >= 0
+                                return (
+                                  <tr key={i} style={{ borderBottom: `1px solid ${colors.border}15` }}>
+                                    <td style={{ padding: '.15rem .35rem', color: colors.faint }}>{i + 1}</td>
+                                    <td style={{ padding: '.15rem .35rem', textAlign: 'right', color: colors.text }}>{t.entry.slice(0, 10)}</td>
+                                    <td style={{ padding: '.15rem .35rem', textAlign: 'right', color: colors.text }}>{t.exit.slice(0, 10)}</td>
+                                    <td style={{ padding: '.15rem .35rem', textAlign: 'right', color: colors.text }}>${t.entryPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                                    <td style={{ padding: '.15rem .35rem', textAlign: 'right', color: colors.text }}>${t.exitPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                                    <td style={{ padding: '.15rem .35rem', textAlign: 'right', fontWeight: 700, color: isWin ? colors.mint : colors.red }}>{isWin ? '+' : ''}{t.returnPct.toFixed(2)}%</td>
+                                    <td style={{ padding: '.15rem .35rem', textAlign: 'right', color: colors.muted }}>{t.bars}</td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )
+                  })()}
                 </div>
               )}
             </div>
@@ -555,15 +680,30 @@ export default function BacktestComparePage() {
                       )}
                     </div>
                     {stats ? (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.3rem', fontSize: '.52rem', color: colors.muted }}>
-                        <span>Return <b style={{ color: isPositive ? colors.mint : colors.red, fontWeight: 600 }}>{fmtPct(stats.totalReturnPct)}</b></span>
-                        <span>Sharpe <b style={{ color: colors.white }}>{fmtNum(stats.sharpeRatio)}</b></span>
-                        <span>Max DD <b style={{ color: colors.red }}>{fmtPct(-stats.maxDrawdownPct)}</b></span>
-                        <span>Win Rate <b style={{ color: colors.white }}>{stats.winRate?.toFixed(0)}%</b></span>
-                        <span>Trades <b style={{ color: colors.white }}>{stats.totalTrades}</b></span>
-                        <span>Profit Factor <b style={{ color: colors.white }}>{fmtNum(stats.profitFactor)}</b></span>
-                        <span>Exposure <b style={{ color: colors.white }}>{stats.exposureTime?.toFixed(0)}%</b></span>
-                        <span>Calmar <b style={{ color: colors.white }}>{fmtNum(stats.calmarRatio)}</b></span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+                        {[
+                          ['Total Return', fmtPct(stats.totalReturnPct), (stats.totalReturnPct ?? 0) >= 0 ? colors.mint : colors.red],
+                          ['CAGR', fmtPct(stats.annualizedReturnPct), (stats.annualizedReturnPct ?? 0) >= 0 ? colors.mint : colors.red],
+                          ['Sharpe', fmtNum(stats.sharpeRatio, 3), colors.blue2],
+                          ['Sortino', fmtNum(stats.sortinoRatio, 3), colors.blue2],
+                          ['Calmar', fmtNum(stats.calmarRatio, 3), colors.blue2],
+                          ['Max DD', fmtPct(-stats.maxDrawdownPct), colors.red],
+                          ['Avg DD', fmtPct(-stats.averageDrawdownPct), colors.orange],
+                          ['Downside Vol', `${((stats.downsideVolatility ?? 0) * 100).toFixed(2)}%`, colors.text],
+                          ['Win Rate', `${stats.winRate?.toFixed(1)}%`, colors.text],
+                          ['Profit Factor', fmtNum(stats.profitFactor, 3), colors.text],
+                          ['Trades', String(stats.totalTrades), colors.text],
+                          ['Exposure', `${stats.exposureTime?.toFixed(1)}%`, colors.text],
+                          ['Turnover', `${stats.turnover?.toFixed(2)}x`, colors.text],
+                          ['Pos. Months', `${stats.positiveMonthRatio?.toFixed(1)}%`, colors.text],
+                          ['Roll Sharpe', `${stats.rolling63dSharpeMean?.toFixed(3)} \u00b1 ${stats.rolling63dSharpeStd?.toFixed(3)}`, colors.text],
+                          ['Fee Impact', `${feeBps}bps + ${slippageBps}bps`, colors.faint],
+                        ].map(([label, val, color]) => (
+                          <div key={label as string} style={{ display: 'flex', justifyContent: 'space-between', padding: '.18rem 0', borderBottom: `1px solid ${colors.border}25` }}>
+                            <span style={{ fontSize: '.48rem', color: colors.muted }}>{label as string}</span>
+                            <span style={{ fontSize: '.5rem', color: color as string, fontWeight: 600 }}>{val ?? '\u2014'}</span>
+                          </div>
+                        ))}
                       </div>
                     ) : (
                       <div style={{ fontSize: '.6rem', color: colors.faint }}>No data yet</div>
@@ -582,11 +722,30 @@ export default function BacktestComparePage() {
                   </div>
                 )
               })}
+              {compareSymbols.map((sym, idx) => {
+                const cData = compareData[sym]
+                const last = cData?.[cData.length - 1]
+                const ret = last?.returnPct ?? null
+                const accent = ['#a78bfa','#fb923c','#38bdf8','#f472b6','#facc15'][idx % 5]
+                return (
+                  <div key={sym} style={{ padding: '.4rem .6rem', background: colors.bg3, borderRadius: 6, display: 'flex', justifyContent: 'space-between', fontSize: '.6rem', borderLeft: `2px solid ${accent}` }}>
+                    <span style={{ color: accent }}>{sym} (hold)</span>
+                    <span style={{ color: ret != null ? (ret >= 0 ? colors.mint : colors.red) : colors.faint, fontWeight: 600 }}>
+                      {ret != null ? fmtPct(ret) : compareLoading[sym] ? '...' : '\u2014'}
+                    </span>
+                  </div>
+                )
+              })}
 
-              {hasResults && (
-                <button onClick={() => router.push(`/agents/submit?symbol=${symbol}&strategy=${strategy}`)} style={{ padding: '.65rem', borderRadius: 10, border: 'none', background: `linear-gradient(135deg, ${colors.mint}, #10b981)`, color: colors.bg, fontSize: '.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                  <TrendingUp size={15} />Deploy Agent
-                </button>
+              {hasResults && selectedAgents.length > 0 && (
+                <div style={{ display: 'flex', gap: '.4rem' }}>
+                  <button onClick={() => toggleGoodStrategy(selectedAgents[0])} style={{ flex: 1, padding: '.5rem', borderRadius: 10, border: `1px solid ${goodStrategies.includes(selectedAgents[0]) ? colors.mint : colors.border}`, background: goodStrategies.includes(selectedAgents[0]) ? `${colors.mint}15` : colors.bg3, color: goodStrategies.includes(selectedAgents[0]) ? colors.mint : colors.muted, fontSize: '.65rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                    <CheckCircle2 size={12} />{goodStrategies.includes(selectedAgents[0]) ? '[SAVED]' : 'Mark Good'}
+                  </button>
+                  <button onClick={() => router.push(`/agents/submit?symbol=${symbol}&strategy=${strategy}`)} style={{ flex: 1, padding: '.5rem', borderRadius: 10, border: 'none', background: `linear-gradient(135deg, ${colors.blue}, #3B7BEE)`, color: '#fff', fontSize: '.65rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                    <TrendingUp size={12} />Deploy
+                  </button>
+                </div>
               )}
 
               {results[selectedAgents[0]]?.stats && (() => {
@@ -624,6 +783,44 @@ export default function BacktestComparePage() {
                   </div>
                 )
               })()}
+
+              {mcResults && (
+                <div style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 10, padding: '.75rem' }}>
+                  <div style={{ fontSize: '.48rem', color: colors.faint, letterSpacing: '.1em', marginBottom: '.5rem' }}>MONTE CARLO ({mcResults.nTrials} trials)</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+                    {[
+                      ['Median Return', fmtPct(mcResults.medianReturn), (mcResults.medianReturn ?? 0) >= 0 ? colors.mint : colors.red],
+                      ['p10 Return', fmtPct(mcResults.p10Return), colors.red],
+                      ['p90 Return', fmtPct(mcResults.p90Return), colors.mint],
+                      ['Median Max DD', fmtPct(-(mcResults.medianMaxDrawdown ?? 0)), colors.orange],
+                      ['Beat B&H Rate', `${((mcResults.beatRate ?? 0) * 100).toFixed(1)}%`, colors.blue2],
+                    ].map(([label, val, color]) => (
+                      <div key={label as string} style={{ display: 'flex', justifyContent: 'space-between', padding: '.18rem 0', borderBottom: `1px solid ${colors.border}25` }}>
+                        <span style={{ fontSize: '.48rem', color: colors.muted }}>{label as string}</span>
+                        <span style={{ fontSize: '.5rem', color: color as string, fontWeight: 600 }}>{val}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {wfResults && (
+                <div style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 10, padding: '.75rem' }}>
+                  <div style={{ fontSize: '.48rem', color: colors.faint, letterSpacing: '.1em', marginBottom: '.5rem' }}>WALK-FORWARD ({wfResults.nWindows} windows)</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+                    {[
+                      ['Avg Return', fmtPct(wfResults.avgReturn), (wfResults.avgReturn ?? 0) >= 0 ? colors.mint : colors.red],
+                      ['Avg Sharpe', fmtNum(wfResults.avgSharpe, 3), colors.blue2],
+                      ['Consistency', `${((wfResults.consistencyRatio ?? 0) * 100).toFixed(1)}%`, colors.mint],
+                    ].map(([label, val, color]) => (
+                      <div key={label as string} style={{ display: 'flex', justifyContent: 'space-between', padding: '.18rem 0', borderBottom: `1px solid ${colors.border}25` }}>
+                        <span style={{ fontSize: '.48rem', color: colors.muted }}>{label as string}</span>
+                        <span style={{ fontSize: '.5rem', color: color as string, fontWeight: 600 }}>{val ?? '\u2014'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </>
         )}
@@ -811,6 +1008,102 @@ export default function BacktestComparePage() {
                       </div>
                     ))
                   })()}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'trades' && (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '.75rem' }}>
+            {selectedAgents.map((slug, idx) => {
+              const agent = agents.find(a => a.slug === slug)
+              const trades = extractTrades(slug)
+              const isGood = goodStrategies.includes(slug)
+              const wins = trades.filter(t => t.returnPct >= 0)
+              const winRate = trades.length > 0 ? (wins.length / trades.length) * 100 : 0
+              const avgReturn = trades.length > 0 ? trades.reduce((a, t) => a + t.returnPct, 0) / trades.length : 0
+              const best = trades.length > 0 ? Math.max(...trades.map(t => t.returnPct)) : 0
+              const worst = trades.length > 0 ? Math.min(...trades.map(t => t.returnPct)) : 0
+              const totalPnL = trades.reduce((a, t) => a + t.returnPct, 0)
+              return (
+                <div key={slug} style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 12, padding: '1rem', borderLeft: `3px solid ${agentColors[idx % agentColors.length]}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.6rem' }}>
+                    <div>
+                      <div style={{ fontSize: '.82rem', fontWeight: 700, color: colors.white }}>{agent?.name || slug}</div>
+                      <div style={{ fontSize: '.52rem', color: colors.muted }}>{trades.length} trades  |  {agent?.backtest_strategy?.replace(/_/g, ' ')}</div>
+                    </div>
+                    <button onClick={() => toggleGoodStrategy(slug)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '.3rem .6rem', borderRadius: 7, border: `1px solid ${isGood ? colors.mint : colors.border}`, background: isGood ? `${colors.mint}18` : 'transparent', color: isGood ? colors.mint : colors.muted, fontSize: '.58rem', cursor: 'pointer', fontWeight: isGood ? 700 : 400 }}>
+                      <CheckCircle2 size={12} />
+                      {isGood ? '[SAVED]' : 'Mark as Good'}
+                    </button>
+                  </div>
+                  {trades.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '.3rem', marginBottom: '.65rem' }}>
+                      {[
+                        ['Total Trades', String(trades.length), colors.text],
+                        ['Win Rate', `${winRate.toFixed(1)}%`, winRate >= 50 ? colors.mint : colors.red],
+                        ['Avg Return', `${avgReturn >= 0 ? '+' : ''}${avgReturn.toFixed(2)}%`, avgReturn >= 0 ? colors.mint : colors.red],
+                        ['Best Trade', `+${best.toFixed(2)}%`, colors.mint],
+                        ['Worst Trade', `${worst.toFixed(2)}%`, colors.red],
+                      ].map(([label, val, color]) => (
+                        <div key={label as string} style={{ padding: '.35rem .4rem', background: colors.bg3, borderRadius: 6, textAlign: 'center' }}>
+                          <div style={{ fontSize: '.42rem', color: colors.faint, marginBottom: 2 }}>{label as string}</div>
+                          <div style={{ fontSize: '.65rem', fontWeight: 700, color: color as string }}>{val}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {trades.length > 0 ? (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.58rem' }}>
+                        <thead>
+                          <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+                            {['#', 'Entry Date', 'Exit Date', 'Entry $', 'Exit $', 'Return', 'Bars', 'P&L'].map(h => (
+                              <th key={h} style={{ textAlign: h === '#' ? 'left' : 'right', padding: '.25rem .4rem', color: colors.faint, fontWeight: 600, fontSize: '.5rem' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {trades.map((t, i) => {
+                            const isWin = t.returnPct >= 0
+                            return (
+                              <tr key={i} style={{ borderBottom: `1px solid ${colors.border}20` }}>
+                                <td style={{ padding: '.2rem .4rem', color: colors.faint }}>{i + 1}</td>
+                                <td style={{ padding: '.2rem .4rem', textAlign: 'right', color: colors.text }}>{t.entry.slice(0, 10)}</td>
+                                <td style={{ padding: '.2rem .4rem', textAlign: 'right', color: colors.text }}>{t.exit.slice(0, 10)}</td>
+                                <td style={{ padding: '.2rem .4rem', textAlign: 'right', color: colors.text }}>${t.entryPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                                <td style={{ padding: '.2rem .4rem', textAlign: 'right', color: colors.text }}>${t.exitPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                                <td style={{ padding: '.2rem .4rem', textAlign: 'right', fontWeight: 700, color: isWin ? colors.mint : colors.red }}>{isWin ? '+' : ''}{t.returnPct.toFixed(2)}%</td>
+                                <td style={{ padding: '.2rem .4rem', textAlign: 'right', color: colors.muted }}>{t.bars}</td>
+                                <td style={{ padding: '.2rem .4rem', textAlign: 'right', color: isWin ? colors.mint : colors.red }}>
+                                  {isWin ? '+' : ''}{Math.abs(t.returnPct).toFixed(1)}%
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '2rem', color: colors.faint, fontSize: '.65rem' }}>Run a backtest to see trade history</div>
+                  )}
+                </div>
+              )
+            })}
+            {goodStrategies.length > 0 && (
+              <div style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 12, padding: '.75rem' }}>
+                <div style={{ fontSize: '.55rem', color: colors.mint, letterSpacing: '.1em', marginBottom: '.5rem' }}>SAVED STRATEGIES</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
+                  {goodStrategies.map(slug => {
+                    const agent = agents.find(a => a.slug === slug)
+                    return (
+                      <div key={slug} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '.25rem .5rem', borderRadius: 6, border: `1px solid ${colors.mint}40`, background: `${colors.mint}10` }}>
+                        <span style={{ fontSize: '.58rem', color: colors.mint }}>{agent?.name || slug}</span>
+                        <button onClick={() => toggleGoodStrategy(slug)} style={{ background: 'none', border: 'none', color: colors.muted, cursor: 'pointer', fontSize: '.55rem', lineHeight: 1 }}>x</button>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}

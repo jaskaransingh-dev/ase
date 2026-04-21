@@ -7,6 +7,7 @@
 import type {
   Bar, BarPanel, BacktestConfig, PortfolioState,
   EquityPoint, Order, Fill, AllocationRow, WalkForwardWindow,
+  PortfolioRiskMetrics,
 } from './types'
 import type { QuantStrategyPackage } from './types'
 import { FeatureEngine } from './features'
@@ -96,7 +97,8 @@ export class QuantBacktester {
   ): Promise<BacktestRunResult> {
     const alpha       = createAlphaModel(pkg.alphaType, pkg.alphaWeights)
     const execModel   = new ExecutionModel(pkg.executionConfig)
-    const riskManager = new RiskManager(pkg.riskLimits)
+    const riskLimits  = { ...pkg.riskLimits, maxPositionWeight: Math.max(pkg.riskLimits.maxPositionWeight, pkg.optimizerConfig.maxWeight) }
+    const riskManager = new RiskManager(riskLimits)
     const killSwitch  = new KillSwitch()
 
     // All unique dates across the panel, within [start, end]
@@ -186,13 +188,19 @@ export class QuantBacktester {
         if (isFinite(ic)) icSeries.push({ date, ic, rank_ic: rankIC })
       }
 
-      // Kill switch check
+      // Kill switch check (drawdown-based; full risk metrics checked at rebalance via preTrade)
       if (killSwitch.isActive) break
       const { shouldHalt } = riskManager.intradayCheck(state, {
-        date, grossExposure, netExposure: grossExposure * 0.1,
-        concentrationHHI: 0, portfolioVol: 0, varPct: 0, cvarPct: 0,
-        topHolding: 0, avgCorrelation: 0,
-      })
+        date,
+        grossExposure,
+        netExposure: 0,
+        concentrationHHI: 0,
+        portfolioVol: 0,
+        varPct: 0,
+        cvarPct: 0,
+        topHolding: 0,
+        avgCorrelation: 0,
+      } as PortfolioRiskMetrics)
       if (shouldHalt) {
         killSwitch.trigger(`Drawdown limit hit on ${date}`)
         state.isHalted = true
@@ -204,12 +212,12 @@ export class QuantBacktester {
 
       // ── Layer 1: Features (already computed) ──────────────
       const featRows = featuresByDate[date] ?? []
-      if (featRows.length < 2) continue
+      if (featRows.length < 1) continue
 
       // Filter to tradable universe
       const universe = pkg.universeConfig.symbols.filter(s => prices[s] != null)
       const univFeats = featRows.filter(r => universe.includes(r.symbol))
-      if (univFeats.length < 2) continue
+      if (univFeats.length < 1) continue
 
       // ── Layer 2: Alpha signals ────────────────────────────
       const signalSnapshot = alpha.computeSignals(univFeats, pkg.signalScaleBps)
@@ -229,7 +237,7 @@ export class QuantBacktester {
       // ── Layer 3: Risk model ───────────────────────────────
       const priceHistory: Record<string, number[]> = {}
       for (const sym of universe) {
-        priceHistory[sym] = (panel[sym] ?? []).filter(b => b.date <= date).slice(-config.initialCapital).map(b => b.close)
+        priceHistory[sym] = (panel[sym] ?? []).filter(b => b.date <= date).slice(-pkg.lookbackDays).map(b => b.close)
       }
       const marketRets = (panel[universe[0]] ?? [])
         .filter(b => b.date <= date).slice(-120)
@@ -306,8 +314,8 @@ export class QuantBacktester {
       allFills.push(...fills)
     }
 
-    // ── Compute benchmark (equal-weight buy & hold) ────────────
-    const benchSymbol = pkg.universeConfig.symbols[0] ?? 'BTC-USD'
+    // ── Compute benchmark (buy & hold) ────────────────────────────────
+    const benchSymbol = config.benchmark ?? pkg.universeConfig.symbols[0] ?? 'BTC-USD'
     const benchBars   = panel[benchSymbol] ?? []
     const benchStart  = benchBars.find(b => b.date >= config.startDate)?.close ?? 1
     const benchEquity = benchBars
@@ -315,7 +323,7 @@ export class QuantBacktester {
       .map(b => config.initialCapital * b.close / benchStart)
 
     // ── Tear sheet ─────────────────────────────────────────────
-    const tearSheet = computeTearSheet(equityCurve, benchEquity, icSeries)
+    const tearSheet = computeTearSheet(equityCurve, benchEquity, icSeries, allFills.length)
 
     return {
       equityCurve,

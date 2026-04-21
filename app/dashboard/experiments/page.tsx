@@ -14,10 +14,11 @@ const C = {
 }
 
 const BUILT_IN_STRATEGIES = [
-  { id: 'momentum_crossover', label: 'Momentum Crossover', params: { fast_period: [5,10,20,30], slow_period: [50,100,200] } },
-  { id: 'mean_reversion',     label: 'Mean Reversion',     params: { window: [10,20,30,50], z_threshold: [1,1.5,2,2.5] } },
-  { id: 'rsi_trend_filter',   label: 'RSI Trend Filter',   params: { rsi_period: [7,14,21], trend_period: [50,100,200] } },
-  { id: 'volatility_breakout',label: 'Volatility Breakout',params: { atr_period: [10,14,20], atr_mult: [1.5,2.0,2.5] } },
+  { id: 'momentum_conservative', label: 'Momentum Conservative', params: { risk_aversion: [4,8,12,20], max_weight: [0.15,0.25,0.35] } },
+  { id: 'mean_reversion_active', label: 'Mean Reversion Active', params: { risk_aversion: [3,5,8,12], max_weight: [0.15,0.20,0.30] } },
+  { id: 'composite_balanced',    label: 'Composite Balanced',    params: { risk_aversion: [6,8,10,14], max_weight: [0.20,0.25,0.30] } },
+  { id: 'ml_aggressive',        label: 'ML Aggressive',         params: { risk_aversion: [2,4,6,10], max_weight: [0.20,0.25,0.35] } },
+  { id: 'risk_parity',          label: 'Risk Parity',           params: { risk_aversion: [1,3,5,8], max_weight: [0.30,0.35,0.40] } },
 ]
 
 const PERIODS = ['90d','180d','1y','2y']

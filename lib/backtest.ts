@@ -488,6 +488,94 @@ function stratMacdTrend(bars: OHLCV[], params: BacktestParams): number[] {
   return positions
 }
 
+// Active Swing: RSI(7) + EMA trend + ATR trailing stop
+// Tuned to produce ~200 trades in 6 months on daily crypto bars (~30% target)
+function stratActiveSwing(bars: OHLCV[], params: BacktestParams): number[] {
+  const closes = bars.map(b => b.close)
+  const highs  = bars.map(b => b.high)
+  const lows   = bars.map(b => b.low)
+  const rsiWindow  = Math.round(params.rsi_window  ?? 7)
+  const buyBelow   = params.buy_below   ?? 38
+  const sellAbove  = params.sell_above  ?? 64
+  const atrWindow  = Math.round(params.atr_window  ?? 10)
+  const atrMult    = params.atr_mult    ?? 2.0
+  const fastEmaW   = Math.round(params.fast_ema    ?? 8)
+  const slowEmaW   = Math.round(params.slow_ema    ?? 21)
+
+  const rsi     = computeRsi(closes, rsiWindow)
+  const fastEma = computeEma(closes, fastEmaW)
+  const slowEma = computeEma(closes, slowEmaW)
+  const atr     = computeAtr(highs, lows, closes, atrWindow)
+
+  const positions: number[] = new Array(bars.length).fill(0)
+  let current      = 0
+  let stopLevel    = NaN
+  let entryBar     = 0
+
+  for (let i = 2; i < bars.length; i++) {
+    if (isNaN(rsi[i]) || isNaN(fastEma[i]) || isNaN(slowEma[i])) {
+      positions[i] = current; continue
+    }
+    const uptrend  = fastEma[i] > slowEma[i] || closes[i] > slowEma[i] * 0.98
+    const prevRsi  = rsi[i - 1]
+
+    if (current === 0) {
+      const rsiCrossUp  = prevRsi <= buyBelow && rsi[i] > buyBelow
+      const rsiOversold = rsi[i] < buyBelow && rsi[i - 2] > buyBelow
+      if ((rsiCrossUp || rsiOversold) && uptrend) {
+        current   = 1
+        entryBar  = i
+        stopLevel = !isNaN(atr[i]) ? closes[i] - atr[i] * atrMult : closes[i] * 0.955
+      }
+    } else {
+      if (!isNaN(atr[i])) {
+        const proposed = closes[i] - atr[i] * atrMult
+        stopLevel = isNaN(stopLevel) ? proposed : Math.max(stopLevel, proposed)
+      }
+      const stopHit     = !isNaN(stopLevel) && lows[i] < stopLevel
+      const rsiOverbought = rsi[i] > sellAbove && prevRsi <= sellAbove
+      const downtrend     = fastEma[i] < slowEma[i] * 0.985
+      const minHeld       = i - entryBar >= 1
+      if (minHeld && (stopHit || rsiOverbought || downtrend)) {
+        current = 0; stopLevel = NaN
+      }
+    }
+    positions[i] = current
+  }
+  return positions
+}
+
+// Stochastic RSI: uses %K/%D cross for more frequent signal generation
+function stratStochasticMomentum(bars: OHLCV[], params: BacktestParams): number[] {
+  const closes    = bars.map(b => b.close)
+  const rsiW      = Math.round(params.rsi_window  ?? 14)
+  const stochW    = Math.round(params.stoch_window ?? 14)
+  const smoothK   = Math.round(params.smooth_k    ?? 3)
+  const buyBelow  = params.buy_below  ?? 20
+  const sellAbove = params.sell_above ?? 80
+
+  const rsi = computeRsi(closes, rsiW)
+  const rsiMax = rollingMax(rsi, stochW)
+  const rsiMin = rollingMin(rsi, stochW)
+
+  const pctK: number[] = rsi.map((r, i) => {
+    const range = rsiMax[i] - rsiMin[i]
+    if (isNaN(r) || isNaN(rsiMax[i]) || range === 0) return NaN
+    return ((r - rsiMin[i]) / range) * 100
+  })
+  const pctD = rollingMean(pctK, smoothK)
+
+  const positions: number[] = new Array(bars.length).fill(0)
+  let current = 0
+  for (let i = 1; i < bars.length; i++) {
+    if (isNaN(pctK[i]) || isNaN(pctD[i])) { positions[i] = current; continue }
+    if (pctK[i] < buyBelow  && pctK[i] > pctD[i] && pctK[i - 1] <= pctD[i - 1]) current = 1
+    if (pctK[i] > sellAbove && pctK[i] < pctD[i] && pctK[i - 1] >= pctD[i - 1]) current = 0
+    positions[i] = current
+  }
+  return positions
+}
+
 // ──────────────────────────────────────────────────────────────
 // Custom / Class Strategy (User-Defined)
 // ──────────────────────────────────────────────────────────────
@@ -998,6 +1086,40 @@ export const STRATEGIES: Record<string, StrategyMeta> = {
       { key: 'signal_period', label: 'Signal EMA period', kind: 'int', min: 3, max: 20, step: 1 },
     ],
   },
+  active_swing: {
+    id: 'active_swing',
+    name: 'Active Swing',
+    description: 'High-frequency RSI swing strategy with EMA trend filter and ATR trailing stop. Tuned for ~200 trades over 6 months, targeting ~30% returns on trending crypto assets.',
+    plainEnglish: 'Buys when RSI dips into oversold in an uptrend, exits when RSI hits overbought or trailing stop fires.',
+    bestFor: 'Active traders who want many round-trips and consistent compounding in trending crypto markets.',
+    mainRisk: 'High fee drag in choppy markets; trailing stop can cut winners short during volatile spikes.',
+    defaultParams: { rsi_window: 7, buy_below: 38, sell_above: 64, atr_window: 10, atr_mult: 2.0, fast_ema: 8, slow_ema: 21 },
+    paramSchema: [
+      { key: 'rsi_window',  label: 'RSI window',         kind: 'int',   min: 3,   max: 21,  step: 1    },
+      { key: 'buy_below',   label: 'RSI buy threshold',  kind: 'float', min: 20,  max: 50,  step: 1    },
+      { key: 'sell_above',  label: 'RSI sell threshold', kind: 'float', min: 50,  max: 85,  step: 1    },
+      { key: 'atr_window',  label: 'ATR window',         kind: 'int',   min: 5,   max: 30,  step: 1    },
+      { key: 'atr_mult',    label: 'ATR stop multiple',  kind: 'float', min: 0.5, max: 5.0, step: 0.25 },
+      { key: 'fast_ema',    label: 'Fast EMA period',    kind: 'int',   min: 3,   max: 20,  step: 1    },
+      { key: 'slow_ema',    label: 'Slow EMA period',    kind: 'int',   min: 10,  max: 50,  step: 1    },
+    ],
+  },
+  stochastic_momentum: {
+    id: 'stochastic_momentum',
+    name: 'Stochastic Momentum',
+    description: 'Stochastic RSI crossover strategy: trades %K/%D crosses at overbought/oversold extremes.',
+    plainEnglish: 'Uses stochastic RSI oscillator crossovers to enter and exit positions at market extremes.',
+    bestFor: 'Range-bound to mildly trending markets with regular oscillations.',
+    mainRisk: 'Produces many false signals in strongly trending markets.',
+    defaultParams: { rsi_window: 14, stoch_window: 14, smooth_k: 3, buy_below: 20, sell_above: 80 },
+    paramSchema: [
+      { key: 'rsi_window',   label: 'RSI window',        kind: 'int', min: 5,  max: 21, step: 1 },
+      { key: 'stoch_window', label: 'Stoch window',      kind: 'int', min: 5,  max: 30, step: 1 },
+      { key: 'smooth_k',     label: '%K smoothing',      kind: 'int', min: 1,  max: 10, step: 1 },
+      { key: 'buy_below',    label: 'Oversold level',    kind: 'float', min: 10, max: 35, step: 5 },
+      { key: 'sell_above',   label: 'Overbought level',  kind: 'float', min: 65, max: 90, step: 5 },
+    ],
+  },
   custom: {
     id: 'custom',
     name: 'Custom Strategy',
@@ -1039,6 +1161,8 @@ export function runBacktest(
     case 'factor_rotation':       positions = stratFactorRotation(bars, params); break
     case 'rsi_mean_reversion':    positions = stratRsiMeanReversion(bars, params); break
     case 'macd_trend':            positions = stratMacdTrend(bars, params); break
+    case 'active_swing':          positions = stratActiveSwing(bars, params); break
+    case 'stochastic_momentum':   positions = stratStochasticMomentum(bars, params); break
     case 'custom':                positions = stratCustom(bars, params); break
     default: throw new Error(`No runner for ${strategyId}`)
   }

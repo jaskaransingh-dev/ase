@@ -8,19 +8,13 @@ export const C = {
   text: '#B7C4D5', muted: '#7F8CA3', faint: '#55657A', white: '#F7FAFF',
 }
 
-export const TEMPLATES = Object.entries(STRATEGIES)
-  .filter(([id]) => id !== 'custom')
-  .map(([id, meta]) => ({
-    id,
-    name: meta.name,
-    dot: id.includes('momentum') ? C.blue
-      : id.includes('mean_rev') || id.includes('rsi_mean') ? C.mint
-      : id.includes('breakout') || id.includes('volatility') ? C.orange
-      : id.includes('factor') ? C.purple
-      : id.includes('dual') ? C.blue2
-      : id.includes('macd') ? C.orange
-      : C.muted,
-  }))
+export const TEMPLATES = [
+  { id: 'momentum_conservative', name: 'Momentum Conservative', dot: C.blue },
+  { id: 'mean_reversion_active', name: 'Mean Reversion Active', dot: C.mint },
+  { id: 'composite_balanced',    name: 'Composite Balanced',    dot: C.purple },
+  { id: 'ml_aggressive',         name: 'ML Aggressive',         dot: C.orange },
+  { id: 'risk_parity',           name: 'Risk Parity',           dot: C.red },
+]
 
 export const UNIVERSES: Record<string, { label: string; symbols: string[] }> = {
   crypto_top5:  { label: 'Crypto Top 5',  symbols: ['BTC-USD','ETH-USD','SOL-USD','BNB-USD','ADA-USD'] },
@@ -116,16 +110,18 @@ export const BENCHMARKS: Record<string, { label: string; color: string }> = {
   'SOL-USD': { label: 'Solana', color: '#19E6A7' },
 }
 
-export const BACKTEST_STRATEGIES = Object.entries(STRATEGIES)
-  .filter(([id]) => id !== 'custom')
-  .map(([id, meta]) => ({
-    id,
-    label: meta.name,
-    description: meta.description,
-    bestFor: meta.bestFor,
-    mainRisk: meta.mainRisk,
-    paramSchema: meta.paramSchema,
-  }))
+// Only expose the standardized Active Swing engine. Other internal strategies
+// remain in lib/backtest.ts but are no longer user-selectable.
+export const BACKTEST_STRATEGIES = [
+  {
+    id: 'active_swing',
+    label: STRATEGIES.active_swing.name,
+    description: STRATEGIES.active_swing.description,
+    bestFor: STRATEGIES.active_swing.bestFor,
+    mainRisk: STRATEGIES.active_swing.mainRisk,
+    paramSchema: STRATEGIES.active_swing.paramSchema,
+  },
+]
 
 export const DATA_APIS = [
   { id: 'binance',    name: 'Binance',       cat: 'crypto',  auth: 'none',     limit: '1200/hr',   desc: "World's largest exchange — OHLCV, orderbook, funding" },
@@ -174,51 +170,39 @@ export const GRADE_CLR: Record<string, string> = {
   'A+': C.mint, A: C.mint, B: C.blue, C: C.orange, D: '#F59E0B', F: C.red,
 }
 
-export const DEFAULT_STRATEGY_TS = `// ─── ASE Quant Strategy ─────────────────────────────────────────────────────
-// This file defines your alpha signal logic.
-// generate_signals() receives cross-sectional features for every
-// asset and returns a raw conviction score (higher = stronger long).
+export const DEFAULT_STRATEGY_TS = `// ─── ASE Quant Strategy ──────────────────────────────────────────────
+// Template: composite_balanced — blended alpha with institutional risk controls
 //
-// The ASE engine handles: portfolio optimization, position sizing,
-// rebalancing, transaction costs, risk controls & live execution.
+// Target: Sharpe > 1.5 | Max DD < 20% | Calmar > 1.0
+// Run via Quant Lab or API: POST /api/quant/run
+//
+// The ASE engine handles: execution, fees, slippage, risk controls.
 
 import type { FeatureRow } from '@ase/quant'
 
 export const config = {
-  name:          'Crypto Momentum',
+  name:          'My Strategy',
   universe:      ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'ADA-USD'],
   rebalanceFreq: 'daily' as const,
-  riskAversion:  7,         // λ: higher = more risk-averse (1–20)
-  maxWeight:     0.30,      // max allocation per asset
-  feeBps:        7,         // round-trip fee in basis points
-  killSwitch:    0.20,      // halt trading if drawdown exceeds 20%
+  riskAversion:  8,
+  maxWeight:     0.25,
 }
 
 export function generateSignals(features: FeatureRow[]): Record<string, number> {
   const signals: Record<string, number> = {}
 
   for (const row of features) {
-    // ── Momentum ─────────────────────────────────────────────────────────────
-    const mom20  = row.ret_20d  ?? 0
-    const mom60  = row.ret_60d  ?? 0
-    const mom120 = row.ret_120d ?? 0
+    const rsi14      = row.rsi_14    ?? 50
+    const ret5d      = row.ret_5d    ?? 0
+    const ret20d     = row.ret_20d   ?? 0
+    const volShock   = row.vol_shock ?? 1.0
+    const vol20d     = row.vol_20d   ?? 1.0
 
-    // Blend short, medium, and long-term momentum (decay-weighted)
-    const momentum = mom20 * 0.50 + mom60 * 0.35 + mom120 * 0.15
+    const momentum = ret5d * 0.6 + ret20d * 0.4
+    const volBoost   = volShock > 1.2 ? 1.15 : 1.0
+    const volPenalty = vol20d  > 2.0  ? 0.70 : vol20d > 1.5 ? 0.85 : 1.0
 
-    // ── Volume confirmation ───────────────────────────────────────────────────
-    const volShock  = row.vol_shock ?? 1
-    const volBoost  = volShock > 1.25 ? 1.20 : volShock > 1.10 ? 1.08 : 1.0
-
-    // ── Volatility regime filter ─────────────────────────────────────────────
-    const vol20     = row.vol_20d ?? 0
-    const volPenalty = vol20 > 2.0 ? 0.65 : vol20 > 1.5 ? 0.85 : 1.0
-
-    // ── On-chain signal (if available) ───────────────────────────────────────
-    const onChain  = row.nupl ?? 0      // NUPL: Net Unrealized Profit/Loss
-    const onChainBoost = onChain > 0 ? 1.0 + (onChain * 0.15) : 1.0
-
-    signals[row.symbol] = momentum * volBoost * volPenalty * onChainBoost
+    signals[row.symbol] = momentum * volBoost * volPenalty
   }
 
   return signals
@@ -227,11 +211,11 @@ export function generateSignals(features: FeatureRow[]): Record<string, number> 
 
 export const DEFAULT_CONFIG_JSON = JSON.stringify({
   template: 'composite_balanced',
-  alpha_type: 'momentum',
+  alpha_type: 'composite',
   symbols: ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'ADA-USD'],
   rebalanceFreq: 'daily',
-  riskAversion: 7,
-  maxWeight: 0.30,
+  riskAversion: 8,
+  maxWeight: 0.25,
   walkForward: true,
   initialCapital: 1000000,
   feeBps: 7,
@@ -242,54 +226,65 @@ export const DEFAULT_CONFIG_JSON = JSON.stringify({
 export const DEFAULT_DOCS = `# ASE Quant Engine — Developer Reference
 
 ## Overview
-The ASE backtest engine is a 9-layer institutional pipeline:
+ASE runs **one standardized backtest engine** — Active Swing — tuned for
+high-frequency swing trading on liquid crypto pairs. A 9-layer pipeline:
 \`\`\`
 Data Ingestion → Feature Engineering → Signal Generation →
 Portfolio Optimization → Risk Controls → Execution Simulation →
 Performance Attribution → Walk-Forward Validation → Live Deployment
 \`\`\`
 
+## The Engine
+| Property        | Value                                                   |
+|-----------------|---------------------------------------------------------|
+| Strategy ID     | \`active_swing\`                                        |
+| Trades / 6 mo   | ~200 round-trips                                        |
+| Target Return   | ~30% (trending crypto)                                  |
+| Signals         | RSI(7) + EMA(8/21) trend filter + ATR(10) trailing stop |
+| Rebalance       | Daily                                                   |
+
+## active_swing Parameters
+| Param       | Default | Range    | Description              |
+|-------------|---------|----------|--------------------------|
+| rsi_window  | 7       | 3–21     | RSI period (shorter = more sensitive) |
+| buy_below   | 38      | 20–50    | Enter when RSI < this    |
+| sell_above  | 64      | 50–85    | Exit when RSI > this     |
+| atr_window  | 10      | 5–30     | ATR period for stops     |
+| atr_mult    | 2.0     | 0.5–5.0  | Stop = price − ATR × mult |
+| fast_ema    | 8       | 3–20     | Fast EMA (trend filter)  |
+| slow_ema    | 21      | 10–50    | Slow EMA (trend filter)  |
+
 ## generate_signals(features: FeatureRow[])
-Returns a score per symbol (no normalization needed — engine handles it).
+Returns a conviction score per symbol. Engine normalizes and allocates.
 
 ### Available Features (FeatureRow)
-| Field         | Description                        | Type   |
-|---------------|------------------------------------|--------|
-| symbol        | Asset ticker (e.g. BTC-USD)        | string |
-| ret_1d        | 1-day return                        | number |
-| ret_5d        | 5-day return                        | number |
-| ret_20d       | 20-day return                       | number |
-| ret_60d       | 60-day return                       | number |
-| ret_120d      | 120-day return                      | number |
-| vol_20d       | 20-day realized volatility (ann.)   | number |
-| vol_shock     | Volume relative to 30-day avg       | number |
-| rsi_14        | 14-period RSI (0–100)               | number |
-| bb_pct        | Bollinger Band %B (0–1)             | number |
-| nupl          | Net Unrealized Profit/Loss          | number |
-| sopr          | Spent Output Profit Ratio           | number |
-| mvrv          | Market Value / Realized Value       | number |
-| fear_greed    | Fear & Greed index (0–100)          | number |
-| defi_tvl_chg  | DeFi TVL 7d change                  | number |
+| Field        | Description                       | Type   |
+|--------------|-----------------------------------|--------|
+| symbol       | Asset ticker (e.g. BTC-USD)       | string |
+| ret_1d       | 1-day return                      | number |
+| ret_5d       | 5-day return                      | number |
+| ret_20d      | 20-day return                     | number |
+| ret_60d      | 60-day return                     | number |
+| vol_20d      | 20-day realized volatility (ann.) | number |
+| vol_shock    | Volume vs 30-day avg              | number |
+| rsi_14       | 14-period RSI (0–100)             | number |
+| bb_pct       | Bollinger Band %B (0–1)           | number |
+| nupl         | Net Unrealized Profit/Loss        | number |
+| fear_greed   | Fear & Greed index (0–100)        | number |
 
 ## config.json Fields
-| Field          | Type              | Default            |
-|----------------|-------------------|--------------------|
-| template       | string            | composite_balanced |
-| symbols        | string[]          | Top-5 crypto       |
-| rebalanceFreq  | daily/weekly/monthly | daily           |
-| riskAversion   | 1–20              | 7                  |
-| maxWeight      | 0.05–0.60         | 0.30               |
-| walkForward    | boolean           | true               |
-| initialCapital | number            | 1000000            |
-| feeBps         | number            | 7                  |
-| killSwitch     | 0–1               | 0.20               |
-
-## Templates
-- **momentum_conservative** — trend-following, low turnover
-- **mean_reversion_active** — buy dips, sell rips, higher freq
-- **composite_balanced** — blends momentum + mean-reversion
-- **ml_aggressive** — gradient-boosted signals, higher Sharpe target
-- **risk_parity** — equal volatility contribution per asset
+| Field           | Type                    | Default      |
+|-----------------|-------------------------|--------------|
+| template        | string                  | active_swing |
+| symbols         | string[]                | BTC/ETH/SOL  |
+| rebalanceFreq   | daily/weekly/monthly    | daily        |
+| riskAversion    | 1–20                    | 5            |
+| maxWeight       | 0.05–1.0                | 0.50         |
+| walkForward     | boolean                 | true         |
+| initialCapital  | number                  | 100000       |
+| feeBps          | number                  | 7            |
+| killSwitch      | 0–1                     | 0.25         |
+| strategy_params | object                  | see above    |
 
 ## Keyboard Shortcuts
 | Shortcut   | Action              |

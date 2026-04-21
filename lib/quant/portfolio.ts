@@ -54,12 +54,20 @@ function projectOntoSimplex(
   hi: number,
   leverage: number,
 ): number[] {
-  // Project each weight to [lo, hi], then rescale to match leverage target
-  const clipped = w.map(v => clip(v, lo, hi))
-  const gross = clipped.reduce((a, v) => a + Math.abs(v), 0)
+  // Clip, rescale to leverage, then re-clip to enforce max weight
+  let clipped = w.map(v => clip(v, lo, hi))
+  let gross = clipped.reduce((a, v) => a + Math.abs(v), 0)
   if (gross === 0) return clipped.map(() => 0)
   // Rescale gross to target leverage
-  return clipped.map(v => v * leverage / gross)
+  clipped = clipped.map(v => v * leverage / gross)
+  // Enforce max weight again after rescaling
+  clipped = clipped.map(v => clip(v, lo, hi))
+  // Final rescale if needed
+  gross = clipped.reduce((a, v) => a + Math.abs(v), 0)
+  if (gross > leverage * 1.05) {
+    clipped = clipped.map(v => v * leverage / gross)
+  }
+  return clipped
 }
 
 function constrainedMeanVariance(
@@ -210,6 +218,15 @@ export class PortfolioOptimizer {
       date, weights: {}, grossExposure: 0, netExposure: 0, turnover: 0, cash: 1,
     }
 
+    if (n === 1) {
+      const w = Math.min(config.leverage, config.maxWeight)
+      const weights: Record<string, number> = {}
+      weights[symbols[0]] = w
+      return {
+        date, weights, grossExposure: w, netExposure: w, turnover: Math.abs(w - (currentWeights[symbols[0]] ?? 0)) / 2, cash: Math.max(1 - w, 0),
+      }
+    }
+
     // Scale forecasts from bps to decimal
     const mu = symbols.map(s => (forecasts[s] ?? 0) / 10000)
     const prevW = symbols.map(s => currentWeights[s] ?? 0)
@@ -244,7 +261,14 @@ export class PortfolioOptimizer {
 
     // Re-project after zeroing
     const gross = wArr.reduce((a, v) => a + Math.abs(v), 0)
-    if (gross > 0 && Math.abs(gross - config.leverage) > 0.05) {
+
+    // If all weights are zero after noise filter, use equal weight as fallback
+    if (gross < 0.01) {
+      const equalW = config.leverage / n
+      wArr = wArr.map(() => Math.min(equalW, config.maxWeight))
+      const eg = wArr.reduce((a, v) => a + Math.abs(v), 0)
+      if (eg > 0) wArr = wArr.map(v => v * config.leverage / eg)
+    } else if (Math.abs(gross - config.leverage) > 0.05) {
       wArr = wArr.map(w => w * config.leverage / gross)
     }
 

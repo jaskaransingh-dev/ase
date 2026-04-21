@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import {
   Play, Loader2, CheckCircle, AlertCircle, Save, Shield, GitBranch,
-  FlaskConical, ChevronLeft, Info, TrendingUp, TrendingDown, Activity,
+  FlaskConical, ChevronLeft, Info, TrendingUp, TrendingDown, Activity, ExternalLink,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts'
@@ -17,12 +17,11 @@ const C = {
 }
 
 const BUILT_IN_STRATEGIES = [
-  { id: 'momentum_crossover', label: 'Momentum Crossover' },
-  { id: 'mean_reversion',     label: 'Mean Reversion' },
-  { id: 'rsi_trend_filter',   label: 'RSI Trend Filter' },
-  { id: 'volatility_breakout',label: 'Volatility Breakout' },
-  { id: 'dual_momentum',      label: 'Dual Momentum' },
-  { id: 'macd_trend',         label: 'MACD Trend' },
+  { id: 'momentum_conservative', label: 'Momentum Conservative' },
+  { id: 'mean_reversion_active', label: 'Mean Reversion Active' },
+  { id: 'composite_balanced',    label: 'Composite Balanced' },
+  { id: 'ml_aggressive',         label: 'ML Aggressive' },
+  { id: 'risk_parity',           label: 'Risk Parity' },
 ]
 
 const PERIODS = ['90d','180d','1y','2y','5y']
@@ -48,7 +47,7 @@ export default function StrategyEditorPage() {
   const [validationResult, setValidationResult] = useState<{ valid: boolean; errors: string[]; warnings: string[] } | null>(null)
 
   // Backtest config
-  const [builtinStrategy, setBuiltinStrategy] = useState('momentum_crossover')
+  const [builtinStrategy, setBuiltinStrategy] = useState('composite_balanced')
   const [period, setPeriod] = useState('1y')
   const [interval, setInterval] = useState('1d')
   const [runType, setRunType] = useState<'standard' | 'walk_forward' | 'monte_carlo'>('standard')
@@ -158,6 +157,13 @@ export default function StrategyEditorPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button onClick={() => {
+            const params = new URLSearchParams({ edit: '1', name: strategy.name, code: strategy.code, template: 'composite_balanced', desc: strategy.description ?? '' })
+            router.push(`/dashboard/quant?${params.toString()}`)
+          }} style={{ ...btnGhostStyle, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <ExternalLink size={13} />
+            Edit in Lab
+          </button>
           <button onClick={handleSave} disabled={saving} style={btnGhostStyle}>
             {saving ? <Loader2 size={13} /> : saved ? <CheckCircle size={13} color={C.mint} /> : <Save size={13} />}
             {saved ? 'Saved' : 'Save'}

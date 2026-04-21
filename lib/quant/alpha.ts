@@ -23,8 +23,9 @@ export abstract class AlphaModel {
   ): SignalSnapshot {
     const rawScores: Record<string, number> = {}
     for (const row of rows) {
-      if (!isFinite(row.ret_20d)) continue
-      rawScores[row.symbol] = this.score(row)
+      const score = this.score(row)
+      if (!isFinite(score)) continue
+      rawScores[row.symbol] = score
     }
 
     // Cross-sectional z-score

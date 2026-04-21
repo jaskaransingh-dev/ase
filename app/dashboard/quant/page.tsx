@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
@@ -187,6 +188,13 @@ const UNIVERSES: Record<string, string[]> = {
   crypto_l1:    ['ETH-USD','SOL-USD','ADA-USD','AVAX-USD','DOT-USD'],
 }
 
+const BENCHMARKS: Record<string, string> = {
+  'BTC-USD': 'Bitcoin',
+  'SPY': 'S&P 500',
+  'ETH-USD': 'Ethereum',
+  'QQQ': 'Nasdaq-100',
+}
+
 const GRADE_CLR: Record<string, string> = {
   'A+': C.mint, A: C.mint, B: C.blue, C: C.orange, D: '#F59E0B', F: C.red,
 }
@@ -294,25 +302,55 @@ function InvestModal({ agentName, price, onClose }: { agentName: string; price: 
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-export default function QuantLabPage() {
+function QuantLabInner() {
+  const searchParams = useSearchParams()
+  const editMode = searchParams.get('edit') === '1'
+  const editName = searchParams.get('name') ?? ''
+  const editCode = searchParams.get('code') ?? ''
+  const editTemplate = searchParams.get('template') ?? ''
+  const editDesc = searchParams.get('desc') ?? ''
+
+  const initialFiles = useMemo<Record<string, string>>(() => {
+    if (editMode && editCode) {
+      const decodedCode = decodeURIComponent(editCode)
+      const decodedDesc = editDesc ? decodeURIComponent(editDesc) : ''
+      const strategyTs = decodedCode
+      const configJson = editTemplate
+        ? JSON.stringify({ template: editTemplate, alpha_type: editTemplate === 'mean_reversion_active' ? 'mean_reversion' : editTemplate === 'risk_parity' ? 'volatility' : editTemplate, symbols: ['BTC-USD','ETH-USD','SOL-USD','BNB-USD','ADA-USD'], rebalanceFreq: 'daily', riskAversion: 8, maxWeight: 0.25, walkForward: true, initialCapital: 1000000, feeBps: 7 }, null, 2)
+        : DEFAULT_FILES['config.json']
+      return { ...DEFAULT_FILES, 'strategy.ts': strategyTs, 'config.json': configJson }
+    }
+    try {
+      const saved = localStorage.getItem('ase_quant_files')
+      if (saved) return { ...DEFAULT_FILES, ...JSON.parse(saved) }
+    } catch {}
+    return DEFAULT_FILES
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── Editor ──────────────────────────────────────────────────────────────────
   const [openFiles, setOpenFiles]       = useState(['strategy.ts', 'config.json'])
   const [activeFile, setActiveFile]     = useState('strategy.ts')
-  const [fileContents, setFileContents] = useState<Record<string, string>>(DEFAULT_FILES)
+  const [fileContents, setFileContents] = useState<Record<string, string>>(initialFiles)
   const [saved, setSaved]               = useState(true)
+  const [newFileName, setNewFileName]   = useState('')
+  const [showNewFile, setShowNewFile]   = useState(false)
 
   // ── Layout ───────────────────────────────────────────────────────────────────
   const [sideOpen, setSideOpen]   = useState(true)
   const [termOpen, setTermOpen]   = useState(true)
-  const [rightTab, setRightTab]   = useState<'backtest'|'data'|'chat'|'agent'>('backtest')
+  const [rightTab, setRightTab]   = useState<'backtest'|'trades'|'data'|'docs'|'chat'|'agent'>('backtest')
 
   // ── Terminal ──────────────────────────────────────────────────────────────────
-  const [termLines, setTermLines]     = useState(['● ASE Quant Lab ready', '● Cmd+Enter to run  ·  help for commands', ''])
+  const [termLines, setTermLines]     = useState<string[]>(() => {
+    if (editMode) return ['● ASE Quant Lab — Edit Mode', `● Loaded: ${editName || 'Strategy'}`, '● Cmd+Enter to run  ·  help for commands', '']
+    return ['● ASE Quant Lab ready', '● Cmd+Enter to run  ·  help for commands', '']
+  })
   const [termInput, setTermInput]     = useState('')
 
   // ── Backtest config ──────────────────────────────────────────────────────────
-  const [template, setTemplate]       = useState('composite_balanced')
+  const validTemplate = editTemplate && TEMPLATES.some(t => t.id === editTemplate) ? editTemplate : 'composite_balanced'
+  const [template, setTemplate]       = useState(validTemplate)
   const [universe, setUniverse]       = useState('crypto_top5')
   const [startDate, setStartDate]     = useState('2022-01-01')
   const [endDate]                     = useState(new Date().toISOString().slice(0, 10))
@@ -320,14 +358,15 @@ export default function QuantLabPage() {
   const [riskAversion, setRiskAversion] = useState(8)
   const [maxWeight, setMaxWeight]     = useState(0.25)
   const [walkFwd, setWalkFwd]         = useState(true)
+  const [benchmark, setBenchmark]     = useState('BTC-USD')
   const [btLoading, setBtLoading]     = useState(false)
   const [btResult, setBtResult]       = useState<Record<string, unknown> | null>(null)
   const [btError, setBtError]         = useState('')
 
   // ── Agent / Exchange ──────────────────────────────────────────────────────────
   const [agentTab, setAgentTab]       = useState<'profile'|'exchange'>('profile')
-  const [agentName, setAgentName]     = useState('My Quant Strategy')
-  const [agentDesc, setAgentDesc]     = useState('A momentum-driven multi-asset crypto strategy with institutional-grade risk controls.')
+  const [agentName, setAgentName]     = useState(editMode && editName ? decodeURIComponent(editName) : 'My Quant Strategy')
+  const [agentDesc, setAgentDesc]     = useState(editMode && editDesc ? decodeURIComponent(editDesc) : 'A momentum-driven multi-asset crypto strategy with institutional-grade risk controls.')
   const [agentPrice, setAgentPrice]   = useState(49)
   const [agentTags, setAgentTags]     = useState('momentum,crypto,multi-asset')
   const [publishing, setPublishing]   = useState(false)
@@ -349,6 +388,25 @@ export default function QuantLabPage() {
   const chatEndRef = useRef<HTMLDivElement>(null)
   useEffect(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), [chatMsgs])
 
+  // ── Config.json → backtest sync ──────────────────────────────────────────────
+  useEffect(() => {
+    const raw = fileContents['config.json']
+    if (!raw) return
+    try {
+      const cfg = JSON.parse(raw)
+      if (cfg.template && TEMPLATES.some(t => t.id === cfg.template)) setTemplate(cfg.template)
+      if (typeof cfg.riskAversion === 'number') setRiskAversion(cfg.riskAversion)
+      if (typeof cfg.maxWeight === 'number') setMaxWeight(cfg.maxWeight)
+      if (cfg.rebalanceFreq) setRebalFreq(cfg.rebalanceFreq)
+      if (cfg.walkForward != null) setWalkFwd(!!cfg.walkForward)
+      if (Array.isArray(cfg.symbols)) {
+        const syms = cfg.symbols.join(',')
+        const found = Object.entries(UNIVERSES).find(([, v]) => v.join(',') === syms)
+        if (found) setUniverse(found[0])
+      }
+    } catch {}
+  }, [fileContents['config.json']]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Keyboard shortcuts ────────────────────────────────────────────────────────
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
@@ -362,7 +420,65 @@ export default function QuantLabPage() {
   // ── File helpers ──────────────────────────────────────────────────────────────
   const handleSave = () => {
     setSaved(true)
+    try { localStorage.setItem('ase_quant_files', JSON.stringify(fileContents)) } catch {}
     addTerm(`✓ ${activeFile} saved`)
+  }
+
+  const [savingVersion, setSavingVersion] = useState(false)
+  const [savedVersionId, setSavedVersionId] = useState<string | null>(null)
+
+  async function handleSaveVersion() {
+    if (savingVersion) return
+    setSavingVersion(true)
+    try {
+      const { createClient } = await import('@/lib/supabase/client')
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { addTerm('✗ Not authenticated'); setSavingVersion(false); return }
+
+      const ts = btResult?.tear_sheet as Record<string, number> | undefined
+      addTerm('● Saving agent…')
+      const res = await fetch('/api/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: agentName,
+          description: agentDesc,
+          strategy_type: template === 'mean_reversion_active' ? 'crypto_mean_reversion' : template === 'risk_parity' ? 'trend_following' : 'crypto_momentum',
+          primary_symbol: 'BTC/USD',
+          backtest_strategy: template,
+          asset_class: 'crypto',
+          slug: agentName.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40),
+          ticker: agentName.slice(0, 4).toUpperCase(),
+          strategy_code: fileContents['strategy.ts'] ?? '',
+          config_json: fileContents['config.json'] ?? '',
+          monthly_fee_cents: agentPrice * 100,
+          backtest_stats: ts ? {
+            sharpeRatio: ts.sharpeRatio ?? 0,
+            maxDrawdownPct: ts.maxDrawdownPct ?? 0,
+            winRate: ts.winRatePct ?? 0,
+            totalTrades: ts.totalTrades ?? 0,
+            totalReturnPct: ts.totalReturnPct ?? 0,
+          } : undefined,
+          publish: false,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Save failed')
+      setSavedVersionId(data.agent?.id ?? 'saved')
+      addTerm(`✓ Agent saved (id: ${data.agent?.id ?? 'new'})`)
+    } catch (e) {
+      addTerm(`✗ ${e instanceof Error ? e.message : 'Save failed'}`)
+    } finally { setSavingVersion(false) }
+  }
+
+  const setFileContent = (name: string, content: string) => {
+    setSaved(false)
+    setFileContents(prev => {
+      const next = { ...prev, [name]: content }
+      try { localStorage.setItem('ase_quant_files', JSON.stringify(next)) } catch {}
+      return next
+    })
   }
 
   const openFile = (name: string) => {
@@ -376,6 +492,56 @@ export default function QuantLabPage() {
     if (activeFile === name) setActiveFile(next[next.length - 1] ?? '')
   }
 
+  const createNewFile = () => {
+    const name = newFileName.trim()
+    if (!name) return
+    const ext = name.split('.').pop() ?? ''
+    const defaultContent = ext === 'py' ? '# New Python script\n' : ext === 'json' ? '{\n  \n}\n' : ext === 'md' ? `# ${name}\n\n` : '// New file\n'
+    setFileContents(prev => ({ ...prev, [name]: defaultContent }))
+    setOpenFiles(prev => [...prev, name])
+    setActiveFile(name)
+    setNewFileName('')
+    setShowNewFile(false)
+    addTerm(`✓ Created ${name}`)
+  }
+
+  const exportFiles = () => {
+    const data = JSON.stringify(fileContents, null, 2)
+    const blob = new Blob([data], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'ase-strategy.json'; a.click()
+    URL.revokeObjectURL(url)
+    addTerm('✓ Exported strategy files')
+  }
+
+  const importFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (!f) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      try {
+        const parsed = JSON.parse(ev.target?.result as string)
+        if (typeof parsed === 'object') {
+          setFileContents(prev => ({ ...prev, ...parsed }))
+          const names = Object.keys(parsed)
+          setOpenFiles(prev => [...new Set([...prev, ...names])])
+          if (names.length) setActiveFile(names[0])
+          addTerm(`✓ Imported ${names.length} file(s)`)
+        }
+      } catch { addTerm('✗ Invalid file format') }
+    }
+    reader.readAsText(f)
+    e.target.value = ''
+  }
+
+  const resetToDefaults = () => {
+    setFileContents(DEFAULT_FILES)
+    try { localStorage.removeItem('ase_quant_files') } catch {}
+    setSaved(true)
+    addTerm('✓ Reset to default files')
+  }
+
   const addTerm = useCallback((line: string) => setTermLines(p => [...p, line]), [])
 
   // ── Terminal commands ─────────────────────────────────────────────────────────
@@ -384,12 +550,20 @@ export default function QuantLabPage() {
     if (!cmd) return
     addTerm(`> ${cmd}`)
     setTermInput('')
-    if      (cmd === 'help')     addTerm('Commands: backtest · clear · ls · save · grade · version')
+    if      (cmd === 'help')     addTerm('Commands: backtest · clear · ls · save · grade · trades · version')
     else if (cmd === 'clear')    setTermLines([])
-    else if (cmd === 'ls')       Object.keys(DEFAULT_FILES).forEach(f => addTerm(`  ${f}`))
+    else if (cmd === 'ls')       Object.keys(fileContents).forEach(f => addTerm(`  ${f}`))
     else if (cmd === 'save')     handleSave()
     else if (cmd === 'backtest') runBacktest()
     else if (cmd === 'version')  addTerm('ASE Quant Lab v2.0.0 · 9-layer pipeline')
+    else if (cmd === 'trades') {
+      if (!btResult || !(btResult.fills as unknown[])?.length) addTerm('✗ No trades. Run a backtest first.')
+      else {
+        const fills = btResult.fills as Array<{ date: string; symbol: string; side: string; filledShares: number; avgPrice: number }>
+        addTerm(`Last 10 trades (${(fills).length} total):`)
+        fills.slice(-10).forEach(f => addTerm(`  ${f.date} ${f.side} ${f.symbol} ${f.filledShares.toFixed(4)} @ $${f.avgPrice.toFixed(2)}`))
+      }
+    }
     else if (cmd === 'grade') {
       if (btResult) {
         const ts = btResult.tear_sheet as Record<string, number>
@@ -409,13 +583,13 @@ export default function QuantLabPage() {
       const res = await fetch('/api/quant/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ template, symbols: syms, start_date: startDate, end_date: endDate, rebalance_freq: rebalFreq, risk_aversion: riskAversion, max_weight: maxWeight, walk_forward: walkFwd, initial_capital: 1_000_000, save: false }),
+        body: JSON.stringify({ template, symbols: syms, start_date: startDate, end_date: endDate, rebalance_freq: rebalFreq, risk_aversion: riskAversion, max_weight: maxWeight, walk_forward: walkFwd, initial_capital: 1_000_000, save: false, benchmark }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Backtest failed')
       setBtResult(data)
       const ts = data.tear_sheet as Record<string, number>
-      addTerm(`✓ Grade: ${data.grade}  CAGR: ${((ts.cagr ?? 0) * 100).toFixed(1)}%  Sharpe: ${ts.sharpeRatio?.toFixed(2)}  MaxDD: ${ts.maxDrawdownPct?.toFixed(1)}%`)
+      addTerm(`✓ Grade: ${data.grade}  trades: ${data.n_trades ?? 0}  CAGR: ${((ts.cagr ?? 0) * 100).toFixed(1)}%  Sharpe: ${ts.sharpeRatio?.toFixed(2)}  MaxDD: ${ts.maxDrawdownPct?.toFixed(1)}%`)
       setRightTab('backtest')
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Error'
@@ -428,10 +602,39 @@ export default function QuantLabPage() {
     if (!btResult) { setPublishMsg('Run a backtest before publishing.'); return }
     if (published) { setPublishMsg('Already published. Check your agents in the builders page.'); return }
     setPublishing(true); setPublishMsg('')
-    await new Promise(r => setTimeout(r, 1500))
-    setPublished(true); setPublishMsg('Agent published to the exchange!')
-    setAgentTab('exchange'); setPublishing(false)
-    addTerm(`✓ "${agentName}" published to exchange`)
+    try {
+      const ts = btResult.tear_sheet as Record<string, number>
+      const res = await fetch('/api/builders/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: agentName,
+          description: agentDesc,
+          strategy_type: template,
+          primary_symbol: 'BTC-USD',
+          strategy_code: fileContents['strategy.ts'] ?? '',
+          config_json: fileContents['config.json'] ?? '',
+          monthly_fee_cents: agentPrice * 100,
+          backtest_stats: {
+            sharpeRatio: ts.sharpeRatio ?? 0,
+            maxDrawdownPct: ts.maxDrawdownPct ?? 0,
+            winRatePct: ts.winRatePct ?? 0,
+            totalTrades: ts.totalTrades ?? 0,
+            totalReturnPct: ts.totalReturnPct ?? 0,
+          },
+          publish: true,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Publish failed')
+      setPublished(true); setPublishMsg('Agent published to the exchange!')
+      setAgentTab('exchange')
+      addTerm(`✓ "${agentName}" published to exchange`)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error'
+      setPublishMsg(msg)
+      addTerm(`✗ Publish failed: ${msg}`)
+    } finally { setPublishing(false) }
   }
 
   // ── Chat ──────────────────────────────────────────────────────────────────────
@@ -505,6 +708,12 @@ export default function QuantLabPage() {
           SAVE
         </button>
 
+        {/* Save Version */}
+        <button onClick={handleSaveVersion} disabled={savingVersion} style={{ display: 'flex', alignItems: 'center', gap: '.3rem', padding: '.35rem .7rem', borderRadius: 7, border: `1px solid ${savedVersionId ? C.mint + '45' : C.border}`, background: savedVersionId ? `${C.mint}14` : 'transparent', color: savedVersionId ? C.mint : C.muted, fontFamily: 'var(--font-mono)', fontSize: '.6rem', cursor: savingVersion ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          {savingVersion ? 'SAVING…' : savedVersionId ? 'SAVED ✓' : 'SAVE VER'}
+        </button>
+
         {/* Run backtest */}
         <button onClick={runBacktest} disabled={btLoading} style={{ display: 'flex', alignItems: 'center', gap: '.38rem', padding: '.35rem .8rem', borderRadius: 7, border: 'none', background: btLoading ? `${C.blue}55` : C.blue, color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, cursor: btLoading ? 'not-allowed' : 'pointer' }}>
           {btLoading
@@ -533,8 +742,22 @@ export default function QuantLabPage() {
           <div style={{ width: 196, flexShrink: 0, borderRight: `1px solid ${C.border}`, background: C.bg2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ padding: '.5rem .75rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint, letterSpacing: '.1em' }}>EXPLORER</span>
-              <button onClick={() => { const n = prompt('File name (e.g. signal.ts):'); if (n) { setFileContents(p => ({ ...p, [n]: '' })); openFile(n) } }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontSize: '.95rem', lineHeight: 1 }}>+</button>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button onClick={() => setShowNewFile(v => !v)} title="New File" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontSize: '.9rem', lineHeight: 1, padding: '.1rem' }}>+</button>
+                <button onClick={exportFiles} title="Export All" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontSize: '.7rem', lineHeight: 1, padding: '.1rem' }}>↓</button>
+                <label title="Import" style={{ cursor: 'pointer', color: C.faint, fontSize: '.7rem', lineHeight: 1, padding: '.1rem' }}>
+                  ↑<input type="file" accept=".json" style={{ display: 'none' }} onChange={importFiles} />
+                </label>
+              </div>
             </div>
+
+            {/* New file input */}
+            {showNewFile && (
+              <div style={{ padding: '.35rem .5rem', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: '.3rem' }}>
+                <input value={newFileName} onChange={e => setNewFileName(e.target.value)} onKeyDown={e => e.key === 'Enter' && createNewFile()} placeholder="filename.ts" autoFocus style={{ flex: 1, background: C.bg, border: `1px solid ${C.border2}`, borderRadius: 4, padding: '.2rem .35rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.62rem', outline: 'none' }} />
+                <button onClick={createNewFile} style={{ padding: '.2rem .4rem', borderRadius: 4, border: 'none', background: C.blue, color: '#fff', fontSize: '.6rem', cursor: 'pointer' }}>OK</button>
+              </div>
+            )}
 
             {/* Files */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '.3rem .35rem' }}>
@@ -542,25 +765,33 @@ export default function QuantLabPage() {
                 const ext  = name.split('.').pop() ?? ''
                 const clr  = { ts: C.blue, py: C.mint, json: C.orange, md: C.muted }[ext] ?? C.faint
                 const isActive = activeFile === name
+                const isDefault = name in DEFAULT_FILES
                 return (
-                  <button key={name} onClick={() => openFile(name)} style={{ display: 'flex', alignItems: 'center', gap: '.45rem', width: '100%', padding: '.28rem .5rem', borderRadius: 6, background: isActive ? `${C.blue}12` : 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', marginBottom: '.05rem' }}>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.56rem', color: clr, fontWeight: 700, flexShrink: 0 }}>{ext.toUpperCase().slice(0,2)}</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.66rem', color: isActive ? C.white : C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{name}</span>
-                  </button>
+                  <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: '.05rem', borderRadius: 6, background: isActive ? `${C.blue}12` : 'transparent' }}>
+                    <button onClick={() => openFile(name)} style={{ display: 'flex', alignItems: 'center', gap: '.45rem', flex: 1, padding: '.28rem .5rem', border: 'none', cursor: 'pointer', textAlign: 'left', background: 'transparent' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.56rem', color: clr, fontWeight: 700, flexShrink: 0 }}>{ext.toUpperCase().slice(0,2)}</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.66rem', color: isActive ? C.white : C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{name}</span>
+                    </button>
+                    {!isDefault && (
+                      <button onClick={() => { const next = { ...fileContents }; delete next[name]; setFileContents(next); closeFile(name) }} title="Delete" style={{ padding: '.28rem .35rem', background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontSize: '.65rem', lineHeight: 1, flexShrink: 0 }}>×</button>
+                    )}
+                  </div>
                 )
               })}
             </div>
 
-            {/* Data connections */}
-            <div style={{ borderTop: `1px solid ${C.border}`, padding: '.5rem .75rem' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint, letterSpacing: '.1em', marginBottom: '.3rem' }}>DATA SOURCES</div>
-              {['Yahoo Finance', 'Binance', 'CoinGecko'].map(s => (
-                <div key={s} style={{ display: 'flex', alignItems: 'center', gap: '.35rem', padding: '.18rem 0' }}>
-                  <div style={{ width: 5, height: 5, borderRadius: '50%', background: C.mint, flexShrink: 0 }} />
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: C.muted }}>{s}</span>
-                </div>
-              ))}
-              <button onClick={() => setRightTab('data')} style={{ marginTop: '.35rem', padding: '.2rem .5rem', border: `1px solid ${C.border}`, borderRadius: 5, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.56rem', cursor: 'pointer', width: '100%' }}>+ Add source</button>
+            {/* File management actions */}
+            <div style={{ borderTop: `1px solid ${C.border}`, padding: '.4rem .6rem', display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: C.faint, letterSpacing: '.1em', marginBottom: '.1rem' }}>FILE MANAGEMENT</div>
+              <button onClick={handleSave} style={{ padding: '.25rem .5rem', border: `1px solid ${saved ? C.border : C.orange}`, borderRadius: 5, background: saved ? 'transparent' : `${C.orange}10`, color: saved ? C.faint : C.orange, fontFamily: 'var(--font-mono)', fontSize: '.56rem', cursor: 'pointer', textAlign: 'left' }}>
+                {saved ? '✓ Saved' : '● Save changes (⌘S)'}
+              </button>
+              <button onClick={resetToDefaults} style={{ padding: '.25rem .5rem', border: `1px solid ${C.border}`, borderRadius: 5, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.52rem', cursor: 'pointer', textAlign: 'left' }}>
+                Reset to defaults
+              </button>
+              <button onClick={() => setRightTab('data')} style={{ padding: '.25rem .5rem', border: `1px solid ${C.border}`, borderRadius: 5, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.52rem', cursor: 'pointer', textAlign: 'left' }}>
+                + Add data source
+              </button>
             </div>
           </div>
         )}
@@ -580,7 +811,7 @@ export default function QuantLabPage() {
           {/* Editor area */}
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             {activeFile ? (
-              <CodeEditor value={fileContents[activeFile] ?? ''} onChange={v => { setFileContents(p => ({ ...p, [activeFile]: v })); setSaved(false) }} />
+              <CodeEditor value={fileContents[activeFile] ?? ''} onChange={v => setFileContent(activeFile, v)} />
             ) : (
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.72rem' }}>Select a file to start editing</div>
             )}
@@ -600,7 +831,7 @@ export default function QuantLabPage() {
         <div style={{ width: 376, flexShrink: 0, borderLeft: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: C.bg2 }}>
           {/* Panel tabs */}
           <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-            {(['backtest','data','chat','agent'] as const).map(t => (
+            {(['backtest','trades','data','docs','chat','agent'] as const).map(t => (
               <button key={t} onClick={() => setRightTab(t)} style={{ flex: 1, padding: '.4rem .15rem', border: 'none', borderBottom: `2px solid ${rightTab === t ? C.blue : 'transparent'}`, background: 'transparent', color: rightTab === t ? C.blue2 : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.55rem', fontWeight: 700, letterSpacing: '.07em', cursor: 'pointer', textTransform: 'uppercase' }}>{t}</button>
             ))}
           </div>
@@ -631,6 +862,12 @@ export default function QuantLabPage() {
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: C.faint, letterSpacing: '.08em', marginBottom: '.25rem' }}>REBALANCE</div>
                     <select value={rebalFreq} onChange={e => setRebalFreq(e.target.value as 'daily'|'weekly'|'monthly')} style={{ width: '100%', background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 7, padding: '.35rem .5rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.62rem', outline: 'none' }}>
                       <option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: C.faint, letterSpacing: '.08em', marginBottom: '.25rem' }}>BENCHMARK</div>
+                    <select value={benchmark} onChange={e => setBenchmark(e.target.value)} style={{ width: '100%', background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 7, padding: '.35rem .5rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.62rem', outline: 'none' }}>
+                      {Object.entries(BENCHMARKS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                     </select>
                   </div>
                 </div>
@@ -747,6 +984,75 @@ export default function QuantLabPage() {
               </div>
             )}
 
+            {/* ── TRADES PANEL ────────────────────────────────────────────── */}
+            {rightTab === 'trades' && (
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 700, color: C.white, marginBottom: '.6rem' }}>TRADE LEDGER</div>
+                {btResult ? (() => {
+                  const fills = (btResult.fills ?? []) as Array<{ date: string; symbol: string; side: string; filledShares: number; avgPrice: number; commission: number; slippageBps: number }>
+                  const orders = (btResult.orders ?? []) as Array<{ date: string; symbol: string; side: string; targetShares: number; estimatedPrice: number; estimatedSlippageBps: number }>
+                  const signals = (btResult.signal_history ?? []) as Array<{ date: string; signals: Record<string, number> }>
+                  const totalFills = fills.length
+                  const totalBuys = fills.filter(f => f.side === 'BUY').length
+                  const totalSells = fills.filter(f => f.side === 'SELL').length
+                  const totalNotional = fills.reduce((a: number, f: { filledShares: number; avgPrice: number }) => a + f.filledShares * f.avgPrice, 0)
+                  const totalCommission = fills.reduce((a: number, f: { commission: number }) => a + f.commission, 0)
+                  return (
+                    <div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '.35rem', marginBottom: '.6rem' }}>
+                        <Stat label="TRADES" value={String(totalFills)} color={C.blue} />
+                        <Stat label="BUYS" value={String(totalBuys)} color={C.mint} />
+                        <Stat label="SELLS" value={String(totalSells)} color={C.red} />
+                        <Stat label="NOTIONAL" value={`$${(totalNotional / 1e6).toFixed(2)}M`} color={C.text} />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '.35rem', marginBottom: '.75rem' }}>
+                        <Stat label="COMMISSION" value={`$${totalCommission.toFixed(0)}`} color={C.orange} />
+                        <Stat label="SIGNALS" value={String(signals.length)} color={C.blue} />
+                        <Stat label="ORDERS" value={String(orders.length)} color={C.text} />
+                      </div>
+                      {fills.length > 0 ? (
+                        <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '.52rem' }}>
+                            <thead>
+                              <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                                <th style={{ textAlign: 'left', padding: '.25rem .3rem', color: C.faint, fontWeight: 600 }}>DATE</th>
+                                <th style={{ textAlign: 'left', padding: '.25rem .3rem', color: C.faint, fontWeight: 600 }}>SYMBOL</th>
+                                <th style={{ textAlign: 'left', padding: '.25rem .3rem', color: C.faint, fontWeight: 600 }}>SIDE</th>
+                                <th style={{ textAlign: 'right', padding: '.25rem .3rem', color: C.faint, fontWeight: 600 }}>SHARES</th>
+                                <th style={{ textAlign: 'right', padding: '.25rem .3rem', color: C.faint, fontWeight: 600 }}>PRICE</th>
+                                <th style={{ textAlign: 'right', padding: '.25rem .3rem', color: C.faint, fontWeight: 600 }}>NOTIONAL</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {fills.slice(-80).map((f, i) => (
+                                <tr key={i} style={{ borderBottom: `1px solid ${C.border}22` }}>
+                                  <td style={{ padding: '.2rem .3rem', color: C.text }}>{f.date?.slice(5) ?? '—'}</td>
+                                  <td style={{ padding: '.2rem .3rem', color: C.white, fontWeight: 600 }}>{f.symbol}</td>
+                                  <td style={{ padding: '.2rem .3rem', color: f.side === 'BUY' ? C.mint : C.red, fontWeight: 700 }}>{f.side}</td>
+                                  <td style={{ padding: '.2rem .3rem', color: C.text, textAlign: 'right' }}>{f.filledShares?.toFixed(4) ?? '—'}</td>
+                                  <td style={{ padding: '.2rem .3rem', color: C.text, textAlign: 'right' }}>${f.avgPrice?.toFixed(2) ?? '—'}</td>
+                                  <td style={{ padding: '.2rem .3rem', color: C.text, textAlign: 'right' }}>${((f.filledShares ?? 0) * (f.avgPrice ?? 0)).toFixed(0)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {fills.length > 80 && <div style={{ textAlign: 'center', padding: '.4rem', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.55rem' }}>Showing last 80 of {fills.length} trades</div>}
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: 'center', padding: '2rem 0', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.62rem' }}>
+                          No trades executed. Run a backtest first.
+                        </div>
+                      )}
+                    </div>
+                  )
+                })() : (
+                  <div style={{ textAlign: 'center', padding: '2rem 0', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.62rem' }}>
+                    Run a backtest to see the trade ledger.
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* ── DATA PANEL ───────────────────────────────────────────────── */}
             {rightTab === 'data' && (
               <div>
@@ -774,6 +1080,60 @@ export default function QuantLabPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* ── DOCS PANEL ────────────────────────────────────────────────── */}
+            {rightTab === 'docs' && (
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', fontWeight: 700, color: C.white, marginBottom: '.85rem' }}>Agent Documentation</div>
+                {[
+                  { title: 'Strategy API', items: [
+                    'generateSignals(features: FeatureRow[]) → Record<string, number>',
+                    'Returns a raw alpha score per symbol. Higher = stronger long conviction.',
+                    'FeatureRow provides: ret_1d, ret_5d, ret_20d, ret_60d, vol_5d, vol_20d, vol_shock, rsi_14, macd, atr_14, ma_fast, ma_slow, bb_pct, volume, adv_20d, sector, symbol',
+                  ]},
+                  { title: 'Config Options', items: [
+                    'template — quant template name (momentum_conservative, mean_reversion_active, composite_balanced, ml_aggressive, risk_parity)',
+                    'symbols — universe array (e.g. ["BTC-USD", "ETH-USD", ...])',
+                    'rebalanceFreq — "daily" | "weekly" | "monthly"',
+                    'riskAversion — lambda for mean-variance optimizer (1–20, higher = more conservative)',
+                    'maxWeight — maximum weight per asset (0.05–0.50)',
+                    'walkForward — enables out-of-sample walk-forward validation',
+                    'initialCapital — starting capital in USD (default: 1,000,000)',
+                    'feeBps — commission in basis points (default: 7)',
+                  ]},
+                  { title: 'Risk Controls', items: [
+                    'Max gross exposure: 100% (1× leverage)',
+                    'Max position weight: 40% per asset',
+                    'Max drawdown kill switch: 35% (paused templates: momentum 15%, mean_rev 20%, risk_parity 20%, ml 30%)',
+                    '95% VaR limit: 25% daily',
+                    'Max daily turnover: 40% of portfolio',
+                    'ATR-based position sizing on every fill',
+                  ]},
+                  { title: 'Execution', items: [
+                    'Almgren-Chriss slippage model with volatility-adaptive params',
+                    'Minimum trade size: $100 notional',
+                    'Alpaca paper trading broker integration',
+                    'Commissions: equities $0.005/share, crypto 0.1% taker',
+                  ]},
+                  { title: 'Workflow', items: [
+                    '1. Edit strategy.ts and config.json in the editor',
+                    '2. Press Cmd+Enter or click RUN to backtest',
+                    '3. Review grade, Sharpe, drawdown, and trade ledger',
+                    '4. Click PUBLISH → Fill profile → Submit to exchange',
+                    '5. Manage published agents in Agent Studio',
+                  ]},
+                ].map(({ title, items }) => (
+                  <div key={title} style={{ marginBottom: '1rem' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.56rem', fontWeight: 700, color: C.blue2, letterSpacing: '.08em', marginBottom: '.35rem', textTransform: 'uppercase' }}>{title}</div>
+                    {items.map((item, i) => (
+                      <div key={i} style={{ fontSize: '.64rem', color: C.muted, lineHeight: 1.65, paddingLeft: '.3rem', marginBottom: i < items.length - 1 ? '.15rem' : 0 }}>
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+                ))}
               </div>
             )}
 
@@ -1057,5 +1417,13 @@ export default function QuantLabPage() {
         @keyframes bounce { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-4px) } }
       `}</style>
     </div>
+  )
+}
+
+export default function QuantLabPage() {
+  return (
+    <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#06111F', color: '#B7C4D5', fontFamily: 'var(--font-mono)', fontSize: '.8rem' }}>Loading Quant Lab…</div>}>
+      <QuantLabInner />
+    </Suspense>
   )
 }

@@ -209,6 +209,7 @@ export interface BacktestConfig {
   feeBps: number
   symbols: string[]
   rebalanceFreq: 'daily' | 'weekly' | 'monthly'
+  benchmark?: string
 }
 
 export interface PortfolioState {

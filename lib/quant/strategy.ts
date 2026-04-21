@@ -41,18 +41,18 @@ const DEFAULT_EXECUTION: ExecutionConfig = {
   slippageModel:     'market_impact',
   slippageBps:       5,
   participationRate: 0.10,
-  minTradeSizeUsd:   500,
+  minTradeSizeUsd:   50,
   roundLots:         false,
 }
 
 const DEFAULT_RISK_LIMITS: RiskLimits = {
   maxGrossExposure:   1.0,
-  maxNetExposure:     0.15,
-  maxPositionWeight:  0.30,
+  maxNetExposure:     0.20,
+  maxPositionWeight:  0.40,
   maxSectorExposure:  0.50,
-  maxDrawdownTrigger: 0.25,
+  maxDrawdownTrigger:  0.35,
   varConfidence:      0.95,
-  varLimitPct:        5.0,
+  varLimitPct:        25.0,
   maxDailyTurnover:   0.40,
 }
 

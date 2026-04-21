@@ -714,8 +714,8 @@ export async function POST(req: Request) {
       if (locked) symbol = locked
     }
     const params = body.params ?? {}
-    const period = body.period ?? '30d'
-    let interval = body.interval ?? '30m'
+    const period = body.period ?? '2y'
+    let interval = body.interval ?? '1d'
     // Convert timeframe to interval
     if (body.timeframe && INTERVAL_HOURS[body.timeframe]) {
       interval = body.timeframe

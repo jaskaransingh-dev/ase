@@ -163,6 +163,7 @@ export function computeTearSheet(
   equityCurve: EquityPoint[],
   benchmarkEquity: number[],
   icSeries: Array<{ date: string; ic: number; rank_ic: number }>,
+  fillCount?: number,
 ): TearSheet {
   const equity = equityCurve.map(e => e.equity)
   const dates  = equityCurve.map(e => e.date)
@@ -226,7 +227,7 @@ export function computeTearSheet(
   // Regime
   const regimes = regimeBreakdown(dates.slice(1), dailyRets, equity.slice(1))
 
-  // Trade metrics (simple proxy from equity curve)
+  // Trade metrics from equity curve
   const invested = equityCurve.map(e => e.grossExposure > 0.05 ? 1 : 0)
   const trades   = analyzesTrades(equity, invested)
   const wins     = trades.filter(t => t.returnPct > 0)
@@ -255,7 +256,7 @@ export function computeTearSheet(
     downsideVolPct:           downVol * 100,
     betaToMarket:             beta,
     alphaAnnualizedPct:       alphaAnn * 100,
-    totalTrades:              trades.length,
+    totalTrades:              fillCount ?? trades.length,
     winRate,
     profitFactor,
     avgWinPct:                avgWin,

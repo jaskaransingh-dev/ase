@@ -14,11 +14,11 @@ import type {
 export const DEFAULT_RISK_LIMITS: RiskLimits = {
   maxGrossExposure:    1.5,     // 150% gross
   maxNetExposure:      0.20,    // ±20% net
-  maxPositionWeight:   0.15,    // 15% single name
+  maxPositionWeight:   0.40,    // 40% single name
   maxSectorExposure:   0.30,    // 30% sector
   maxDrawdownTrigger:  0.20,    // halt at 20% drawdown from peak
   varConfidence:       0.95,
-  varLimitPct:         5.0,     // daily VaR ≤ 5% of portfolio
+  varLimitPct:         25.0,    // daily VaR ≤ 25% of portfolio (appropriate for crypto)
   maxDailyTurnover:    0.40,    // ≤ 40% daily turnover
 }
 
