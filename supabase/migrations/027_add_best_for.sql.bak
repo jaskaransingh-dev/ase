@@ -1,0 +1,6 @@
+-- Add all missing columns to agents table
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS best_for text DEFAULT '';
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS main_risk text DEFAULT '';
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS strategy_description text DEFAULT '';
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS plain_english text DEFAULT '';
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS owner_id uuid REFERENCES public.profiles(id);

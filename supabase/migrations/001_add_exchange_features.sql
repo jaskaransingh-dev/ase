@@ -90,6 +90,12 @@ END $$;
 ALTER TABLE limit_orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_fills ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can read own limit orders" ON limit_orders;
+DROP POLICY IF EXISTS "Users can insert own limit orders" ON limit_orders;
+DROP POLICY IF EXISTS "Users can update own limit orders" ON limit_orders;
+DROP POLICY IF EXISTS "Users can read own order fills" ON order_fills;
+DROP POLICY IF EXISTS "Anyone can read price ticks" ON price_ticks;
+
 -- Policies for limit orders
 CREATE POLICY "Users can read own limit orders"
   ON limit_orders FOR select USING (auth.uid() = user_id);

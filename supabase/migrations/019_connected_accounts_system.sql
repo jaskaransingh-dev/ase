@@ -79,9 +79,18 @@ CREATE INDEX IF NOT EXISTS allocations_user ON allocations(user_id);
 CREATE INDEX IF NOT EXISTS allocations_agent ON allocations(agent_id);
 
 -- ── ENABLE REALTIME ──────────────────────────────────────────
-ALTER PUBLICATION supabase_realtime ADD TABLE connected_accounts;
-ALTER PUBLICATION supabase_realtime ADD TABLE account_balances;
-ALTER PUBLICATION supabase_realtime ADD TABLE allocations;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'connected_accounts'
+  ) THEN ALTER PUBLICATION supabase_realtime ADD TABLE connected_accounts; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'account_balances'
+  ) THEN ALTER PUBLICATION supabase_realtime ADD TABLE account_balances; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'allocations'
+  ) THEN ALTER PUBLICATION supabase_realtime ADD TABLE allocations; END IF;
+END $$;
 
 -- ── ROW LEVEL SECURITY ────────────────────────────────────────────
 ALTER TABLE connected_accounts ENABLE ROW LEVEL SECURITY;
@@ -89,6 +98,10 @@ ALTER TABLE account_balances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE allocations ENABLE ROW LEVEL SECURITY;
 
 -- Policies for connected accounts
+DROP POLICY IF EXISTS "Users can read own connected accounts" ON connected_accounts;
+DROP POLICY IF EXISTS "Users can insert own connected accounts" ON connected_accounts;
+DROP POLICY IF EXISTS "Users can update own connected accounts" ON connected_accounts;
+DROP POLICY IF EXISTS "Users can delete own connected accounts" ON connected_accounts;
 CREATE POLICY "Users can read own connected accounts"
   ON connected_accounts FOR select USING (auth.uid() = user_id);
 
@@ -102,6 +115,8 @@ CREATE POLICY "Users can delete own connected accounts"
   ON connected_accounts FOR delete USING (auth.uid() = user_id);
 
 -- Policies for account balances
+DROP POLICY IF EXISTS "Users can read own account balances" ON account_balances;
+DROP POLICY IF EXISTS "Users can update own account balances" ON account_balances;
 CREATE POLICY "Users can read own account balances"
   ON account_balances FOR select USING (auth.uid() = user_id);
 
@@ -109,6 +124,10 @@ CREATE POLICY "Users can update own account balances"
   ON account_balances FOR update USING (auth.uid() = user_id);
 
 -- Policies for allocations
+DROP POLICY IF EXISTS "Users can read own allocations" ON allocations;
+DROP POLICY IF EXISTS "Users can insert own allocations" ON allocations;
+DROP POLICY IF EXISTS "Users can update own allocations" ON allocations;
+DROP POLICY IF EXISTS "Users can delete own allocations" ON allocations;
 CREATE POLICY "Users can read own allocations"
   ON allocations FOR select USING (auth.uid() = user_id);
 

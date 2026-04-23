@@ -133,6 +133,7 @@ export default function StudioPage() {
         .from('agents')
         .select('id, name, slug, ticker, description, strategy_type, status, total_aum_cents, share_price_cents, signal_summary, last_run_at, primary_symbol, subscriber_count, backtest_stats, agent_stats(nav_cents, bid_cents, ask_cents, total_return_pct, sharpe_ratio, max_drawdown_pct, win_rate_pct, total_trades, snapshot_at), owner_id, monthly_fee_cents, created_at')
         .eq('owner_id', id)
+        .in('status', ['active', 'paused', 'pending_review', 'draft'])
         .order('created_at', { ascending: false })
         .then(({ data: agents }) => {
           setDbAgents((agents as unknown as DbAgent[]) ?? [])
@@ -178,10 +179,12 @@ export default function StudioPage() {
   }
 
   function openEdit(id: string) {
-    const a = agents.find(x => x.id === id)!
-    setDraft({ ...a })
-    setEditingId(id)
-    setPublishingId(null)
+    const a = agents.find(x => x.id === id)
+    if (!a) return
+    const code = encodeURIComponent(a.strategyCode || '')
+    const desc = encodeURIComponent(a.description || '')
+    const name = encodeURIComponent(a.name || '')
+    router.push(`/dashboard/quant?edit=1&name=${name}&code=${code}&desc=${desc}`)
   }
 
   function closeSlide() {
@@ -352,7 +355,7 @@ export default function StudioPage() {
                       transition: 'all 0.15s',
                     }}
                   >
-                    {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+                    {s === 'all' ? 'ALL' : s === 'draft' ? 'DRAFTS' : s.toUpperCase()}
                   </button>
                 )
               })}

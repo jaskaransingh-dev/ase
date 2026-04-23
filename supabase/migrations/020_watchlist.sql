@@ -15,6 +15,9 @@ CREATE INDEX IF NOT EXISTS watchlist_agent ON watchlist(agent_id);
 ALTER TABLE watchlist ENABLE ROW LEVEL SECURITY;
 
 -- Policies
+DROP POLICY IF EXISTS "Users can read own watchlist" ON watchlist;
+DROP POLICY IF EXISTS "Users can insert own watchlist" ON watchlist;
+DROP POLICY IF EXISTS "Users can delete own watchlist" ON watchlist;
 CREATE POLICY "Users can read own watchlist"
     ON watchlist FOR select USING (auth.uid() = user_id);
 

@@ -85,6 +85,7 @@ CREATE POLICY "Service role can write agent_trades"
   WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Service role can write price_ticks" ON price_ticks;
+DROP POLICY IF EXISTS "price_ticks public write" ON price_ticks;
 CREATE POLICY "price_ticks public write"
   ON price_ticks FOR ALL
   USING (true)
