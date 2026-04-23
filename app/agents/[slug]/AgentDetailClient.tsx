@@ -59,7 +59,7 @@ interface Props {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const TABS = ['Overview', 'Performance', 'Live', 'Backtest', 'Trades', 'Thinking', 'Strategy', 'Monte Carlo'] as const
+const TABS = ['Overview', 'Performance', 'Live', 'Backtest', 'Trades', 'Activity', 'Thinking', 'Strategy', 'Monte Carlo'] as const
 type Tab = typeof TABS[number]
 
 const strategyDescriptions: Record<string, string> = {
@@ -697,40 +697,50 @@ export default function AgentDetailClient({
                 <LiveNavPanel agentSlug={agent.slug} />
               )}
 
-              {/* TRADES */}
+{/* TRADES */}
               {tab === 'Trades' && (
                 <div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--faint)', marginBottom: '.8rem', textTransform: 'uppercase' }}>
+                    {trades.length} Trades
+                  </div>
                   {trades.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.66rem', letterSpacing: '.08em' }}>NO TRADES RECORDED YET</div>
-                  ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '.7rem' }}>
-                        <thead>
-                          <tr>{['Symbol', 'Side', 'Qty', 'Fill Price', 'P&L', 'Date'].map(h => (
-                            <th key={h} style={{ padding: '.5rem .7rem', textAlign: 'left', color: 'var(--faint)', fontWeight: 600, fontSize: '.52rem', letterSpacing: '.1em', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h.toUpperCase()}</th>
-                          ))}</tr>
-                        </thead>
-                        <tbody>
-                          {trades.map((t, i) => {
-                            const pnl = t.pnl_cents ?? 0
-                            return (
-                              <tr key={t.id} style={{ borderBottom: i < trades.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
-                                <td style={{ padding: '.5rem .7rem', fontWeight: 700 }}>{t.symbol}</td>
-                                <td style={{ padding: '.5rem .7rem', color: t.side === 'buy' ? 'var(--green)' : 'var(--red)', fontWeight: 700, textTransform: 'uppercase', fontSize: '.63rem' }}>{t.side}</td>
-                                <td style={{ padding: '.5rem .7rem', color: 'var(--muted)' }}>{Number(t.qty).toFixed(4)}</td>
-                                <td style={{ padding: '.5rem .7rem', color: 'var(--muted)' }}>${Number(t.fill_price).toFixed(2)}</td>
-                                <td style={{ padding: '.5rem .7rem', color: pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--faint)', fontWeight: pnl !== 0 ? 700 : 400 }}>
-                                  {pnl !== 0 ? `${pnl > 0 ? '+' : ''}$${(pnl / 100).toFixed(2)}` : '—'}
-                                </td>
-                                <td style={{ padding: '.5rem .7rem', color: 'var(--faint)', whiteSpace: 'nowrap' }}>{new Date(t.filled_at).toLocaleDateString()}</td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
+                    <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.66rem', letterSpacing: '.08em' }}>
+                      NO TRADES YET
                     </div>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '.7rem' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--faint)', fontSize: '.5rem', letterSpacing: '.08em' }}>
+                          <th style={{ padding: '.4rem .5rem', textAlign: 'left' }}>SIDE</th>
+                          <th style={{ padding: '.4rem .5rem', textAlign: 'left' }}>SYMBOL</th>
+                          <th style={{ padding: '.4rem .5rem', textAlign: 'right' }}>QTY</th>
+                          <th style={{ padding: '.4rem .5rem', textAlign: 'right' }}>PRICE</th>
+                          <th style={{ padding: '.4rem .5rem', textAlign: 'right' }}>P&L</th>
+                          <th style={{ padding: '.4rem .5rem', textAlign: 'right' }}>DATE</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {trades.map((t, i) => (
+                          <tr key={t.id || i} style={{ borderBottom: '1px solid var(--border)', color: 'var(--white)' }}>
+                            <td style={{ padding: '.45rem .5rem', color: t.side === 'buy' ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{t.side?.toUpperCase()}</td>
+                            <td style={{ padding: '.45rem .5rem' }}>{t.symbol}</td>
+                            <td style={{ padding: '.45rem .5rem', textAlign: 'right', color: 'var(--muted)' }}>{t.qty?.toFixed(4)}</td>
+                            <td style={{ padding: '.45rem .5rem', textAlign: 'right', color: 'var(--muted)' }}>${t.fill_price?.toFixed(2)}</td>
+                            <td style={{ padding: '.45rem .5rem', textAlign: 'right', color: t.pnl_cents !== null ? (t.pnl_cents >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--faint)' }}>
+                              {t.pnl_cents != null ? `${t.pnl_cents >= 0 ? '+' : ''}${(t.pnl_cents / 100).toFixed(2)}` : '—'}
+                            </td>
+                            <td style={{ padding: '.45rem .5rem', textAlign: 'right', color: 'var(--faint)' }}>{t.filled_at ? new Date(t.filled_at).toLocaleDateString() : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   )}
                 </div>
+              )}
+
+              {/* ACTIVITY - Real-time agent execution feed */}
+              {tab === 'Activity' && (
+                <AgentActivityPanel agentSlug={agent.slug} />
               )}
 
               {/* THINKING */}
@@ -1376,6 +1386,235 @@ function LiveNavPanel({ agentSlug }: { agentSlug: string }) {
                 {symbol}: <span style={{ color: 'var(--blue2)' }}>${price.toFixed(2)}</span>
               </span>
             ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Agent Activity Panel ────────────────────────────────────────────────────
+// Live feed of agent executions: trades, signals, decisions from cron runs
+
+interface ActivityEntry {
+  run_at: string
+  signal_summary: string
+  thinking: string | null
+  actions_json: string | null
+  indicators_json: string | null
+  price_source: string
+}
+
+interface AgentActivityData {
+  runs: ActivityEntry[]
+  recentTrades: Trade[]
+  lastRunAt: string | null
+  totalRuns: number
+}
+
+function AgentActivityPanel({ agentSlug }: { agentSlug: string }) {
+  interface TradeAction {
+    action: string
+    symbol: string
+    qty?: number
+    notional?: number
+    fill_price?: number
+  }
+  const [data, setData] = useState<AgentActivityData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+
+  const fetchActivity = useCallback(async () => {
+    try {
+      const [reasoningRes, tradesRes] = await Promise.all([
+        fetch(`/api/agents/${agentSlug}/reasoning`),
+        fetch(`/api/agents/${agentSlug}/trades`),
+      ])
+
+      const [reasoningJson, tradesJson] = await Promise.all([
+        reasoningRes.json(),
+        tradesRes.json(),
+      ])
+
+      const runs = (reasoningJson.reasoning ?? []).slice(0, 10)
+      const recentTrades = (tradesJson.trades ?? []).slice(0, 20).map((t: Trade) => t)
+
+      setData({
+        runs,
+        recentTrades,
+        lastRunAt: runs[0]?.run_at ?? null,
+        totalRuns: reasoningJson.reasoning?.length ?? 0,
+      })
+      setLastUpdated(new Date())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load activity')
+    } finally {
+      setLoading(false)
+    }
+  }, [agentSlug])
+
+  useEffect(() => {
+    fetchActivity()
+    if (!autoRefresh) return
+    const interval = setInterval(fetchActivity, 30000)
+    return () => clearInterval(interval)
+  }, [fetchActivity, autoRefresh])
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.66rem', letterSpacing: '.08em' }}>
+        LOADING AGENT ACTIVITY...
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: '1rem', background: 'rgba(242,54,69,.06)', border: '1px solid rgba(242,54,69,.16)', borderRadius: 9, color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: '.7rem' }}>
+        ERROR: {error}
+      </div>
+    )
+  }
+
+  const latestRun = data?.runs[0]
+  const actions = latestRun?.actions_json ? JSON.parse(latestRun.actions_json) : []
+  const indicators = latestRun?.indicators_json ? JSON.parse(latestRun.indicators_json) : null
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--faint)', textTransform: 'uppercase' }}>
+            {data?.totalRuns ?? 0} RUNS LOGGED
+          </span>
+          {data?.lastRunAt && (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--muted)' }}>
+              · Last: {new Date(data.lastRunAt).toLocaleString()}
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+          <label style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', display: 'flex', alignItems: 'center', gap: '.3rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} style={{ accentColor: 'var(--blue2)' }} />
+            AUTO-REFRESH (30s)
+          </label>
+          <button onClick={fetchActivity} style={{ padding: '.25rem .5rem', borderRadius: 5, fontSize: '.48rem', fontFamily: 'var(--font-mono)', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', cursor: 'pointer', letterSpacing: '.04em' }}>
+            REFRESH
+          </button>
+        </div>
+      </div>
+
+      {/* Latest Signal */}
+      {latestRun && (
+        <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '.9rem 1rem', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.5rem' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--blue2)', textTransform: 'uppercase' }}>Latest Signal</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--muted)' }}>
+              {new Date(latestRun.run_at).toLocaleString()}
+            </span>
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.9rem', fontWeight: 700, color: latestRun.signal_summary?.includes('BUY') ? 'var(--green)' : latestRun.signal_summary?.includes('SELL') ? 'var(--red)' : 'var(--white)' }}>
+            {latestRun.signal_summary || 'SCANNING'}
+          </div>
+          {latestRun.thinking && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.56rem', color: 'var(--muted)', marginTop: '.5rem', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+              {latestRun.thinking}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Actions / Trades in last run */}
+      {actions.length > 0 && (
+        <div style={{ marginBottom: '1.1rem' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--faint)', marginBottom: '.6rem', textTransform: 'uppercase' }}>
+            Executed in Latest Run
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+            {actions.map((a: TradeAction, i: number) => (
+              <div key={i} style={{ background: 'var(--bg3)', border: `1px solid ${a.action === 'BUY' ? 'rgba(22,199,132,.18)' : a.action === 'SELL' ? 'rgba(242,54,69,.18)' : 'var(--border)'}`, borderRadius: 8, padding: '.65rem .85rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 700, padding: '.15rem .35rem', borderRadius: 4, background: a.action === 'BUY' ? 'rgba(22,199,132,.1)' : a.action === 'SELL' ? 'rgba(242,54,69,.1)' : 'rgba(59,127,255,.1)', color: a.action === 'BUY' ? 'var(--green)' : a.action === 'SELL' ? 'var(--red)' : 'var(--blue2)' }}>
+                    {a.action}
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', color: 'var(--white)' }}>{a.symbol}</span>
+                </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--muted)' }}>
+                  {a.notional ? `$${a.notional.toFixed(0)}` : a.qty ? `${a.qty.toFixed(4)} units` : '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Indicators */}
+      {indicators && (
+        <div style={{ marginBottom: '1.1rem' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--faint)', marginBottom: '.6rem', textTransform: 'uppercase' }}>
+            Technical Indicators
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
+            {Object.entries(indicators).map(([key, value]) => (
+              <div key={key} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 7, padding: '.35rem .6rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: 'var(--faint)', letterSpacing: '.08em' }}>{String(key).toUpperCase()}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', fontWeight: 700, color: 'var(--white)' }}>{typeof value === 'number' ? value.toFixed(4) : String(value)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Trades Log */}
+      {data?.recentTrades && data.recentTrades.length > 0 && (
+        <div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--faint)', marginBottom: '.6rem', textTransform: 'uppercase' }}>
+            Recent Trades ({data.recentTrades.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+            {data.recentTrades.map((t, i) => (
+              <div key={t.id || i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '.35rem 0', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: '.6rem' }}>
+                <span style={{ color: t.side === 'buy' ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>{t.side?.toUpperCase()}</span>
+                <span style={{ color: 'var(--white)' }}>{t.symbol}</span>
+                <span style={{ color: 'var(--muted)' }}>{t.qty?.toFixed(4)}</span>
+                <span style={{ color: 'var(--muted)' }}>${t.fill_price?.toFixed(2)}</span>
+                <span style={{ color: 'var(--faint)' }}>{t.filled_at ? new Date(t.filled_at).toLocaleDateString() : '—'}</span>
+                {t.pnl_cents != null && (
+                  <span style={{ color: t.pnl_cents >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+                    {t.pnl_cents >= 0 ? '+' : ''}${(t.pnl_cents / 100).toFixed(2)}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Run History */}
+      {data?.runs && data.runs.length > 1 && (
+        <div style={{ marginTop: '1.1rem' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, letterSpacing: '.1em', color: 'var(--faint)', marginBottom: '.6rem', textTransform: 'uppercase' }}>
+            Run History
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+            {data.runs.slice(1).map((run, i) => {
+              const prevRun = data.runs[i + 1]
+              const actions = run.actions_json ? JSON.parse(run.actions_json) : []
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 7, padding: '.4rem .7rem', fontFamily: 'var(--font-mono)', fontSize: '.56rem' }}>
+                  <span style={{ color: 'var(--faint)' }}>{new Date(run.run_at).toLocaleString()}</span>
+                  <span style={{ color: run.signal_summary?.includes('BUY') ? 'var(--green)' : run.signal_summary?.includes('SELL') ? 'var(--red)' : 'var(--muted)', fontWeight: 600 }}>
+                    {run.signal_summary || 'SCANNING'}
+                  </span>
+                  <span style={{ color: 'var(--blue2)' }}>
+                    {actions.length > 0 ? `${actions.length} trade(s)` : '—no trades'}
+                  </span>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
