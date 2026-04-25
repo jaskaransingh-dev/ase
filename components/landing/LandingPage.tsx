@@ -185,31 +185,32 @@ export default function LandingPage() {
       {/* ── TERMINAL UI PREVIEW ── */}
       <section style={{ padding: '0 1.5rem 4rem', maxWidth: 1240, margin: '0 auto', position: 'relative', zIndex: 1 }}>
         <div style={{ background: 'linear-gradient(180deg, rgba(16,26,45,0.98) 0%, rgba(11,23,40,0.96) 100%)', border: '1px solid rgba(30,42,61,0.8)', borderRadius: 18, overflow: 'hidden', boxShadow: '0 40px 100px rgba(0,0,0,0.5), 0 0 0 1px rgba(79,140,255,0.06)', maxWidth: 960, margin: '0 auto' }}>
-          {/* Window chrome */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.8rem 1.25rem', borderBottom: '1px solid rgba(30,42,61,0.7)', background: 'rgba(6,17,31,0.5)' }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#E45867', display: 'inline-block' }} />
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#F5B942', display: 'inline-block' }} />
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#16C784', display: 'inline-block' }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', color: 'rgba(85,101,122,0.7)', marginLeft: '0.5rem' }}>ASE Dashboard — Portfolio Overview</span>
+          {/* Window chrome with tabs */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.6rem 1rem 0.6rem 1.25rem', borderBottom: '1px solid rgba(30,42,61,0.7)', background: 'rgba(6,17,31,0.5)' }}>
+            <div style={{ display: 'flex', gap: '0.25rem' }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#E45867', display: 'inline-block' }} />
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#F5B942', display: 'inline-block' }} />
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#16C784', display: 'inline-block' }} />
+            </div>
+            <div style={{ display: 'flex', gap: '0.15rem', marginLeft: '1rem' }}>
+              {['Portfolio', 'Agents', 'Activity'].map((tab, i) => (
+                <div key={tab} style={{ padding: '0.25rem 0.6rem', borderRadius: 4, background: i === 0 ? 'rgba(79,140,255,0.12)' : 'transparent', border: i === 0 ? '1px solid rgba(79,140,255,0.25)' : '1px solid transparent', fontFamily: 'var(--font-mono)', fontSize: '0.52rem', color: i === 0 ? '#6BA3FF' : 'rgba(85,101,122,0.7)' }}>{tab}</div>
+              ))}
+            </div>
+            <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '0.52rem', color: 'rgba(85,101,122,0.7)' }}>ASE Dashboard</span>
           </div>
           {/* Content */}
           <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: '1fr 260px', gap: '1.25rem' }} className="ui-preview-grid">
-            {/* Left col */}
             <div>
-              {/* Portfolio value */}
               <div style={{ marginBottom: '1rem' }}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'rgba(85,101,122,0.8)', letterSpacing: '0.1em', marginBottom: '0.35rem' }}>PORTFOLIO VALUE</div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '2rem', fontWeight: 800, color: '#F7FAFF', letterSpacing: '-0.03em' }}>$84,241.32</div>
                 <div style={{ display: 'flex', gap: '1.25rem', marginTop: '0.5rem' }}>
                   {[{ l: 'TODAY P&L', v: '+$2,441', c: '#16C784' }, { l: 'ALL-TIME', v: '+22.7%', c: '#16C784' }, { l: 'TOTAL P&L', v: '+$15,241', c: '#16C784' }].map(m => (
-                    <div key={m.l}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.45rem', color: 'rgba(85,101,122,0.7)', letterSpacing: '0.08em', marginBottom: '0.1rem' }}>{m.l}</div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700, color: m.c }}>{m.v}</div>
-                    </div>
+                    <div key={m.l}><div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.45rem', color: 'rgba(85,101,122,0.7)', letterSpacing: '0.08em', marginBottom: '0.1rem' }}>{m.l}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700, color: m.c }}>{m.v}</div></div>
                   ))}
                 </div>
               </div>
-              {/* Stats strip */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '0.6rem', marginBottom: '1rem' }}>
                 {[{ l: 'CASH', v: '$12,800' }, { l: 'INVESTED', v: '$71,441' }, { l: 'AGENTS', v: '3', c: '#16C784' }, { l: 'RISK', v: 'LOW', c: '#16C784' }].map(s => (
                   <div key={s.l} style={{ background: 'rgba(16,26,45,0.8)', border: '1px solid rgba(30,42,61,0.7)', borderRadius: 8, padding: '0.65rem 0.75rem' }}>
@@ -218,58 +219,33 @@ export default function LandingPage() {
                   </div>
                 ))}
               </div>
-              {/* Agents table */}
               <div style={{ background: 'rgba(11,23,40,0.6)', border: '1px solid rgba(30,42,61,0.6)', borderRadius: 8, overflow: 'hidden' }}>
-                <div style={{ display: 'flex', padding: '0.5rem 0.75rem', borderBottom: '1px solid rgba(30,42,61,0.5)' }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.45rem', color: 'rgba(85,101,122,0.7)', letterSpacing: '0.1em' }}>YOUR ALLOCATIONS</span>
-                </div>
+                <div style={{ display: 'flex', padding: '0.5rem 0.75rem', borderBottom: '1px solid rgba(30,42,61,0.5)' }}><span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.45rem', color: 'rgba(85,101,122,0.7)', letterSpacing: '0.1em' }}>YOUR ALLOCATIONS</span></div>
                 {DEMO_AGENTS.map((a, i) => (
                   <div key={a.name} style={{ display: 'flex', alignItems: 'center', padding: '0.6rem 0.75rem', borderBottom: i < DEMO_AGENTS.length - 1 ? '1px solid rgba(30,42,61,0.4)' : 'none', gap: '0.6rem' }}>
-                    <div style={{ width: 24, height: 24, borderRadius: 6, background: 'rgba(79,140,255,0.12)', border: '1px solid rgba(79,140,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.42rem', fontWeight: 700, color: '#6BA3FF' }}>{a.slug.slice(0, 3).toUpperCase()}</span>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#F7FAFF' }}>{a.name}</div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.44rem', color: 'rgba(85,101,122,0.7)' }}>{a.symbol}</div>
-                    </div>
+                    <div style={{ width: 24, height: 24, borderRadius: 6, background: 'rgba(79,140,255,0.12)', border: '1px solid rgba(79,140,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.42rem', fontWeight: 700, color: '#6BA3FF' }}>{a.slug.slice(0, 3).toUpperCase()}</span></div>
+                    <div style={{ flex: 1 }}><div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#F7FAFF' }}>{a.name}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.44rem', color: 'rgba(85,101,122,0.7)' }}>{a.symbol}</div></div>
                     <MiniChart positive={a.pos} height={24} width={48} />
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700, color: '#16C784', textAlign: 'right', minWidth: 46 }}>+{a.ret}%</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontFamily: 'var(--font-mono)', fontSize: '0.42rem', color: '#16C784', minWidth: 48 }}>
-                      <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#16C784', display: 'inline-block' }} />ACTIVE
-                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontFamily: 'var(--font-mono)', fontSize: '0.42rem', color: '#16C784', minWidth: 48 }}><span style={{ width: 4, height: 4, borderRadius: '50%', background: '#16C784', display: 'inline-block' }} />ACTIVE</div>
                   </div>
                 ))}
               </div>
             </div>
-
-            {/* Right col */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {/* Live feed */}
               <div style={{ background: 'rgba(11,23,40,0.6)', border: '1px solid rgba(30,42,61,0.6)', borderRadius: 8, overflow: 'hidden', flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0.75rem', borderBottom: '1px solid rgba(30,42,61,0.5)' }}>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.45rem', color: 'rgba(85,101,122,0.7)', letterSpacing: '0.1em' }}>LIVE ACTIVITY</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#16C784', display: 'inline-block', animation: 'pulse 2s infinite' }} />
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.42rem', color: '#16C784' }}>LIVE</span>
-                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span style={{ width: 4, height: 4, borderRadius: '50%', background: '#16C784', animation: 'pulse 2s infinite' }} /><span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.42rem', color: '#16C784' }}>LIVE</span></div>
                 </div>
-                {[
-                  { dir: '↑', sym: 'BTC-USD', detail: 'Bought 0.05 @ $41,200', agent: 'BTC Alpha', t: '2m ago' },
-                  { dir: '↓', sym: 'ETH-USD', detail: 'Sold 1.2 @ $2,641', agent: 'ETH Mean Rev', t: '8m ago' },
-                  { dir: '↑', sym: 'SPY', detail: 'Bought 10 @ $487.32', agent: 'Composite', t: '15m ago' },
-                ].map((ev, i) => (
+                {[{ dir: '↑', sym: 'BTC-USD', detail: 'Bought 0.05 @ $41,200', agent: 'BTC Alpha', t: '2m ago' }, { dir: '↓', sym: 'ETH-USD', detail: 'Sold 1.2 @ $2,641', agent: 'ETH Mean', t: '8m ago' }, { dir: '↑', sym: 'SPY', detail: 'Bought 10 @ $487', agent: 'Macro', t: '15m ago' }].map((ev, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.55rem 0.75rem', borderBottom: i < 2 ? '1px solid rgba(30,42,61,0.35)' : 'none' }}>
                     <div style={{ width: 18, height: 18, borderRadius: 5, background: ev.dir === '↑' ? 'rgba(22,199,132,0.12)' : 'rgba(228,88,103,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: ev.dir === '↑' ? '#16C784' : '#E45867', fontSize: '0.6rem', fontWeight: 700, flexShrink: 0 }}>{ev.dir}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '0.65rem', fontWeight: 600, color: '#F7FAFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.agent}</div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.48rem', color: 'rgba(85,101,122,0.7)' }}>{ev.sym} · {ev.detail}</div>
-                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: '0.65rem', fontWeight: 600, color: '#F7FAFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.agent}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.48rem', color: 'rgba(85,101,122,0.7)' }}>{ev.sym} · {ev.detail}</div></div>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.48rem', color: 'rgba(85,101,122,0.7)', flexShrink: 0 }}>{ev.t}</div>
                   </div>
                 ))}
               </div>
-
-              {/* Briefing */}
               <div style={{ background: 'rgba(11,23,40,0.6)', border: '1px solid rgba(30,42,61,0.6)', borderRadius: 8, padding: '0.75rem' }}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.45rem', color: 'rgba(85,101,122,0.7)', letterSpacing: '0.1em', marginBottom: '0.5rem' }}>TODAY&apos;S BRIEFING</div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.48rem', color: 'rgba(85,101,122,0.7)', marginBottom: '0.25rem' }}>TOP PERFORMER</div>
@@ -278,14 +254,9 @@ export default function LandingPage() {
               </div>
             </div>
           </div>
-
-          {/* Bottom status bar */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', padding: '0.5rem 1.25rem', borderTop: '1px solid rgba(30,42,61,0.6)', background: 'rgba(6,17,31,0.4)' }}>
             {[{ l: 'ENV', v: 'PRODUCTION' }, { l: 'API', v: 'CONNECTED', c: '#16C784' }, { l: 'ALPACA', v: 'ACTIVE', c: '#16C784' }].map(s => (
-              <div key={s.l} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.45rem', color: 'rgba(85,101,122,0.7)' }}>{s.l}:</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.45rem', color: (s as { c?: string }).c ?? 'rgba(127,140,163,0.7)', fontWeight: 600 }}>{s.v}</span>
-              </div>
+              <div key={s.l} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.45rem', color: 'rgba(85,101,122,0.7)' }}>{s.l}:</span><span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.45rem', color: (s as { c?: string }).c ?? 'rgba(127,140,163,0.7)', fontWeight: 600 }}>{s.v}</span></div>
             ))}
             <div style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '0.45rem', color: 'rgba(85,101,122,0.5)' }}>ASE Platform · Not financial advice</div>
           </div>

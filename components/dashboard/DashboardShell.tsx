@@ -182,7 +182,22 @@ export default function DashboardShell({ user, children }: { user: { id: string;
                         <path d={item.icon} />
                       </svg>
                       {!iconOnly && <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>}
-                      {active && !iconOnly && (
+                      {item.badge && (
+                        <span style={{
+                          marginLeft: 'auto',
+                          padding: '2px 5px',
+                          fontSize: '0.45rem',
+                          fontWeight: 700,
+                          letterSpacing: '0.1em',
+                          borderRadius: 4,
+                          background: item.badgeColor === '#FFB800' ? 'rgba(255,184,0,0.15)' : 'rgba(79,140,255,0.15)',
+                          color: item.badgeColor === '#FFB800' ? '#FFB800' : 'var(--blue)',
+                          border: `1px solid ${item.badgeColor === '#FFB800' ? 'rgba(255,184,0,0.3)' : 'rgba(79,140,255,0.3)'}`,
+                        }}>
+                          {item.badge}
+                        </span>
+                      )}
+                      {active && !iconOnly && !item.badge && (
                         <div style={{ marginLeft: 'auto', width: 4, height: 4, borderRadius: '50%', background: 'var(--blue)', flexShrink: 0 }} />
                       )}
                     </Link>

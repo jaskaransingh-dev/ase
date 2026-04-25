@@ -41,6 +41,23 @@ export interface AlpacaBar {
   v: number // volume
 }
 
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries = 3
+): Promise<Response> {
+  let lastError = ''
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const res = await fetch(url, { ...options })
+    if (res.ok || res.status !== 401) return res
+    lastError = await res.text()
+    if (attempt < maxRetries) {
+      await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
+    }
+  }
+  throw new Error(`Request failed after ${maxRetries + 1} attempts: ${lastError}`)
+}
+
 function getHeaders(apiKey?: string, secretKey?: string) {
   return {
     'APCA-API-KEY-ID': apiKey || process.env.ALPACA_KEY_ID!,
@@ -140,7 +157,7 @@ export async function submitOrder(
     payload.notional = Number(params.notional.toFixed(2))
   }
 
-  const res = await fetch(`${ALPACA_BASE_URL}/v2/orders`, {
+  const res = await fetchWithRetry(`${ALPACA_BASE_URL}/v2/orders`, {
     method: 'POST',
     headers: getHeaders(apiKey, secretKey),
     body: JSON.stringify(payload),
