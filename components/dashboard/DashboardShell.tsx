@@ -88,15 +88,18 @@ export default function DashboardShell({ user, children }: { user: { id: string;
         }}
       >
         {/* Brand */}
-        <div className="sidebar-brand" style={{ justifyContent: 'space-between' }}>
+        <div className="sidebar-brand" style={{ justifyContent: 'space-between', height: 46, borderBottom: '1px solid rgba(30,42,61,0.8)' }}>
           <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Logo size="medium" variant="icon" showLink={false} />
+            <Logo size="small" variant="icon" showLink={false} />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', fontWeight: 700, color: 'var(--white)', letterSpacing: '0.08em', opacity: 0.9 }}>ASE</span>
           </Link>
           <button
             onClick={() => setSidebarOpen(false)}
-            style={{ background: 'transparent', border: 'none', color: 'var(--faint)', cursor: 'pointer', padding: '0.25rem', display: 'flex', alignItems: 'center' }}
+            style={{ background: 'transparent', border: '1px solid transparent', borderRadius: 5, color: 'var(--faint)', cursor: 'pointer', padding: '0.25rem', display: 'flex', alignItems: 'center', transition: 'all 0.12s' }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg3)' }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--faint)'; e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'transparent' }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12"/>
             </svg>
           </button>
@@ -389,19 +392,21 @@ export default function DashboardShell({ user, children }: { user: { id: string;
           zIndex: 90,
           display: 'flex',
           alignItems: 'center',
-          gap: '0.75rem',
-          padding: '0 1.25rem',
-          height: 52,
-          background: 'rgba(6,17,31,0.88)',
-          backdropFilter: 'blur(18px)',
-          borderBottom: '1px solid var(--border)',
+          gap: '0.6rem',
+          padding: '0 1rem',
+          height: 46,
+          background: 'rgba(3,13,25,0.92)',
+          backdropFilter: 'blur(24px) saturate(160%)',
+          borderBottom: '1px solid rgba(30,42,61,0.8)',
         }}>
           {/* Sidebar toggle */}
           <button
             onClick={() => { setSidebarOpen(v => !v); setMobileOpen(false) }}
-            style={{ background: 'transparent', border: 'none', color: 'var(--faint)', cursor: 'pointer', padding: '0.25rem', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+            style={{ background: 'transparent', border: '1px solid transparent', borderRadius: 6, color: 'var(--faint)', cursor: 'pointer', padding: '0.3rem', display: 'flex', alignItems: 'center', flexShrink: 0, transition: 'all 0.12s' }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg3)' }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--faint)'; e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'transparent' }}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M4 6h16M4 12h16M4 18h16"/>
             </svg>
           </button>
@@ -412,23 +417,26 @@ export default function DashboardShell({ user, children }: { user: { id: string;
             onClick={() => setMobileOpen(v => !v)}
             style={{ background: 'transparent', border: 'none', color: 'var(--faint)', cursor: 'pointer', padding: '0.25rem', display: 'none', alignItems: 'center', flexShrink: 0 }}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
           </button>
 
+          {/* Divider */}
+          <div style={{ width: 1, height: 16, background: 'var(--border)', flexShrink: 0 }} />
+
           {/* Breadcrumbs */}
-          <div className="quant-breadcrumbs" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flex: 1, minWidth: 0 }}>
-            <Link href="/dashboard" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--faint)', textDecoration: 'none', transition: 'color 0.14s', whiteSpace: 'nowrap' }}
+          <div className="quant-breadcrumbs" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flex: 1, minWidth: 0 }}>
+            <Link href="/dashboard" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--faint)', textDecoration: 'none', transition: 'color 0.12s', whiteSpace: 'nowrap', letterSpacing: '0.04em' }}
               onMouseEnter={e => e.currentTarget.style.color = 'var(--muted)'}
               onMouseLeave={e => e.currentTarget.style.color = 'var(--faint)'}>
               ASE
             </Link>
             {getBreadcrumbs().map((crumb) => (
-              <span key={crumb.href} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                <span style={{ color: 'var(--border2)', fontSize: '0.65rem' }}>/</span>
+              <span key={crumb.href} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                <span style={{ color: 'var(--border2)', fontSize: '0.6rem', opacity: 0.6 }}>/</span>
                 {crumb.isLast ? (
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text)', fontWeight: 600 }}>{crumb.label}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--white)', fontWeight: 600, letterSpacing: '0.04em' }}>{crumb.label}</span>
                 ) : (
-                  <Link href={crumb.href} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--faint)', textDecoration: 'none' }}
+                  <Link href={crumb.href} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--faint)', textDecoration: 'none', letterSpacing: '0.04em' }}
                     onMouseEnter={e => e.currentTarget.style.color = 'var(--muted)'}
                     onMouseLeave={e => e.currentTarget.style.color = 'var(--faint)'}>
                     {crumb.label}
@@ -439,34 +447,36 @@ export default function DashboardShell({ user, children }: { user: { id: string;
           </div>
 
           {/* Right actions */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
             {/* Market status */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.3rem 0.6rem', borderRadius: 6, background: 'var(--bg3)', border: '1px solid var(--border)' }}>
-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: marketOpen ? 'var(--mint)' : 'var(--faint)', animation: marketOpen ? 'pulse 2s infinite' : 'none' }} />
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', color: marketOpen ? 'var(--mint)' : 'var(--faint)', letterSpacing: '0.04em' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.25rem 0.55rem', borderRadius: 5, background: 'var(--bg3)', border: '1px solid var(--border)' }}>
+              <div style={{ width: 4, height: 4, borderRadius: '50%', background: marketOpen ? 'var(--mint)' : 'var(--faint)', animation: marketOpen ? 'pulse 2s infinite' : 'none' }} />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: marketOpen ? 'var(--mint)' : 'var(--faint)', letterSpacing: '0.06em' }}>
                 {marketOpen ? 'OPEN' : 'CLOSED'}
               </span>
             </div>
 
             {/* Wallet */}
             {wallet.connected ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.3rem 0.65rem', background: 'rgba(22,199,132,0.07)', border: '1px solid rgba(22,199,132,0.2)', borderRadius: 8, fontFamily: 'var(--font-mono)', fontSize: '0.68rem' }}>
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--mint)' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.25rem 0.6rem', background: 'rgba(22,199,132,0.07)', border: '1px solid rgba(22,199,132,0.18)', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: '0.62rem' }}>
+                <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--mint)' }} />
                 <span style={{ color: 'var(--white)' }}>{shortAddress}</span>
-                <button onClick={disconnect} style={{ background: 'none', border: 'none', color: 'var(--faint)', cursor: 'pointer', padding: 0, fontSize: '0.65rem', lineHeight: 1 }}>✕</button>
+                <button onClick={disconnect} style={{ background: 'none', border: 'none', color: 'var(--faint)', cursor: 'pointer', padding: 0, fontSize: '0.6rem', lineHeight: 1, marginLeft: 2 }}>✕</button>
               </div>
             ) : (
-              <button onClick={() => connect()} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.3rem 0.7rem', background: 'rgba(79,140,255,0.1)', border: '1px solid rgba(79,140,255,0.22)', borderRadius: 8, color: 'var(--blue2)', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer' }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              <button onClick={() => connect()} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.28rem 0.7rem', background: 'rgba(79,140,255,0.1)', border: '1px solid rgba(79,140,255,0.22)', borderRadius: 6, color: 'var(--blue2)', fontFamily: 'var(--font-mono)', fontSize: '0.62rem', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.04em', transition: 'all 0.12s' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(79,140,255,0.16)'; e.currentTarget.style.borderColor = 'rgba(79,140,255,0.35)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(79,140,255,0.1)'; e.currentTarget.style.borderColor = 'rgba(79,140,255,0.22)' }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                 Connect
               </button>
             )}
 
-            {/* Quick settings link */}
-            <Link href="/dashboard/settings" style={{ display: 'flex', alignItems: 'center', padding: '0.3rem', borderRadius: 6, color: 'var(--faint)', border: '1px solid transparent', transition: 'all 0.14s' }}
-              onMouseEnter={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg3)' }}
-              onMouseLeave={e => { e.currentTarget.style.color = 'var(--faint)'; e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'transparent' }}>
-              <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'linear-gradient(135deg,rgba(79,140,255,.25),rgba(22,199,132,.18))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: '0.65rem', fontWeight: 700, color: 'var(--white)' }}>
+            {/* User avatar */}
+            <Link href="/dashboard/settings" style={{ display: 'flex', alignItems: 'center', padding: '0.2rem', borderRadius: 6, border: '1px solid transparent', transition: 'all 0.12s' }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg3)' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'transparent' }}>
+              <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'linear-gradient(135deg,rgba(79,140,255,.3),rgba(22,199,132,.2))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: '0.58rem', fontWeight: 700, color: 'var(--white)' }}>
                 {initials}
               </div>
             </Link>
