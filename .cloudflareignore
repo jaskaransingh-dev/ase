@@ -1,0 +1,12 @@
+.git
+/node_modules
+.next/cache
+.next/dev
+.next/dist
+.next/server/
+.next/static
+.next/turbo
+.next/types
+*.log
+.DS_Store
+.env*

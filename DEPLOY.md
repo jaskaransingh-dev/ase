@@ -40,8 +40,10 @@ CRON_SECRET=9f3c2b7a1e8d4c6f0a2b9e7d1c4f8a6b
 
 ```bash
 npm run build
-wrangler pages deploy .next --project-name launchase
+wrangler pages deploy .next --project-name ase
 ```
+
+**Note:** The free Cloudflare Pages tier doesn't support dynamic API routes (Next.js server functions exceed the 3MB Worker limit). For full functionality with API routes, you need a paid plan ($5/mo) or deploy just the static site.
 
 Or connect GitHub repo to Cloudflare Pages dashboard — auto-deploys on push to `main`.
 

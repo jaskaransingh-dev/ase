@@ -17,7 +17,7 @@ type Subscription = {
 type SellState = { holdingId: string; agentName: string; shares: number; investedCents: number; currentValueCents: number } | null
 type Trade = { id: string; agent_id: string; symbol: string; side: string; qty: number; fill_price: number; filled_at: string; pnl_cents: number | null; agents?: { name: string; slug: string } }
 type AgentActivity = { agent_id: string; agent_name: string; slug: string; status: 'BUYING' | 'SELLING' | 'SCANNING' | 'OFFLINE'; symbol: string; last_trade_at: string; signal_summary?: string }
-type BrokerAccount = { has_account: boolean; account_id: string | null; account_number: string | null; status: string | null; trading_enabled: boolean; cash?: string; portfolio_value?: string; equity_cents?: number; cash_cents?: number; provider?: string; positions?: Array<{ symbol: string; qty: number; market_value: string }> }
+type BrokerAccount = { has_account: boolean; account_id: string | null; account_number: string | null; status: string | null; trading_enabled: boolean; cash?: string; portfolio_value?: string; equity_cents?: number; cash_cents?: number; invested_cents?: number; available_cents?: number; provider?: string; positions?: Array<{ symbol: string; qty: number; market_value: string }> }
 
 function fmt$(cents: number, decimals = 2) { return `${cents >= 0 ? '+' : '-'}$${(Math.abs(cents) / 100).toFixed(decimals)}` }
 function fmtPct(n: number) { return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%` }
@@ -88,8 +88,17 @@ export default function DashboardPage() {
     ])
     const wlRes = await fetch('/api/watchlist').catch(() => null)
     if (wlRes) { const d = await wlRes.json(); setWatchlist(d.watchlist || []) }
+    
+    // Fetch balance from account/balance which accounts for invested amounts
+    const balanceRes = await fetch('/api/account/balance')
+    const balanceData = await balanceRes.json()
+    
+    // Also get broker account for positions
     const brokerRes = await fetch('/api/broker/account')
-    setBrokerAccount(await brokerRes.json() as BrokerAccount)
+    const brokerData = await brokerRes.json()
+    
+    // Merge: use balance endpoint's values but keep positions from broker
+    setBrokerAccount({ ...brokerData, ...balanceData } as BrokerAccount)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const statsMap: Record<string, any> = {}
     for (const s of (statsRes.data ?? [])) { if (!statsMap[s.agent_id]) statsMap[s.agent_id] = s }
@@ -117,6 +126,13 @@ export default function DashboardPage() {
   }, [router, supabase])
 
   useEffect(() => { void load() }, [load])
+
+  // Refresh holdings on mount to catch any changes
+  useEffect(() => {
+    if (!loading) return
+    const timer = setTimeout(() => { void load() }, 2000)
+    return () => clearTimeout(timer)
+  }, [loading])
 
   async function handleSell() {
     if (!sellTarget) return
@@ -159,9 +175,9 @@ export default function DashboardPage() {
   const topAgent = subscriptions.length > 0 ? subscriptions.reduce((best, s) => { const stats = Array.isArray(s.agents?.agent_stats) ? s.agents.agent_stats[0] : null; const ret = stats?.total_return_pct ?? -999; const bestRet = best ? (Array.isArray(best.agents?.agent_stats) ? best.agents.agent_stats[0]?.total_return_pct ?? -999 : -999) : -999; return ret > bestRet ? s : best }, null as Subscription | null) : null
   const topStats = topAgent ? (Array.isArray(topAgent.agents?.agent_stats) ? topAgent.agents.agent_stats[0] : null) : null
   const activeCount = subscribedActivity.filter(a => a.status !== 'SCANNING').length
-  // Free cash in Kraken (uninvested USD)
+  // Use balance endpoint which accounts for invested amounts
   const krakenCash = brokerAccount?.cash_cents ? brokerAccount.cash_cents / 100 : brokerAccount?.cash ? parseFloat(brokerAccount.cash) : 0
-  // Total portfolio = invested in agents + free cash in Kraken
+  // Total portfolio = invested in agents + available cash (not raw Kraken cash, since invested amounts are deducted)
   const portfolioValue = (totalValue / 100) + krakenCash
 
   if (loading) {

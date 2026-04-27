@@ -116,7 +116,7 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
 
   useEffect(() => {
     fetch('/api/account/balance').then(r => r.json()).then(d => {
-      setBalance(d.equity_cents ?? 0)
+      setBalance(d.available_cents ?? d.buying_power_cents ?? d.cash_cents ?? 0)
       setAccountStatus(d.status === 'connected' ? 'connected' : 'not_connected')
     }).catch(() => { setBalance(0); setAccountStatus('error') }).finally(() => setFetching(false))
   }, [])
@@ -163,7 +163,7 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
             </div>
             <div style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10, padding: '.65rem .85rem' }}>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.28rem' }}>AVAILABLE CASH</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color: fetching ? 'var(--faint)' : (notConnected ? 'var(--red)' : 'var(--white)'), letterSpacing: '-.01em' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color: fetching ? 'var(--faint)' : notConnected ? 'var(--red)' : 'var(--white)', letterSpacing: '-.01em' }}>
                 {fetching ? '—' : notConnected ? 'Not Connected' : fmt$(balance ?? 0)}
               </div>
             </div>
@@ -415,6 +415,27 @@ export default function AgentDetailClient({
       setIsWatched(watched)
     }).catch(() => {})
   }, [isLoggedIn, isSubscribed, agent.id])
+
+  // Check subscription + holding status on mount and when auth changes
+  useEffect(() => {
+    if (!isLoggedIn) return
+    
+    async function checkStatus() {
+      try {
+        const res = await fetch(`/api/user/holding?agent_id=${agent.id}`)
+        const data = await res.json()
+        
+        // Update subscription status based on holding
+        const hasHolding = data.holding && data.holding.invested_cents > 0
+        setIsSubscribed(initialIsSubscribed || hasHolding)
+        if (hasHolding && !holding) {
+          setHolding(data.holding)
+        }
+      } catch { /* silent */ }
+    }
+    
+    checkStatus()
+  }, [isLoggedIn, agent.id])
 
   async function toggleWatchlist() {
     if (!isLoggedIn) { router.push(`/login?redirect=/agents/${agent.slug}`); return }

@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "preview": "opennextjs-cloudflare preview",
-    "deploy": "next build",
+    "deploy": "npm run cf:build && wrangler pages deploy .open-next --project-name ase",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"
   },
   "dependencies": {
