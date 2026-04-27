@@ -314,7 +314,7 @@ export default function QuantLabPage() {
 
   // Dynamic config fields (from codebase)
   const [configFields, setConfigFields] = useState<Record<string, { value: string | number | boolean; type: string }>>({})
-  const [agentIconIdx, setAgentIconIdx]   = useState(Math.floor(Math.random() * AGENT_ICONS.length))
+  const [agentIconIdx, setAgentIconIdx]   = useState(0)
 
   // Strategy list derived from codebase STRATEGIES
   const strategyList = useMemo(() =>

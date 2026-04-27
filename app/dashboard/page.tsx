@@ -74,6 +74,22 @@ export default function DashboardPage() {
   const [selling, setSelling] = useState(false)
   const [sellError, setSellError] = useState('')
   const [sellDone, setSellDone] = useState<{ pnl_cents: number; returned_cents: number } | null>(null)
+  const [marketPrices, setMarketPrices] = useState<Record<string, { price: number; change: number }>>({})
+
+  // Fetch market prices for top cryptos
+  useEffect(() => {
+    async function fetchPrices() {
+      try {
+        const symbols = ['BTC-USD', 'ETH-USD', 'SOL-USD']
+        const res = await fetch(`/api/market/prices?symbols=${symbols.join(',')}`)
+        const data = await res.json()
+        if (data.prices) setMarketPrices(data.prices)
+      } catch {}
+    }
+    fetchPrices()
+    const id = setInterval(fetchPrices, 30000)
+    return () => clearInterval(id)
+  }, [])
 
   const load = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -272,11 +288,26 @@ export default function DashboardPage() {
           <Link href="/dashboard/build" style={{ padding: '0.4rem 0.85rem', borderRadius: 8, border: '1px solid rgba(22,199,132,.25)', background: 'rgba(22,199,132,.07)', color: 'var(--mint)', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, textDecoration: 'none' }}>
             + New Strategy
           </Link>
-          <Link href="/dashboard/marketplace" style={{ padding: '0.4rem 0.85rem', borderRadius: 8, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, textDecoration: 'none' }}>
-            Marketplace →
+<Link href="/dashboard/marketplace" style={{ padding: '0.4rem 0.85rem', borderRadius: 8, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, textDecoration: 'none' }}>
+            Marketplace
           </Link>
         </div>
       </div>
+
+      {/* ── QUICK ACTIONS ── */}
+      {subscriptions.length > 0 && (
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', padding: '0.5rem 0.75rem', background: 'var(--bg3)', borderRadius: 8, border: '1px solid var(--border)' }}>
+          <Link href="/dashboard/marketplace" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.35rem 0.75rem', borderRadius: 6, border: '1px solid var(--mint)', background: 'rgba(22,199,132,.08)', color: 'var(--mint)', fontFamily: 'var(--font-mono)', fontSize: '0.62rem', fontWeight: 700, textDecoration: 'none' }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+            Invest More
+          </Link>
+          {subscriptions.filter(s => s.holding?.id).map(sub => (
+            <button key={sub.id} onClick={() => { setSellTarget({ holdingId: sub.holding!.id, agentName: sub.agents?.name ?? 'Agent', shares: Number(sub.holding!.shares), investedCents: sub.holding!.invested_cents, currentValueCents: sub.holding!.current_value_cents }); setSellError(''); setSellDone(null)) }} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.35rem 0.65rem', borderRadius: 6, border: '1px solid rgba(228,88,103,.25)', background: 'rgba(228,88,103,.06)', color: '#E45867', fontFamily: 'var(--font-mono)', fontSize: '0.58rem', fontWeight: 700, cursor: 'pointer' }}>
+              Sell {sub.agents?.name?.split(' ')[0] ?? 'Position'}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ── PORTFOLIO HERO ── */}
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, marginBottom: '1rem', overflow: 'hidden' }}>
