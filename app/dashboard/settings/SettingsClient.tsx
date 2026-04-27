@@ -8,8 +8,9 @@ import Link from 'next/link'
 interface SettingsProps {
   user: { id: string; email: string; name: string }
   walletBalanceCents: number
-  brokerAccount: { alpaca_account_id: string; account_number: string; status: string; trading_enabled: boolean } | null
+  brokerAccount: { kraken_account_id: string; account_number: string; status: string; trading_enabled: boolean; cash_usd?: number; free_usd?: number } | null
   transactions: Array<{ id: string; type: string; amount_cents: number; note: string | null; created_at: string }>
+  krakenKeys?: { connected: boolean; key_label?: string; status?: string; verified_at?: string; last_balance_usd?: number; scopes?: string[] } | null
 }
 
 function fmtUSD(cents: number) { return `${cents >= 0 ? '+' : '-'}$${(Math.abs(cents) / 100).toFixed(2)}` }
@@ -32,7 +33,7 @@ const SECTIONS = [
   { id: 'history', label: 'History', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
 ]
 
-export default function SettingsClient({ user, walletBalanceCents, brokerAccount, transactions }: SettingsProps) {
+export default function SettingsClient({ user, walletBalanceCents, brokerAccount, transactions, krakenKeys }: SettingsProps) {
   const supabase = createClient()
   const router = useRouter()
 
@@ -101,8 +102,8 @@ export default function SettingsClient({ user, walletBalanceCents, brokerAccount
             </div>
             {brokerAccount && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.6rem', background: 'var(--bg3)', borderRadius: 7, border: '1px solid var(--border)' }}>
-                <div style={{ width: 5, height: 5, borderRadius: '50%', background: brokerAccount.status === 'ACTIVE' ? 'var(--mint)' : 'var(--orange)', flexShrink: 0 }} />
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: brokerAccount.status === 'ACTIVE' ? 'var(--mint)' : 'var(--orange)', fontWeight: 600 }}>ALPACA {brokerAccount.status}</div>
+                <div style={{ width: 5, height: 5, borderRadius: '50%', background: brokerAccount.status === 'CONNECTED' ? 'var(--mint)' : 'var(--orange)', flexShrink: 0 }} />
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: brokerAccount.status === 'CONNECTED' ? 'var(--mint)' : 'var(--orange)', fontWeight: 600 }}>KRAKEN {brokerAccount.status}</div>
               </div>
             )}
           </div>
@@ -215,14 +216,14 @@ export default function SettingsClient({ user, walletBalanceCents, brokerAccount
           {/* BROKERAGE */}
           {section === 'brokerage' && (
             <>
-              <Panel title="Alpaca Brokerage Account">
-                <p style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '1.25rem', lineHeight: 1.6 }}>Your connected brokerage account for executing agent trades. ASE uses Alpaca for real-time market execution.</p>
+              <Panel title="Kraken Trading Account">
+                <p style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '1.25rem', lineHeight: 1.6 }}>Your connected brokerage account for executing agent trades. ASE uses Kraken for real-time market execution.</p>
                 {brokerAccount ? (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                     {[
-                      { label: 'ACCOUNT ID', value: brokerAccount.alpaca_account_id.slice(0, 12) + '…' },
-                      { label: 'ACCOUNT NUMBER', value: '••••' + brokerAccount.account_number.slice(-4) },
-                      { label: 'STATUS', value: brokerAccount.status, highlight: brokerAccount.status === 'ACTIVE' ? 'var(--mint)' : 'var(--orange)' },
+                      { label: 'STATUS', value: brokerAccount.status, highlight: brokerAccount.status === 'CONNECTED' ? 'var(--mint)' : 'var(--orange)' },
+                      { label: 'CASH (USD)', value: `$${(brokerAccount.cash_usd ?? 0).toFixed(2)}`, highlight: 'var(--white)' },
+                      { label: 'AVAILABLE', value: `$${(brokerAccount.free_usd ?? 0).toFixed(2)}`, highlight: 'var(--mint)' },
                       { label: 'TRADING', value: brokerAccount.trading_enabled ? 'Enabled' : 'Disabled', highlight: brokerAccount.trading_enabled ? 'var(--mint)' : 'var(--red)' },
                     ].map(row => (
                       <div key={row.label} style={{ padding: '0.85rem 1rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10 }}>
@@ -234,10 +235,68 @@ export default function SettingsClient({ user, walletBalanceCents, brokerAccount
                 ) : (
                   <div style={{ padding: '2rem', background: 'var(--bg3)', border: '1px dashed var(--border)', borderRadius: 10, textAlign: 'center' }}>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--faint)', marginBottom: '0.75rem' }}>NO BROKERAGE ACCOUNT</div>
-                    <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '1rem' }}>Connect an Alpaca account to enable live trading.</div>
-                    <button style={{ padding: '0.55rem 1.25rem', borderRadius: 8, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700, border: 'none', cursor: 'pointer' }}>
-                      Connect Alpaca
+                    <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '1rem' }}>Connect a Kraken account to enable live trading.</div>
+                    <button 
+                      onClick={() => window.location.href = '/dashboard/connect/kraken'}
+                      style={{ padding: '0.55rem 1.25rem', borderRadius: 8, background: 'linear-gradient(135deg, #5741D9, #5741D9)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700, border: 'none', cursor: 'pointer' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 12px 32px rgba(87,65,217,.4)' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'none' }}
+                    >
+                      Connect Kraken
                     </button>
+                  </div>
+                )}
+              </Panel>
+
+              <Panel title="Kraken API Keys">
+                {krakenKeys?.connected ? (
+                  <div>
+                    {/* Connected banner */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', background: 'rgba(22,199,132,0.06)', border: '1px solid rgba(22,199,132,0.2)', borderRadius: 10, marginBottom: '1rem' }}>
+                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--mint)', flexShrink: 0, boxShadow: '0 0 6px var(--mint)', animation: 'pulse 2s infinite' }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--mint)' }}>API Keys Connected</div>
+                        {krakenKeys.key_label && (
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', color: 'var(--faint)', marginTop: '0.1rem' }}>Key: ****{krakenKeys.key_label}</div>
+                        )}
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--white)' }}>${(krakenKeys.last_balance_usd ?? 0).toFixed(2)}</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.48rem', color: 'var(--faint)' }}>BALANCE</div>
+                      </div>
+                    </div>
+
+                    {/* Key details grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', marginBottom: '1rem' }}>
+                      {[
+                        { label: 'STATUS', value: (krakenKeys.status ?? 'active').toUpperCase(), color: krakenKeys.status === 'active' ? 'var(--mint)' : 'var(--orange)' },
+                        { label: 'VERIFIED', value: krakenKeys.verified_at ? new Date(krakenKeys.verified_at).toLocaleDateString() : 'Not verified', color: krakenKeys.verified_at ? 'var(--white)' : 'var(--orange)' },
+                        { label: 'SCOPES', value: (krakenKeys.scopes ?? []).join(', ') || 'None listed', color: 'var(--muted)' },
+                        { label: 'BALANCE (USD)', value: `$${(krakenKeys.last_balance_usd ?? 0).toFixed(2)}`, color: 'var(--white)' },
+                      ].map(row => (
+                        <div key={row.label} style={{ padding: '0.7rem 0.9rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 9 }}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.46rem', color: 'var(--faint)', letterSpacing: '0.1em', marginBottom: '0.2rem' }}>{row.label}</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 600, color: row.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.value}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.65rem' }}>
+                      <a href="/dashboard/connect/kraken" style={{ flex: 1, padding: '0.5rem', borderRadius: 8, background: 'rgba(88,65,212,0.12)', border: '1px solid rgba(88,65,212,0.3)', color: '#8B7CF6', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', textAlign: 'center', textDecoration: 'none', display: 'block' }}>
+                        Manage Keys →
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ padding: '2rem', background: 'var(--bg3)', border: '1px dashed var(--border)', borderRadius: 10, textAlign: 'center' }}>
+                    <div style={{ fontSize: '2rem', marginBottom: '0.65rem' }}>🐙</div>
+                    <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--white)', marginBottom: '0.35rem' }}>No API Keys Connected</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginBottom: '1.1rem', lineHeight: 1.6 }}>
+                      Generate Kraken API keys and connect them here so agents can trade on your live account.
+                    </div>
+                    <a href="/dashboard/connect/kraken" style={{ display: 'inline-block', padding: '0.55rem 1.5rem', borderRadius: 8, background: 'linear-gradient(135deg, #5741D9, #5741D9)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700, textDecoration: 'none' }}>
+                      Connect Kraken API Keys →
+                    </a>
                   </div>
                 )}
               </Panel>
@@ -255,7 +314,7 @@ export default function SettingsClient({ user, walletBalanceCents, brokerAccount
                   </button>
                 </div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--faint)', lineHeight: 1.7 }}>
-                  Funds are held in your Alpaca brokerage account. Deposits typically settle within 1-3 business days. ASE does not hold your funds.
+                  Funds are held in your Kraken brokerage account. Deposits typically settle within 1-3 business days. ASE does not hold your funds.
                 </div>
               </Panel>
             </>

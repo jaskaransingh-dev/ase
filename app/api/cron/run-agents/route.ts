@@ -47,7 +47,6 @@ import {
 import { getCryptoBars, getLatestCryptoPrice, healthCheckMarketData } from '@/lib/market-data'
 import { calculateNavFromState, calculateHoldingValueCents, calculateTradingCapitalCents, PLATFORM_SEED_CAPITAL_CENTS } from '@/lib/market'
 import { distributeTradeToUsers, getUsersWithHoldings, syncAlpacaBalance } from '@/lib/user-trading'
-import { syncAlpacaPositionsToHoldings } from '@/lib/exchange'
 
 export const dynamic = 'force-dynamic'
 
@@ -167,11 +166,11 @@ export async function POST(req: NextRequest) {
       console.log(`[run-agents] ${agent.slug}: ${users.length} users with holdings to distribute trades`)
 
       if (users.length > 0) {
-        // Sync Alpaca balances and positions BEFORE trading
+        // Sync Kraken balances and positions BEFORE trading
         try {
           for (const user of users) {
             try {
-              const balance = await syncAlpacaBalance(admin, user.user_id, user.alpaca_account_id)
+              const balance = await syncAlpacaBalance(admin, user.user_id)
               console.log(`[run-agents] Pre-trade sync for user ${user.user_id}: cash=$${(balance.cash/100).toFixed(2)}`)
             } catch (syncErr) {
               console.warn(`[run-agents] Pre-trade sync failed for user ${user.user_id}:`, syncErr)
@@ -200,33 +199,33 @@ export async function POST(req: NextRequest) {
             } catch (distErr) {
               console.error(`[run-agents] Distribution failed:`, distErr)
             }
+
+            // Write to agent_trades public ledger
+            try {
+              await admin.from('agent_trades').insert({
+                agent_id: agent.id,
+                alpaca_order_id: `kraken-cron-${Date.now()}`,
+                symbol: action.symbol,
+                side: action.action === 'BUY' ? 'buy' : 'sell',
+                qty: action.qty ?? 0,
+                fill_price: action.fill_price ?? 0,
+                filled_at: new Date().toISOString(),
+                pnl_cents: null,
+              })
+            } catch (ledgerErr) {
+              console.warn(`[run-agents] agent_trades write failed:`, ledgerErr instanceof Error ? ledgerErr.message : ledgerErr)
+            }
           }
         }
 
-        // Sync Alpaca positions AFTER trading (optional - if columns exist)
-        try {
-          for (const user of users) {
-            try {
-              const balance = await syncAlpacaBalance(admin, user.user_id, user.alpaca_account_id)
-              // Also sync positions to holdings (if migration has run)
-              if (balance.positions.length > 0) {
-                try {
-                  await syncAlpacaPositionsToHoldings(admin, {
-                    userId: user.user_id,
-                    agentId: agent.id,
-                    alpacaPositions: balance.positions,
-                  })
-                } catch (posErr) {
-                  console.warn(`[run-agents] Position sync to holdings failed (migration pending):`, posErr instanceof Error ? posErr.message : posErr)
-                }
-              }
-              console.log(`[run-agents] Post-trade sync for user ${user.user_id}: cash=$${(balance.cash/100).toFixed(2)}, positions=${balance.positions.length}`)
-            } catch (syncErr) {
-              console.warn(`[run-agents] Post-trade sync failed for user ${user.user_id}:`, syncErr)
-            }
+        // Sync Kraken balances AFTER trading
+        for (const user of users) {
+          try {
+            const balance = await syncAlpacaBalance(admin, user.user_id)
+            console.log(`[run-agents] Post-trade Kraken sync for user ${user.user_id}: cash=$${(balance.cash/100).toFixed(2)}`)
+          } catch (syncErr) {
+            console.warn(`[run-agents] Post-trade sync failed for user ${user.user_id}:`, syncErr instanceof Error ? syncErr.message : syncErr)
           }
-        } catch (e) {
-          console.warn('[run-agents] Post-trade sync skipped:', e instanceof Error ? e.message : e)
         }
       } else {
         console.log(`[run-agents] No users have holdings for ${agent.slug}, skipping distribution`)

@@ -578,7 +578,7 @@ export default function LandingPage() {
 
           {/* Trust indicators */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24, marginTop: '2.5rem', flexWrap: 'wrap' }}>
-            {[{ icon: '🦊', label: 'MetaMask' }, { icon: '🔵', label: 'Coinbase' }, { icon: '🔗', label: 'WalletConnect' }, { icon: '🦙', label: 'Alpaca' }].map(w => (
+            {[{ icon: '🐙', label: 'Kraken' }, { icon: '🔐', label: 'API Keys' }, { icon: '📊', label: 'Live Trading' }, { icon: '🔒', label: 'Non-Custodial' }].map(w => (
               <div key={w.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--faint)' }}>
                 {w.icon} <span>{w.label}</span>
               </div>

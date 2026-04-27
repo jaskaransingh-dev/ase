@@ -87,7 +87,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           zIndex: 10,
         }}
       >
-        Agent Security Exchange · Not financial advice · Real USD trading via Alpaca
+        Agent Securities Exchange · Not financial advice · Trades execute on your Kraken account
       </div>
     </div>
   )

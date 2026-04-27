@@ -173,7 +173,7 @@ export default function WalletDashboard() {
         >
           {status === 'connected' ? (
             <>
-              This is your Alpaca trading account balance. Your funds remain in your brokerage.
+              This is your Kraken trading account balance. Your funds remain in your brokerage.
               When you invest in agents, they trade on your behalf using this capital.
             </>
           ) : (

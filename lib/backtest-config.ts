@@ -170,43 +170,164 @@ export const GRADE_CLR: Record<string, string> = {
   'A+': C.mint, A: C.mint, B: C.blue, C: C.orange, D: '#F59E0B', F: C.red,
 }
 
-export const DEFAULT_STRATEGY_TS = `// ─── ASE Quant Strategy ──────────────────────────────────────────────
-// Template: composite_balanced — blended alpha with institutional risk controls
+export const DEFAULT_STRATEGY_TS = `// ─── ASE Multi-Factor Crypto Strategy ───────────────────────────────
+// Template : composite_balanced
+// Alpha    : momentum × trend × mean-reversion × on-chain × LLM
+// Risk     : vol-target 15% ann. | ATR(10) trailing stop | kill switch
 //
-// Target: Sharpe > 1.5 | Max DD < 20% | Calmar > 1.0
-// Run via Quant Lab or API: POST /api/quant/run
-//
-// The ASE engine handles: execution, fees, slippage, risk controls.
+// Target   : Sharpe > 1.8 | Max DD < 18% | Calmar > 1.2
+// Engine   : POST /api/quant/run  |  ⌘ Enter to backtest
+// ─────────────────────────────────────────────────────────────────────
 
 import type { FeatureRow } from '@ase/quant'
 
 export const config = {
-  name:          'My Strategy',
+  name:          'Composite Alpha v2',
   universe:      ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'ADA-USD'],
   rebalanceFreq: 'daily' as const,
-  riskAversion:  8,
-  maxWeight:     0.25,
+  riskAversion:  7,
+  maxWeight:     0.30,
+  killSwitch:    0.20,
 }
 
+// ── Signal weights ────────────────────────────────────────────────────
+const W = {
+  mom5:    0.25,   // short-term momentum
+  mom20:   0.20,   // medium-term momentum
+  mom60:   0.10,   // long-term trend
+  rsi:     0.20,   // mean-reversion (RSI z-score)
+  ema:     0.15,   // trend filter (EMA crossover)
+  onchain: 0.10,   // on-chain alpha (NUPL / fear-greed)
+}
+
+// ── RSI z-score: convert RSI to a mean-reversion signal ───────────────
+// RSI < 30 → strong long signal (+1), RSI > 70 → strong short (–1)
+function rsiSignal(rsi: number): number {
+  const normalized = (50 - rsi) / 25          // [-1, +1] mapped
+  return Math.max(-1, Math.min(1, normalized))
+}
+
+// ── EMA trend filter ──────────────────────────────────────────────────
+// ema_fast > ema_slow → bull regime (+1), else bear (–1)
+function emaFilter(row: FeatureRow): number {
+  const fast = row.ema_8  ?? 0
+  const slow = row.ema_21 ?? 0
+  if (fast === 0 || slow === 0) return 0
+  const spread = (fast - slow) / slow
+  if (spread >  0.015) return  1.0
+  if (spread < -0.015) return -1.0
+  return spread / 0.015                       // linear in transition band
+}
+
+// ── On-chain composite ────────────────────────────────────────────────
+// Blend NUPL market sentiment + Fear & Greed
+function onchainSignal(row: FeatureRow): number {
+  const nupl = row.nupl        ?? 0.3         // 0=bottom, 1=euphoria
+  const fg   = (row.fear_greed ?? 50) / 100   // 0=extreme fear, 1=greed
+
+  const nuplSig = nupl < 0.2  ?  0.8          // capitulation → buy
+               :  nupl > 0.75 ? -0.8          // euphoria → sell
+               :  (nupl - 0.45) * 2           // linear mid-range
+
+  const fgSig   = fg < 0.25  ?  0.6           // extreme fear → contrarian buy
+               :  fg > 0.80  ? -0.4           // extreme greed → trim
+               :  0
+
+  return nuplSig * 0.6 + fgSig * 0.4
+}
+
+// ── Volatility-adjusted position size ────────────────────────────────
+// Scale raw signal by inverse vol to target 15% annualized portfolio vol
+function volAdjust(signal: number, vol20d: number, targetVol = 0.15): number {
+  const annVol = Math.max(vol20d, 0.05)       // floor at 5% to avoid blow-up
+  return signal * (targetVol / annVol)
+}
+
+// ── ATR trailing stop ─────────────────────────────────────────────────
+// Returns 0 (flat) if price has fallen more than 2× ATR from recent peak
+function atrStopFilter(row: FeatureRow): boolean {
+  const atr   = row.atr_14    ?? 0
+  const close = row.close     ?? 0
+  const high  = row.high_20d  ?? close
+  if (atr === 0 || close === 0) return true
+  return (high - close) <= 2.0 * atr
+}
+
+// ── Volume shock boost ────────────────────────────────────────────────
+// Elevated volume on an up-day = liquidity confirmation → boost signal
+function volShockBoost(row: FeatureRow): number {
+  const shock = row.vol_shock ?? 1.0
+  const ret1d = row.ret_1d   ?? 0
+  if (shock > 1.5 && ret1d > 0) return 1.15   // bullish volume spike
+  if (shock > 1.5 && ret1d < 0) return 0.80   // bearish volume spike = caution
+  return 1.0
+}
+
+// ── Main signal generator ─────────────────────────────────────────────
 export function generateSignals(features: FeatureRow[]): Record<string, number> {
-  const signals: Record<string, number> = {}
+  const raw: Record<string, number> = {}
 
   for (const row of features) {
-    const rsi14      = row.rsi_14    ?? 50
-    const ret5d      = row.ret_5d    ?? 0
-    const ret20d     = row.ret_20d   ?? 0
-    const volShock   = row.vol_shock ?? 1.0
-    const vol20d     = row.vol_20d   ?? 1.0
+    const rsi    = row.rsi_14  ?? 50
+    const ret5d  = row.ret_5d  ?? 0
+    const ret20d = row.ret_20d ?? 0
+    const ret60d = row.ret_60d ?? 0
+    const vol20d = row.vol_20d ?? 0.5
 
-    const momentum = ret5d * 0.6 + ret20d * 0.4
-    const volBoost   = volShock > 1.2 ? 1.15 : 1.0
-    const volPenalty = vol20d  > 2.0  ? 0.70 : vol20d > 1.5 ? 0.85 : 1.0
+    // Skip if ATR trailing stop triggered
+    if (!atrStopFilter(row)) {
+      raw[row.symbol] = 0
+      continue
+    }
 
-    signals[row.symbol] = momentum * volBoost * volPenalty
+    // Composite alpha score
+    const alpha =
+      W.mom5    * Math.tanh(ret5d  * 8)   +   // bounded momentum
+      W.mom20   * Math.tanh(ret20d * 5)   +
+      W.mom60   * Math.tanh(ret60d * 3)   +
+      W.rsi     * rsiSignal(rsi)          +
+      W.ema     * emaFilter(row)          +
+      W.onchain * onchainSignal(row)
+
+    // Volume confirmation multiplier
+    const boosted = alpha * volShockBoost(row)
+
+    // Volatility targeting — scale to 15% target annualized vol
+    raw[row.symbol] = volAdjust(boosted, vol20d)
+  }
+
+  // ── Cross-sectional normalization ─────────────────────────────────
+  // Convert to z-scores so portfolio is market-neutral in expectation
+  const vals   = Object.values(raw).filter(v => v !== 0)
+  if (vals.length === 0) return raw
+  const mean   = vals.reduce((s, v) => s + v, 0) / vals.length
+  const std    = Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length) || 1
+
+  const signals: Record<string, number> = {}
+  for (const [sym, v] of Object.entries(raw)) {
+    signals[sym] = (v - mean) / std           // z-score: long top-z, short/flat bottom-z
   }
 
   return signals
 }
+
+// ── Optional: LLM signal overlay ─────────────────────────────────────
+// Uncomment to blend in Claude news-sentiment (see llm_signals.ts)
+//
+// import { newsSentiment } from './llm_signals'
+//
+// export async function generateSignalsWithLLM(
+//   features: FeatureRow[]
+// ): Promise<Record<string, number>> {
+//   const base    = generateSignals(features)
+//   const symbols = features.map(r => r.symbol)
+//   const llm     = await newsSentiment(symbols)     // {BTC-USD: 0.4, …}
+//   for (const sym of Object.keys(base)) {
+//     const llmScore = llm[sym] ?? 0
+//     base[sym] = base[sym] * 0.80 + llmScore * 0.20  // 20% LLM blend
+//   }
+//   return base
+// }
 `
 
 export const DEFAULT_CONFIG_JSON = JSON.stringify({

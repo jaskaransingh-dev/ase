@@ -4,10 +4,6 @@ import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import FundingModal from '@/components/FundingModal'
-import AccountModal from '@/components/AccountModal'
-import AlpacaApplicationStatus from '@/components/AlpacaApplicationStatus'
-import { useWallet } from '@/components/WalletProvider'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,12 +11,13 @@ type Agent = { id: string; name: string; slug: string; signal_summary?: string; 
 type Subscription = {
   id: string; agent_id: string; created_at: string
   agents: Agent & { agent_stats?: { total_return_pct: number; sharpe_ratio: number; max_drawdown_pct: number; win_rate_pct: number; nav_cents: number; snapshot_at: string }[] }
-  holding?: { shares: number; invested_cents: number; current_value_cents: number; pnl_cents: number } | null
+  holding?: { id: string; shares: number; invested_cents: number; current_value_cents: number; pnl_cents: number } | null
   has_investment: boolean
 }
+type SellState = { holdingId: string; agentName: string; shares: number; investedCents: number; currentValueCents: number } | null
 type Trade = { id: string; agent_id: string; symbol: string; side: string; qty: number; fill_price: number; filled_at: string; pnl_cents: number | null; agents?: { name: string; slug: string } }
 type AgentActivity = { agent_id: string; agent_name: string; slug: string; status: 'BUYING' | 'SELLING' | 'SCANNING' | 'OFFLINE'; symbol: string; last_trade_at: string; signal_summary?: string }
-type BrokerAccount = { has_account: boolean; account_id: string | null; account_number: string | null; status: string | null; trading_enabled: boolean; cash?: string; portfolio_value?: string }
+type BrokerAccount = { has_account: boolean; account_id: string | null; account_number: string | null; status: string | null; trading_enabled: boolean; cash?: string; portfolio_value?: string; equity_cents?: number; cash_cents?: number; provider?: string; positions?: Array<{ symbol: string; qty: number; market_value: string }> }
 
 function fmt$(cents: number, decimals = 2) { return `${cents >= 0 ? '+' : '-'}$${(Math.abs(cents) / 100).toFixed(decimals)}` }
 function fmtPct(n: number) { return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%` }
@@ -66,16 +63,17 @@ function PanelHeader({ label, action }: { label: string; action?: React.ReactNod
 export default function DashboardPage() {
   const supabase = createClient()
   const router = useRouter()
-  const { shortAddress, openModal, wallet, disconnect } = useWallet()
   const [loading, setLoading] = useState(true)
   const [userName, setUserName] = useState('')
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
   const [trades, setTrades] = useState<Trade[]>([])
   const [agentActivity, setAgentActivity] = useState<AgentActivity[]>([])
   const [brokerAccount, setBrokerAccount] = useState<BrokerAccount | null>(null)
-  const [showFunding, setShowFunding] = useState(false)
-  const [showAccount, setShowAccount] = useState(false)
   const [watchlist, setWatchlist] = useState<{id: string; agent_id: string; agents: {id: string; name: string; slug: string; primary_symbol: string}}[]>([])
+  const [sellTarget, setSellTarget] = useState<SellState>(null)
+  const [selling, setSelling] = useState(false)
+  const [sellError, setSellError] = useState('')
+  const [sellDone, setSellDone] = useState<{ pnl_cents: number; returned_cents: number } | null>(null)
 
   const load = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -118,8 +116,29 @@ export default function DashboardPage() {
     setLoading(false)
   }, [router, supabase])
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load() }, [load])
+
+  async function handleSell() {
+    if (!sellTarget) return
+    setSelling(true)
+    setSellError('')
+    setSellDone(null)
+    try {
+      const res = await fetch('/api/holdings/sell', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ holding_id: sellTarget.holdingId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Sell failed')
+      setSellDone({ pnl_cents: data.pnl_cents, returned_cents: data.returned_cents })
+      void load()
+    } catch (e) {
+      setSellError(e instanceof Error ? e.message : 'Sell failed')
+    } finally {
+      setSelling(false)
+    }
+  }
 
   const subscribedAgentIds = new Set(subscriptions.map(s => s.agent_id))
   const subscribedActivity = agentActivity.filter(a => subscribedAgentIds.has(a.agent_id))
@@ -140,7 +159,7 @@ export default function DashboardPage() {
   const topAgent = subscriptions.length > 0 ? subscriptions.reduce((best, s) => { const stats = Array.isArray(s.agents?.agent_stats) ? s.agents.agent_stats[0] : null; const ret = stats?.total_return_pct ?? -999; const bestRet = best ? (Array.isArray(best.agents?.agent_stats) ? best.agents.agent_stats[0]?.total_return_pct ?? -999 : -999) : -999; return ret > bestRet ? s : best }, null as Subscription | null) : null
   const topStats = topAgent ? (Array.isArray(topAgent.agents?.agent_stats) ? topAgent.agents.agent_stats[0] : null) : null
   const activeCount = subscribedActivity.filter(a => a.status !== 'SCANNING').length
-  const portfolioValue = brokerAccount?.portfolio_value ? parseFloat(brokerAccount.portfolio_value) : totalValue > 0 ? totalValue / 100 : 0
+  const portfolioValue = brokerAccount?.equity_cents ? brokerAccount.equity_cents / 100 : brokerAccount?.portfolio_value ? parseFloat(brokerAccount.portfolio_value) : totalValue > 0 ? totalValue / 100 : 0
 
   if (loading) {
     return (
@@ -218,18 +237,18 @@ export default function DashboardPage() {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          {wallet.address ? (
-            <button onClick={disconnect} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.85rem', borderRadius: 8, border: '1px solid rgba(22,199,132,.25)', background: 'rgba(22,199,132,.07)', color: 'var(--mint)', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer' }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--mint)', display: 'inline-block' }} /> {shortAddress}
-            </button>
+          {brokerAccount?.has_account ? (
+            <Link href="/dashboard/connect/kraken" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.85rem', borderRadius: 8, border: '1px solid rgba(94,65,217,.3)', background: 'rgba(94,65,217,.1)', color: '#a78bfa', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, textDecoration: 'none' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--mint)', display: 'inline-block' }} /> 🐙 {brokerAccount.cash ? fmtMoney(brokerAccount.cash) : 'Kraken'}
+            </Link>
           ) : (
-            <button onClick={openModal} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.85rem', borderRadius: 8, border: '1px solid rgba(79,140,255,.25)', background: 'rgba(79,140,255,.07)', color: 'var(--blue2)', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer' }}>
-              Connect Wallet
-            </button>
+            <Link href="/dashboard/connect/kraken" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.85rem', borderRadius: 8, border: '1px solid rgba(94,65,217,.25)', background: 'rgba(94,65,217,.07)', color: '#a78bfa', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, textDecoration: 'none' }}>
+              🐙 Connect Kraken
+            </Link>
           )}
-          <button onClick={() => setShowFunding(true)} style={{ padding: '0.4rem 0.85rem', borderRadius: 8, border: '1px solid rgba(79,140,255,.25)', background: 'rgba(79,140,255,.08)', color: 'var(--blue2)', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer' }}>
+          <a href="https://www.kraken.com/u/funding/deposit" target="_blank" rel="noopener noreferrer" style={{ padding: '0.4rem 0.85rem', borderRadius: 8, border: '1px solid rgba(79,140,255,.25)', background: 'rgba(79,140,255,.08)', color: 'var(--blue2)', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
             + Deposit
-          </button>
+          </a>
           <Link href="/dashboard/build" style={{ padding: '0.4rem 0.85rem', borderRadius: 8, border: '1px solid rgba(22,199,132,.25)', background: 'rgba(22,199,132,.07)', color: 'var(--mint)', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, textDecoration: 'none' }}>
             + New Strategy
           </Link>
@@ -281,7 +300,7 @@ export default function DashboardPage() {
           {/* Quick stats */}
           <div style={{ flex: '1 1 400px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
             {[
-              { label: 'CASH', value: brokerAccount?.cash ? fmtMoney(brokerAccount.cash) : '—', sub: brokerAccount?.status ?? 'link account', color: 'var(--white)', click: () => setShowFunding(true) },
+              { label: 'KRAKEN', value: brokerAccount?.cash ? fmtMoney(brokerAccount.cash) : '—', sub: brokerAccount?.has_account ? '🟢 connected' : 'not connected', color: 'var(--white)', click: undefined },
               { label: 'INVESTED', value: totalInvested > 0 ? `$${(totalInvested / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '$0', sub: `${subscriptions.filter(s => s.has_investment).length} agents`, color: 'var(--white)', click: undefined },
               { label: 'ACTIVE', value: `${subscriptions.length}`, sub: `${activeCount} running`, color: activeCount > 0 ? 'var(--mint)' : 'var(--faint)', click: undefined },
               { label: 'RISK', value: totalPnL < -totalInvested * 0.1 ? 'HIGH' : totalPnL < 0 ? 'MED' : 'LOW', sub: totalInvested > 0 ? fmtPct(totalPnL / totalInvested * 100) : '—', color: totalPnL < -totalInvested * 0.1 ? 'var(--red)' : totalPnL < 0 ? 'var(--orange)' : 'var(--mint)', click: undefined },
@@ -321,11 +340,27 @@ export default function DashboardPage() {
         </Link>
       )}
 
-      {/* ── BROKER CTA ── */}
-      {!brokerAccount?.has_account && (
-        <div style={{ marginBottom: '1rem' }}>
-          <AlpacaApplicationStatus onCreateAccount={() => setShowAccount(true)} onAddFunds={() => setShowFunding(true)} onLinkBank={() => setShowAccount(true)} />
-        </div>
+      {/* ── KRAKEN CTA ── */}
+      {brokerAccount !== null && !brokerAccount?.has_account && (
+        <Link href="/dashboard/connect/kraken" style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginBottom: '1rem', padding: '0.9rem 1.25rem',
+          background: 'rgba(94,65,217,.08)',
+          border: '1px solid rgba(94,65,217,.25)', borderRadius: 12, textDecoration: 'none',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+            <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(94,65,217,.14)', border: '1px solid rgba(94,65,217,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span style={{ fontSize: '1rem' }}>🐙</span>
+            </div>
+            <div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: '#a78bfa', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '0.15rem' }}>CONNECT KRAKEN</div>
+              <div style={{ fontFamily: 'var(--font-body)', fontWeight: 600, color: 'var(--white)', fontSize: '0.85rem' }}>Link your Kraken API keys to start live trading</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: '#a78bfa', fontWeight: 700, flexShrink: 0 }}>
+            Connect Now <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </div>
+        </Link>
       )}
 
       {/* ── MAIN GRID ── */}
@@ -334,79 +369,105 @@ export default function DashboardPage() {
         {/* LEFT */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-          {/* Allocations panel */}
+          {/* Holdings panel */}
           <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-            <PanelHeader label="YOUR ALLOCATIONS" action={
+            <PanelHeader label="YOUR HOLDINGS" action={
               <Link href="/dashboard/marketplace" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', color: 'var(--blue2)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                + Allocate <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                + Invest <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
               </Link>
             } />
             {subscriptions.length === 0 ? (
               <div style={{ padding: '2.5rem', textAlign: 'center' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--faint)', marginBottom: '0.5rem' }}>NO ALLOCATIONS YET</div>
-                <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>Browse verified agents and allocate funds to start trading.</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--faint)', marginBottom: '0.5rem' }}>NO HOLDINGS YET</div>
+                <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>Invest in a verified agent starting from $1 — trades execute live on your Kraken account.</div>
                 <Link href="/dashboard/marketplace" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1.1rem', borderRadius: 8, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, textDecoration: 'none' }}>
                   Browse Agents →
                 </Link>
               </div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>
-                      {['AGENT', 'ALLOCATED', 'VALUE', 'P&L', 'RETURN', 'STATUS'].map(h => (
-                        <th key={h} style={{ padding: '0.6rem 1rem', textAlign: 'left', fontFamily: 'var(--font-mono)', fontSize: '0.5rem', fontWeight: 700, color: 'var(--faint)', letterSpacing: '0.1em', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {subscriptions.map((sub, i) => {
-                      const stats = Array.isArray(sub.agents?.agent_stats) ? sub.agents.agent_stats[0] : null
-                      const ret = stats?.total_return_pct ?? 0
-                      const invested = sub.holding?.invested_cents ?? 0
-                      const value = sub.holding?.current_value_cents ?? 0
-                      const pnl = sub.holding?.pnl_cents ?? 0
-                      const activity = agentActivity.find(a => a.agent_id === sub.agent_id)
-                      const pos = ret >= 0
-                      const sc = statusColor(activity?.status ?? 'SCANNING')
-                      return (
-                        <tr key={sub.id} style={{ borderBottom: i < subscriptions.length - 1 ? '1px solid rgba(30,42,61,0.5)' : 'none' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(79,140,255,0.03)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                          <td style={{ padding: '0.75rem 1rem' }}>
-                            <Link href={`/agents/${sub.agents?.slug}`} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', textDecoration: 'none' }}>
-                              <div style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(79,140,255,.1)', border: '1px solid rgba(79,140,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', fontWeight: 700, color: 'var(--blue2)' }}>{(sub.agents?.ticker ?? 'XX').slice(0, 3)}</span>
-                              </div>
-                              <div>
-                                <div style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--white)' }}>{sub.agents?.name ?? '—'}</div>
-                                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', color: 'var(--faint)' }}>{sub.agents?.primary_symbol ?? '—'}</div>
-                              </div>
-                            </Link>
-                          </td>
-                          <td style={{ padding: '0.75rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--muted)' }}>{invested > 0 ? `$${(invested / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}</td>
-                          <td style={{ padding: '0.75rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '0.75rem', fontWeight: 700, color: 'var(--white)' }}>{value > 0 ? `$${(value / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}</td>
-                          <td style={{ padding: '0.75rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '0.75rem', fontWeight: 700, color: pnl >= 0 ? 'var(--mint)' : 'var(--red)' }}>{pnl !== 0 ? fmt$(pnl) : '—'}</td>
-                          <td style={{ padding: '0.75rem 1rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', fontWeight: 700, color: pos ? 'var(--mint)' : 'var(--red)' }}>{fmtPct(ret)}</span>
-                              <Sparkline data={equityCurve.length > 1 ? equityCurve : [0, ret]} positive={pos} />
-                            </div>
-                          </td>
-                          <td style={{ padding: '0.75rem 1rem' }}>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontFamily: 'var(--font-mono)', fontSize: '0.52rem', fontWeight: 700, color: sc, background: `${sc}18`, border: `1px solid ${sc}28`, borderRadius: 5, padding: '0.2rem 0.5rem' }}>
-                              <span style={{ width: 4, height: 4, borderRadius: '50%', background: sc, display: 'inline-block' }} />
-                              {activity?.status ?? 'SCANNING'}
-                            </span>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+              <div>
+                {subscriptions.map((sub, i) => {
+                  const stats = Array.isArray(sub.agents?.agent_stats) ? sub.agents.agent_stats[0] : null
+                  const ret = stats?.total_return_pct ?? 0
+                  const invested = sub.holding?.invested_cents ?? 0
+                  const value = sub.holding?.current_value_cents ?? 0
+                  const pnl = sub.holding?.pnl_cents ?? 0
+                  const shares = sub.holding?.shares ?? 0
+                  const activity = agentActivity.find(a => a.agent_id === sub.agent_id)
+                  const sc = statusColor(activity?.status ?? 'SCANNING')
+                  const pnlPos = pnl >= 0
+                  const signal = activity?.signal_summary || sub.agents?.signal_summary || ''
+                  return (
+                    <div key={sub.id} style={{ borderBottom: i < subscriptions.length - 1 ? '1px solid var(--border)' : 'none', padding: '1rem 1.25rem' }}>
+                      {/* Row 1: agent name + status + sell */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.65rem' }}>
+                        <Link href={`/agents/${sub.agents?.slug}`} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', textDecoration: 'none' }}>
+                          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(79,140,255,.1)', border: '1px solid rgba(79,140,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', fontWeight: 700, color: 'var(--blue2)' }}>{(sub.agents?.ticker ?? 'XX').slice(0, 3)}</span>
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--white)' }}>{sub.agents?.name ?? '—'}</div>
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', color: 'var(--faint)' }}>{sub.agents?.primary_symbol ?? '—'} · {shares > 0 ? `${Number(shares).toFixed(4)} shares` : 'no shares'}</div>
+                          </div>
+                        </Link>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontFamily: 'var(--font-mono)', fontSize: '0.52rem', fontWeight: 700, color: sc, background: `${sc}18`, border: `1px solid ${sc}28`, borderRadius: 5, padding: '0.2rem 0.5rem' }}>
+                            <span style={{ width: 4, height: 4, borderRadius: '50%', background: sc, display: 'inline-block', animation: activity?.status !== 'SCANNING' ? 'pulse 1.5s infinite' : 'none' }} />
+                            {activity?.status ?? 'SCANNING'}
+                          </span>
+                          {sub.holding?.id && (
+                            <button onClick={() => { setSellTarget({ holdingId: sub.holding!.id, agentName: sub.agents?.name ?? 'Agent', shares: Number(sub.holding!.shares), investedCents: sub.holding!.invested_cents, currentValueCents: sub.holding!.current_value_cents }); setSellError(''); setSellDone(null) }}
+                              style={{ padding: '0.25rem 0.65rem', borderRadius: 6, border: '1px solid rgba(228,88,103,.3)', background: 'rgba(228,88,103,.08)', color: '#E45867', fontFamily: 'var(--font-mono)', fontSize: '0.55rem', fontWeight: 700, cursor: 'pointer' }}>
+                              SELL
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {/* Row 2: metrics */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '0.5rem', marginBottom: signal ? '0.65rem' : 0 }}>
+                        {[
+                          { label: 'INVESTED', value: invested > 0 ? `$${(invested / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—', color: 'var(--muted)' },
+                          { label: 'VALUE', value: value > 0 ? `$${(value / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—', color: 'var(--white)' },
+                          { label: 'P&L', value: pnl !== 0 ? fmt$(pnl) : '$0.00', color: pnlPos ? 'var(--mint)' : 'var(--red)' },
+                          { label: 'RETURN', value: fmtPct(ret), color: ret >= 0 ? 'var(--mint)' : 'var(--red)' },
+                        ].map(m => (
+                          <div key={m.label} style={{ background: 'var(--bg3)', borderRadius: 7, padding: '0.4rem 0.6rem' }}>
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.46rem', color: 'var(--faint)', letterSpacing: '0.1em', marginBottom: '0.2rem' }}>{m.label}</div>
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 700, color: m.color }}>{m.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {/* Row 3: agent signal */}
+                      {signal && (
+                        <div style={{ background: 'rgba(79,140,255,.05)', border: '1px solid rgba(79,140,255,.12)', borderRadius: 7, padding: '0.4rem 0.65rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--blue2)" strokeWidth="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', color: 'var(--muted)', lineHeight: 1.4 }}>{signal.slice(0, 120)}{signal.length > 120 ? '…' : ''}</span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
+
+          {/* Kraken open positions */}
+          {brokerAccount?.has_account && brokerAccount.positions && brokerAccount.positions.length > 0 && (
+            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+              <PanelHeader label="KRAKEN OPEN POSITIONS" action={
+                <a href="https://www.kraken.com/u/trade" target="_blank" rel="noopener noreferrer" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', color: 'var(--faint)', textDecoration: 'none' }}>View on Kraken ↗</a>
+              } />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
+                {brokerAccount.positions.map((pos, i) => (
+                  <div key={pos.symbol} style={{ padding: '0.85rem 1rem', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', fontWeight: 700, color: 'var(--blue2)', marginBottom: '0.2rem' }}>{pos.symbol}</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', fontWeight: 700, color: 'var(--white)', marginBottom: '0.1rem' }}>${parseFloat(pos.market_value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', color: 'var(--faint)' }}>qty: {Number(pos.qty).toFixed(6)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Watchlist */}
           {watchlist.length > 0 && (
@@ -525,8 +586,60 @@ export default function DashboardPage() {
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
       `}</style>
 
-      {showFunding && <FundingModal onClose={() => setShowFunding(false)} />}
-      {showAccount && <AccountModal onClose={() => setShowAccount(false)} onSuccess={() => { setShowAccount(false); void load() }} />}
+      {/* ── SELL CONFIRMATION MODAL ── */}
+      {sellTarget && !sellDone && (
+        <div onClick={() => { if (!selling) setSellTarget(null) }} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(4,3,12,.88)', backdropFilter: 'blur(20px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg2)', border: '1px solid rgba(228,88,103,.25)', borderRadius: 20, padding: '2rem', width: '100%', maxWidth: 420, boxShadow: '0 40px 80px rgba(0,0,0,.8)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: 'var(--faint)', letterSpacing: '0.12em', marginBottom: '0.5rem' }}>CLOSE POSITION</div>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--white)', marginBottom: '1.25rem' }}>{sellTarget.agentName}</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.5rem' }}>
+              {[
+                { label: 'SHARES', value: Number(sellTarget.shares).toFixed(4) },
+                { label: 'INVESTED', value: `$${(sellTarget.investedCents / 100).toFixed(2)}` },
+                { label: 'CURRENT VALUE', value: `$${(sellTarget.currentValueCents / 100).toFixed(2)}` },
+                { label: 'UNREALIZED P&L', value: fmt$(sellTarget.currentValueCents - sellTarget.investedCents), },
+              ].map(item => (
+                <div key={item.label} style={{ background: 'var(--bg3)', borderRadius: 8, padding: '0.65rem 0.75rem' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.46rem', color: 'var(--faint)', letterSpacing: '0.1em', marginBottom: '0.2rem' }}>{item.label}</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700, color: 'var(--white)' }}>{item.value}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ background: 'rgba(228,88,103,.07)', border: '1px solid rgba(228,88,103,.2)', borderRadius: 10, padding: '0.75rem', marginBottom: '1.25rem', fontSize: '0.78rem', color: 'var(--muted)', lineHeight: 1.55 }}>
+              This will close <strong style={{ color: 'var(--white)' }}>all shares</strong> in this position. Any open Kraken orders will be market-sold. Proceeds go back to your Kraken account.
+            </div>
+            {sellError && <div style={{ color: '#E45867', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', marginBottom: '0.75rem' }}>{sellError}</div>}
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button onClick={() => setSellTarget(null)} disabled={selling}
+                style={{ flex: 1, padding: '0.75rem', borderRadius: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={handleSell} disabled={selling}
+                style={{ flex: 2, padding: '0.75rem', borderRadius: 10, border: 'none', background: selling ? 'rgba(228,88,103,.4)' : '#E45867', color: '#fff', fontWeight: 700, fontSize: '0.85rem', cursor: selling ? 'wait' : 'pointer' }}>
+                {selling ? 'Closing…' : 'Confirm Sell'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── SELL SUCCESS MODAL ── */}
+      {sellDone && (
+        <div onClick={() => setSellDone(null)} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(4,3,12,.88)', backdropFilter: 'blur(20px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg2)', border: '1px solid rgba(22,199,132,.25)', borderRadius: 20, padding: '2.5rem', width: '100%', maxWidth: 380, textAlign: 'center', boxShadow: '0 40px 80px rgba(0,0,0,.8)' }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>✓</div>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--mint)', marginBottom: '0.5rem' }}>Position Closed</h2>
+            <p style={{ color: 'var(--muted)', marginBottom: '1.5rem', lineHeight: 1.6 }}>
+              Returned <strong style={{ color: 'var(--white)' }}>${(sellDone.returned_cents / 100).toFixed(2)}</strong> to your Kraken account.
+              {sellDone.pnl_cents !== 0 && <> P&L: <strong style={{ color: sellDone.pnl_cents >= 0 ? 'var(--mint)' : '#E45867' }}>{fmt$(sellDone.pnl_cents)}</strong></>}
+            </p>
+            <button onClick={() => { setSellDone(null); setSellTarget(null) }}
+              style={{ width: '100%', padding: '0.85rem', borderRadius: 12, border: 'none', background: 'var(--mint)', color: '#000', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer' }}>
+              Done
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -7,6 +7,7 @@ import {
   AGENT_ICONS, GRADE_CLR, DEFAULT_FILES,
 } from '@/lib/backtest-config'
 import { STRATEGIES } from '@/lib/backtest'
+import { ALL_BLOCKS, BLOCKS_BY_CATEGORY, CATEGORY_META, type BlockCategory } from '@/lib/llm-blocks'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ChatMsg { role: 'user' | 'ai'; text: string; edits?: FileEdit[] }
@@ -208,7 +209,7 @@ export default function QuantLabPage() {
 
   // Layout
   const [sideOpen, setSideOpen]   = useState(true)
-  const [rightTab, setRightTab]   = useState<'backtest'|'data'|'docs'>('backtest')
+  const [rightTab, setRightTab]   = useState<'backtest'|'data'|'docs'>('data')
   const [bottomMode, setBottomMode] = useState<'terminal'|'chat'>('terminal')
 
   // Terminal
@@ -235,7 +236,8 @@ export default function QuantLabPage() {
   // Data panel
   const [dataSearch, setDataSearch]   = useState('')
   const [selAPI, setSelAPI]           = useState<typeof DATA_APIS[0] | null>(null)
-  const [dataView, setDataView]       = useState<'apis'|'ml'>('apis')
+  const [dataView, setDataView]       = useState<'apis'|'ml'|'blocks'>('blocks')
+  const [blockCat, setBlockCat]       = useState<BlockCategory>('data')
 
   // AI chat
   const [chatMsgs, setChatMsgs]       = useState<ChatMsg[]>([
@@ -799,7 +801,9 @@ Macro: FRED (rates, DXY, CPI), World Bank
           <div style={{ width: 370, flexShrink: 0, borderLeft: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: C.bg2 }}>
             <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
               {(['backtest','data','docs'] as const).map(t => (
-                <button key={t} onClick={() => setRightTab(t)} style={{ flex: 1, padding: '.38rem .1rem', border: 'none', borderBottom: `2px solid ${rightTab === t ? C.blue : 'transparent'}`, background: 'transparent', color: rightTab === t ? C.blue2 : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, letterSpacing: '.06em', cursor: 'pointer', textTransform: 'uppercase' }}>{t}</button>
+                <button key={t} onClick={() => setRightTab(t)} style={{ flex: 1, padding: '.38rem .1rem', border: 'none', borderBottom: `2px solid ${rightTab === t ? C.blue : 'transparent'}`, background: 'transparent', color: rightTab === t ? C.blue2 : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, letterSpacing: '.06em', cursor: 'pointer', textTransform: 'uppercase' }}>
+                  {t === 'data' ? (rightTab === 'data' && dataView === 'blocks' ? '⊞ blocks' : 'blocks') : t}
+                </button>
               ))}
             </div>
 
@@ -1021,12 +1025,90 @@ Macro: FRED (rates, DXY, CPI), World Bank
               {rightTab === 'data' && (
                 <div>
                   <div style={{ display: 'flex', gap: '.3rem', marginBottom: '.6rem' }}>
-                    {(['apis','ml'] as const).map(v => (
+                    {(['blocks','apis','ml'] as const).map(v => (
                       <button key={v} onClick={() => setDataView(v)} style={{ flex: 1, padding: '.28rem', borderRadius: 6, border: `1px solid ${dataView === v ? C.blue + '40' : C.border}`, background: dataView === v ? `${C.blue}10` : 'transparent', color: dataView === v ? C.blue2 : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                        {v === 'apis' ? 'Data APIs' : 'ML Tools'}
+                        {v === 'blocks' ? '⊞ Blocks' : v === 'apis' ? 'Data APIs' : 'ML'}
                       </button>
                     ))}
                   </div>
+
+                  {/* ── BLOCKS VIEW ── */}
+                  {dataView === 'blocks' && (
+                    <div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint, marginBottom: '.45rem', lineHeight: 1.6 }}>
+                        Click or drag any block to insert it into your project.
+                      </div>
+
+                      {/* Category pills */}
+                      <div style={{ display: 'flex', gap: '.25rem', flexWrap: 'wrap', marginBottom: '.55rem' }}>
+                        {(Object.keys(CATEGORY_META) as BlockCategory[]).filter(cat => (BLOCKS_BY_CATEGORY[cat] ?? []).length > 0).map(cat => {
+                          const meta = CATEGORY_META[cat]
+                          const active = blockCat === cat
+                          return (
+                            <button key={cat} onClick={() => setBlockCat(cat)} style={{ display: 'flex', alignItems: 'center', gap: '.22rem', padding: '.18rem .45rem', borderRadius: 20, border: `1px solid ${active ? meta.color + '60' : C.border}`, background: active ? `${meta.color}18` : 'transparent', color: active ? meta.color : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.5rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '.04em', textTransform: 'uppercase' }}>
+                              <span>{meta.icon}</span>
+                              {meta.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+
+                      {/* Blocks list */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '.32rem' }}>
+                        {(BLOCKS_BY_CATEGORY[blockCat] ?? []).map(block => {
+                          const catMeta = CATEGORY_META[block.category]
+                          const isInProject = Object.values(fileContents).join('\n').includes(block.id)
+                          return (
+                            <div
+                              key={block.id}
+                              draggable
+                              onDragEnd={() => {
+                                const existing = fileContents[block.filename] ?? ''
+                                const separator = `\n// ── ${block.name} ` + '─'.repeat(Math.max(0, 48 - block.name.length)) + '\n'
+                                updateFile(block.filename, existing + separator + block.code.trimStart())
+                                if (!openFiles.includes(block.filename)) setOpenFiles(p => [...p, block.filename])
+                                setActiveFile(block.filename)
+                                addTerm(`✓ Inserted "${block.name}" into ${block.filename}`)
+                              }}
+                              onClick={() => {
+                                const existing = fileContents[block.filename] ?? ''
+                                const separator = `\n// ── ${block.name} ` + '─'.repeat(Math.max(0, 48 - block.name.length)) + '\n'
+                                updateFile(block.filename, existing + separator + block.code.trimStart())
+                                if (!openFiles.includes(block.filename)) setOpenFiles(p => [...p, block.filename])
+                                setActiveFile(block.filename)
+                                addTerm(`✓ Inserted "${block.name}" into ${block.filename}`)
+                              }}
+                              style={{ display: 'flex', alignItems: 'center', gap: '.55rem', padding: '.5rem .65rem', background: isInProject ? `${catMeta.color}0D` : C.bg3, border: `1px solid ${isInProject ? catMeta.color + '35' : C.border}`, borderRadius: 8, cursor: 'grab', transition: 'all .12s' }}
+                            >
+                              <span style={{ fontSize: '1.05rem', flexShrink: 0 }}>{block.icon}</span>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', marginBottom: '.08rem' }}>
+                                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.63rem', fontWeight: 700, color: isInProject ? catMeta.color : C.white, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{block.name}</span>
+                                  {isInProject && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: catMeta.color, letterSpacing: '.06em', flexShrink: 0 }}>✓ ADDED</span>}
+                                </div>
+                                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', color: C.muted, lineHeight: 1.45 }}>{block.desc}</div>
+                                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.46rem', color: C.faint, marginTop: '.1rem' }}>→ {block.filename}</div>
+                              </div>
+                              <div style={{ color: C.faint, fontSize: '.7rem', flexShrink: 0 }}>⋮⋮</div>
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      {/* Quick search across all blocks */}
+                      <div style={{ marginTop: '.65rem', paddingTop: '.55rem', borderTop: `1px solid ${C.border}` }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: C.faint, marginBottom: '.35rem', letterSpacing: '.06em' }}>ALL {ALL_BLOCKS.length} BLOCKS</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.22rem' }}>
+                          {ALL_BLOCKS.map(b => (
+                            <button key={b.id} onClick={() => { setBlockCat(b.category) }}
+                              style={{ padding: '.12rem .35rem', borderRadius: 4, border: `1px solid ${CATEGORY_META[b.category].color}28`, background: `${CATEGORY_META[b.category].color}0A`, color: CATEGORY_META[b.category].color, fontFamily: 'var(--font-mono)', fontSize: '.48rem', cursor: 'pointer', letterSpacing: '.02em' }}>
+                              {b.icon} {b.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {dataView === 'apis' && (
                     <>

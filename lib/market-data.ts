@@ -338,7 +338,7 @@ export async function getLatestCryptoPrice(symbol: string): Promise<number | nul
 }
 
 // ─── Order Functions ─────────────────────────────────────────────────
-// These use Alpaca for order execution.
+// These now use Kraken for order execution.
 
 export async function submitOrder(
   params: {

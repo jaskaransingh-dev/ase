@@ -2,7 +2,6 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { Apple, Globe } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,7 +23,6 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
   const [passwordStrength, setPasswordStrength] = useState(0)
-  const [oauthLoading, setOauthLoading] = useState<'google' | 'apple' | null>(null)
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
 
   useEffect(() => {
@@ -131,30 +129,6 @@ export default function SignupPage() {
     }
   }
 
-  async function handleOAuth(provider: 'google' | 'apple') {
-    setOauthLoading(provider)
-    setError('')
-
-    const supabase = supabaseRef.current
-    if (!supabase) {
-      setError('Application error: Supabase not ready')
-      setOauthLoading(null)
-      return
-    }
-
-    const { error: oauthError } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo: `${window.location.origin}/dashboard`,
-      },
-    })
-
-    if (oauthError) {
-      setError(`Failed to continue with ${provider === 'google' ? 'Google' : 'Apple'}.`)
-      setOauthLoading(null)
-    }
-  }
-
   if (done) {
     return (
       <div
@@ -217,7 +191,7 @@ export default function SignupPage() {
           >
             We sent a verification link to{' '}
             <strong style={{ color: 'var(--white)' }}>{email}</strong>. Click it
-            to activate your account and start trading with your Alpaca funds.
+            to activate your account, then sign in to connect your Kraken keys.
           </p>
           <div
             style={{
@@ -297,62 +271,16 @@ export default function SignupPage() {
               marginBottom: '1.75rem',
             }}
           >
-            Start investing in AI agents — connect your trading account
+            Step 1 of 2 — create your ASE account, then connect Kraken to start trading.
           </p>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.6rem', marginBottom: '1rem' }}>
-            <button
-              type="button"
-              onClick={() => handleOAuth('google')}
-              disabled={!!oauthLoading || loading}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '.5rem',
-                padding: '.72rem .9rem',
-                borderRadius: 12,
-                border: '1px solid var(--border)',
-                background: 'var(--bg3)',
-                color: 'var(--white)',
-                fontSize: '.85rem',
-                fontWeight: 600,
-                cursor: oauthLoading || loading ? 'not-allowed' : 'pointer',
-                opacity: oauthLoading === 'google' ? 0.75 : 1,
-              }}
-            >
-              {oauthLoading === 'google' ? <span className="spinner" /> : <Globe size={16} />}
-              Google
-            </button>
-            <button
-              type="button"
-              onClick={() => handleOAuth('apple')}
-              disabled={!!oauthLoading || loading}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '.5rem',
-                padding: '.72rem .9rem',
-                borderRadius: 12,
-                border: '1px solid var(--border)',
-                background: 'var(--bg3)',
-                color: 'var(--white)',
-                fontSize: '.85rem',
-                fontWeight: 600,
-                cursor: oauthLoading || loading ? 'not-allowed' : 'pointer',
-                opacity: oauthLoading === 'apple' ? 0.75 : 1,
-              }}
-            >
-              {oauthLoading === 'apple' ? <span className="spinner" /> : <Apple size={16} />}
-              Apple
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.7rem', margin: '1rem 0 1.15rem' }}>
-            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.1em' }}>OR USE EMAIL</span>
-            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          {/* Kraken-connect callout */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.7rem 0.9rem', background: 'rgba(88,65,212,0.08)', border: '1px solid rgba(88,65,212,0.25)', borderRadius: 10, marginBottom: '1.25rem' }}>
+            <div style={{ width: 26, height: 26, borderRadius: 6, background: '#5841d4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#fff', fontSize: 11, fontFamily: 'var(--font-mono)' }}>K</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: '0.78rem', color: 'var(--white)' }}>Kraken-only execution</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--muted)', marginTop: 1 }}>You&apos;ll generate API keys on Kraken in the next step. We never withdraw.</div>
+            </div>
           </div>
 
           <form

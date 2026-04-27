@@ -5,14 +5,12 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Logo } from '@/components/ui/Logo'
-import { useWallet } from '@/components/WalletProvider'
 import { NAV_CONFIG } from '@/lib/nav-config'
 
 export default function DashboardShell({ user, children }: { user: { id: string; email: string; name: string }; children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
-  const { wallet, shortAddress, connect, disconnect } = useWallet()
   const [accountConnected, setAccountConnected] = useState(false)
   const [accountStatus, setAccountStatus] = useState<string | null>(null)
   const [accountNumber, setAccountNumber] = useState<string | null>(null)
@@ -456,20 +454,16 @@ export default function DashboardShell({ user, children }: { user: { id: string;
               </span>
             </div>
 
-            {/* Wallet */}
-            {wallet.connected ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.25rem 0.6rem', background: 'rgba(22,199,132,0.07)', border: '1px solid rgba(22,199,132,0.18)', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: '0.62rem' }}>
+            {/* Kraken status pill */}
+            {accountConnected ? (
+              <Link href="/dashboard/connect/kraken" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.25rem 0.6rem', background: 'rgba(94,65,217,0.1)', border: '1px solid rgba(94,65,217,0.25)', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: '0.62rem', textDecoration: 'none' }}>
                 <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--mint)' }} />
-                <span style={{ color: 'var(--white)' }}>{shortAddress}</span>
-                <button onClick={disconnect} style={{ background: 'none', border: 'none', color: 'var(--faint)', cursor: 'pointer', padding: 0, fontSize: '0.6rem', lineHeight: 1, marginLeft: 2 }}>✕</button>
-              </div>
+                <span style={{ color: '#a78bfa' }}>🐙 Kraken</span>
+              </Link>
             ) : (
-              <button onClick={() => connect()} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.28rem 0.7rem', background: 'rgba(79,140,255,0.1)', border: '1px solid rgba(79,140,255,0.22)', borderRadius: 6, color: 'var(--blue2)', fontFamily: 'var(--font-mono)', fontSize: '0.62rem', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.04em', transition: 'all 0.12s' }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(79,140,255,0.16)'; e.currentTarget.style.borderColor = 'rgba(79,140,255,0.35)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(79,140,255,0.1)'; e.currentTarget.style.borderColor = 'rgba(79,140,255,0.22)' }}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                Connect
-              </button>
+              <Link href="/dashboard/connect/kraken" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.28rem 0.7rem', background: 'rgba(94,65,217,0.08)', border: '1px solid rgba(94,65,217,0.2)', borderRadius: 6, color: '#a78bfa', fontFamily: 'var(--font-mono)', fontSize: '0.62rem', fontWeight: 600, cursor: 'pointer', letterSpacing: '0.04em', textDecoration: 'none' }}>
+                🐙 Connect Kraken
+              </Link>
             )}
 
             {/* User avatar */}

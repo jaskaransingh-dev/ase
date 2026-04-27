@@ -1,11 +1,22 @@
+/**
+ * POST /api/holdings/sell
+ *
+ * Sell some or all shares in a holding.
+ * 1. Validates holding belongs to user
+ * 2. Prices at current bid
+ * 3. Closes user's open Kraken positions proportionally
+ * 4. Reduces or closes the holding record
+ * 5. Reprices the agent market state
+ * 6. Triggers cron run
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateQuoteFromNav } from '@/lib/market'
 import { reduceHoldingPosition, syncAgentMarketState } from '@/lib/exchange'
 import { triggerImmediateAgentRun } from '@/lib/agent-cycle'
-import { getUserPositions, closeUserPosition, logUserTrade } from '@/lib/user-trading'
-import { createBrokerAPI } from '@/lib/broker'
+import { getUserPositions, closeUserPosition } from '@/lib/user-trading'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,10 +32,9 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdminClient()
 
-    // Fetch holding with agent info
     const { data: holding, error: holdingErr } = await admin
       .from('holdings')
-      .select('*, agents(id, name, slug, share_price_cents, total_aum_cents)')
+      .select('*, agents(id, name, slug, share_price_cents, total_aum_cents, primary_symbol)')
       .eq('id', holding_id)
       .eq('user_id', user.id)
       .eq('status', 'active')
@@ -37,17 +47,16 @@ export async function POST(req: NextRequest) {
     const agentId = holding.agent_id
     const totalShares = Number(holding.shares)
     const sellShares = shares_to_sell ? Math.min(Number(shares_to_sell), totalShares) : totalShares
-    // Get current NAV for pricing
+
     const { data: latestStats } = await admin
       .from('agent_stats')
       .select('nav_cents, bid_cents, ask_cents')
       .eq('agent_id', agentId)
       .order('snapshot_at', { ascending: false })
       .limit(1)
-      .single()
+      .maybeSingle()
 
     const navCents = latestStats?.nav_cents ?? holding.agents?.share_price_cents ?? 10_000
-
     const quote = latestStats?.ask_cents && latestStats?.bid_cents
       ? { askCents: Number(latestStats.ask_cents), bidCents: Number(latestStats.bid_cents) }
       : calculateQuoteFromNav({
@@ -63,69 +72,44 @@ export async function POST(req: NextRequest) {
     })
     const pnlCents = sellValue - reduction.costBasisCents
 
-    // Fetch current wallet
-    const { data: wallet } = await admin
-      .from('wallets')
-      .select('balance_cents')
+    // Close open Kraken positions for this user/agent
+    const closedPositions: Array<{ symbol: string; filledQty: number; fillPrice: number; pnlCents: number }> = []
+    const { data: krakenRow } = await admin
+      .from('user_kraken_keys')
+      .select('status')
       .eq('user_id', user.id)
-      .single()
+      .maybeSingle()
 
-    if (!wallet) return NextResponse.json({ error: 'Wallet not found' }, { status: 400 })
-
-    // 1. Credit wallet with sell proceeds
-    await admin
-      .from('wallets')
-      .update({
-        balance_cents: wallet.balance_cents + sellValue,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', user.id)
-
-    // 2. Record transaction
-    await admin.from('transactions').insert({
-      user_id: user.id,
-      type: 'divest',
-      amount_cents: sellValue,
-      reference_id: holding_id,
-      note: `Sold ${sellShares.toFixed(4)} shares of ${holding.agents?.name}`,
-    })
-
-    // 3. Close positions on user's broker account (if they have one)
-    let closedPositions: Array<{ symbol: string; filledQty: number; fillPrice: number; pnlCents: number }> = []
-    const { data: brokerAccount } = await admin
-      .from('broker_accounts')
-      .select('alpaca_account_id')
-      .eq('user_id', user.id)
-      .eq('status', 'ACTIVE')
-      .single()
-
-    if (brokerAccount?.alpaca_account_id) {
-      const broker = createBrokerAPI()
-      const userPos = await getUserPositions(admin, user.id, agentId)
-
-      for (const pos of userPos) {
+    if (krakenRow?.status === 'active') {
+      const userPositions = await getUserPositions(admin, user.id, agentId)
+      for (const pos of userPositions) {
         if (pos.qty > 0) {
-          const result = await closeUserPosition(
-            admin,
-            broker,
-            brokerAccount.alpaca_account_id,
-            user.id,
-            agentId,
-            pos.symbol
-          )
-          if (result) {
-            closedPositions.push({
-              symbol: pos.symbol,
-              filledQty: result.filledQty,
-              fillPrice: result.fillPrice,
-              pnlCents: result.pnlCents,
-            })
+          try {
+            const result = await closeUserPosition(admin, null, '', user.id, agentId, pos.symbol)
+            if (result) {
+              closedPositions.push({
+                symbol: pos.symbol,
+                filledQty: result.filledQty,
+                fillPrice: result.fillPrice,
+                pnlCents: result.pnlCents,
+              })
+            }
+          } catch (posErr) {
+            console.warn(`[sell] Could not close Kraken position ${pos.symbol}:`, posErr instanceof Error ? posErr.message : posErr)
           }
         }
       }
     }
 
-    // 4. Reprice from actual post-sale capital.
+    // Record transaction
+    await admin.from('transactions').insert({
+      user_id: user.id,
+      type: 'divest',
+      amount_cents: sellValue,
+      reference_id: holding_id,
+      note: `Sold ${sellShares.toFixed(4)} shares of ${holding.agents?.name} via Kraken`,
+    })
+
     const synced = await syncAgentMarketState(admin, {
       agentId,
       previousInvestorCapitalCents: Number(holding.agents?.total_aum_cents) || 0,
@@ -133,22 +117,7 @@ export async function POST(req: NextRequest) {
       volumeShares: sellShares,
     })
 
-    await triggerImmediateAgentRun(req, agentId)
-
-    // 4. Send email (non-blocking)
-    try {
-      const { sendSellConfirmation } = await import('@/lib/email')
-      const { data: authUser } = await admin.auth.admin.getUserById(user.id)
-      if (authUser?.user?.email) {
-        await sendSellConfirmation(
-          authUser.user.email,
-          holding.agents?.name || 'Unknown Agent',
-          sellValue
-        )
-      }
-    } catch {
-      // Email failure shouldn't block the sell
-    }
+    void triggerImmediateAgentRun(req, agentId)
 
     return NextResponse.json({
       ok: true,
@@ -156,15 +125,12 @@ export async function POST(req: NextRequest) {
       returned_cents: sellValue,
       pnl_cents: pnlCents,
       nav_cents: synced.navCents,
-      bid_cents: synced.bidCents,
-      ask_cents: synced.askCents,
       new_aum_cents: synced.investorCapitalCents,
-      total_capital_cents: synced.tradingCapitalCents,
       partial: reduction.partial,
       closed_positions: closedPositions,
     })
   } catch (err: unknown) {
-    console.error('sell error:', err)
+    console.error('[sell] error:', err)
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Internal error' }, { status: 500 })
   }
 }

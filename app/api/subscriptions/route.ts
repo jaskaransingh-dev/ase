@@ -40,10 +40,11 @@ export async function GET() {
       .eq('agent_id', sub.agent_id)
       .eq('status', 'active')
       .maybeSingle()
-    
+
     return {
       ...sub,
       holding: holding ? {
+        id: holding.id,
         shares: holding.shares,
         invested_cents: holding.invested_cents,
         current_value_cents: holding.current_value_cents || 0,

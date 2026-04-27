@@ -9,26 +9,32 @@ export default async function SettingsPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const [{ data: profile }, { data: transactions }, brokerData] = await Promise.all([
+  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
+
+  const [{ data: profile }, { data: transactions }, krakenBalance, krakenKeys] = await Promise.all([
     supabase.from('profiles').select('display_name').eq('id', user.id).single(),
     supabase.from('transactions').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(50),
-    fetch(`${process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'}/api/broker/account`, { cache: 'no-store' }).then(r => r.json()).catch(() => ({ has_account: false, cash: '0', portfolio_value: '0' })),
+    fetch(`${base}/api/auth/kraken/balance`, { cache: 'no-store' }).then(r => r.json()).catch(() => ({ error: 'not connected' })),
+    fetch(`${base}/api/auth/kraken/keys`, { cache: 'no-store' }).then(r => r.json()).catch(() => null),
   ])
 
-  const brokerAccount = brokerData?.has_account ? {
-    alpaca_account_id: brokerData.alpaca_account_id ?? '',
-    account_number: brokerData.account_number ?? '',
-    status: brokerData.status ?? 'UNKNOWN',
-    trading_enabled: brokerData.trading_enabled ?? false,
+  const brokerAccount = !krakenBalance.error ? {
+    kraken_account_id: 'connected',
+    account_number: 'kraken',
+    status: 'CONNECTED',
+    trading_enabled: true,
+    cash_usd: krakenBalance.cash_usd ?? 0,
+    free_usd: krakenBalance.free_usd ?? 0,
   } : null
 
-  const cashCents = Math.round(parseFloat(brokerData?.cash ?? '0') * 100)
+  const cashCents = Math.round((brokerAccount?.cash_usd ?? 0) * 100)
 
   return (
     <SettingsClient
       user={{ id: user.id, email: user.email!, name: profile?.display_name || user.email!.split('@')[0] }}
       walletBalanceCents={cashCents}
       brokerAccount={brokerAccount}
+      krakenKeys={krakenKeys}
       transactions={(transactions ?? []).map(t => ({
         id: t.id,
         type: t.type,

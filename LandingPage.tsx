@@ -68,7 +68,7 @@ const AGENTS = [
 
 const PARTNERS = [
   { name: 'Supabase', logo: 'https://supabase.com/dashboard/img/supabase-logo.svg' },
-  { name: 'Alpaca', logo: 'https://alpaca.markets/img/logo.svg' },
+  { name: 'Kraken', logo: 'https://www.kraken.com/imgKraken/Press/Kraken_Logo_Horizontal_RGB_dark_grey.svg' },
   { name: 'Stripe', logo: 'https://images.ctfassets.net/q602vtcuu3w3/69ZfQ6pv6Onp6ON6Onp6ON/69ZfQ6pv6Onp6ON6Onp6ON/Stripe_logo.svg' },
   { name: 'Cloudflare', logo: 'https://www.cloudflare.com/img/logo-cloudflare-dark.svg' }
 ];
