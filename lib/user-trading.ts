@@ -316,18 +316,44 @@ export async function closeUserPosition(
   agentId: string,
   symbol: string
 ): Promise<{ filledQty: number; fillPrice: number; pnlCents: number } | null> {
+  const client = await krakenClientForUser(userId)
+  if (!client) throw new Error('No active Kraken keys for this user')
+
+  // Check DB records first
   const positions = await getUserPositions(admin, userId, agentId)
   const pos = positions.find(p => p.symbol === symbol)
-  if (!pos || pos.qty <= 0) return null
 
-  const client = await krakenClientForUser(userId)
-  if (!client) return null
+  let qtyToSell = 0
+  let avgEntry = 0
 
-  const order = await client.placeMarketOrder({ aseSymbol: symbol, side: 'sell', volume: pos.qty })
-  if (!order || order.status === 'rejected') return null
+  if (pos && pos.qty > 0) {
+    qtyToSell = pos.qty
+    avgEntry = pos.avg_entry
+  } else {
+    // Fallback: read actual Kraken balance for this asset
+    console.log(`[closeUserPosition] No DB record for ${symbol}, falling back to live Kraken balance`)
+    const base = symbol.replace(/-USD$/, '').replace(/-.*$/, '')
+    const balance = await client.getBalance()
+    const krakenPos = balance.positions.find(p =>
+      p.asset === base ||
+      p.asset === `X${base}` ||
+      p.asset.replace(/^X/, '') === base
+    )
+    if (!krakenPos || krakenPos.qty <= 0) {
+      console.log(`[closeUserPosition] No position for ${symbol} (${base}) in Kraken for user ${userId}`)
+      return null
+    }
+    qtyToSell = krakenPos.qty
+    console.log(`[closeUserPosition] Kraken fallback: selling ${qtyToSell} ${base}`)
+  }
+
+  const order = await client.placeMarketOrder({ aseSymbol: symbol, side: 'sell', volume: qtyToSell })
+  if (!order || order.status === 'rejected') {
+    throw new Error(`Kraken market sell rejected: ${order?.error ?? 'unknown error'}`)
+  }
 
   const fillPrice = order.filledPriceCents / 100
-  const pnlCents = Math.round(pos.qty * (fillPrice - pos.avg_entry) * 100)
+  const pnlCents = avgEntry > 0 ? Math.round(qtyToSell * (fillPrice - avgEntry) * 100) : 0
 
   await logUserTrade(admin, {
     userId, agentId,
@@ -339,7 +365,7 @@ export async function closeUserPosition(
     pnlCents,
     krakenTxid: order.orderId,
     broker: 'kraken',
-    note: 'Position closed',
+    note: pos ? 'Position closed' : 'Position closed (Kraken balance fallback)',
   })
 
   return { filledQty: order.filledQty, fillPrice, pnlCents }

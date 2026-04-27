@@ -159,7 +159,10 @@ export default function DashboardPage() {
   const topAgent = subscriptions.length > 0 ? subscriptions.reduce((best, s) => { const stats = Array.isArray(s.agents?.agent_stats) ? s.agents.agent_stats[0] : null; const ret = stats?.total_return_pct ?? -999; const bestRet = best ? (Array.isArray(best.agents?.agent_stats) ? best.agents.agent_stats[0]?.total_return_pct ?? -999 : -999) : -999; return ret > bestRet ? s : best }, null as Subscription | null) : null
   const topStats = topAgent ? (Array.isArray(topAgent.agents?.agent_stats) ? topAgent.agents.agent_stats[0] : null) : null
   const activeCount = subscribedActivity.filter(a => a.status !== 'SCANNING').length
-  const portfolioValue = brokerAccount?.equity_cents ? brokerAccount.equity_cents / 100 : brokerAccount?.portfolio_value ? parseFloat(brokerAccount.portfolio_value) : totalValue > 0 ? totalValue / 100 : 0
+  // Free cash in Kraken (uninvested USD)
+  const krakenCash = brokerAccount?.cash_cents ? brokerAccount.cash_cents / 100 : brokerAccount?.cash ? parseFloat(brokerAccount.cash) : 0
+  // Total portfolio = invested in agents + free cash in Kraken
+  const portfolioValue = (totalValue / 100) + krakenCash
 
   if (loading) {
     return (
@@ -300,10 +303,10 @@ export default function DashboardPage() {
           {/* Quick stats */}
           <div style={{ flex: '1 1 400px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
             {[
-              { label: 'KRAKEN', value: brokerAccount?.cash ? fmtMoney(brokerAccount.cash) : '—', sub: brokerAccount?.has_account ? '🟢 connected' : 'not connected', color: 'var(--white)', click: undefined },
-              { label: 'INVESTED', value: totalInvested > 0 ? `$${(totalInvested / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '$0', sub: `${subscriptions.filter(s => s.has_investment).length} agents`, color: 'var(--white)', click: undefined },
+              { label: 'KRAKEN CASH', value: krakenCash !== null ? fmtMoney(krakenCash) : '—', sub: brokerAccount?.has_account ? '🟢 connected' : 'not connected', color: 'var(--white)', click: undefined },
+              { label: 'INVESTED', value: totalInvested > 0 ? `$${(totalInvested / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$0.00', sub: `${subscriptions.filter(s => s.has_investment).length} agent${subscriptions.filter(s => s.has_investment).length !== 1 ? 's' : ''}`, color: 'var(--white)', click: undefined },
               { label: 'ACTIVE', value: `${subscriptions.length}`, sub: `${activeCount} running`, color: activeCount > 0 ? 'var(--mint)' : 'var(--faint)', click: undefined },
-              { label: 'RISK', value: totalPnL < -totalInvested * 0.1 ? 'HIGH' : totalPnL < 0 ? 'MED' : 'LOW', sub: totalInvested > 0 ? fmtPct(totalPnL / totalInvested * 100) : '—', color: totalPnL < -totalInvested * 0.1 ? 'var(--red)' : totalPnL < 0 ? 'var(--orange)' : 'var(--mint)', click: undefined },
+              { label: 'TOTAL P&L', value: totalInvested > 0 ? fmt$(totalPnL) : '—', sub: totalInvested > 0 ? fmtPct(portfolioReturnPct) : 'no positions', color: totalPnL >= 0 ? 'var(--mint)' : 'var(--red)', click: undefined },
             ].map((item, i) => (
               <div key={item.label} onClick={item.click} style={{ padding: '1.25rem 1rem', borderRight: i < 3 ? '1px solid var(--border)' : 'none', cursor: item.click ? 'pointer' : 'default', transition: 'background 0.14s' }}
                 onMouseEnter={e => { if (item.click) e.currentTarget.style.background = 'rgba(79,140,255,0.04)' }}
@@ -397,17 +400,33 @@ export default function DashboardPage() {
                   const sc = statusColor(activity?.status ?? 'SCANNING')
                   const pnlPos = pnl >= 0
                   const signal = activity?.signal_summary || sub.agents?.signal_summary || ''
+                  const hasHolding = !!sub.holding?.id && invested > 0
+
+                  // Find matching Kraken position for this agent's primary symbol
+                  const primaryAsset = sub.agents?.primary_symbol?.replace(/-USD$/, '')
+                  const krakenPos = brokerAccount?.positions?.find(p =>
+                    p.symbol === primaryAsset ||
+                    p.symbol === `X${primaryAsset}` ||
+                    p.symbol.replace(/^X/, '') === primaryAsset
+                  )
+
                   return (
                     <div key={sub.id} style={{ borderBottom: i < subscriptions.length - 1 ? '1px solid var(--border)' : 'none', padding: '1rem 1.25rem' }}>
                       {/* Row 1: agent name + status + sell */}
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.65rem' }}>
                         <Link href={`/agents/${sub.agents?.slug}`} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', textDecoration: 'none' }}>
-                          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(79,140,255,.1)', border: '1px solid rgba(79,140,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', fontWeight: 700, color: 'var(--blue2)' }}>{(sub.agents?.ticker ?? 'XX').slice(0, 3)}</span>
+                          <div style={{ width: 36, height: 36, borderRadius: 9, background: hasHolding ? 'rgba(22,199,132,.1)' : 'rgba(79,140,255,.1)', border: `1px solid ${hasHolding ? 'rgba(22,199,132,.22)' : 'rgba(79,140,255,.2)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', fontWeight: 700, color: hasHolding ? 'var(--mint)' : 'var(--blue2)' }}>{(sub.agents?.ticker ?? sub.agents?.primary_symbol?.split('-')[0] ?? 'XX').slice(0, 3)}</span>
                           </div>
                           <div>
-                            <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--white)' }}>{sub.agents?.name ?? '—'}</div>
-                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', color: 'var(--faint)' }}>{sub.agents?.primary_symbol ?? '—'} · {shares > 0 ? `${Number(shares).toFixed(4)} shares` : 'no shares'}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--white)' }}>{sub.agents?.name ?? '—'}</span>
+                              {hasHolding && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.44rem', padding: '0.1rem 0.35rem', borderRadius: 4, background: 'rgba(22,199,132,.1)', border: '1px solid rgba(22,199,132,.2)', color: 'var(--mint)', letterSpacing: '.06em' }}>INVESTED</span>}
+                            </div>
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', color: 'var(--faint)', marginTop: '0.1rem' }}>
+                              {sub.agents?.primary_symbol ?? '—'} · {shares > 0 ? `${Number(shares).toFixed(4)} shares` : 'no shares'}
+                              {krakenPos && ` · holding ${Number(krakenPos.qty).toFixed(6)} ${primaryAsset}`}
+                            </div>
                           </div>
                         </Link>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -415,7 +434,7 @@ export default function DashboardPage() {
                             <span style={{ width: 4, height: 4, borderRadius: '50%', background: sc, display: 'inline-block', animation: activity?.status !== 'SCANNING' ? 'pulse 1.5s infinite' : 'none' }} />
                             {activity?.status ?? 'SCANNING'}
                           </span>
-                          {sub.holding?.id && (
+                          {sub.holding?.id && hasHolding && (
                             <button onClick={() => { setSellTarget({ holdingId: sub.holding!.id, agentName: sub.agents?.name ?? 'Agent', shares: Number(sub.holding!.shares), investedCents: sub.holding!.invested_cents, currentValueCents: sub.holding!.current_value_cents }); setSellError(''); setSellDone(null) }}
                               style={{ padding: '0.25rem 0.65rem', borderRadius: 6, border: '1px solid rgba(228,88,103,.3)', background: 'rgba(228,88,103,.08)', color: '#E45867', fontFamily: 'var(--font-mono)', fontSize: '0.55rem', fontWeight: 700, cursor: 'pointer' }}>
                               SELL
@@ -423,23 +442,49 @@ export default function DashboardPage() {
                           )}
                         </div>
                       </div>
-                      {/* Row 2: metrics */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '0.5rem', marginBottom: signal ? '0.65rem' : 0 }}>
-                        {[
-                          { label: 'INVESTED', value: invested > 0 ? `$${(invested / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—', color: 'var(--muted)' },
-                          { label: 'VALUE', value: value > 0 ? `$${(value / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—', color: 'var(--white)' },
-                          { label: 'P&L', value: pnl !== 0 ? fmt$(pnl) : '$0.00', color: pnlPos ? 'var(--mint)' : 'var(--red)' },
-                          { label: 'RETURN', value: fmtPct(ret), color: ret >= 0 ? 'var(--mint)' : 'var(--red)' },
-                        ].map(m => (
-                          <div key={m.label} style={{ background: 'var(--bg3)', borderRadius: 7, padding: '0.4rem 0.6rem' }}>
-                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.46rem', color: 'var(--faint)', letterSpacing: '0.1em', marginBottom: '0.2rem' }}>{m.label}</div>
-                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 700, color: m.color }}>{m.value}</div>
+
+                      {/* Holding metrics — only shown when invested */}
+                      {hasHolding && (
+                        <>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '0.5rem', marginBottom: krakenPos || signal ? '0.55rem' : 0 }}>
+                            {[
+                              { label: 'INVESTED', value: `$${(invested / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: 'var(--muted)' },
+                              { label: 'VALUE NOW', value: `$${(value / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: 'var(--white)' },
+                              { label: 'P&L', value: `${pnlPos ? '+' : ''}$${(Math.abs(pnl) / 100).toFixed(2)}`, color: pnlPos ? 'var(--mint)' : 'var(--red)' },
+                              { label: 'RETURN', value: fmtPct(ret), color: ret >= 0 ? 'var(--mint)' : 'var(--red)' },
+                            ].map(m => (
+                              <div key={m.label} style={{ background: 'var(--bg3)', borderRadius: 7, padding: '0.4rem 0.6rem' }}>
+                                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.46rem', color: 'var(--faint)', letterSpacing: '0.1em', marginBottom: '0.2rem' }}>{m.label}</div>
+                                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 700, color: m.color }}>{m.value}</div>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
+
+                          {/* Kraken position for this agent */}
+                          {krakenPos && (
+                            <div style={{ background: 'rgba(22,199,132,.04)', border: '1px solid rgba(22,199,132,.12)', borderRadius: 7, padding: '0.4rem 0.7rem', marginBottom: signal ? '0.5rem' : 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="var(--mint)" strokeWidth="2"><path d="M3 3l18 18M3 21l18-18"/><circle cx="12" cy="12" r="10"/></svg>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', color: 'var(--mint)', fontWeight: 700 }}>HOLDING IN KRAKEN</span>
+                              </div>
+                              <div style={{ display: 'flex', gap: '1rem' }}>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.46rem', color: 'var(--faint)', marginBottom: '0.08rem' }}>{primaryAsset} QTY</div>
+                                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', fontWeight: 700, color: 'var(--white)' }}>{Number(krakenPos.qty).toFixed(6)}</div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.46rem', color: 'var(--faint)', marginBottom: '0.08rem' }}>MKT VALUE</div>
+                                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', fontWeight: 700, color: 'var(--white)' }}>${parseFloat(krakenPos.market_value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+
                       {/* Row 3: agent signal */}
                       {signal && (
-                        <div style={{ background: 'rgba(79,140,255,.05)', border: '1px solid rgba(79,140,255,.12)', borderRadius: 7, padding: '0.4rem 0.65rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div style={{ background: 'rgba(79,140,255,.05)', border: '1px solid rgba(79,140,255,.12)', borderRadius: 7, padding: '0.4rem 0.65rem', display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: hasHolding ? 0 : 0 }}>
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--blue2)" strokeWidth="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', color: 'var(--muted)', lineHeight: 1.4 }}>{signal.slice(0, 120)}{signal.length > 120 ? '…' : ''}</span>
                         </div>

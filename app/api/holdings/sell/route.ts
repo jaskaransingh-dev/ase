@@ -82,8 +82,10 @@ export async function POST(req: NextRequest) {
 
     if (krakenRow?.status === 'active') {
       const userPositions = await getUserPositions(admin, user.id, agentId)
-      for (const pos of userPositions) {
-        if (pos.qty > 0) {
+      const openPositions = userPositions.filter(p => p.qty > 0)
+
+      if (openPositions.length > 0) {
+        for (const pos of openPositions) {
           try {
             const result = await closeUserPosition(admin, null, '', user.id, agentId, pos.symbol)
             if (result) {
@@ -95,7 +97,26 @@ export async function POST(req: NextRequest) {
               })
             }
           } catch (posErr) {
-            console.warn(`[sell] Could not close Kraken position ${pos.symbol}:`, posErr instanceof Error ? posErr.message : posErr)
+            console.error(`[sell] Could not close Kraken position ${pos.symbol}:`, posErr instanceof Error ? posErr.message : posErr)
+          }
+        }
+      } else {
+        // No DB records — fall back to agent's primary symbol in Kraken balance
+        const primarySymbol = holding.agents?.primary_symbol
+        if (primarySymbol) {
+          console.log(`[sell] No DB positions for user ${user.id} / agent ${agentId} — trying Kraken fallback on ${primarySymbol}`)
+          try {
+            const result = await closeUserPosition(admin, null, '', user.id, agentId, primarySymbol)
+            if (result) {
+              closedPositions.push({
+                symbol: primarySymbol,
+                filledQty: result.filledQty,
+                fillPrice: result.fillPrice,
+                pnlCents: result.pnlCents,
+              })
+            }
+          } catch (posErr) {
+            console.error(`[sell] Kraken fallback sell failed for ${primarySymbol}:`, posErr instanceof Error ? posErr.message : posErr)
           }
         }
       }

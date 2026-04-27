@@ -41,7 +41,8 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ sl
     user ? admin.from('holdings').select('id, shares, invested_cents, status').eq('user_id', user.id).eq('agent_id', agent.id).eq('status', 'active').maybeSingle() : Promise.resolve({ data: null }),
   ])
 
-  const isSubscribed = !!subResult?.data
+  // Treat as subscribed if subscription record OR active holding exists
+  const isSubscribed = !!subResult?.data || !!holdingResult?.data
 
   const latestStats = statsRows && statsRows.length > 0 ? statsRows[statsRows.length - 1] : null
 

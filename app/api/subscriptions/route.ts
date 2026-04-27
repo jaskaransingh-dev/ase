@@ -31,26 +31,54 @@ export async function GET() {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   
-  // For each subscription, get the holding with current value
+  // Fetch latest NAV for all agent IDs in one batch
+  const agentIds = (subscriptions ?? []).map(s => s.agent_id)
+  const navMap: Record<string, number> = {}
+  if (agentIds.length > 0) {
+    const { data: statsRows } = await admin
+      .from('agent_stats')
+      .select('agent_id, nav_cents, snapshot_at')
+      .in('agent_id', agentIds)
+      .order('snapshot_at', { ascending: false })
+    for (const row of (statsRows ?? [])) {
+      if (!navMap[row.agent_id]) navMap[row.agent_id] = row.nav_cents
+    }
+    // Also fall back to agents.share_price_cents
+    const { data: agentRows } = await admin
+      .from('agents')
+      .select('id, share_price_cents')
+      .in('id', agentIds)
+    for (const a of (agentRows ?? [])) {
+      if (!navMap[a.id] && a.share_price_cents) navMap[a.id] = a.share_price_cents
+    }
+  }
+
+  // For each subscription, get the holding with current value computed from live NAV
   const subscriptionsWithHoldings = await Promise.all((subscriptions ?? []).map(async (sub) => {
     const { data: holding } = await admin
       .from('holdings')
-      .select('id, shares, invested_cents, current_value_cents, pnl_cents, status')
+      .select('id, shares, invested_cents, status')
       .eq('user_id', user.id)
       .eq('agent_id', sub.agent_id)
       .eq('status', 'active')
       .maybeSingle()
 
+    const navCents = navMap[sub.agent_id] ?? 10_000
+    const shares = Number(holding?.shares ?? 0)
+    const investedCents = Number(holding?.invested_cents ?? 0)
+    const currentValueCents = holding ? Math.round(shares * navCents) : 0
+    const pnlCents = holding ? currentValueCents - investedCents : 0
+
     return {
       ...sub,
       holding: holding ? {
         id: holding.id,
-        shares: holding.shares,
-        invested_cents: holding.invested_cents,
-        current_value_cents: holding.current_value_cents || 0,
-        pnl_cents: holding.pnl_cents || 0,
+        shares,
+        invested_cents: investedCents,
+        current_value_cents: currentValueCents,
+        pnl_cents: pnlCents,
       } : null,
-      has_investment: holding && holding.invested_cents > 0,
+      has_investment: !!(holding && investedCents > 0),
     }
   }))
 
