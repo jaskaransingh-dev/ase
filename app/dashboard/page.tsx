@@ -285,7 +285,7 @@ export default function DashboardPage() {
           <a href="https://www.kraken.com/u/funding/deposit" target="_blank" rel="noopener noreferrer" style={{ padding: '0.4rem 0.85rem', borderRadius: 8, border: '1px solid rgba(79,140,255,.25)', background: 'rgba(79,140,255,.08)', color: 'var(--blue2)', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
             + Deposit
           </a>
-          <Link href="/dashboard/build" style={{ padding: '0.4rem 0.85rem', borderRadius: 8, border: '1px solid rgba(22,199,132,.25)', background: 'rgba(22,199,132,.07)', color: 'var(--mint)', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, textDecoration: 'none' }}>
+          <Link href="/dashboard/build?new=1" style={{ padding: '0.4rem 0.85rem', borderRadius: 8, border: '1px solid rgba(22,199,132,.25)', background: 'rgba(22,199,132,.07)', color: 'var(--mint)', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, textDecoration: 'none' }}>
             + New Strategy
           </Link>
 <Link href="/dashboard/marketplace" style={{ padding: '0.4rem 0.85rem', borderRadius: 8, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, textDecoration: 'none' }}>
@@ -370,7 +370,7 @@ export default function DashboardPage() {
 
       {/* ── NEW STRATEGY BANNER ── */}
       {subscriptions.length === 0 && (
-        <Link href="/dashboard/build" style={{
+        <Link href="/dashboard/build?new=1" style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           marginBottom: '1rem', padding: '1rem 1.5rem',
           background: 'linear-gradient(90deg, rgba(22,199,132,.08) 0%, rgba(79,140,255,.06) 100%)',

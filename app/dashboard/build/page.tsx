@@ -196,9 +196,19 @@ export default function QuantLabPage() {
   const searchParams = useSearchParams()
   const loadAgentSlug = searchParams.get('load_agent')
   const editMode = searchParams.get('edit') === '1'
+  const isNew = searchParams.get('new') === '1'
 
   // Load agent from URL params on mount
   useEffect(() => {
+    // If 'new' param, clear localStorage and load fresh template
+    if (isNew) {
+      try { localStorage.removeItem('ase-files') } catch {}
+      setFileContents(DEFAULT_FILES)
+      setAgentName('New Strategy')
+      setTermLines(['> Fresh template loaded', '> Edit strategy.ts or config.json', '> Cmd+Enter to run backtest', ''])
+      return
+    }
+
     if (loadAgentSlug) {
       // Fetch agent by slug and load strategy code
       fetch(`/api/agents/${loadAgentSlug}`)
