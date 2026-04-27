@@ -346,14 +346,14 @@ export async function submitOrder(
     side: 'buy' | 'sell'
     qty?: number
     notional?: number
-    type?: string
+    type?: 'market' | 'limit'
     time_in_force?: string
   },
   apiKey?: string,
   secretKey?: string
 ): Promise<AlpacaOrder> {
   const { submitOrder: alpacaSubmitOrder } = await import('./alpaca')
-  const result = await alpacaSubmitOrder(params, apiKey, secretKey)
+  const result = await alpacaSubmitOrder(params, apiKey ?? 'system', apiKey, secretKey)
   return {
     id:               result.id,
     status:           result.status,

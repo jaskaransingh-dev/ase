@@ -162,17 +162,14 @@ export default function SettingsClient({ user, walletBalanceCents, brokerAccount
                       ${(Math.abs(walletBalanceCents) / 100).toFixed(2)}
                     </div>
                   </div>
-                  <Link href="#" onClick={() => setSection('brokerage')} style={{ padding: '0.45rem 1rem', borderRadius: 8, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700, textDecoration: 'none' }}>
+                  <button onClick={() => setSection('brokerage')} style={{ padding: '0.45rem 1rem', borderRadius: 8, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}>
                     Manage →
-                  </Link>
+                  </button>
                 </div>
               </Panel>
 
               <Panel title="Danger Zone" danger>
-                <p style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '1rem', lineHeight: 1.6 }}>Once you delete your account, there is no going back. All data will be permanently removed.</p>
-                <button style={{ padding: '0.5rem 1.2rem', borderRadius: 8, border: '1px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}>
-                  Delete Account
-                </button>
+                <p style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '1rem', lineHeight: 1.6 }}>To delete your account and all associated data, contact support at <a href="mailto:support@launchase.com" style={{ color: 'var(--blue2)', textDecoration: 'none' }}>support@launchase.com</a>.</p>
               </Panel>
             </>
           )}

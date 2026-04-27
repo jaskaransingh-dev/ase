@@ -4,7 +4,7 @@ compatibility_date = "2024-01-01"
 pages_build_output_dir = ".next/standalone"
 
 [env.production]
-vars = { NEXT_PUBLIC_APP_URL = "https://ase-8tk.pages.dev" }
+vars = { NEXT_PUBLIC_APP_URL = "https://launchase.com" }
 
 [env.staging]
-vars = { NEXT_PUBLIC_APP_URL = "https://ase-8tk.pages.dev" }
+vars = { NEXT_PUBLIC_APP_URL = "https://launchase.com" }

@@ -375,7 +375,7 @@ function ScreenCarousel() {
   return (
     <div style={{ position: 'relative', zIndex: 1 }}>
       {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 0, justifyContent: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 6 }}>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 6 }}>
         {SCREENS_DATA.map((s, i) => (
           <button key={s.id} onClick={() => { setActive(i); setProgress(0) }} style={{ padding: '6px 14px', background: active === i ? 'rgba(79,140,255,0.12)' : 'transparent', border: `1px solid ${active === i ? 'rgba(79,140,255,0.3)' : 'rgba(30,42,61,0.6)'}`, borderRadius: 8, color: active === i ? '#6BA3FF' : 'rgba(127,140,163,0.7)', fontFamily: "'JetBrains Mono', monospace", fontSize: '0.68rem', cursor: 'pointer', transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 6 }}>
             {active === i && (

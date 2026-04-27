@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   try {
     console.log(`🔍 Fetching ${limit} bars for ${symbol} (${timeframe})...`)
 
-    const bars = await getCryptoBars(symbol, timeframe, limit)
+    const bars = await getCryptoBars(symbol, timeframe as '1Day' | '1Hour' | undefined, limit)
 
     console.log(`📊 Received ${bars.length} bars`)
 

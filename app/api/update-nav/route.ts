@@ -28,7 +28,7 @@ export async function POST() {
       console.log(`Updating NAV for agent: ${agent.slug}`)
       
       // Get Alpaca portfolio value
-      const account = await getAccount(alpacaKey, alpacaSecret)
+      const account = await getAccount('nav-update')
       const portfolioValue = parseFloat(account.portfolio_value) * 100 // Convert to cents
 
       // Get total shares outstanding for this agent
@@ -73,10 +73,7 @@ export async function POST() {
       }
 
       // Get performance metrics
-      const lastEquity = parseFloat(account.last_equity) * 100
-      const dailyReturnPct = lastEquity > 0
-        ? ((portfolioValue - lastEquity) / lastEquity) * 100
-        : 0
+      const dailyReturnPct = 0 // Daily return from stub account is not available
 
       // Calculate total return from initial investment
       const totalReturnPct = totalInvested > 0

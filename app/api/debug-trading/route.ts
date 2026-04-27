@@ -23,13 +23,13 @@ export async function GET() {
 
   // 1. Alpaca account
   try {
-    const account = await getAccount(alpacaKey, alpacaSecret)
+    const account = await getAccount('debug')
     results.alpaca_account = {
       ok: true,
-      equity: account.equity,
       cash: account.cash,
       portfolio_value: account.portfolio_value,
       buying_power: account.buying_power,
+      status: account.status,
     }
   } catch (e) {
     results.alpaca_account = { ok: false, error: String(e) }
@@ -72,16 +72,17 @@ export async function GET() {
 
   // 5. Alpaca positions (all, shared account)
   try {
-    const positions = await getPositions(alpacaKey, alpacaSecret)
+    const positions = await getPositions('debug')
     results.alpaca_positions = {
       ok: true,
       count: positions.length,
       positions: positions.map(p => ({
-        symbol: p.symbol,
-        qty: p.qty,
-        avg_entry: p.avg_entry_price,
-        current_price: p.current_price,
-        unrealized_pl: p.unrealized_pl,
+        pair: p.pair,
+        type: p.type,
+        volume: p.volume,
+        cost: p.cost,
+        profit: p.profit,
+        price: p.price,
       })),
     }
   } catch (e) {

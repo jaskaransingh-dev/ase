@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { Loader2, Search, TrendingUp, Shield, Zap, BarChart3 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
@@ -48,15 +47,14 @@ function MiniSparkline({ positive }: { positive: boolean }) {
 }
 
 export default function MarketplacePage() {
-  const supabase = createClient()
   const router = useRouter()
   const [listings, setListings] = useState<Listing[]>([])
   const [loading, setLoading] = useState(true)
   const [sort, setSort] = useState('rank')
   const [tag, setTag] = useState('')
   const [search, setSearch] = useState('')
-  const [subscribing, setSubscribing] = useState<string | null>(null)
-  const [subscribed, setSubscribed] = useState<Set<string>>(new Set())
+  const [subscribing] = useState<string | null>(null)
+  const [subscribed] = useState<Set<string>>(new Set())
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
 
   useEffect(() => { fetchAgents() }, [sort, tag])
@@ -70,16 +68,8 @@ export default function MarketplacePage() {
     setLoading(false)
   }
 
-  async function handleSubscribe(listing: Listing) {
-    setSubscribing(listing.id)
-    const { data: { session } } = await supabase.auth.getSession()
-    const res = await fetch('/api/subscribe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
-      body: JSON.stringify({ agent_id: listing.id, amount_cents: 10000 }),
-    })
-    if (res.ok) setSubscribed(prev => new Set([...prev, listing.id]))
-    setSubscribing(null)
+  function handleSubscribe(listing: Listing) {
+    router.push(`/agents/${listing.slug}`)
   }
 
   const displayed = listings.filter(l =>

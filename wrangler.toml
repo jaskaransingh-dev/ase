@@ -13,7 +13,12 @@ binding = "WORKER_SELF_REFERENCE"
 service = "ase"
 
 [vars]
-NEXT_PUBLIC_APP_URL = "https://ase.jazing14.workers.dev"
+NEXT_PUBLIC_APP_URL = "https://launchase.com"
 NEXT_PUBLIC_SUPABASE_URL = "https://frlgckqtrloqunkhbhtp.supabase.co"
 NEXT_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZybGdja3F0cmxvcXVua2hiaHRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMjI3NTUsImV4cCI6MjA4OTY5ODc1NX0.WGkI_y6tK_4x6lZuOjvOJ2J___7WWG1D8ibohQD2Vmg"
 SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZybGdja3F0cmxvcXVua2hiaHRwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDEyMjc1NSwiZXhwIjoyMDg5Njk4NzU1fQ.br7uvSU4BpBS-_7vbjwSGBzxki7QAEcCmV3Nx510-Js"
+CRON_SECRET = "9f3c2b7a1e8d4c6f0a2b9e7d1c4f8a6b"
+RESEND_API_KEY = "re_5FFnjpjD_2NF7Ewh8cb2BanHviRhHQHNx"
+ALPACA_KEY_ID = "PKILN4ZAIIMEYCZ2DLUZNCXG5R"
+ALPACA_SECRET_KEY = "YOUR_SECRET_KEY_HERE"
+ALPACA_BASE_URL = "https://paper-api.alpaca.markets/v2"

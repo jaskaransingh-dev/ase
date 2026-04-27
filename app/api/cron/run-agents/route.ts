@@ -43,6 +43,7 @@ import {
   runGenericCryptoMomentum,
   StrategyResult,
   getAgentPositions,
+  AGENT_CONFIGS,
 } from '@/lib/agents'
 import { getCryptoBars, getLatestCryptoPrice, healthCheckMarketData } from '@/lib/market-data'
 import { calculateNavFromState, calculateHoldingValueCents, calculateTradingCapitalCents, PLATFORM_SEED_CAPITAL_CENTS } from '@/lib/market'
@@ -106,19 +107,70 @@ export async function POST(req: NextRequest) {
 
   let agentsQuery = admin
     .from('agents')
-    .select('id, slug, total_aum_cents, share_price_cents, alert_level')
+    .select('id, slug, total_aum_cents, share_price_cents, alert_level, asset_class')
     .eq('status', 'active')
-    .eq('asset_class', 'crypto')
 
   if (targetAgentId) agentsQuery = agentsQuery.eq('id', targetAgentId)
 
-  const { data: agents, error: agentsError } = await agentsQuery
-  if (agentsError || !agents?.length) {
+  let agentsData = await agentsQuery
+  let { data: agents, error: agentsError } = agentsData
+
+  if (agentsError) {
     return NextResponse.json({
       ok: false,
-      error: agentsError?.message || 'No active agents found',
+      error: agentsError.message || 'Database error',
       ran_at,
     })
+  }
+
+  if (!agents?.length) {
+    const localAgents = AGENT_CONFIGS.map(a => a.slug)
+    console.log(`[run-agents] No DB agents found, seeding ${localAgents.length} from local configs`)
+
+    for (const slug of localAgents) {
+      const { data: existing } = await admin.from('agents').select('id').eq('slug', slug).single()
+      if (!existing) {
+        const config = AGENT_CONFIGS.find(a => a.slug === slug)!
+        await admin.from('agents').insert({
+          slug,
+          name: config.name,
+          ticker: config.ticker,
+          description: config.description,
+          strategy_type: config.strategyType,
+          asset_class: config.asset,
+          status: 'active',
+          share_price_cents: 10000,
+          total_shares: 100000,
+          total_aum_cents: 0,
+          backtest_stats: {
+            totalReturnPct: 0,
+            sharpeRatio: 0,
+            maxDrawdownPct: 0,
+            winRatePct: 0,
+            totalTrades: 0,
+          },
+        })
+        console.log(`[run-agents] Seeded agent: ${slug}`)
+      }
+    }
+
+    const { data: seeded } = await admin
+      .from('agents')
+      .select('id, slug, total_aum_cents, share_price_cents, alert_level, asset_class')
+      .eq('status', 'active')
+      .or(localAgents.map(s => `slug.eq.${s}`).join(','))
+
+    if (seeded?.length) {
+      agentsData = { data: seeded, error: null, count: seeded.length, status: 200, statusText: '' }
+      agents = seeded
+      console.log(`[run-agents] ${seeded.length} agents seeded from local configs`)
+    } else {
+      return NextResponse.json({
+        ok: false,
+        error: 'No active agents found',
+        ran_at,
+      })
+    }
   }
 
   console.log(`[run-agents] ${agents.length} agents in this cron tick`)

@@ -1006,6 +1006,7 @@ export default function AgentDetailClient({
           onClose={() => setShowInvestModal(false)}
           onSuccess={({ shares, amount }) => {
             setShowInvestModal(false)
+            setIsSubscribed(true)
             setStatusMsg(`Invested $${amount} — ${shares.toFixed(4)} shares acquired`)
             refreshHolding()
             router.refresh()
