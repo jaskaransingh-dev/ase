@@ -11,11 +11,15 @@ const C = {
   bg: '#06111F',
   bg2: '#0B1728',
   bg3: '#101A2D',
+  bg4: '#152238',
   border: '#1A2640',
   blue: '#3B82F6',
+  blue2: '#2563EB',
   mint: '#10B981',
+  mint2: '#059669',
   amber: '#F59E0B',
   red: '#EF4444',
+  purple: '#8B5CF6',
   muted: '#6B7280',
   faint: '#374151',
   white: '#F9FAFB',
@@ -23,8 +27,7 @@ const C = {
 }
 
 type AgentStatus = 'active' | 'paused' | 'draft'
-type View = 'agents' | 'docs'
-type FilterStatus = AgentStatus | 'all'
+type View = 'manage' | 'build' | 'docs'
 
 interface AgentSave {
   id: string
@@ -61,12 +64,6 @@ interface DbAgent {
   [key: string]: unknown
 }
 
-const STATUS_COLOR: Record<AgentStatus, string> = {
-  active: C.mint,
-  paused: C.amber,
-  draft: C.red,
-}
-
 function getStorageKey(userId: string) {
   return `ase_agent_saves_${userId}`
 }
@@ -90,8 +87,8 @@ function mergeAgent(base: AgentConfig, save?: AgentSave): AgentSave {
     description: save?.description ?? base.description,
     tagline: save?.tagline ?? base.tagline,
     ticker: save?.ticker ?? base.ticker,
-    status: save?.status ?? 'active',
-    published: save?.published ?? false,
+    status: save?.status ?? (base.id === 'composite-alpha-v2' ? 'active' : 'draft'),
+    published: save?.published ?? (base.id === 'composite-alpha-v2'),
     updatedAt: save?.updatedAt ?? new Date().toISOString(),
     strategyCode: save?.strategyCode ?? DEFAULT_STRATEGY_TS,
     configJson: save?.configJson ?? DEFAULT_CONFIG_JSON,
@@ -100,26 +97,25 @@ function mergeAgent(base: AgentConfig, save?: AgentSave): AgentSave {
 }
 
 const PUBLISH_REQUIREMENTS = [
-  { key: 'desc', label: 'Strategy description filled (> 50 chars)' },
+  { key: 'desc', label: 'Strategy description (> 50 chars)' },
   { key: 'ticker', label: 'Ticker symbol set' },
-  { key: 'backtest', label: 'Backtest has run' },
-  { key: 'approved', label: 'Strategy approved' },
+  { key: 'backtest', label: 'Backtest completed' },
+  { key: 'approved', label: 'Risk review approved' },
 ]
 
 export default function StudioPage() {
   const router = useRouter()
-  const [view, setView] = useState<View>('agents')
-  const [userId, setUserId] = useState<string>('')
+  const [view, setView] = useState<View>('manage')
+  const [userId, setUserId] = useState('')
   const [saves, setSaves] = useState<Record<string, AgentSave>>({})
   const [search, setSearch] = useState('')
-  const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'paused' | 'draft'>('all')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<Partial<AgentSave>>({})
   const [publishingId, setPublishingId] = useState<string | null>(null)
   const [publishConfirmed, setPublishConfirmed] = useState(false)
   const [dbAgents, setDbAgents] = useState<DbAgent[]>([])
   const [loading, setLoading] = useState(true)
-  const slideRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const supabase = createClient()
@@ -127,7 +123,6 @@ export default function StudioPage() {
       const id = data.user?.id ?? 'anonymous'
       setUserId(id)
       setSaves(loadSaves(id))
-
       setLoading(true)
       supabase
         .from('agents')
@@ -160,11 +155,7 @@ export default function StudioPage() {
     if (filterStatus !== 'all' && a.status !== filterStatus) return false
     if (search) {
       const q = search.toLowerCase()
-      return (
-        a.name.toLowerCase().includes(q) ||
-        a.ticker.toLowerCase().includes(q) ||
-        a.description.toLowerCase().includes(q)
-      )
+      return a.name.toLowerCase().includes(q) || a.ticker.toLowerCase().includes(q) || a.description.toLowerCase().includes(q)
     }
     return true
   })
@@ -280,73 +271,106 @@ export default function StudioPage() {
 
   const isSlideOpen = editingId !== null || publishingId !== null
 
+  const statusCounts = {
+    active: agents.filter(a => a.status === 'active').length,
+    paused: agents.filter(a => a.status === 'paused').length,
+    draft: agents.filter(a => a.status === 'draft').length,
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.text, fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-
-      <div style={{ borderBottom: `1px solid ${C.border}`, padding: '1.25rem 2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      {/* Header */}
+      <div style={{ borderBottom: `1px solid ${C.border}`, padding: '1rem 2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: C.bg2 }}>
         <div>
-          <div style={{ fontSize: '0.9rem', fontWeight: 700, color: C.white, letterSpacing: '0.06em', fontFamily: 'var(--font-mono)' }}>AGENT STUDIO</div>
-          <div style={{ fontSize: '0.7rem', color: C.muted, marginTop: '0.2rem' }}>Manage and publish your trading agents</div>
+          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: C.white, letterSpacing: '0.02em' }}>Agent Studio</div>
+          <div style={{ fontSize: '0.72rem', color: C.muted, marginTop: '0.15rem' }}>Build, deploy, and manage autonomous trading agents</div>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          {(['agents', 'docs'] as const).map(v => (
+        <div style={{ display: 'flex', gap: '0.35rem', background: C.bg, borderRadius: 8, padding: '0.2rem', border: `1px solid ${C.border}` }}>
+          {(['manage', 'build', 'docs'] as const).map(v => (
             <button
               key={v}
               onClick={() => setView(v)}
               style={{
                 fontFamily: 'var(--font-mono)',
-                fontSize: '0.7rem',
-                letterSpacing: '0.08em',
+                fontSize: '0.68rem',
+                letterSpacing: '0.06em',
                 textTransform: 'uppercase',
-                padding: '0.45rem 1.1rem',
+                padding: '0.4rem 0.9rem',
                 borderRadius: 6,
                 cursor: 'pointer',
                 background: view === v ? C.blue : 'transparent',
                 color: view === v ? '#fff' : C.muted,
-                border: `1px solid ${view === v ? C.blue : C.border}`,
+                border: 'none',
+                fontWeight: view === v ? 600 : 400,
                 transition: 'all 0.15s',
               }}
             >
-              {v === 'agents' ? 'Agent Manager' : 'Documentation'}
+              {v === 'manage' ? 'Manage' : v === 'build' ? 'Build' : 'Docs'}
             </button>
           ))}
         </div>
       </div>
 
-      <div style={{ padding: '2rem' }}>
-
-        {view === 'agents' && (
+      <div style={{ padding: '1.5rem 2rem' }}>
+        {view === 'manage' && (
           <div>
-            <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1.25rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Stats bar */}
+            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem' }}>
+              {[
+                { label: 'Active', count: statusCounts.active, color: C.mint },
+                { label: 'Paused', count: statusCounts.paused, color: C.amber },
+                { label: 'Drafts', count: statusCounts.draft, color: C.blue },
+              ].map(s => (
+                <div key={s.label} style={{
+                  background: C.bg3,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 8,
+                  padding: '0.6rem 1rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  minWidth: 120,
+                }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: C.white, fontFamily: 'var(--font-mono)' }}>{s.count}</div>
+                    <div style={{ fontSize: '0.6rem', color: C.muted, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{s.label}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Search + filters */}
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search agents..."
                 style={{
                   fontFamily: 'var(--font-mono)',
-                  fontSize: '0.75rem',
+                  fontSize: '0.72rem',
                   background: C.bg3,
                   border: `1px solid ${C.border}`,
                   borderRadius: 6,
-                  padding: '0.45rem 0.8rem',
+                  padding: '0.4rem 0.75rem',
                   color: C.white,
                   outline: 'none',
-                  width: 240,
+                  width: 220,
                 }}
               />
               {(['all', 'active', 'paused', 'draft'] as const).map(s => {
                 const active = filterStatus === s
-                const accent = s === 'all' ? C.blue : s === 'active' ? C.mint : s === 'paused' ? C.amber : C.red
+                const accent = s === 'all' ? C.blue : s === 'active' ? C.mint : s === 'paused' ? C.amber : C.purple
                 return (
                   <button
                     key={s}
                     onClick={() => setFilterStatus(s)}
                     style={{
                       fontFamily: 'var(--font-mono)',
-                      fontSize: '0.65rem',
+                      fontSize: '0.62rem',
                       letterSpacing: '0.08em',
                       textTransform: 'capitalize',
-                      padding: '0.35rem 0.75rem',
+                      padding: '0.3rem 0.65rem',
                       borderRadius: 6,
                       cursor: 'pointer',
                       background: active ? accent + '18' : 'transparent',
@@ -355,214 +379,198 @@ export default function StudioPage() {
                       transition: 'all 0.15s',
                     }}
                   >
-                    {s === 'all' ? 'ALL' : s === 'draft' ? 'DRAFTS' : s.toUpperCase()}
+                    {s === 'all' ? 'ALL' : s.toUpperCase()}
                   </button>
                 )
               })}
-              <div style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: C.muted }}>
-                {filtered.length} / {agents.length} agents
-              </div>
+              <button
+                onClick={() => router.push('/dashboard/quant')}
+                style={{
+                  marginLeft: 'auto',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.68rem',
+                  fontWeight: 600,
+                  padding: '0.45rem 1rem',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: C.blue,
+                  color: '#fff',
+                  cursor: 'pointer',
+                  transition: 'background 0.15s',
+                }}
+              >
+                + New Agent
+              </button>
             </div>
 
-            <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: '1.6fr 90px 100px 110px 120px 180px',
-                padding: '0.55rem 1.25rem',
-                borderBottom: `1px solid ${C.border}`,
-                fontFamily: 'var(--font-mono)',
-                fontSize: '0.6rem',
-                color: C.muted,
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase',
-              }}>
-                <div>Agent Name</div>
-                <div>Ticker</div>
-                <div>Status</div>
-                <div>Published</div>
-                <div>Last Updated</div>
-                <div>Actions</div>
+            {/* Agent cards */}
+            {loading && (
+              <div style={{ padding: '3rem', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: C.muted }}>
+                Loading your agents...
               </div>
+            )}
 
-              {loading && (
-                <div style={{ padding: '2.5rem', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: C.muted }}>
-                  Loading your agents…
-                </div>
-              )}
+            {!loading && filtered.length === 0 && dbAgents.length === 0 && userId && userId !== 'anonymous' && (
+              <div style={{ padding: '4rem 2rem', textAlign: 'center' }}>
+                <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>🤖</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', fontWeight: 700, color: C.white, marginBottom: '.5rem' }}>No agents yet</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: C.muted, marginBottom: '1.25rem' }}>Create your first trading agent from the Build tab or Quant Lab.</div>
+                <button onClick={() => router.push('/dashboard/quant')} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 600, padding: '0.55rem 1.3rem', borderRadius: 8, border: 'none', background: C.mint, color: '#fff', cursor: 'pointer' }}>
+                  Open Quant Lab →
+                </button>
+              </div>
+            )}
 
-              {!loading && filtered.length === 0 && dbAgents.length === 0 && userId && userId !== 'anonymous' && (
-                <div style={{ padding: '3rem 2rem', textAlign: 'center' }}>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', fontWeight: 700, color: C.white, marginBottom: '.5rem' }}>No agents yet</div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: C.muted, marginBottom: '1rem' }}>Create your first agent from the Quant Lab or Builders page.</div>
-                  <button onClick={() => router.push('/dashboard/quant')} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', fontWeight: 700, padding: '0.5rem 1.1rem', borderRadius: 8, border: 'none', background: C.blue, color: '#fff', cursor: 'pointer' }}>
-                    Open Quant Lab →
-                  </button>
-                </div>
-              )}
+            {!loading && filtered.length === 0 && (dbAgents.length > 0 || !userId || userId === 'anonymous') && (
+              <div style={{ padding: '3rem', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: C.muted }}>
+                No agents match the current filter.
+              </div>
+            )}
 
-              {!loading && filtered.length === 0 && (dbAgents.length > 0 || !userId || userId === 'anonymous') && (
-                <div style={{ padding: '2.5rem', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: C.muted }}>
-                  No agents match the current filter.
-                </div>
-              )}
-
-              {filtered.map((a, i) => {
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '0.75rem' }}>
+              {filtered.map(a => {
                 const base = AGENT_CONFIGS.find(x => x.id === a.id)
+                const statusColor = a.status === 'active' ? C.mint : a.status === 'paused' ? C.amber : C.muted
+                const borderColor = a.published ? C.mint + '40' : a.status === 'draft' ? C.purple + '30' : C.border
                 return (
                   <div
                     key={a.id}
                     style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1.6fr 90px 100px 110px 120px 180px',
-                      padding: '0.85rem 1.25rem',
-                      borderBottom: i < filtered.length - 1 ? `1px solid ${C.border}` : 'none',
-                      alignItems: 'center',
-                      transition: 'background 0.1s',
+                      background: C.bg3,
+                      border: `1px solid ${borderColor}`,
+                      borderRadius: 10,
+                      padding: '1.1rem 1.25rem',
+                      transition: 'border-color 0.2s, transform 0.15s',
+                      cursor: 'default',
+                      position: 'relative',
+                      overflow: 'hidden',
                     }}
-                    onMouseEnter={e => (e.currentTarget.style.background = C.bg3)}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = a.published ? C.mint + '70' : C.blue + '50'; e.currentTarget.style.transform = 'translateY(-1px)' }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = borderColor; e.currentTarget.style.transform = 'none' }}
                   >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: '0.8rem', fontWeight: 600, color: C.white, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {a.name}
+                    {/* Live indicator */}
+                    {a.published && a.status === 'active' && (
+                      <div style={{ position: 'absolute', top: '0.75rem', right: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <div style={{ width: 7, height: 7, borderRadius: '50%', background: C.mint, boxShadow: `0 0 6px ${C.mint}80`, animation: 'pulse 2s infinite' }} />
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: C.mint, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>LIVE</span>
                       </div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: C.muted, marginTop: '0.2rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {base?.strategyType ?? (dbAgents.find(x => x.id === a.id)?.strategy_type ?? 'strategy')
-                          ?.replace(/_/g, ' ')
-                          ?.replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                    )}
+
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: C.white, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {a.name}
+                        </div>
+                        <div style={{ fontSize: '0.65rem', color: C.muted, marginTop: '0.15rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {(base?.strategyType ?? dbAgents.find(x => x.id === a.id)?.strategy_type ?? 'strategy')?.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                        </div>
+                      </div>
+                      <div style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: '0.65rem',
+                        fontWeight: 700,
+                        padding: '0.15rem 0.45rem',
+                        borderRadius: 4,
+                        background: statusColor + '18',
+                        color: statusColor,
+                        border: `1px solid ${statusColor}40`,
+                        marginLeft: '0.5rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                      }}>
+                        {a.status}
                       </div>
                     </div>
 
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', fontWeight: 600, color: C.text }}>
-                      {a.ticker}
+                    <div style={{ fontSize: '0.7rem', color: C.text, lineHeight: 1.5, marginBottom: '0.75rem', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      {a.description}
                     </div>
 
-                    <div>
-                      <select
-                        value={a.status}
-                        onChange={e => updateAgent(a.id, { status: e.target.value as AgentStatus })}
-                        style={{
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: '0.65rem',
-                          background: C.bg3,
-                          border: `1px solid ${STATUS_COLOR[a.status]}40`,
-                          borderRadius: 5,
-                          color: STATUS_COLOR[a.status],
-                          padding: '0.25rem 0.5rem',
-                          cursor: 'pointer',
-                          outline: 'none',
-                          appearance: 'none',
-                          paddingRight: '1.2rem',
-                          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%236B7280' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E")`,
-                          backgroundRepeat: 'no-repeat',
-                          backgroundPosition: 'right 0.4rem center',
-                        }}
-                      >
-                        <option value="active">Active</option>
-                        <option value="paused">Paused</option>
-                        <option value="draft">Draft</option>
-                      </select>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.62rem', color: C.muted, marginBottom: '0.75rem', fontFamily: 'var(--font-mono)' }}>
+                      <span style={{ color: C.white, fontWeight: 600, fontSize: '0.7rem' }}>${a.ticker}</span>
+                      <span>·</span>
+                      <span>v{a.version ?? 1}</span>
+                      <span>·</span>
+                      <span>{new Date(a.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                     </div>
 
-                    <div>
-                      <button
-                        onClick={() => {
-                          if (!a.published) {
-                            openPublish(a.id)
-                          } else {
-                            updateAgent(a.id, { published: false })
-                          }
-                        }}
-                        style={{
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: '0.62rem',
-                          padding: '0.25rem 0.6rem',
-                          borderRadius: 5,
-                          cursor: 'pointer',
-                          border: `1px solid ${a.published ? C.mint + '55' : C.border}`,
-                          background: a.published ? C.mint + '15' : 'transparent',
-                          color: a.published ? C.mint : C.muted,
-                          transition: 'all 0.15s',
-                        }}
-                      >
-                        {a.published ? 'Published' : 'Publish'}
-                      </button>
-                    </div>
-
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: C.muted }}>
-                      {new Date(a.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
                       <button
                         onClick={() => openEdit(a.id)}
                         style={{
                           fontFamily: 'var(--font-mono)',
                           fontSize: '0.62rem',
-                          padding: '0.25rem 0.6rem',
+                          fontWeight: 600,
+                          padding: '0.35rem 0.7rem',
                           borderRadius: 5,
                           cursor: 'pointer',
                           background: 'transparent',
                           border: `1px solid ${C.border}`,
                           color: C.text,
-                          transition: 'border-color 0.15s',
+                          transition: 'all 0.15s',
                         }}
-                        onMouseEnter={e => (e.currentTarget.style.borderColor = C.blue)}
-                        onMouseLeave={e => (e.currentTarget.style.borderColor = C.border)}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = C.blue; e.currentTarget.style.color = C.blue }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.text }}
                       >
                         Edit
                       </button>
-                      <button
-                        onClick={() => resetAgent(a.id)}
-                        style={{
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: '0.62rem',
-                          padding: '0.25rem 0.6rem',
-                          borderRadius: 5,
-                          cursor: 'pointer',
-                          background: 'transparent',
-                          border: `1px solid ${C.border}`,
-                          color: C.muted,
-                          transition: 'border-color 0.15s',
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.borderColor = C.red)}
-                        onMouseLeave={e => (e.currentTarget.style.borderColor = C.border)}
-                      >
-                        Reset
-                      </button>
-                      <button
-                        onClick={() => router.push('/dashboard/build')}
-                        style={{
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: '0.62rem',
-                          padding: '0.25rem 0.6rem',
-                          borderRadius: 5,
-                          cursor: 'pointer',
-                          background: C.blue + '18',
-                          border: `1px solid ${C.blue + '40'}`,
-                          color: C.blue,
-                          transition: 'all 0.15s',
-                        }}
-                      >
-                        Deploy
-                      </button>
-                      {a.published && (
+
+                      {!a.published ? (
+                        <button
+                          onClick={() => openPublish(a.id)}
+                          style={{
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: '0.62rem',
+                            fontWeight: 600,
+                            padding: '0.35rem 0.7rem',
+                            borderRadius: 5,
+                            cursor: 'pointer',
+                            background: C.mint + '15',
+                            border: `1px solid ${C.mint}55`,
+                            color: C.mint,
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          Publish
+                        </button>
+                      ) : (
                         <button
                           onClick={() => delistAgent(a.id)}
                           style={{
                             fontFamily: 'var(--font-mono)',
                             fontSize: '0.62rem',
-                            padding: '0.25rem 0.6rem',
+                            fontWeight: 600,
+                            padding: '0.35rem 0.7rem',
                             borderRadius: 5,
                             cursor: 'pointer',
                             background: 'transparent',
-                            border: `1px solid ${C.red + '50'}`,
-                            color: C.red,
+                            border: `1px solid ${C.mint}40`,
+                            color: C.mint,
+                            transition: 'all 0.15s',
                           }}
                         >
-                          Delist
+                          Published
                         </button>
                       )}
+
+                      <button
+                        onClick={() => router.push('/dashboard/build')}
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: '0.62rem',
+                          fontWeight: 600,
+                          padding: '0.35rem 0.7rem',
+                          borderRadius: 5,
+                          cursor: 'pointer',
+                          background: C.blue + '15',
+                          border: `1px solid ${C.blue}40`,
+                          color: C.blue,
+                          marginLeft: 'auto',
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        Deploy
+                      </button>
                     </div>
                   </div>
                 )
@@ -571,9 +579,90 @@ export default function StudioPage() {
           </div>
         )}
 
+        {view === 'build' && (
+          <div style={{ textAlign: 'center', padding: '3rem 2rem' }}>
+            <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⚡</div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: C.white, marginBottom: '.5rem' }}>Build Your Agent</div>
+            <div style={{ fontSize: '0.78rem', color: C.muted, maxWidth: 500, margin: '0 auto 1.5rem', lineHeight: 1.6 }}>
+              Write your trading strategy in the Quant Lab IDE using TypeScript. Configure parameters, run backtests, and deploy to the Exchange.
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+              <button
+                onClick={() => router.push('/dashboard/quant')}
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  padding: '0.6rem 1.5rem',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: C.blue,
+                  color: '#fff',
+                  cursor: 'pointer',
+                  transition: 'background 0.15s',
+                }}
+              >
+                Open Quant Lab →
+              </button>
+              <button
+                onClick={() => router.push('/dashboard/backtest')}
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  padding: '0.6rem 1.5rem',
+                  borderRadius: 8,
+                  border: `1px solid ${C.border}`,
+                  background: 'transparent',
+                  color: C.text,
+                  cursor: 'pointer',
+                  transition: 'border-color 0.15s',
+                }}
+              >
+                Run Backtest
+              </button>
+            </div>
+
+            {/* Templates */}
+            <div style={{ marginTop: '2.5rem', textAlign: 'left', maxWidth: 700, marginLeft: 'auto', marginRight: 'auto' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: C.muted, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '0.75rem' }}>
+                Strategy Templates
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+                {[
+                  { name: 'Composite Alpha v2', desc: '6-signal composite score with vol targeting', icon: '🎯' },
+                  { name: 'Momentum Crossover', desc: 'EMA crossover with RSI and ATR stops', icon: '📈' },
+                  { name: 'Mean Reversion', desc: 'Z-score + Bollinger Band entries', icon: '🔄' },
+                  { name: 'Risk Parity', desc: 'Inverse-vol weighted multi-asset allocation', icon: '⚖️' },
+                ].map(t => (
+                  <div
+                    key={t.name}
+                    style={{
+                      background: C.bg3,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 8,
+                      padding: '0.8rem 1rem',
+                      cursor: 'pointer',
+                      transition: 'border-color 0.15s',
+                    }}
+                    onClick={() => router.push('/dashboard/quant')}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = C.blue + '60'}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = C.border}
+                  >
+                    <div style={{ fontSize: '1.1rem', marginBottom: '0.25rem' }}>{t.icon}</div>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 600, color: C.white, marginBottom: '0.15rem' }}>{t.name}</div>
+                    <div style={{ fontSize: '0.65rem', color: C.muted, lineHeight: 1.4 }}>{t.desc}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {view === 'docs' && <DocsView />}
       </div>
 
+      {/* Overlay */}
       {isSlideOpen && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200 }}
@@ -581,8 +670,8 @@ export default function StudioPage() {
         />
       )}
 
+      {/* Edit slide panel */}
       <div
-        ref={slideRef}
         style={{
           position: 'fixed',
           top: 0,
@@ -618,18 +707,18 @@ export default function StudioPage() {
           />
         )}
       </div>
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      `}</style>
     </div>
   )
 }
 
-function EditPanel({
-  agent,
-  draft,
-  setDraft,
-  onSave,
-  onRepublish,
-  onClose,
-}: {
+function EditPanel({ agent, draft, setDraft, onSave, onRepublish, onClose }: {
   agent: AgentSave
   draft: Partial<AgentSave>
   setDraft: React.Dispatch<React.SetStateAction<Partial<AgentSave>>>
@@ -678,23 +767,37 @@ function EditPanel({
 
   return (
     <>
-      <div style={{ padding: '1.5rem 1.75rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ padding: '1.25rem 1.5rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', letterSpacing: '0.1em', color: C.muted, textTransform: 'uppercase', marginBottom: '0.3rem' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.1em', color: C.muted, textTransform: 'uppercase', marginBottom: '0.25rem' }}>
             Edit Agent · v{agent.version ?? 1}
           </div>
           <div style={{ fontSize: '1rem', fontWeight: 700, color: C.white }}>{agent.name}</div>
+          <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.35rem', alignItems: 'center' }}>
+            <div style={{
+              fontFamily: 'var(--font-mono)', fontSize: '0.55rem', padding: '0.15rem 0.4rem',
+              borderRadius: 4, background: (agent.published ? C.mint : agent.status === 'draft' ? C.purple : C.amber) + '18',
+              color: agent.published ? C.mint : agent.status === 'draft' ? C.purple : C.amber,
+              border: `1px solid ${(agent.published ? C.mint : agent.status === 'draft' ? C.purple : C.amber)}40`,
+              textTransform: 'uppercase', letterSpacing: '0.08em',
+            }}>
+              {agent.published ? 'Published' : agent.status}
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: C.faint }}>
+              ${agent.ticker}
+            </div>
+          </div>
         </div>
         <button
           onClick={onClose}
-          style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1, padding: '0.25rem' }}
+          style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1, padding: '0.25rem' }}
         >
-          x
+          ✕
         </button>
       </div>
 
       <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, padding: '0 1rem', gap: '.25rem' }}>
-        {(['meta','strategy','config'] as const).map(t => (
+        {(['meta', 'strategy', 'config'] as const).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -703,7 +806,7 @@ function EditPanel({
               fontSize: '.62rem',
               letterSpacing: '.08em',
               textTransform: 'uppercase',
-              padding: '.65rem .9rem',
+              padding: '.6rem .85rem',
               background: 'transparent',
               border: 'none',
               borderBottom: tab === t ? `2px solid ${C.blue}` : '2px solid transparent',
@@ -733,7 +836,7 @@ function EditPanel({
       {tab === 'config' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '1rem 1.25rem', overflow: 'hidden' }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: C.muted, letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: '.4rem' }}>
-            config.json — params for the Active Swing engine
+            config.json — parameters for the Active Swing engine
           </div>
           <textarea
             value={draft.configJson ?? agent.configJson ?? DEFAULT_CONFIG_JSON}
@@ -745,99 +848,59 @@ function EditPanel({
       )}
 
       {tab === 'meta' && (
-      <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem 1.75rem' }}>
-        {fields.map(f => (
-          <div key={f.key} style={{ marginBottom: '1.25rem' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.1em', color: C.muted, textTransform: 'uppercase', marginBottom: '0.4rem' }}>
-              {f.label}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem' }}>
+          {fields.map(f => (
+            <div key={f.key} style={{ marginBottom: '1.1rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.1em', color: C.muted, textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                {f.label}
+              </div>
+              {f.multiline ? (
+                <textarea
+                  value={(draft[f.key] as string) ?? ''}
+                  onChange={e => setDraft(d => ({ ...d, [f.key]: e.target.value }))}
+                  rows={5}
+                  style={{ ...inputStyle, resize: 'vertical' }}
+                />
+              ) : (
+                <input
+                  value={(draft[f.key] as string) ?? ''}
+                  onChange={e => setDraft(d => ({ ...d, [f.key]: e.target.value }))}
+                  style={inputStyle}
+                />
+              )}
             </div>
-            {f.multiline ? (
-              <textarea
-                value={(draft[f.key] as string) ?? ''}
-                onChange={e => setDraft(d => ({ ...d, [f.key]: e.target.value }))}
-                rows={6}
-                style={{ ...inputStyle, resize: 'vertical' }}
-              />
-            ) : (
-              <input
-                value={(draft[f.key] as string) ?? ''}
-                onChange={e => setDraft(d => ({ ...d, [f.key]: e.target.value }))}
-                style={inputStyle}
-              />
-            )}
-          </div>
-        ))}
+          ))}
 
-        <div style={{ marginBottom: '1.25rem' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.1em', color: C.muted, textTransform: 'uppercase', marginBottom: '0.4rem' }}>
-            Status
+          <div style={{ marginBottom: '1.1rem' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.1em', color: C.muted, textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+              Status
+            </div>
+            <select
+              value={(draft.status as string) ?? 'active'}
+              onChange={e => setDraft(d => ({ ...d, status: e.target.value as AgentStatus }))}
+              style={{ ...inputStyle, cursor: 'pointer', appearance: 'none' as const }}
+            >
+              <option value="active">Active</option>
+              <option value="paused">Paused</option>
+              <option value="draft">Draft</option>
+            </select>
           </div>
-          <select
-            value={(draft.status as string) ?? 'active'}
-            onChange={e => setDraft(d => ({ ...d, status: e.target.value as AgentStatus }))}
-            style={{ ...inputStyle, cursor: 'pointer', appearance: 'none' as const }}
-          >
-            <option value="active">Active</option>
-            <option value="paused">Paused</option>
-            <option value="draft">Draft</option>
-          </select>
         </div>
-      </div>
       )}
 
-      <div style={{ padding: '1rem 1.25rem', borderTop: `1px solid ${C.border}`, display: 'flex', gap: '0.65rem', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ padding: '0.85rem 1.25rem', borderTop: `1px solid ${C.border}`, display: 'flex', gap: '0.5rem', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: C.faint }}>
           Republish ships v{(agent.version ?? 1) + 1} to the exchange
         </div>
-        <div style={{ display: 'flex', gap: '.6rem' }}>
-          <button
-            onClick={onClose}
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.7rem',
-              padding: '0.5rem 1rem',
-              borderRadius: 6,
-              cursor: 'pointer',
-              background: 'transparent',
-              border: `1px solid ${C.border}`,
-              color: C.muted,
-            }}
-          >
+        <div style={{ display: 'flex', gap: '.5rem' }}>
+          <button onClick={onClose} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', padding: '0.45rem 0.9rem', borderRadius: 6, cursor: 'pointer', background: 'transparent', border: `1px solid ${C.border}`, color: C.muted }}>
             Cancel
           </button>
-          <button
-            onClick={onSave}
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.7rem',
-              padding: '0.5rem 1rem',
-              borderRadius: 6,
-              cursor: 'pointer',
-              background: 'transparent',
-              border: `1px solid ${C.blue}55`,
-              color: C.blue,
-              fontWeight: 600,
-            }}
-          >
+          <button onClick={onSave} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', padding: '0.45rem 0.9rem', borderRadius: 6, cursor: 'pointer', background: 'transparent', border: `1px solid ${C.blue}55`, color: C.blue, fontWeight: 600 }}>
             Save Draft
           </button>
-          <button
-            onClick={handleRepublish}
-            disabled={republishing}
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.7rem',
-              padding: '0.5rem 1.1rem',
-              borderRadius: 6,
-              cursor: republishing ? 'not-allowed' : 'pointer',
-              background: C.mint,
-              border: 'none',
-              color: '#fff',
-              fontWeight: 700,
-              opacity: republishing ? 0.6 : 1,
-            }}
-          >
-            {republishing ? 'Publishing…' : 'Save & Republish'}
+          <button onClick={handleRepublish} disabled={republishing} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', padding: '0.45rem 1rem', borderRadius: 6, cursor: republishing ? 'not-allowed' : 'pointer', background: C.mint, border: 'none', color: '#fff', fontWeight: 700, opacity: republishing ? 0.6 : 1 }}>
+            {republishing ? 'Publishing...' : 'Save & Republish'}
           </button>
         </div>
       </div>
@@ -845,12 +908,7 @@ function EditPanel({
   )
 }
 
-function PublishPanel({
-  agent,
-  confirmed,
-  onConfirm,
-  onClose,
-}: {
+function PublishPanel({ agent, confirmed, onConfirm, onClose }: {
   agent: AgentSave
   confirmed: boolean
   onConfirm: () => void
@@ -858,49 +916,35 @@ function PublishPanel({
 }) {
   return (
     <>
-      <div style={{ padding: '1.5rem 1.75rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ padding: '1.25rem 1.5rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', letterSpacing: '0.1em', color: C.muted, textTransform: 'uppercase', marginBottom: '0.3rem' }}>Publish Agent</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.1em', color: C.mint, textTransform: 'uppercase', marginBottom: '0.25rem' }}>
+            Publish Agent
+          </div>
           <div style={{ fontSize: '1rem', fontWeight: 700, color: C.white }}>{agent.name}</div>
         </div>
-        <button
-          onClick={onClose}
-          style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1, padding: '0.25rem' }}
-        >
-          x
-        </button>
+        <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1, padding: '0.25rem' }}>✕</button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '1.75rem' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', letterSpacing: '0.08em', color: C.muted, textTransform: 'uppercase', marginBottom: '1rem' }}>
           Publishing Requirements
         </div>
         <div style={{ background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden', marginBottom: '1.5rem' }}>
           {PUBLISH_REQUIREMENTS.map((req, i) => (
-            <div
-              key={req.key}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.85rem',
-                padding: '0.85rem 1rem',
-                borderBottom: i < PUBLISH_REQUIREMENTS.length - 1 ? `1px solid ${C.border}` : 'none',
-              }}
-            >
+            <div key={req.key} style={{
+              display: 'flex', alignItems: 'center', gap: '0.75rem',
+              padding: '0.75rem 1rem',
+              borderBottom: i < PUBLISH_REQUIREMENTS.length - 1 ? `1px solid ${C.border}` : 'none',
+            }}>
               <div style={{
-                width: 18,
-                height: 18,
-                borderRadius: '50%',
-                background: C.mint + '20',
-                border: `1.5px solid ${C.mint}`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
+                width: 20, height: 20, borderRadius: '50%',
+                background: C.mint + '20', border: `1.5px solid ${C.mint}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
               }}>
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: C.mint }} />
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: C.mint }} />
               </div>
-              <div style={{ fontSize: '0.8rem', color: C.text }}>{req.label}</div>
+              <div style={{ fontSize: '0.78rem', color: C.text }}>{req.label}</div>
               <div style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: C.mint }}>
                 PASS
               </div>
@@ -908,64 +952,34 @@ function PublishPanel({
           ))}
         </div>
 
-        <div style={{ background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 8, padding: '1rem 1.1rem', marginBottom: '1.5rem' }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-            Summary
+        <div style={{ background: C.bg3, border: `1px solid ${C.mint}30`, borderRadius: 8, padding: '1rem 1.1rem', marginBottom: '1.5rem' }}>
+          <div style={{ fontSize: '0.72rem', color: C.mint, fontWeight: 600, marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            🔒 Security Notice
           </div>
           <div style={{ fontSize: '0.78rem', color: C.text, lineHeight: 1.6 }}>
-            Publishing makes this agent visible to subscribers on the ASE Exchange. It will appear in the agent marketplace and can receive capital allocations.
+            Publishing makes this agent visible to subscribers on the ASE Exchange. Your strategy source code remains private — only performance metrics and signal summaries are shared.
           </div>
         </div>
 
         {confirmed && (
           <div style={{
-            background: C.mint + '15',
-            border: `1px solid ${C.mint + '40'}`,
-            borderRadius: 8,
-            padding: '0.85rem 1rem',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.6rem',
+            background: C.mint + '15', border: `1px solid ${C.mint}40`, borderRadius: 8,
+            padding: '0.85rem 1rem', display: 'flex', alignItems: 'center', gap: '0.6rem',
           }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: C.mint, flexShrink: 0 }} />
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: C.mint }}>
-              Published successfully.
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: C.mint }}>
+              Agent published successfully. It is now live on the Exchange.
             </div>
           </div>
         )}
       </div>
 
-      <div style={{ padding: '1.25rem 1.75rem', borderTop: `1px solid ${C.border}`, display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
-        <button
-          onClick={onClose}
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: '0.7rem',
-            padding: '0.5rem 1.1rem',
-            borderRadius: 6,
-            cursor: 'pointer',
-            background: 'transparent',
-            border: `1px solid ${C.border}`,
-            color: C.muted,
-          }}
-        >
+      <div style={{ padding: '1rem 1.5rem', borderTop: `1px solid ${C.border}`, display: 'flex', gap: '0.65rem', justifyContent: 'flex-end' }}>
+        <button onClick={onClose} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', padding: '0.5rem 1rem', borderRadius: 6, cursor: 'pointer', background: 'transparent', border: `1px solid ${C.border}`, color: C.muted }}>
           Cancel
         </button>
         {!confirmed && (
-          <button
-            onClick={onConfirm}
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.7rem',
-              padding: '0.5rem 1.25rem',
-              borderRadius: 6,
-              cursor: 'pointer',
-              background: C.mint,
-              border: 'none',
-              color: '#fff',
-              fontWeight: 600,
-            }}
-          >
+          <button onClick={onConfirm} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', padding: '0.5rem 1.2rem', borderRadius: 6, cursor: 'pointer', background: C.mint, border: 'none', color: '#fff', fontWeight: 600 }}>
             Confirm Publish
           </button>
         )}
@@ -978,12 +992,8 @@ function DocSection({ title, children }: { title: string; children: React.ReactN
   return (
     <div style={{ marginBottom: '2.5rem' }}>
       <div style={{
-        fontFamily: 'var(--font-mono)',
-        fontSize: '0.6rem',
-        letterSpacing: '0.12em',
-        color: C.blue,
-        textTransform: 'uppercase',
-        marginBottom: '0.6rem',
+        fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.12em',
+        color: C.blue, textTransform: 'uppercase', marginBottom: '0.6rem',
       }}>
         {title}
       </div>
@@ -1002,9 +1012,11 @@ function DocParagraph({ children }: { children: React.ReactNode }) {
   )
 }
 
-function DocHeading({ children }: { children: React.ReactNode }) {
+function DocHeading({ children, level = 3 }: { children: React.ReactNode; level?: number }) {
+  const size = level === 2 ? '1.05rem' : level === 3 ? '0.88rem' : '0.78rem'
+  const mt = level === 2 ? '1.5rem' : '1.1rem'
   return (
-    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: C.white, marginBottom: '0.5rem', marginTop: '1.1rem' }}>
+    <div style={{ fontSize: size, fontWeight: 600, color: C.white, marginBottom: '0.5rem', marginTop: mt }}>
       {children}
     </div>
   )
@@ -1014,7 +1026,7 @@ function DocList({ items }: { items: string[] }) {
   return (
     <ul style={{ margin: '0 0 1rem', paddingLeft: 0, listStyle: 'none' }}>
       {items.map((item, i) => (
-        <li key={i} style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start', fontSize: '0.8rem', color: C.text, marginBottom: '0.45rem', lineHeight: 1.6 }}>
+        <li key={i} style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start', fontSize: '0.78rem', color: C.text, marginBottom: '0.45rem', lineHeight: 1.6 }}>
           <span style={{ fontFamily: 'var(--font-mono)', color: C.blue, flexShrink: 0, marginTop: '0.05rem' }}>—</span>
           <span>{item}</span>
         </li>
@@ -1068,7 +1080,7 @@ function DocTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
               {row.map((cell, ci) => (
                 <td key={ci} style={{
                   fontFamily: ci === 0 ? 'var(--font-mono)' : 'inherit',
-                  padding: '0.55rem 0.85rem',
+                  padding: '0.5rem 0.85rem',
                   color: ci === 0 ? C.white : C.text,
                   fontSize: ci === 0 ? '0.7rem' : '0.78rem',
                 }}>
@@ -1083,111 +1095,377 @@ function DocTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
   )
 }
 
-function DocsView() {
+function DocEndpoint({ method, path, desc }: { method: string; path: string; desc: string }) {
+  const methodColor = method === 'GET' ? C.mint : method === 'POST' ? C.blue : method === 'PUT' ? C.amber : C.muted
   return (
-    <div style={{ maxWidth: 800 }}>
-      <div style={{ marginBottom: '2rem' }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.12em', color: C.muted, textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-          Reference
-        </div>
-        <div style={{ fontSize: '1.5rem', fontWeight: 700, color: C.white, marginBottom: '0.5rem' }}>
-          How to Create Agents on ASE
-        </div>
-        <div style={{ fontSize: '0.82rem', color: C.muted, lineHeight: 1.6 }}>
-          A complete guide to writing, backtesting, and deploying trading agents on the Algorithmic Strategy Exchange.
-        </div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0', borderBottom: `1px solid ${C.border}` }}>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', fontWeight: 700, padding: '0.15rem 0.45rem', borderRadius: 4, background: methodColor + '18', color: methodColor, border: `1px solid ${methodColor}40`, letterSpacing: '0.05em' }}>
+        {method}
+      </span>
+      <code style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: C.white }}>{path}</code>
+      <span style={{ fontSize: '0.72rem', color: C.muted, marginLeft: '0.5rem' }}>{desc}</span>
+    </div>
+  )
+}
+
+function DocsView() {
+  const [docTab, setDocTab] = useState<'overview' | 'agents' | 'backtest' | 'api' | 'quant'>('overview')
+
+  return (
+    <div style={{ maxWidth: 900 }}>
+      <div style={{ display: 'flex', gap: '0.3rem', marginBottom: '1.5rem', background: C.bg3, borderRadius: 8, padding: '0.2rem', border: `1px solid ${C.border}`, width: 'fit-content' }}>
+        {(['overview', 'agents', 'backtest', 'api', 'quant'] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => setDocTab(t)}
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.62rem',
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              padding: '0.4rem 0.75rem',
+              borderRadius: 6,
+              cursor: 'pointer',
+              background: docTab === t ? C.blue : 'transparent',
+              color: docTab === t ? '#fff' : C.muted,
+              border: 'none',
+              fontWeight: docTab === t ? 600 : 400,
+              transition: 'all 0.15s',
+            }}
+          >
+            {t === 'quant' ? 'Quant Lab' : t.charAt(0).toUpperCase() + t.slice(1)}
+          </button>
+        ))}
       </div>
 
-      <DocSection title="Overview">
-        <DocParagraph>
-          ASE lets you write, backtest, and deploy autonomous trading agents. You define the logic — we handle all backtesting infrastructure, execution, risk controls, and capital management. Each agent runs with isolated paper trading capital tracked per-agent, not per-account.
-        </DocParagraph>
-        <DocParagraph>
-          Agents you publish appear on the ASE Exchange where other users can allocate capital to subscribe. Your agent earns based on performance. All published agents must meet minimum quality standards before going live.
-        </DocParagraph>
-      </DocSection>
+      {docTab === 'overview' && (
+        <>
+          <div style={{ marginBottom: '2rem' }}>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: C.white, marginBottom: '0.5rem' }}>
+              ASE Platform Documentation
+            </div>
+            <div style={{ fontSize: '0.82rem', color: C.muted, lineHeight: 1.6 }}>
+              Complete reference for building, backtesting, and deploying autonomous trading agents on the Algorithmic Strategy Exchange.
+            </div>
+          </div>
 
-      <DocSection title="Step-by-Step Workflow">
-        <DocHeading>1. Write your strategy in Quant Lab</DocHeading>
-        <DocParagraph>
-          Open the Quant Lab IDE from the sidebar. Write your trading logic using the ASE strategy API. Quant Lab provides a full TypeScript environment with access to market data utilities, indicator functions, and the backtesting runtime.
-        </DocParagraph>
+          <DocSection title="Overview">
+            <DocParagraph>
+              ASE lets you write, backtest, and deploy autonomous trading agents. You define the logic — we handle all backtesting infrastructure, execution, risk controls, and capital management. Each agent runs with isolated paper trading capital tracked per-agent, not per-account.
+            </DocParagraph>
+            <DocParagraph>
+              Agents you publish appear on the ASE Exchange where other users can allocate capital to subscribe. Your agent earns based on performance. All published agents must meet minimum quality standards before going live.
+            </DocParagraph>
+          </DocSection>
 
-        <DocHeading>2. Run the backtest</DocHeading>
-        <DocParagraph>
-          ASE handles backtesting automatically. Submit your strategy and the engine runs a full simulation across historical data. The engine applies realistic slippage, commissions, and capital constraints. You do not need to configure data feeds or write test harnesses.
-        </DocParagraph>
+          <DocSection title="Platform Architecture">
+            <DocParagraph>
+              The platform is built on a 9-layer institutional quant pipeline:
+            </DocParagraph>
+            <DocList items={[
+              'Data Ingestion — Yahoo Finance crypto + equity bars, 1D and 1H timeframes',
+              'Feature Engineering — EMA, RSI, ATR, MACD, Bollinger Bands, Z-scores, VWAP, ADX, volume',
+              'Signal Generation — Per-strategy alpha models with composite scoring',
+              'Portfolio Optimization — Vol-targeting, inverse-volatility weighting, exposure limits',
+              'Risk Controls — Hard stops (4-6%), ATR trailing stops, kill switch (20% drawdown), max position 40%',
+              'Execution Simulation — Realistic slippage (5-10bps) and commission ($0.005/share equity, 0.1% crypto)',
+              'Performance Attribution — Sharpe, Sortino, Calmar, max drawdown, win rate, profit factor',
+              'Walk-Forward Validation — Rolling out-of-sample testing with anchored windows',
+              'Live Deployment — Cloudflare Workers cron (1min intervals), per-agent paper trading accounts',
+            ]} />
+          </DocSection>
 
-        <DocHeading>3. Review results in Backtest Studio</DocHeading>
-        <DocParagraph>
-          Navigate to Backtest Studio to see your strategy grade, Sharpe ratio, max drawdown, and full equity curve. Compare against benchmarks. Run robustness checks including Monte Carlo simulation and walk-forward validation.
-        </DocParagraph>
+          <DocSection title="Workflow">
+            <DocHeading level={2}>1. Write your strategy</DocHeading>
+            <DocParagraph>
+              Open the Quant Lab IDE from the sidebar. Write your trading logic using the ASE strategy API. Quant Lab provides a full TypeScript environment with access to market data utilities, indicator functions, and the backtesting runtime.
+            </DocParagraph>
+            <DocHeading level={2}>2. Run the backtest</DocHeading>
+            <DocParagraph>
+              Navigate to Backtest Studio to configure parameters and run a full simulation. The engine applies realistic slippage, commissions, and capital constraints. Results include a grade (A+ through F), Sharpe ratio, max drawdown, and equity curve.
+            </DocParagraph>
+            <DocHeading level={2}>3. Publish to the Exchange</DocHeading>
+            <DocParagraph>
+              Once your strategy meets the publishing requirements, click Publish from the Manage tab. A checklist confirms all requirements are met. After confirmation, the agent becomes visible in the marketplace.
+            </DocParagraph>
+          </DocSection>
+        </>
+      )}
 
-        <DocHeading>4. Publish to the Exchange</DocHeading>
-        <DocParagraph>
-          Once your strategy meets the publishing requirements, click Publish from Agent Manager. A checklist confirms all requirements are met. After confirmation, the agent becomes visible in the marketplace and can receive subscriber capital.
-        </DocParagraph>
-      </DocSection>
+      {docTab === 'agents' && (
+        <>
+          <div style={{ marginBottom: '2rem' }}>
+            <div style={{ fontSize: '1.3rem', fontWeight: 700, color: C.white, marginBottom: '0.5rem' }}>
+              Agent Engine Reference
+            </div>
+            <div style={{ fontSize: '0.82rem', color: C.muted, lineHeight: 1.6 }}>
+              How agents trade, risk controls, and strategy definitions.
+            </div>
+          </div>
 
-      <DocSection title="Publishing Requirements">
-        <DocParagraph>
-          All agents must satisfy the following before they can be published to the Exchange:
-        </DocParagraph>
-        <DocList items={[
-          'Description must be at least 50 characters explaining the strategy logic',
-          'A valid ticker symbol must be set (single asset or basket identifier)',
-          'The strategy must have completed at least one backtest run',
-          'Strategy grade of B or above is strongly recommended — agents graded C or below may receive reduced visibility',
-          'Agent name must be unique across the platform',
-        ]} />
-      </DocSection>
+          <DocSection title="How Agents Trade">
+            <DocParagraph>
+              Agents run automatically every minute via Cloudflare Workers cron. Each agent:
+            </DocParagraph>
+            <DocList items={[
+              'Fetches real price bars from Yahoo Finance / Alpaca',
+              'Calculates technical indicators (EMA, RSI, ATR, MACD, Bollinger Bands, etc.)',
+              'Evaluates entry/exit conditions per its strategy',
+              'Executes trades via Alpaca paper trading API',
+              'Logs fills to agent_trades with FIFO cost basis tracking',
+              'Calculates NAV from realized + unrealized P&L',
+            ]} />
+          </DocSection>
 
-      <DocSection title="The Standardized Engine">
-        <DocParagraph>
-          ASE runs a single, well-tuned backtest engine — <DocCode>active_swing</DocCode> —
-          for every agent on the platform. It uses RSI(7) entries inside an EMA(8/21)
-          trend filter with an ATR(10) trailing stop, and is tuned to produce around
-          200 round-trips over a 6-month window on liquid crypto pairs.
-        </DocParagraph>
-        <DocTable
-          headers={['Parameter', 'Default', 'Description']}
-          rows={[
-            ['rsi_window', '7', 'RSI period — short for sensitivity to dips'],
-            ['buy_below', '38', 'Enter long when RSI < this inside an uptrend'],
-            ['sell_above', '64', 'Exit when RSI crosses above this'],
-            ['atr_window', '10', 'ATR period for trailing stop'],
-            ['atr_mult', '2.0', 'Trailing stop = close − ATR × mult'],
-            ['fast_ema', '8', 'Fast EMA for trend filter'],
-            ['slow_ema', '21', 'Slow EMA for trend filter'],
-          ]}
-        />
-        <DocParagraph>
-          Edit <DocCode>strategy.ts</DocCode> and <DocCode>config.json</DocCode> in
-          Agent Studio to customize behavior per-agent, then hit <DocCode>Save &amp; Republish</DocCode>
-          to ship a new version to the exchange.
-        </DocParagraph>
-      </DocSection>
+          <DocSection title="Built-in Strategies">
+            <DocTable
+              headers={['Agent', 'Strategy', 'Universe', 'Max Exposure']}
+              rows={[
+                ['BTC Momentum Alpha', '8/21/50 EMA + MACD histogram', 'BTC', '45%'],
+                ['ETH Statistical Arb', 'Z-score + RSI + Bollinger %B', 'ETH', '35%'],
+                ['Multi-Asset Trend', '10/30 EMA + ADX filter', 'BTC/ETH/SOL', '50%'],
+                ['SOL Volatility Breakout', 'Bollinger squeeze + volume', 'SOL', '30%'],
+                ['DeFi Smart Beta', 'Risk-adjusted momentum rotation', 'LINK/UNI/AAVE/AVAX', '40%'],
+                ['BTC/ETH Pairs', 'Spread z-score pairs trading', 'BTC + ETH', '25%/leg'],
+                ['Crypto Vol Harvester', 'ATR/price vol ratio entry', 'BTC/ETH/SOL', '20%/pos'],
+                ['Crypto Momentum Carry', 'Momentum + inverse-vol weighting', 'BTC/ETH/SOL/AVAX/LINK', '30%/pos'],
+                ['Composite Alpha v2', '6-signal composite + vol targeting', 'BTC/ETH/SOL/AVAX/LINK', '60%'],
+                ['S&P 500 Momentum', '20/50 EMA + ADX', 'SPY', '40%'],
+                ['Nasdaq Growth Rotation', 'Relative strength vs SPY', 'QQQ', '35%'],
+                ['Sector Momentum', '20-day rotation top rank', 'XLK/XLV/XLF', '50%'],
+                ['Low Vol Premium', 'RSI mean reversion + VIX filter', 'SPLV', '40%'],
+                ['Dual Momentum', 'Absolute + relative momentum', 'SPY/AGG', '90%'],
+                ['Tech Rotation', 'Sharpe-like score top-2', 'AAPL/MSFT/GOOGL/NVDA/META', '45%/name'],
+                ['Equity Mean Reversion', 'RSI(2) + Bollinger + 200d MA', 'SPY', '90%'],
+                ['EMA Golden Cross', '50/200 EMA + ADX confirmation', 'QQQ', '85%'],
+                ['Risk Parity', '1/vol allocation + tactical overlay', 'SPY/TLT/GLD', '95%'],
+              ]}
+            />
+          </DocSection>
 
-      <DocSection title="Risk Controls">
-        <DocParagraph>
-          Every agent on ASE operates under platform-level risk controls that run on top of your strategy logic. These cannot be disabled.
-        </DocParagraph>
-        <DocList items={[
-          'Maximum drawdown limit: if a single agent loses more than 25% from its peak NAV, it is paused automatically and placed in review',
-          'ATR-based position sizing: entries are sized based on realized volatility to prevent outsized exposure on high-vol assets',
-          'Kill switch: the platform can halt all agent orders in the event of an exchange-level circuit breaker or detected data feed error',
-          'Maximum single-position exposure: no agent may hold more than 40% of its capital in a single position at any time',
-          'Trade rate limits: agents are rate-limited to prevent excessive churning that would erode returns via fees',
-        ]} />
-        <DocParagraph>
-          Your strategy should define its own inner risk limits as well. The platform controls are a safety net, not a substitute for sound strategy design.
-        </DocParagraph>
+          <DocSection title="Risk Controls">
+            <DocParagraph>
+              Every agent operates under platform-level risk controls that cannot be disabled:
+            </DocParagraph>
+            <DocList items={[
+              'Maximum drawdown kill switch: if a single agent loses more than 20% from peak NAV, it is paused automatically',
+              'ATR-based position sizing: entries are sized based on realized volatility to prevent outsized exposure',
+              'Hard stops per position: typically 4-6% depending on strategy',
+              'Maximum single-position exposure: no agent may hold more than 40-45% in a single position',
+              'Trade rate limits: agents are rate-limited to prevent excessive churning',
+              'Minimum cash reserve: agents always maintain at least 10% cash',
+            ]} />
 
-        <DocHeading>Fee Structure</DocHeading>
-        <DocParagraph>
-          Backtests apply realistic costs. Equities assume <DocCode>$0.005/share</DocCode> commission with 5bps slippage. Crypto assumes <DocCode>0.1% taker</DocCode> fee with 10bps slippage. These are applied automatically — you do not configure them.
-        </DocParagraph>
-      </DocSection>
+            <DocHeading level={3}>Fee Structure</DocHeading>
+            <DocParagraph>
+              Backtests apply realistic costs: <DocCode>$0.005/share</DocCode> commission for equities with 5bps slippage, <DocCode>0.1% taker</DocCode> fee for crypto with 10bps slippage. Applied automatically.
+            </DocParagraph>
+          </DocSection>
+        </>
+      )}
+
+      {docTab === 'backtest' && (
+        <>
+          <div style={{ marginBottom: '2rem' }}>
+            <div style={{ fontSize: '1.3rem', fontWeight: 700, color: C.white, marginBottom: '0.5rem' }}>
+              Backtest Engine Reference
+            </div>
+            <div style={{ fontSize: '0.82rem', color: C.muted, lineHeight: 1.6 }}>
+              How backtesting works on ASE, including methodology and parameters.
+            </div>
+          </div>
+
+          <DocSection title="The Standardized Engine">
+            <DocParagraph>
+              ASE runs one standardized backtest engine — <DocCode>active_swing</DocCode> — for every agent on the platform. It uses RSI(7) entries inside an EMA(8/21) trend filter with an ATR(10) trailing stop, tuned to produce ~200 round-trips over 6 months on liquid crypto pairs.
+            </DocParagraph>
+            <DocTable
+              headers={['Parameter', 'Default', 'Description']}
+              rows={[
+                ['rsi_window', '7', 'RSI period — short for sensitivity to dips'],
+                ['buy_below', '38', 'Enter long when RSI < this inside an uptrend'],
+                ['sell_above', '64', 'Exit when RSI crosses above this'],
+                ['atr_window', '10', 'ATR period for trailing stop'],
+                ['atr_mult', '2.0', 'Trailing stop = close − ATR × mult'],
+                ['fast_ema', '8', 'Fast EMA for trend filter'],
+                ['slow_ema', '21', 'Slow EMA for trend filter'],
+              ]}
+            />
+          </DocSection>
+
+          <DocSection title="Backtest Methodology">
+            <DocHeading level={3}>9-Layer Institutional Pipeline</DocHeading>
+            <DocList items={[
+              'Data Ingestion — Multi-source OHLCV bars (Yahoo Finance, Alpaca, Binance)',
+              'Feature Engineering — 30+ indicators: EMA, RSI, ATR, MACD, BB, Z-score, VWAP, ADX, volume ratios',
+              'Signal Generation — Per-strategy models with composite alpha scoring',
+              'Portfolio Optimization — Vol-targeting at 15% ann., inverse-vol weighting, exposure limits',
+              'Risk Controls — Hard stops (4-6%), ATR trailing stops, 20% drawdown kill switch',
+              'Execution Simulation — Realistic slippage (5-10bps) and commission',
+              'Performance Attribution — Sharpe, Sortino, Calmar, max DD, win rate, profit factor',
+              'Walk-Forward Validation — Rolling OOS with anchored windows',
+              'Live Deployment — Per-agent isolated paper trading, cron-based execution',
+            ]} />
+
+            <DocHeading level={3}>Scoring & Grading</DocHeading>
+            <DocParagraph>
+              Each backtest receives a composite grade from A+ to F based on a weighted scorecard:
+            </DocParagraph>
+            <DocTable
+              headers={['Metric', 'Weight', 'Description']}
+              rows={[
+                ['Sharpe Ratio', '30%', 'Risk-adjusted return — Sharpe > 1.5 targets A grade'],
+                ['Max Drawdown', '25%', 'Largest peak-to-trough decline — lower is better'],
+                ['Win Rate', '15%', 'Percentage of profitable trades'],
+                ['Profit Factor', '15%', 'Gross profit / gross loss ratio'],
+                ['Total Return', '15%', 'Absolute return over the backtest period'],
+              ]}
+            />
+          </DocSection>
+
+          <DocSection title="Configuring Backtest Parameters">
+            <DocParagraph>
+              Edit <DocCode>config.json</DocCode> in Agent Studio or Quant Lab to customize:
+            </DocParagraph>
+            <DocTable
+              headers={['Field', 'Type', 'Default']}
+              rows={[
+                ['template', 'string', 'composite_balanced'],
+                ['alpha_type', 'string', 'composite'],
+                ['symbols', 'string[]', 'BTC-USD, ETH-USD, SOL-USD'],
+                ['rebalanceFreq', 'daily/weekly/monthly', 'daily'],
+                ['riskAversion', '1-20', '8'],
+                ['maxWeight', '0.05-1.0', '0.25'],
+                ['walkForward', 'boolean', 'true'],
+                ['initialCapital', 'number', '1,000,000'],
+                ['feeBps', 'number', '7'],
+                ['killSwitch', '0-1', '0.20'],
+              ]}
+            />
+          </DocSection>
+        </>
+      )}
+
+      {docTab === 'api' && (
+        <>
+          <div style={{ marginBottom: '2rem' }}>
+            <div style={{ fontSize: '1.3rem', fontWeight: 700, color: C.white, marginBottom: '0.5rem' }}>
+              API Reference
+            </div>
+            <div style={{ fontSize: '0.82rem', color: C.muted, lineHeight: 1.6 }}>
+              RESTful endpoints for creating, managing, and subscribing to agents.
+            </div>
+          </div>
+
+          <DocSection title="Agents">
+            <DocEndpoint method="POST" path="/api/agents" desc="Create or update an agent" />
+            <DocEndpoint method="GET" path="/api/agents" desc="List all agents on the exchange" />
+            <DocEndpoint method="GET" path="/api/agents/:id" desc="Get agent details and stats" />
+
+            <DocHeading level={3}>Create Agent</DocHeading>
+            <div style={{ background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 8, padding: '1rem', marginBottom: '1rem', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: C.mint, overflow: 'auto', whiteSpace: 'pre' }}>
+{`POST /api/agents
+Content-Type: application/json
+
+{
+  "name": "My Trading Agent",
+  "description": "Momentum strategy on BTC",
+  "strategy_type": "crypto_momentum",
+  "primary_symbol": "BTC-USD",
+  "asset_class": "crypto",
+  "publish": true
+}
+
+// Response:
+{
+  "ok": true,
+  "agent": {
+    "id": "...",
+    "slug": "my-trading-agent",
+    "status": "active"
+  }
+}`}
+            </div>
+          </DocSection>
+
+          <DocSection title="Trading">
+            <DocEndpoint method="POST" path="/api/cron/run-agents" desc="Run all active agent strategies" />
+            <DocEndpoint method="GET" path="/api/agents/:id/trades" desc="Get trade history for an agent" />
+            <DocEndpoint method="GET" path="/api/agents/:id/stats" desc="Get NAV and performance stats" />
+          </DocSection>
+
+          <DocSection title="Subscriptions">
+            <DocEndpoint method="POST" path="/api/subscribe" desc="Subscribe to an agent with capital" />
+            <DocEndpoint method="DELETE" path="/api/subscribe" desc="Unsubscribe from an agent" />
+          </DocSection>
+
+          <DocSection title="Authentication">
+            <DocParagraph>
+              All API endpoints require a valid Supabase JWT token in the <DocCode>Authorization: Bearer</DocCode> header. The cron endpoint requires an additional <DocCode>x-cron-secret</DocCode> header.
+            </DocParagraph>
+          </DocSection>
+        </>
+      )}
+
+      {docTab === 'quant' && (
+        <>
+          <div style={{ marginBottom: '2rem' }}>
+            <div style={{ fontSize: '1.3rem', fontWeight: 700, color: C.white, marginBottom: '0.5rem' }}>
+              Quant Lab Reference
+            </div>
+            <div style={{ fontSize: '0.82rem', color: C.muted, lineHeight: 1.6 }}>
+              Writing strategies, signal generation, and the Composite Alpha framework.
+            </div>
+          </div>
+
+          <DocSection title="Signal Generation">
+            <DocParagraph>
+              Each strategy generates a <DocCode>SignalResult</DocCode> containing actions (BUY/SELL/HOLD), a portfolio snapshot, and a <DocCode>signal_summary</DocCode> string. The Composite Alpha v2 uses a 6-signal weighted composite:
+            </DocParagraph>
+            <DocTable
+              headers={['Signal', 'Weight', 'Description']}
+              rows={[
+                ['5-day momentum', '25%', 'Short-term price momentum (tanh-scaled)'],
+                ['20-day momentum', '20%', 'Medium-term trend continuation'],
+                ['60-day momentum', '10%', 'Long-term trend confirmation'],
+                ['RSI z-score', '20%', 'Mean-reversion signal from RSI normalization'],
+                ['EMA filter', '15%', '8/21 EMA crossover trend regime'],
+                ['Volume/On-chain', '10%', 'Volume shock boost + NUPL/Fear-Greed'],
+              ]}
+            />
+          </DocSection>
+
+          <DocSection title="Available Features (FeatureRow)">
+            <DocTable
+              headers={['Field', 'Description', 'Type']}
+              rows={[
+                ['symbol', 'Asset ticker (e.g. BTC-USD)', 'string'],
+                ['ret_1d', '1-day return', 'number'],
+                ['ret_5d', '5-day return', 'number'],
+                ['ret_20d', '20-day return', 'number'],
+                ['ret_60d', '60-day return', 'number'],
+                ['vol_20d', '20-day realized volatility (ann.)', 'number'],
+                ['vol_shock', 'Volume vs 30-day avg', 'number'],
+                ['rsi_14', '14-period RSI (0-100)', 'number'],
+                ['bb_pct', 'Bollinger Band %B (0-1)', 'number'],
+                ['nupl', 'Net Unrealized Profit/Loss', 'number'],
+                ['fear_greed', 'Fear & Greed index (0-100)', 'number'],
+              ]}
+            />
+          </DocSection>
+
+          <DocSection title="Keyboard Shortcuts">
+            <DocTable
+              headers={['Shortcut', 'Action']}
+              rows={[
+                ['Cmd+Enter', 'Run backtest'],
+                ['Cmd+S', 'Save current file'],
+                ['Cmd+K', 'Focus AI chat'],
+              ]}
+            />
+          </DocSection>
+        </>
+      )}
     </div>
   )
 }

@@ -218,7 +218,7 @@ export default function BuilderSubmitPage() {
             <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
               {i > 0 && <div style={{ flex: 1, height: 1, background: i <= step ? 'rgba(155,140,255,.5)' : 'var(--border)' }} />}
               <div style={{ width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: '.65rem', fontWeight: 700, flexShrink: 0, background: i < step ? 'rgba(110,231,183,.2)' : i === step ? 'rgba(155,140,255,.2)' : 'var(--bg2)', border: `1px solid ${i < step ? 'rgba(110,231,183,.4)' : i === step ? 'rgba(155,140,255,.4)' : 'var(--border)'}`, color: i < step ? '#6EE7B7' : i === step ? 'var(--gold)' : 'var(--faint)' }}>
-                {i < step ? '✓' : i + 1}
+                {i < step ? '\u2713' : i + 1}
               </div>
               {i < STEP_LABELS.length - 1 && <div style={{ flex: 1, height: 1, background: i < step ? 'rgba(155,140,255,.5)' : 'var(--border)' }} />}
             </div>
@@ -297,11 +297,11 @@ export default function BuilderSubmitPage() {
               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(155,140,255,.6)'; (e.currentTarget as HTMLElement).style.background = 'rgba(155,140,255,.04)' }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(155,140,255,.3)'; (e.currentTarget as HTMLElement).style.background = 'transparent' }}
             >
-              <div style={{ fontSize: '1.5rem', marginBottom: '.5rem' }}>📊</div>
+              
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.75rem', color: 'var(--faint)' }}>
                 {fileName ? fileName : 'Click to upload CSV'}
               </div>
-              {fileName && <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: '#6EE7B7', marginTop: '.3rem' }}>File loaded ✓</div>}
+              {fileName && <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: '#6EE7B7', marginTop: '.3rem' }}>File loaded</div>}
               <input ref={fileRef} type="file" accept=".csv,.txt" onChange={handleFileUpload} style={{ display: 'none' }} />
             </div>
 
@@ -348,7 +348,7 @@ export default function BuilderSubmitPage() {
                 <div key={label} style={{ background: 'rgba(255,255,255,.02)', border: `1px solid ${pass ? 'rgba(110,231,183,.2)' : 'rgba(251,113,133,.2)'}`, borderRadius: 12, padding: '.9rem 1rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '.4rem' }}>
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)' }}>{label.toUpperCase()}</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: pass ? '#6EE7B7' : '#FB7185' }}>{pass ? '✓' : '✗'} {threshold}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: pass ? '#6EE7B7' : '#FB7185' }}>{pass ? '\u2713' : 'x'} {threshold}</span>
                   </div>
                   <div style={{ fontFamily: 'var(--font-head)', fontWeight: 800, fontSize: '1.2rem', color: pass ? '#6EE7B7' : '#FB7185', marginBottom: '.5rem' }}>{value}</div>
                   <ScoreBar value={bar} max={100} color={pass ? '#6EE7B7' : '#FB7185'} />
@@ -417,11 +417,11 @@ export default function BuilderSubmitPage() {
 
             {validationResult?.passed ? (
               <div style={{ background: 'rgba(22,199,132,.08)', border: '1px solid rgba(22,199,132,.25)', borderRadius: 12, padding: '.9rem 1rem', fontSize: '.82rem', color: 'var(--mint)', lineHeight: 1.65 }}>
-                ✓ Your agent has passed all validation checks and is ready to be published directly to the exchange.
+                Your agent has passed all validation checks and is ready to be published directly to the exchange.
               </div>
             ) : (
               <div style={{ background: 'rgba(251,113,133,.08)', border: '1px solid rgba(251,113,133,.25)', borderRadius: 12, padding: '.9rem 1rem', fontSize: '.82rem', color: '#FB7185', lineHeight: 1.65 }}>
-                ✗ Your agent has not passed validation. Please fix the issues and re-upload your backtest results.
+                Your agent has not passed validation. Please fix the issues and re-upload your backtest results.
               </div>
             )}
 

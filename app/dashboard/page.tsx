@@ -126,6 +126,7 @@ export default function DashboardPage() {
   }, [router, supabase])
 
   useEffect(() => { void load() }, [load])
+  useEffect(() => { const id = setInterval(() => void load(), 30000); return () => clearInterval(id) }, [load])
 
   // Refresh holdings on mount to catch any changes
   useEffect(() => {
@@ -258,11 +259,11 @@ export default function DashboardPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
           {brokerAccount?.has_account ? (
             <Link href="/dashboard/connect/kraken" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.85rem', borderRadius: 8, border: '1px solid rgba(94,65,217,.3)', background: 'rgba(94,65,217,.1)', color: '#a78bfa', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, textDecoration: 'none' }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--mint)', display: 'inline-block' }} /> 🐙 {brokerAccount.cash ? fmtMoney(brokerAccount.cash) : 'Kraken'}
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--mint)', display: 'inline-block' }} /> Kraken {brokerAccount.cash ? fmtMoney(brokerAccount.cash) : 'Kraken'}
             </Link>
           ) : (
             <Link href="/dashboard/connect/kraken" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.85rem', borderRadius: 8, border: '1px solid rgba(94,65,217,.25)', background: 'rgba(94,65,217,.07)', color: '#a78bfa', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, textDecoration: 'none' }}>
-              🐙 Connect Kraken
+              Kraken Connect
             </Link>
           )}
           <a href="https://www.kraken.com/u/funding/deposit" target="_blank" rel="noopener noreferrer" style={{ padding: '0.4rem 0.85rem', borderRadius: 8, border: '1px solid rgba(79,140,255,.25)', background: 'rgba(79,140,255,.08)', color: 'var(--blue2)', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
@@ -319,7 +320,7 @@ export default function DashboardPage() {
           {/* Quick stats */}
           <div style={{ flex: '1 1 400px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
             {[
-              { label: 'KRAKEN CASH', value: krakenCash !== null ? fmtMoney(krakenCash) : '—', sub: brokerAccount?.has_account ? '🟢 connected' : 'not connected', color: 'var(--white)', click: undefined },
+              { label: 'KRAKEN CASH', value: krakenCash !== null ? fmtMoney(krakenCash) : '--', sub: brokerAccount?.has_account ? 'connected' : 'not connected', color: 'var(--white)', click: undefined },
               { label: 'INVESTED', value: totalInvested > 0 ? `$${(totalInvested / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$0.00', sub: `${subscriptions.filter(s => s.has_investment).length} agent${subscriptions.filter(s => s.has_investment).length !== 1 ? 's' : ''}`, color: 'var(--white)', click: undefined },
               { label: 'ACTIVE', value: `${subscriptions.length}`, sub: `${activeCount} running`, color: activeCount > 0 ? 'var(--mint)' : 'var(--faint)', click: undefined },
               { label: 'TOTAL P&L', value: totalInvested > 0 ? fmt$(totalPnL) : '—', sub: totalInvested > 0 ? fmtPct(portfolioReturnPct) : 'no positions', color: totalPnL >= 0 ? 'var(--mint)' : 'var(--red)', click: undefined },
@@ -369,7 +370,7 @@ export default function DashboardPage() {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
             <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(94,65,217,.14)', border: '1px solid rgba(94,65,217,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <span style={{ fontSize: '1rem' }}>🐙</span>
+              <span style={{ fontSize: '1rem' }}></span>
             </div>
             <div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: '#a78bfa', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '0.15rem' }}>CONNECT KRAKEN</div>
@@ -688,7 +689,7 @@ export default function DashboardPage() {
       {sellDone && (
         <div onClick={() => setSellDone(null)} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(4,3,12,.88)', backdropFilter: 'blur(20px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
           <div onClick={e => e.stopPropagation()} style={{ background: 'var(--bg2)', border: '1px solid rgba(22,199,132,.25)', borderRadius: 20, padding: '2.5rem', width: '100%', maxWidth: 380, textAlign: 'center', boxShadow: '0 40px 80px rgba(0,0,0,.8)' }}>
-            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>✓</div>
+            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}></div>
             <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--mint)', marginBottom: '0.5rem' }}>Position Closed</h2>
             <p style={{ color: 'var(--muted)', marginBottom: '1.5rem', lineHeight: 1.6 }}>
               Returned <strong style={{ color: 'var(--white)' }}>${(sellDone.returned_cents / 100).toFixed(2)}</strong> to your Kraken account.

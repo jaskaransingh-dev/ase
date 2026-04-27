@@ -1,9 +1,9 @@
 /**
  * POST /api/admin/reconcile
  *
- * Reconciles agent_trades DB positions with real Alpaca positions.
- * Fixes stale DB ledger by syncing Alpaca's actual open positions.
- * 
+ * Reconciles agent_trades DB positions with real positions.
+ * Fixes stale DB ledger by syncing actual open positions.
+ *
  * Also triggers a fresh agent run after reconciliation.
  */
 import { NextRequest, NextResponse } from 'next/server'

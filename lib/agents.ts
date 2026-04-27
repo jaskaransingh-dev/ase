@@ -28,6 +28,16 @@ export interface AgentConfig {
 
 export const AGENT_CONFIGS: AgentConfig[] = [
   {
+    id: 'composite-alpha-v2',
+    slug: 'composite-alpha-v2',
+    name: 'Composite Alpha v2',
+    description: 'Multi-factor alpha engine combining 6-signal composite score: 5/20/60-day momentum, RSI z-score mean reversion, EMA trend filter, and on-chain. Vol-targeting 15% ann., ATR(10) trailing stop, cross-sectional z-score normalization. Trades BTC, ETH, SOL, AVAX, LINK.',
+    strategyType: 'crypto_momentum',
+    tagline: '6-signal composite alpha with vol targeting',
+    ticker: 'CALV',
+    asset: 'crypto',
+  },
+  {
     id: 'btc-momentum',
     slug: 'btc-momentum',
     name: 'BTC Momentum Alpha',
@@ -3394,6 +3404,298 @@ export async function runRiskParity(
     exposure_pct: (investedCents / capitalCents) * 100,
   }
   return { agent_slug: 'risk-parity', actions, portfolio, signal_summary: signalSummary }
+}
+
+// ── STRATEGY 21: COMPOSITE ALPHA V2 ───────────────────────────────────────────
+// Multi-factor alpha engine combining 6 signals:
+// - Momentum (5d, 20d, 60d)
+// - RSI z-score mean reversion
+// - EMA trend filter (8/21 crossover)
+// - Volatility targeting (15% ann.)
+// - ATR trailing stops
+// - Cross-sectional z-score normalization
+// Universe: BTC, ETH, SOL, AVAX, LINK
+// Max 25% per position, 60% total exposure, -5% hard stop per position
+export async function runCompositeAlphaV2(
+  admin: SupabaseClient,
+  agentId: string,
+  alpacaKey: string,
+  alpacaSecret: string,
+  capitalCents = 1_000_000
+): Promise<StrategyResult> {
+  const UNIVERSE = [SYM.BTC, SYM.ETH, SYM.SOL, SYM.AVAX, SYM.LINK]
+  const TARGET_VOL = 0.15
+  const MAX_WEIGHT = 0.25
+  const MAX_EXPOSURE = 0.60
+  const HARD_STOP_PCT = 0.05
+  const TRAILING_ATR_MULT = 2.0
+  const KILL_SWITCH_PCT = 0.20
+
+  const W = { mom5: 0.25, mom20: 0.20, mom60: 0.10, rsi: 0.20, ema: 0.15, onchain: 0.10 }
+
+  const emptyPortfolio: StrategyResult['portfolio'] = {
+    cash_cents: capitalCents,
+    invested_cents: 0,
+    total_value_cents: capitalCents,
+    positions: [],
+    exposure_pct: 0,
+  }
+
+  const positions = await getAgentPositions(admin, agentId)
+  const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+
+  const totalPnlPct = positions.reduce((sum, p) => {
+    return sum + (p.qty * p.avg_entry > 0 ? 1 : 0)
+  }, 0) > 0 ? positions.reduce((sum, p) => sum + 0, 0) : 0
+
+  let peakCapital = capitalCents
+  const { data: statsData } = await admin
+    .from('agent_stats')
+    .select('nav_cents')
+    .eq('agent_id', agentId)
+    .order('snapshot_at', { ascending: false })
+    .limit(1)
+  if (statsData && statsData.length > 0) {
+    peakCapital = Math.max(capitalCents, (statsData[0] as any).nav_cents || capitalCents)
+  }
+
+  const drawdownPct = peakCapital > 0 ? ((peakCapital - capitalCents) / peakCapital) * 100 : 0
+  const killSwitchActive = drawdownPct >= KILL_SWITCH_PCT * 100
+
+  const barsPromises = UNIVERSE.map(sym => getCryptoBars(sym, '1Day', 65))
+  const allBars = await Promise.all(barsPromises)
+
+  interface AssetScore {
+    symbol: string
+    price: number
+    alphaScore: number
+    momentum5: number
+    momentum20: number
+    momentum60: number
+    rsiScore: number
+    emaScore: number
+    vol20d: number
+    atr: number
+    volumeRatio: number
+    bars: AlpacaBar[]
+  }
+
+  const scores: AssetScore[] = []
+
+  for (let i = 0; i < UNIVERSE.length; i++) {
+    const symbol = UNIVERSE[i]
+    const bars = allBars[i]
+    if (bars.length < 60) continue
+
+    const currentPrice = bars[bars.length - 1].c
+    const rsi = calcRSI(bars, 14)
+    const ema8 = calcEMA(bars, 8)
+    const ema21 = calcEMA(bars, 21)
+    const ema50 = calcEMA(bars, 50)
+    const atr = calcATR(bars, 14)
+    const vol20d = calcVolatility(bars, 20)
+    const mom5 = calcMomentumScore(bars, 5)
+    const mom20 = calcMomentumScore(bars, 20)
+    const mom60 = calcMomentumScore(bars, 60)
+    const vol20Avg = bars.slice(-20).reduce((sum, b) => sum + b.v, 0) / 20
+    const currentVol = bars[bars.length - 1].v
+    const volumeRatio = currentVol / (vol20Avg || 1)
+
+    const atrCheck = atr > 0 && currentPrice > 0 ? (bars.slice(-20).reduce((max, b) => Math.max(max, b.h), 0) - currentPrice) / atr <= TRAILING_ATR_MULT : true
+    if (!atrCheck) {
+      scores.push({ symbol, price: currentPrice, alphaScore: 0, momentum5: mom5, momentum20: mom20, momentum60: mom60, rsiScore: rsi, emaScore: 0, vol20d, atr, volumeRatio, bars })
+      continue
+    }
+
+    const rsiSignal = Math.max(-1, Math.min(1, (50 - rsi) / 25))
+    const emaSignal = ema8 > ema21 ? Math.min(1, ((ema8 / ema21) - 1) * 20) : Math.max(-1, ((ema8 / ema21) - 1) * 20)
+
+    const rawAlpha =
+      W.mom5 * Math.tanh(mom5 / 10) +
+      W.mom20 * Math.tanh(mom20 / 10) +
+      W.mom60 * Math.tanh(mom60 / 15) +
+      W.rsi * rsiSignal +
+      W.ema * emaSignal +
+      W.onchain * (volumeRatio > 1.5 ? 0.3 : 0)
+
+    const volAdj = vol20d > 0 ? rawAlpha * (TARGET_VOL / Math.max(vol20d, 0.05)) : rawAlpha
+
+    scores.push({
+      symbol, price: currentPrice, alphaScore: volAdj,
+      momentum5: mom5, momentum20: mom20, momentum60: mom60,
+      rsiScore: rsi, emaScore: emaSignal,
+      vol20d, atr, volumeRatio, bars,
+    })
+  }
+
+  const nonZeroScores = scores.filter(s => s.alphaScore !== 0).map(s => s.alphaScore)
+  const mean = nonZeroScores.length > 0 ? nonZeroScores.reduce((a, b) => a + b, 0) / nonZeroScores.length : 0
+  const std = nonZeroScores.length > 1 ? Math.sqrt(nonZeroScores.reduce((a, v) => a + (v - mean) ** 2, 0) / (nonZeroScores.length - 1)) : 1
+
+  for (const s of scores) {
+    s.alphaScore = std > 0 ? (s.alphaScore - mean) / std : 0
+  }
+
+  const actions: TradeAction[] = []
+  let signalSummary = 'HOLD'
+  const thinkingParts: string[] = []
+
+  const currentExposurePct = positions.reduce((sum, p) => sum + (p.qty * p.avg_entry * 100), 0) / capitalCents
+  const currentExposureRatio = currentExposurePct / 100
+
+  if (killSwitchActive) {
+    thinkingParts.push(`⚠ KILL SWITCH: Drawdown ${drawdownPct.toFixed(1)}% >= ${KILL_SWITCH_PCT * 100}% — liquidating all positions`)
+    for (const pos of positions) {
+      if (UNIVERSE.includes(pos.symbol as any)) {
+        const s = scores.find(sc => sc.symbol === pos.symbol)
+        const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, `Kill switch: drawdown ${drawdownPct.toFixed(1)}%`, {})
+        actions.push(action)
+      }
+    }
+    signalSummary = `KILL SWITCH · Drawdown ${drawdownPct.toFixed(1)}% — liquidating`
+  } else {
+    const ranked = [...scores].sort((a, b) => b.alphaScore - a.alphaScore)
+    const longCandidates = ranked.filter(s => s.alphaScore > 0.5)
+    const maxPositions = Math.min(longCandidates.length, 3)
+    const targetPositions = longCandidates.slice(0, maxPositions)
+
+    const targetWeights: Record<string, number> = {}
+    if (targetPositions.length > 0) {
+      const totalScore = targetPositions.reduce((sum, s) => sum + s.alphaScore, 0)
+      for (const s of targetPositions) {
+        const rawWeight = s.alphaScore / totalScore
+        const volScaled = s.vol20d > 0 ? rawWeight * (TARGET_VOL / Math.max(s.vol20d, 0.05)) : rawWeight
+        targetWeights[s.symbol] = Math.min(volScaled, MAX_WEIGHT)
+      }
+      const totalW = Object.values(targetWeights).reduce((a, b) => a + b, 0)
+      for (const k of Object.keys(targetWeights)) {
+        targetWeights[k] = (targetWeights[k] / totalW) * MAX_EXPOSURE
+      }
+    }
+
+    for (const pos of positions) {
+      if (!UNIVERSE.includes(pos.symbol as any)) continue
+      const s = scores.find(sc => sc.symbol === pos.symbol)
+      if (!s) continue
+
+      const currentPrice = s.price
+      const pnlPct = calcPositionPnL(pos, currentPrice)
+      const hardStop = pos.avg_entry * (1 - HARD_STOP_PCT)
+      const atrStop = pos.avg_entry - s.atr * TRAILING_ATR_MULT
+
+      if (currentPrice < hardStop) {
+        const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, `Hard stop -${(HARD_STOP_PCT * 100).toFixed(0)}%`, {
+          alpha: +s.alphaScore.toFixed(3), pnl_pct: +pnlPct.toFixed(1),
+        })
+        actions.push(action)
+        thinkingParts.push(`SELL ${pos.symbol.split('/')[0]} @ $${currentPrice.toFixed(2)} — hard stop hit (${pnlPct.toFixed(1)}%)`)
+      } else if (s.alphaScore < -0.5) {
+        const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, `Alpha score ${s.alphaScore.toFixed(2)} bearish`, {
+          alpha: +s.alphaScore.toFixed(3),
+        })
+        actions.push(action)
+        thinkingParts.push(`SELL ${pos.symbol.split('/')[0]} — alpha ${s.alphaScore.toFixed(2)} turned bearish`)
+      } else if (!targetWeights[pos.symbol] && pnlPct > 0) {
+        const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, `Dropped from top ${maxPositions}, alpha ${s.alphaScore.toFixed(2)}`, {
+          alpha: +s.alphaScore.toFixed(3),
+        })
+        actions.push(action)
+        thinkingParts.push(`SELL ${pos.symbol.split('/')[0]} — dropped from top picks (alpha ${s.alphaScore.toFixed(2)})`)
+      } else if (currentPrice < atrStop && pnlPct < -2) {
+        const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, `ATR trailing stop, P&L ${pnlPct.toFixed(1)}%`, {
+          alpha: +s.alphaScore.toFixed(3), pnl_pct: +pnlPct.toFixed(1),
+        })
+        actions.push(action)
+        thinkingParts.push(`SELL ${pos.symbol.split('/')[0]} — ATR trailing stop, P&L ${pnlPct.toFixed(1)}%`)
+      } else if (pnlPct > 12) {
+        const action = await executeSell(admin, agentId, alpacaKey, alpacaSecret, pos, `+${pnlPct.toFixed(0)}% take profit`, {
+          alpha: +s.alphaScore.toFixed(3), pnl_pct: +pnlPct.toFixed(1),
+        })
+        actions.push(action)
+        thinkingParts.push(`SELL ${pos.symbol.split('/')[0]} — take profit +${pnlPct.toFixed(1)}%`)
+      } else {
+        const targetW = targetWeights[pos.symbol] || 0
+        thinkingParts.push(`HOLD ${pos.symbol.split('/')[0]} — alpha ${s.alphaScore.toFixed(2)}, P&L ${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(1)}%, target ${(targetW * 100).toFixed(0)}% weight`)
+      }
+    }
+
+    for (const s of targetPositions) {
+      if (actions.some(a => a.action === 'SELL' && a.symbol === s.symbol)) continue
+      const pos = positions.find(p => p.symbol === s.symbol)
+      const targetW = targetWeights[s.symbol]
+      if (!targetW) continue
+
+      if (!pos && s.alphaScore > 0.5) {
+        const notional = Math.min(
+          (capitalCents / 100) * targetW,
+          (cash / 100) * 0.30,
+          (capitalCents / 100) * MAX_WEIGHT
+        )
+
+        if (notional > 1 && currentExposureRatio < MAX_EXPOSURE) {
+          const action = await executeBuy(admin, agentId, alpacaKey, alpacaSecret, s.symbol, notional, s.price, {
+            alpha: +s.alphaScore.toFixed(3),
+            mom5: +s.momentum5.toFixed(2),
+            mom20: +s.momentum20.toFixed(2),
+            rsi: +s.rsiScore.toFixed(1),
+            vol: +(s.vol20d * 100).toFixed(1),
+            weight: +(targetW * 100).toFixed(1),
+          })
+          actions.push(action)
+          thinkingParts.push(`BUY ${s.symbol.split('/')[0]} $${notional.toFixed(0)} — alpha ${s.alphaScore.toFixed(2)}, mom5 ${s.momentum5.toFixed(1)}%, RSI ${s.rsiScore.toFixed(0)}, vol ${(s.vol20d * 100).toFixed(1)}%`)
+        }
+      }
+    }
+  }
+
+  if (actions.length === 0) {
+    const topAlpha = [...scores].sort((a, b) => b.alphaScore - a.alphaScore)[0]
+    const summaryParts = scores.sort((a, b) => b.alphaScore - a.alphaScore).slice(0, 3).map(s =>
+      `${s.symbol.split('/')[0]}:${s.alphaScore.toFixed(2)}`
+    ).join(' > ')
+    thinkingParts.push(`Scanning — top alpha: ${summaryParts}`)
+    signalSummary = `SCAN · Alpha: ${summaryParts}${killSwitchActive ? ' · KILL SWITCH' : ''}`
+  } else {
+    const actionSummary = actions.map(a =>
+      `${a.action} ${a.symbol.split('/')[0]}${a.reason ? ` (${a.reason})` : ''}`
+    ).join(', ')
+    signalSummary = actionSummary
+  }
+
+  const investedCents = positions.reduce((sum, p) => sum + Math.round(p.qty * p.avg_entry * 100), 0)
+  const portfolio: StrategyResult['portfolio'] = {
+    cash_cents: Math.max(0, capitalCents - investedCents),
+    invested_cents: investedCents,
+    total_value_cents: capitalCents,
+    positions: positions.map(p => {
+      const s = scores.find(sc => sc.symbol === p.symbol)
+      const price = s?.price || p.avg_entry
+      return {
+        symbol: p.symbol,
+        qty: p.qty,
+        entry: p.avg_entry,
+        current: price,
+        pnl_pct: calcPositionPnL(p, price),
+      }
+    }),
+    exposure_pct: (investedCents / capitalCents) * 100,
+  }
+
+  return {
+    agent_slug: 'composite-alpha-v2',
+    actions,
+    portfolio,
+    signal_summary: signalSummary,
+    thinking: thinkingParts.join('\n'),
+    indicators: Object.fromEntries(
+      scores.sort((a, b) => b.alphaScore - a.alphaScore).slice(0, 5).flatMap(s => [
+        [`${s.symbol.split('/')[0]}_alpha`, +s.alphaScore.toFixed(3)],
+        [`${s.symbol.split('/')[0]}_mom5`, +s.momentum5.toFixed(2)],
+        [`${s.symbol.split('/')[0]}_rsi`, +s.rsiScore.toFixed(1)],
+        [`${s.symbol.split('/')[0]}_vol`, +(s.vol20d * 100).toFixed(1)],
+      ])
+    ),
+  }
 }
 
 // ── GENERIC CRYPTO MOMENTUM (for custom agents) ───────────────────────────────

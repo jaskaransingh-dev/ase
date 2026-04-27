@@ -172,11 +172,19 @@ export const GRADE_CLR: Record<string, string> = {
 
 export const DEFAULT_STRATEGY_TS = `// ─── ASE Multi-Factor Crypto Strategy ───────────────────────────────
 // Template : composite_balanced
-// Alpha    : momentum × trend × mean-reversion × on-chain × LLM
+// Alpha    : momentum x trend x mean-reversion x on-chain x LLM
 // Risk     : vol-target 15% ann. | ATR(10) trailing stop | kill switch
 //
+// Backtest Features:
+//   Walk-Forward  - Rolling train/test to prevent overfitting
+//   Monte Carlo    - 200 random-window trials for robustness
+//   Benchmark      - vs Buy & Hold (BTC, ETH, SOL)
+//   Fill Model     - slippage, participation rate, commission
+//   Risk Metrics   - Sharpe, Sortino, Calmar, VaR 95/99, CVaR
+//   Trade Ledger   - every fill with P&L attribution
+//
 // Target   : Sharpe > 1.8 | Max DD < 18% | Calmar > 1.2
-// Engine   : POST /api/quant/run  |  ⌘ Enter to backtest
+// Engine   : POST /api/quant/run  |  Cmd+Enter to backtest
 // ─────────────────────────────────────────────────────────────────────
 
 import type { FeatureRow } from '@ase/quant'
@@ -338,10 +346,14 @@ export const DEFAULT_CONFIG_JSON = JSON.stringify({
   riskAversion: 8,
   maxWeight: 0.25,
   walkForward: true,
+  monteCarlo: true,
+  nTrials: 200,
   initialCapital: 1000000,
   feeBps: 7,
   killSwitch: 0.20,
   benchmark: 'BTC-USD',
+  slippageBps: 5,
+  participationRate: 0.10,
 }, null, 2)
 
 export const DEFAULT_DOCS = `# ASE Quant Engine — Developer Reference

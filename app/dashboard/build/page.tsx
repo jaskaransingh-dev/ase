@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, use } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import {
   C, TEMPLATES, UNIVERSES, CONFIG_FIELD_META, DATA_APIS, ML_TOOLS,
@@ -98,7 +99,7 @@ function MdText({ text, onApply }: { text: string; onApply?: (edit: FileEdit) =>
               onClick={() => onApply({ filename, content: displayCode, lang })}
               style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, padding: '.15rem .45rem', borderRadius: 5, background: `${C.mint}20`, border: `1px solid ${C.mint}40`, color: C.mint, cursor: 'pointer' }}
             >
-              ✓ Apply
+              [OK] Apply
             </button>
           )}
         </div>
@@ -178,8 +179,8 @@ function TerminalPanel({ lines, input, onInput, onSubmit, loading }: { lines: st
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: C.bg }}>
       <div style={{ flex: 1, overflowY: 'auto', padding: '.4rem .85rem', fontFamily: 'var(--font-mono)', fontSize: '.68rem' }}>
-        {lines.map((l, i) => <div key={i} style={{ color: l.startsWith('✗') ? C.red : l.startsWith('✓') ? C.mint : l.startsWith('>') ? C.blue2 : l.startsWith('●') ? C.orange : C.muted, lineHeight: '1.55rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{l}</div>)}
-        {loading && <div style={{ color: C.orange, lineHeight: '1.55rem' }}>● running…</div>}
+        {lines.map((l, i) => <div key={i} style={{ color: l.startsWith('[ERR]') ? C.red : l.startsWith('[OK]') ? C.mint : l.startsWith('>') ? C.blue2 : l.startsWith('[RUN]') ? C.orange : C.muted, lineHeight: '1.55rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{l}</div>)}
+        {loading && <div style={{ color: C.orange, lineHeight: '1.55rem' }}>[RUN] running...</div>}
         <div ref={endRef} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', borderTop: `1px solid ${C.border}`, padding: '.28rem .65rem', gap: '.35rem' }}>
@@ -192,6 +193,54 @@ function TerminalPanel({ lines, input, onInput, onSubmit, loading }: { lines: st
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function QuantLabPage() {
+  const searchParams = useSearchParams()
+  const loadAgentSlug = searchParams.get('load_agent')
+  const editMode = searchParams.get('edit') === '1'
+
+  // Load agent from URL params on mount
+  useEffect(() => {
+    if (loadAgentSlug) {
+      // Fetch agent by slug and load strategy code
+      fetch(`/api/agents/${loadAgentSlug}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.agent) {
+            const agent = data.agent
+            setFileContents(prev => ({
+              ...prev,
+              'strategy.ts': agent.strategy_code || prev['strategy.ts'],
+              'config.json': agent.strategy_config ? JSON.stringify(JSON.parse(agent.strategy_config), null, 2) : prev['config.json']
+            }))
+            setAgentName(agent.name || 'Imported Agent')
+            setTermLines(['Loaded agent: ' + agent.name, 'Edit strategy.ts or config.json', 'Cmd+Enter to run backtest', ''])
+          }
+        })
+        .catch(() => {
+          setTermLines(['Failed to load agent: ' + loadAgentSlug, 'Create a new strategy instead', ''])
+        })
+    } else if (editMode) {
+      const name = searchParams.get('name') ?? ''
+      const code = searchParams.get('code') ?? ''
+      const desc = searchParams.get('desc') ?? ''
+      const template = searchParams.get('template') ?? ''
+      
+      if (code) {
+        setFileContents(prev => ({
+          ...prev,
+          'strategy.ts': decodeURIComponent(code),
+        }))
+      }
+      if (template) {
+        setFileContents(prev => ({
+          ...prev,
+          'config.json': JSON.stringify({ template, symbols: ['BTC-USD','ETH-USD','SOL-USD','BNB-USD','ADA-USD'], rebalanceFreq: 'daily', riskAversion: 8, maxWeight: 0.25, walkForward: true, initialCapital: 1000000, feeBps: 7 }, null, 2)
+        }))
+      }
+      setAgentName(name ? decodeURIComponent(name) : 'New Agent')
+      setTermLines(['Editing mode', 'Cmd+Enter to run backtest', ''])
+    }
+  }, [])
+
   // Editor state
   const [openFiles, setOpenFiles]       = useState(['strategy.ts', 'config.json'])
   const [activeFile, setActiveFile]     = useState('strategy.ts')
@@ -213,7 +262,7 @@ export default function QuantLabPage() {
   const [bottomMode, setBottomMode] = useState<'terminal'|'chat'>('terminal')
 
   // Terminal
-  const [termLines, setTermLines]     = useState(['● ASE Quant Lab ready', '● ⌘+Enter run  ·  ⌘+S save  ·  ⌘+K focus AI', ''])
+  const [termLines, setTermLines]     = useState(['> ASE Quant Lab ready', '> Cmd+Enter run  |  Cmd+S save  |  Cmd+K focus AI', ''])
   const [termInput, setTermInput]     = useState('')
 
   // Backtest config (synced from config.json)
@@ -331,7 +380,7 @@ export default function QuantLabPage() {
   const handleSave = () => {
     setSaved(true)
     try { localStorage.setItem('ase-files', JSON.stringify(fileContents)) } catch {}
-    addTerm(`✓ ${activeFile} saved`)
+    addTerm(`[OK] ${activeFile} saved`)
   }
 
   const openFile = (name: string) => {
@@ -384,10 +433,10 @@ export default function QuantLabPage() {
     else if (cmd === 'grade') {
       if (btResult) {
         const ts = btResult.tear_sheet as Record<string, number>
-        addTerm(`Grade: ${btResult.grade}  CAGR: ${((ts.cagr ?? 0) * 100).toFixed(1)}%  Sharpe: ${ts.sharpeRatio?.toFixed(2)}  MaxDD: ${ts.maxDrawdownPct?.toFixed(1)}%`)
-      } else addTerm('✗ No backtest results. Run one first.')
+        addTerm(`[OK] Grade: ${btResult.grade}  CAGR: ${((ts.cagr ?? 0) * 100).toFixed(1)}%  Sharpe: ${ts.sharpeRatio?.toFixed(2)}  MaxDD: ${ts.maxDrawdownPct?.toFixed(1)}%`)
+      } else addTerm('[ERR] No backtest results. Run one first.')
     }
-    else addTerm(`✗ Unknown: ${cmd}. Type "help".`)
+    else addTerm(`[ERR] Unknown: ${cmd}. Type "help".`)
     addTerm('')
   }, [termInput, btResult, fileContents, addTerm])
 
@@ -395,7 +444,7 @@ export default function QuantLabPage() {
   async function runBacktest() {
     setBtLoading(true); setBtError(''); setBtResult(null)
     setBtStartTime(Date.now()); setBtElapsed(0)
-    addTerm('● Running backtest…')
+    addTerm('[RUN] Running backtest...')
     const syms = UNIVERSE_SYMBOLS[universe] ?? UNIVERSE_SYMBOLS.crypto_top5
     try {
       const res = await fetch('/api/quant/run', {
@@ -407,17 +456,17 @@ export default function QuantLabPage() {
       if (!res.ok) throw new Error(data.error ?? 'Backtest failed')
       setBtResult(data)
       const ts = data.tear_sheet as Record<string, number>
-      addTerm(`✓ Grade: ${data.grade}  CAGR: ${((ts.cagr ?? 0) * 100).toFixed(1)}%  Sharpe: ${ts.sharpeRatio?.toFixed(2)}  MaxDD: ${ts.maxDrawdownPct?.toFixed(1)}%`)
+      addTerm(`[OK] Grade: ${data.grade}  CAGR: ${((ts.cagr ?? 0) * 100).toFixed(1)}%  Sharpe: ${ts.sharpeRatio?.toFixed(2)}  MaxDD: ${ts.maxDrawdownPct?.toFixed(1)}%`)
       setRightTab('backtest')
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Error'
-      setBtError(msg); addTerm(`✗ ${msg}`)
+      setBtError(msg); addTerm(`[ERR] ${msg}`)
     } finally { setBtLoading(false); setBtStartTime(null) }
   }
 
   // ── Publish ───────────────────────────────────────────────────────────────────
   async function handlePublish() {
-    if (!btResult) { addTerm('✗ Run a backtest first before publishing.'); return }
+    if (!btResult) { addTerm('[ERR] Run a backtest first before publishing.'); return }
     setPublishing(true)
     try {
       const res = await fetch('/api/agents', {
@@ -439,14 +488,14 @@ export default function QuantLabPage() {
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
-        addTerm(`✗ Publish failed: ${d.error ?? res.statusText}`)
+        addTerm(`[ERR] Publish failed: ${d.error ?? res.statusText}`)
       } else {
         setPublished(true)
-        addTerm(`✓ "${agentName}" ${published ? 'republished' : 'published'} to exchange`)
+        addTerm(`[OK] "${agentName}" ${published ? 'republished' : 'published'} to exchange`)
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Network error'
-      addTerm(`✗ Publish failed: ${msg}`)
+      addTerm(`[ERR] Publish failed: ${msg}`)
     } finally { setPublishing(false) }
   }
 
@@ -570,7 +619,7 @@ Macro: FRED (rates, DXY, CPI), World Bank
             setOpenFiles(p => p.includes(edit.filename) ? p : [...p, edit.filename])
           })
           setActiveFile(extracted[0].filename)
-          addTerm(`✓ Auto-applied ${extracted.length} AI edit${extracted.length !== 1 ? 's' : ''}`)
+          addTerm(`[OK] Auto-applied ${extracted.length} AI edit${extracted.length !== 1 ? 's' : ''}`)
           setSaved(false)
         } else {
           setPendingEdits(extracted)
@@ -588,7 +637,7 @@ Macro: FRED (rates, DXY, CPI), World Bank
     if (!openFiles.includes(edit.filename)) setOpenFiles(p => [...p, edit.filename])
     setActiveFile(edit.filename)
     setPendingEdits(p => p.filter(e => e.filename !== edit.filename))
-    addTerm(`✓ Applied edit to ${edit.filename}`)
+    addTerm(`[OK] Applied edit to ${edit.filename}`)
   }, [openFiles, addTerm])
 
   const applyAllEdits = useCallback(() => {
@@ -597,7 +646,7 @@ Macro: FRED (rates, DXY, CPI), World Bank
       if (!openFiles.includes(edit.filename)) setOpenFiles(p => [...p, edit.filename])
     })
     if (pendingEdits.length > 0) setActiveFile(pendingEdits[0].filename)
-    addTerm(`✓ Applied ${pendingEdits.length} AI edit${pendingEdits.length !== 1 ? 's' : ''}`)
+    addTerm(`[OK] Applied ${pendingEdits.length} AI edit${pendingEdits.length !== 1 ? 's' : ''}`)
     setPendingEdits([])
   }, [pendingEdits, openFiles, addTerm])
 
@@ -767,7 +816,7 @@ Macro: FRED (rates, DXY, CPI), World Bank
                   AI suggested changes to <strong style={{ color: C.white }}>{pendingEdits.map(e => e.filename).join(', ')}</strong>
                 </span>
                 <button onClick={applyAllEdits} style={{ padding: '.22rem .65rem', borderRadius: 6, border: `1px solid ${C.mint}50`, background: `${C.mint}15`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  ✓ Apply All
+                  [OK] Apply All
                 </button>
                 <button onClick={() => setPendingEdits([])} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', fontSize: '.75rem', padding: '0 .2rem', lineHeight: 1 }}>✕</button>
               </div>
@@ -1011,6 +1060,56 @@ Macro: FRED (rates, DXY, CPI), World Bank
                         )
                       })()}
 
+                      {/* Monte Carlo robustness */}
+                      {btResult.monte_carlo && (() => {
+                        const mc = btResult.monte_carlo as Record<string, number>
+                        return (
+                          <div style={{ padding: '.6rem .75rem', background: `${C.mint}06`, border: `1px solid ${C.mint}18`, borderRadius: 8, marginBottom: '.6rem' }}>
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: C.mint, letterSpacing: '.08em', fontWeight: 700, marginBottom: '.38rem' }}>MONTE CARLO ({mc.nTrials ?? 0} trials, {mc.windowDays ?? 0}d windows)</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '.28rem' }}>
+                              {[['Median Return', `${(mc.medianReturn ?? 0).toFixed(1)}%`], ['P10 Return', `${(mc.p10Return ?? 0).toFixed(1)}%`], ['P90 Return', `${(mc.p90Return ?? 0).toFixed(1)}%`], ['Median Sharpe', (mc.medianSharpe ?? 0).toFixed(2)], ['Median Max DD', `${(mc.medianMaxDD ?? 0).toFixed(1)}%`], ['Beat B&H', `${((mc.beatBuyHoldRate ?? 0) * 100).toFixed(0)}%`]].map(([l, v]) => (
+                                <div key={l} style={{ textAlign: 'center' }}>
+                                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.68rem', fontWeight: 700, color: C.white }}>{v}</div>
+                                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.42rem', color: C.faint }}>{l}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })()}
+
+                      {/* Risk metrics: VaR, benchmark comparison */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.35rem', marginBottom: '.6rem' }}>
+                        {[
+                          { l: 'VaR 95%', v: `${((btResult.var_95 as number ?? 0) * 100).toFixed(2)}%`, c: C.red },
+                          { l: 'VaR 99%', v: `${((btResult.var_99 as number ?? 0) * 100).toFixed(2)}%`, c: C.red },
+                          { l: 'CVaR 95%', v: `${((btResult.cvar_95 as number ?? 0) * 100).toFixed(2)}%`, c: C.orange },
+                          { l: 'Alpha vs Bench', v: `${(ts.alphaAnnualizedPct ?? 0).toFixed(1)}%`, c: col(ts.alphaAnnualizedPct ?? 0) },
+                        ].map(({ l, v, c }) => <Stat key={l} label={l} value={v} color={c} />)}
+                      </div>
+
+                      {/* Benchmark comparison */}
+                      {btResult.benchmark_cagr != null && (
+                        <div style={{ padding: '.6rem .75rem', background: `${C.blue}06`, border: `1px solid ${C.blue}18`, borderRadius: 8, marginBottom: '.6rem' }}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: C.blue2, letterSpacing: '.08em', fontWeight: 700, marginBottom: '.32rem' }}>BENCHMARK COMPARISON</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.28rem' }}>
+                            {[
+                              ['Benchmark CAGR', `${(btResult.benchmark_cagr as number ?? 0).toFixed(1)}%`],
+                              ['Strategy CAGR', `${((ts.cagr ?? 0) * 100).toFixed(1)}%`],
+                              ['Alpha', `${(ts.alphaAnnualizedPct ?? 0).toFixed(1)}%`],
+                              ['Beta', (ts.betaToMarket ?? 0).toFixed(2)],
+                              ['Info Ratio', (ts.informationRatio ?? 0).toFixed(2)],
+                              ['Tracking Err.', `${(((ts.annualizedVolPct ?? 0) * Math.abs(1 - (ts.betaToMarket ?? 1))) ?? 0).toFixed(1)}%`],
+                            ].map(([l, v]) => (
+                              <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '.15rem 0', borderBottom: `1px solid ${C.border}40` }}>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: C.faint }}>{l}</span>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: C.white, fontWeight: 700 }}>{v}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Full report link */}
                       <a href="/dashboard/backtest" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.35rem', padding: '.42rem', borderRadius: 7, border: `1px solid ${C.border}`, background: 'transparent', color: C.muted, fontFamily: 'var(--font-mono)', fontSize: '.58rem', cursor: 'pointer', textDecoration: 'none', marginTop: '.1rem' }}>
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
@@ -1068,7 +1167,7 @@ Macro: FRED (rates, DXY, CPI), World Bank
                                 updateFile(block.filename, existing + separator + block.code.trimStart())
                                 if (!openFiles.includes(block.filename)) setOpenFiles(p => [...p, block.filename])
                                 setActiveFile(block.filename)
-                                addTerm(`✓ Inserted "${block.name}" into ${block.filename}`)
+                                addTerm(`[OK] Inserted "${block.name}" into ${block.filename}`)
                               }}
                               onClick={() => {
                                 const existing = fileContents[block.filename] ?? ''
@@ -1076,7 +1175,7 @@ Macro: FRED (rates, DXY, CPI), World Bank
                                 updateFile(block.filename, existing + separator + block.code.trimStart())
                                 if (!openFiles.includes(block.filename)) setOpenFiles(p => [...p, block.filename])
                                 setActiveFile(block.filename)
-                                addTerm(`✓ Inserted "${block.name}" into ${block.filename}`)
+                                addTerm(`[OK] Inserted "${block.name}" into ${block.filename}`)
                               }}
                               style={{ display: 'flex', alignItems: 'center', gap: '.55rem', padding: '.5rem .65rem', background: isInProject ? `${catMeta.color}0D` : C.bg3, border: `1px solid ${isInProject ? catMeta.color + '35' : C.border}`, borderRadius: 8, cursor: 'grab', transition: 'all .12s' }}
                             >
@@ -1084,7 +1183,7 @@ Macro: FRED (rates, DXY, CPI), World Bank
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', marginBottom: '.08rem' }}>
                                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.63rem', fontWeight: 700, color: isInProject ? catMeta.color : C.white, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{block.name}</span>
-                                  {isInProject && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: catMeta.color, letterSpacing: '.06em', flexShrink: 0 }}>✓ ADDED</span>}
+                                  {isInProject && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: catMeta.color, letterSpacing: '.06em', flexShrink: 0 }}>[OK] ADDED</span>}
                                 </div>
                                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', color: C.muted, lineHeight: 1.45 }}>{block.desc}</div>
                                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.46rem', color: C.faint, marginTop: '.1rem' }}>→ {block.filename}</div>
@@ -1133,7 +1232,7 @@ Macro: FRED (rates, DXY, CPI), World Bank
                                 <div style={{ marginTop: '.5rem', paddingTop: '.5rem', borderTop: `1px solid ${C.border}` }}>
                                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, marginBottom: '.28rem' }}>Rate limit: {api.limit}</div>
                                   <div style={{ display: 'flex', gap: '.32rem' }}>
-                                    <button onClick={e => { e.stopPropagation(); const loader = `data_loaders.py`; updateFile(loader, (fileContents[loader] ?? '') + `\n# ── ${api.name} ──────────────────────────────────────────────\n# Added from Data panel\n`); openFile(loader); addTerm(`✓ ${api.name} added to data_loaders.py`) }}
+                                    <button onClick={e => { e.stopPropagation(); const loader = `data_loaders.py`; updateFile(loader, (fileContents[loader] ?? '') + `\n# ── ${api.name} ──────────────────────────────────────────────\n# Added from Data panel\n`); openFile(loader); addTerm(`[OK] ${api.name} added to data_loaders.py`) }}
                                       style={{ flex: 1, padding: '.28rem', borderRadius: 5, background: C.blue, color: '#fff', border: 'none', fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, cursor: 'pointer' }}>Add to project</button>
                                     <button onClick={e => { e.stopPropagation(); setChatInput(`How do I use ${api.name} data for crypto alpha generation?`); setBottomMode('chat'); setTimeout(() => chatInputRef.current?.focus(), 50) }}
                                       style={{ flex: 1, padding: '.28rem', borderRadius: 5, background: 'transparent', color: C.muted, border: `1px solid ${C.border}`, fontFamily: 'var(--font-mono)', fontSize: '.54rem', cursor: 'pointer' }}>Ask AI</button>
@@ -1156,8 +1255,8 @@ Macro: FRED (rates, DXY, CPI), World Bank
                         {ML_TOOLS.map(tool => (
                           <div key={tool.id}
                             draggable
-                            onDragEnd={() => { updateFile(`${tool.id}_signals.py`, `"""${tool.name} signal generator\n${tool.desc}\n"""\n# TODO: implement\n`); openFile(`${tool.id}_signals.py`); addTerm(`✓ Created ${tool.id}_signals.py`) }}
-                            onClick={() => { const fname = `${tool.id}_signals.py`; updateFile(fname, `"""${tool.name} signal generator\n${tool.desc}\n"""\n\n# pip install ${tool.id}\n# import ${tool.id === 'sklearn' ? 'sklearn' : tool.id}\n\ndef generate_ml_signals(features):\n    \"\"\"TODO: implement ${tool.name} signal logic\"\"\"\n    pass\n`); openFile(fname); addTerm(`✓ Added ${fname}`) }}
+                            onDragEnd={() => { updateFile(`${tool.id}_signals.py`, `"""${tool.name} signal generator\n${tool.desc}\n"""\n# TODO: implement\n`); openFile(`${tool.id}_signals.py`); addTerm(`[OK] Created ${tool.id}_signals.py`) }}
+                            onClick={() => { const fname = `${tool.id}_signals.py`; updateFile(fname, `"""${tool.name} signal generator\n${tool.desc}\n"""\n\n# pip install ${tool.id}\n# import ${tool.id === 'sklearn' ? 'sklearn' : tool.id}\n\ndef generate_ml_signals(features):\n    \"\"\"TODO: implement ${tool.name} signal logic\"\"\"\n    pass\n`); openFile(fname); addTerm(`[OK] Added ${fname}`) }}
                             style={{ display: 'flex', alignItems: 'center', gap: '.55rem', padding: '.5rem .65rem', background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 8, cursor: 'grab' }}>
                             <span style={{ fontSize: '1.1rem' }}>{tool.icon}</span>
                             <div>

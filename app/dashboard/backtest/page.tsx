@@ -20,6 +20,17 @@ interface AgentData {
 
 type TabId = 'overview' | 'compare' | 'robustness' | 'agents' | 'trades'
 
+interface SavedTab {
+  id: string
+  name: string
+  symbol: string
+  strategy: string
+  period: string
+  feeBps: number
+  slippageBps: number
+  timestamp: string
+}
+
 export default function BacktestComparePage() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -54,6 +65,11 @@ export default function BacktestComparePage() {
   const [userAgents, setUserAgents] = useState<Array<{ id: string; name: string; ticker: string; strategy?: string; symbol?: string }>>([])
   const [userId, setUserId] = useState('')
 
+  const [savedTabs, setSavedTabs] = useState<SavedTab[]>(() => {
+    try { return JSON.parse(localStorage.getItem('ase_backtest_tabs') ?? '[]') } catch { return [] }
+  })
+  const [activeTabId, setActiveTabId] = useState<string>('default')
+
   const toBacktestSymbol = (value: string) => value.replace(/\//g, '-')
 
   const colors = {
@@ -63,6 +79,39 @@ export default function BacktestComparePage() {
   }
 
   const agentColors = ['#5B8CFF', '#19E6A7', '#FFB648', '#FF6B7A', '#8B5CF6', '#F472B6', '#34D399', '#FBBF24']
+
+  function saveCurrentTab() {
+    const name = `${symbol.replace('/', '-')} ${strategy.replace(/_/g, ' ')} ${period}`
+    const tab: SavedTab = {
+      id: `tab_${Date.now()}`,
+      name,
+      symbol,
+      strategy,
+      period,
+      feeBps,
+      slippageBps,
+      timestamp: new Date().toISOString(),
+    }
+    const next = [...savedTabs, tab]
+    setSavedTabs(next)
+    localStorage.setItem('ase_backtest_tabs', JSON.stringify(next))
+  }
+
+  function loadTab(tab: SavedTab) {
+    setSymbol(tab.symbol)
+    setStrategy(tab.strategy)
+    setPeriod(tab.period)
+    setFeeBps(tab.feeBps)
+    setSlippageBps(tab.slippageBps)
+    setActiveTabId(tab.id)
+  }
+
+  function deleteTab(tabId: string) {
+    const next = savedTabs.filter(t => t.id !== tabId)
+    setSavedTabs(next)
+    localStorage.setItem('ase_backtest_tabs', JSON.stringify(next))
+    if (activeTabId === tabId) setActiveTabId('default')
+  }
 
   useEffect(() => {
     async function fetchAgents() {
@@ -390,7 +439,56 @@ export default function BacktestComparePage() {
         </div>
       </header>
 
+      {/* Saved Tabs */}
+      {savedTabs.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.5rem 1.5rem', borderBottom: `1px solid ${colors.border}`, background: colors.bg, overflowX: 'auto' }}>
+          <button
+            onClick={() => { setActiveTabId('default'); setSymbol(searchParams.get('symbol') || 'BTC-USD'); setStrategy(searchParams.get('strategy') || 'active_swing'); setPeriod('2y') }}
+            style={{
+              fontFamily: 'var(--font-mono)', fontSize: '0.62rem', padding: '0.3rem 0.65rem', borderRadius: 6,
+              background: activeTabId === 'default' ? colors.blue + '18' : 'transparent',
+              border: `1px solid ${activeTabId === 'default' ? colors.blue + '55' : colors.border}`,
+              color: activeTabId === 'default' ? colors.blue : colors.muted,
+              cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s',
+            }}
+          >
+            + New
+          </button>
+          {savedTabs.map(tab => (
+            <div key={tab.id} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <button
+                onClick={() => loadTab(tab)}
+                style={{
+                  fontFamily: 'var(--font-mono)', fontSize: '0.62rem', padding: '0.3rem 0.65rem', borderRadius: 6,
+                  background: activeTabId === tab.id ? colors.mint + '15' : 'transparent',
+                  border: `1px solid ${activeTabId === tab.id ? colors.mint + '55' : colors.border}`,
+                  color: activeTabId === tab.id ? colors.mint : colors.muted,
+                  cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s',
+                }}
+              >
+                {tab.name.length > 28 ? tab.name.slice(0, 28) + '...' : tab.name}
+              </button>
+              <button
+                onClick={() => deleteTab(tab.id)}
+                style={{ background: 'transparent', border: 'none', color: colors.faint, cursor: 'pointer', fontSize: '0.6rem', padding: '0.1rem', lineHeight: 1 }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: '.5rem', padding: '0.6rem 1.5rem', borderBottom: `1px solid ${colors.border}`, background: `${colors.bg2}EE` }}>
+        <button
+          onClick={saveCurrentTab}
+          style={{
+            fontFamily: 'var(--font-mono)', fontSize: '0.6rem', padding: '0.25rem 0.6rem', borderRadius: 6,
+            background: 'transparent', border: `1px solid ${colors.border}`, color: colors.muted, cursor: 'pointer', whiteSpace: 'nowrap',
+          }}
+        >
+          💾 Save
+        </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
           <span style={{ fontSize: '.55rem', color: colors.faint, letterSpacing: '.08em', fontFamily: 'var(--font-mono)' }}>PERIOD</span>
           <select value={period} onChange={e => setPeriod(e.target.value)} style={{ padding: '.3rem .5rem', borderRadius: 6, border: `1px solid ${colors.border}`, background: colors.bg3, color: colors.text, fontSize: '.65rem' }}>

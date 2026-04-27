@@ -155,6 +155,12 @@ export async function POST(req: Request) {
   // Update pkg universe to only include symbols we have data for (exclude benchmark)
   pkg.universeConfig.symbols = Object.keys(panel).filter(s => s !== benchmark)
 
+  // Compute benchmark CAGR for comparison
+  const benchStartPrice = panel[benchmark]?.find(b => b.date >= startDate)?.close ?? 1
+  const benchEndPrice = panel[benchmark]?.filter(b => b.date <= endDate).at(-1)?.close ?? benchStartPrice
+  const benchYears = Math.max((new Date(endDate).getTime() - new Date(startDate).getTime()) / (365.25 * 86400000), 0.01)
+  const benchCagrValue = Math.pow(benchEndPrice / benchStartPrice, 1 / benchYears) - 1
+
   const startMs = Date.now()
 
   try {
@@ -249,10 +255,98 @@ export async function POST(req: Request) {
 
       // Walk-forward
       walk_forward:       walkForwardResult,
+
+      // Monte Carlo robustness (200 trials on random windows)
+      monte_carlo:        runMonteCarloSimple(result.equityCurve, 200, 126),
+
+      // VaR (95th and 99th percentile daily losses)
+      var_95:             percentile(result.equityCurve.map(e => e.dailyReturn).filter(isFinite), 0.05),
+      var_99:             percentile(result.equityCurve.map(e => e.dailyReturn).filter(isFinite), 0.01),
+      cvar_95:            cvarCalc(result.equityCurve.map(e => e.dailyReturn).filter(isFinite), 0.05),
+
+      // Benchmark comparison
+      benchmark_cagr:     benchCagrValue * 100,
+      alpha_vs_benchmark: result.tearSheet.alphaAnnualizedPct,
+      beta_to_benchmark:  result.tearSheet.betaToMarket,
+      tracking_error:     result.tearSheet.informationRatio > 0
+                           ? (result.tearSheet.cagr - benchCagr) / result.tearSheet.informationRatio * 100
+                           : null,
+
+      // Trade ledger (detailed fills)
+      trade_ledger:       result.fills.map(f => ({
+        date:             f.date,
+        symbol:           f.symbol,
+        side:             f.side,
+        shares:           f.filledShares,
+        price:            f.avgPrice,
+        notional:         f.filledShares * f.avgPrice,
+        slippage_bps:     f.slippageBps,
+        commission:       f.commission,
+        total_cost:       f.totalCostUsd,
+      })),
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Backtest failed'
     console.error('[quant/run]', msg)
     return NextResponse.json({ error: msg }, { status: 500 })
+  }
+}
+
+function percentile(arr: number[], p: number): number {
+  if (!arr.length) return 0
+  const sorted = [...arr].sort((a, b) => a - b)
+  return sorted[Math.floor(sorted.length * p)] ?? sorted[sorted.length - 1]
+}
+
+function cvarCalc(returns: number[], alpha: number): number {
+  if (!returns.length) return 0
+  const sorted = [...returns].sort((a, b) => a - b)
+  const cutoff = Math.floor(sorted.length * alpha)
+  if (cutoff === 0) return sorted[0]
+  const tail = sorted.slice(0, cutoff)
+  return tail.reduce((a, b) => a + b, 0) / tail.length
+}
+
+function runMonteCarloSimple(equity: { equity: number; date: string }[], nTrials: number, windowDays: number) {
+  const dailyRets = equity.slice(1).map((e, i) => (e.equity - equity[i].equity) / equity[i].equity)
+  if (dailyRets.length < windowDays + 10) return null
+
+  const trials: Array<{ returnPct: number; sharpe: number; maxDD: number }> = []
+  for (let t = 0; t < nTrials; t++) {
+    const startIdx = Math.floor(Math.random() * (dailyRets.length - windowDays))
+    const window = dailyRets.slice(startIdx, startIdx + windowDays)
+    if (window.length < 30) continue
+
+    let equity = 1
+    let peak = 1
+    let maxDD = 0
+    for (const r of window) {
+      equity *= (1 + r)
+      if (equity > peak) peak = equity
+      const dd = (equity - peak) / peak
+      if (dd < maxDD) maxDD = dd
+    }
+    const totalRet = equity - 1
+    const annRet = Math.pow(1 + totalRet, 252 / window.length) - 1
+    const vol = Math.sqrt(window.reduce((s, r) => s + r * r, 0) / window.length - Math.pow(window.reduce((s, r) => s + r, 0) / window.length, 2)) * Math.sqrt(252)
+    const sharpe = vol > 0 ? annRet / vol : 0
+
+    trials.push({ returnPct: totalRet * 100, sharpe, maxDD: maxDD * 100 })
+  }
+
+  if (!trials.length) return null
+  const returns = trials.map(t => t.returnPct).sort((a, b) => a - b)
+  const sharpes = trials.map(t => t.sharpe).sort((a, b) => a - b)
+  const mid = Math.floor(returns.length / 2)
+
+  return {
+    nTrials: trials.length,
+    windowDays,
+    medianReturn: returns[mid],
+    p10Return: returns[Math.floor(returns.length * 0.1)],
+    p90Return: returns[Math.floor(returns.length * 0.9)],
+    medianSharpe: sharpes[sharpes.length / 2 | 0],
+    medianMaxDD: trials.map(t => t.maxDD).sort((a, b) => a - b)[mid],
+    beatBuyHoldRate: trials.filter(t => t.returnPct > 0).length / trials.length,
   }
 }

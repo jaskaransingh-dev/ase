@@ -497,7 +497,7 @@ export default function BuildersPage() {
                 <p style={{ color: 'var(--muted)', fontSize: '.88rem', marginBottom: '1.5rem' }}>
                   Build your first agent in the Quant Lab and save it here.
                 </p>
-                <Link href="/dashboard/quant" style={{
+                <Link href="/dashboard/build" style={{
                   display: 'inline-flex', alignItems: 'center', gap: '.5rem',
                   padding: '.7rem 1.4rem', borderRadius: 10,
                   background: 'var(--blue)', color: '#fff', fontWeight: 700, fontSize: '.88rem', textDecoration: 'none',
@@ -513,8 +513,19 @@ export default function BuildersPage() {
                     agent={agent}
                     onEdit={() => setEditingAgent(agent)}
                     onLoadQuant={() => {
-                      const params = new URLSearchParams({ load_agent: agent.slug })
-                      window.location.href = `/dashboard/quant?${params.toString()}`
+                      // If coming from edit mode, use the edit params; otherwise load by slug
+                      const params = new URLSearchParams()
+                      if (editingAgent?.id === agent.id) {
+                        params.set('edit', '1')
+                        params.set('name', encodeURIComponent(agent.name))
+                        params.set('code', encodeURIComponent(agent.strategy_code || ''))
+                        params.set('desc', encodeURIComponent(agent.description || ''))
+                        params.set('template', encodeURIComponent(agent.strategy_type || 'composite_balanced'))
+                        window.location.href = `/dashboard/build?${params.toString()}`
+                      } else {
+                        params.set('load_agent', agent.slug)
+                        window.location.href = `/dashboard/build?${params.toString()}`
+                      }
                     }}
                   />
                 ))}

@@ -40,6 +40,7 @@ import {
   runEquityMeanReversion,
   runEquityTrendFollow,
   runRiskParity,
+  runCompositeAlphaV2,
   runGenericCryptoMomentum,
   StrategyResult,
   getAgentPositions,
@@ -76,6 +77,7 @@ const STRATEGY_MAP: Record<
   'equity-mean-reversion': runEquityMeanReversion,
   'equity-trend-follow':  runEquityTrendFollow,
   'risk-parity':          runRiskParity,
+  'composite-alpha-v2':   runCompositeAlphaV2,
 }
 
 export async function POST(req: NextRequest) {

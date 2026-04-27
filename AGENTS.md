@@ -10,7 +10,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ASE (Algorithmic Strategy Exchange) is an all-in-one platform for developing, backtesting, deploying, and subscribing to autonomous trading agents.
 
-**Stack:** Next.js App Router, TypeScript, Supabase (auth + DB), Alpaca (broker), Recharts, Tailwind.
+**Stack:** Next.js App Router, TypeScript, Supabase (auth + DB), Kraken (broker), Recharts, Tailwind.
 
 ## Key Files
 

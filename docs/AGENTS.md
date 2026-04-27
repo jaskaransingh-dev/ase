@@ -92,14 +92,14 @@ Each agent trades with:
 When an agent executes a trade (BUY/SELL):
 1. Trade is logged to `agent_trades`
 2. For each user with holdings in that agent, the trade is proportionally distributed
-3. User's Alpaca account receives the corresponding position
+3. User's Kraken account receives the corresponding position
 
 ## Investing in Agents
 
 ### Prerequisites
 
-1. Connect Alpaca account at `/dashboard/settings`
-2. Fund Alpaca account with USD
+1. Connect Kraken account at `/dashboard/connect/kraken`
+2. Fund Kraken account with USD
 
 ### Subscribe via UI
 
@@ -178,8 +178,8 @@ curl -X POST https://your-site.com/api/cron/run-agents \
 4. Check strategy mapping: Built-in agents need exact slug match
 
 ### Can't invest?
-1. Ensure Alpaca account is connected
-2. Ensure Alpaca account has sufficient balance
+1. Ensure Kraken account is connected
+2. Ensure Kraken account has sufficient balance
 3. Check agent isn't at max AUM capacity
 
 ### Agent appears on exchange but no trades?

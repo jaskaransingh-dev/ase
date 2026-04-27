@@ -1,20 +1,61 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell } from 'recharts'
 import { fmtUSD, fmtPct, fmtDate, fmtDateTime } from '@/lib/utils'
 import { calculateTradingCapitalCents } from '@/lib/market'
 
-interface Agent { id: string; name: string; slug: string; ticker: string; description: string; strategy_type: string; status: string; total_aum_cents: number }
+interface Agent { id: string; name: string; slug: string; ticker: string; description: string; strategy_type: string; status: string; total_aum_cents: number; signal_summary?: string; thinking?: string }
 interface Stats { id: string; nav_cents: number; total_return_pct: number; sharpe_ratio: number; max_drawdown_pct: number; win_rate_pct: number; total_trades: number; snapshot_at: string }
 interface Trade { id: string; symbol: string; side: string; qty: number; fill_price: number; filled_at: string; pnl_cents: number | null }
 interface Holding { id: string; shares: number; invested_cents: number; current_value_cents: number }
 
-const TABS = ['Performance', 'Risk', 'Trades', 'Verification'] as const
+const TABS = ['Activity', 'Performance', 'Risk', 'Trades', 'Verification'] as const
 type Tab = typeof TABS[number]
 
 export default function AgentDiveClient({ agent, statsHistory, trades, userHolding }: { agent: Agent; statsHistory: Stats[]; trades: Trade[]; userHolding: Holding | null }) {
-  const [tab, setTab] = useState<Tab>('Performance')
+  const [tab, setTab] = useState<Tab>('Activity')
+  const [activityLog, setActivityLog] = useState<Array<{ time: string; type: 'signal' | 'trade' | 'thinking'; message: string; details?: string }>>([])
+  const [liveSignal, setLiveSignal] = useState<string>(agent.signal_summary || 'Waiting for signal...')
+
+  useEffect(() => {
+    if (tab !== 'Activity') return
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/agents/${agent.id}`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.agent?.signal_summary) {
+            setLiveSignal(data.agent.signal_summary)
+            if (data.agent?.thinking) {
+              setActivityLog(prev => {
+                const lastEntry = prev[0]
+                if (lastEntry && lastEntry.message === data.agent.thinking) return prev
+                return [{ time: new Date().toISOString(), type: 'thinking' as const, message: data.agent.thinking, details: data.agent.signal_summary }, ...prev].slice(0, 100)
+              })
+            }
+          }
+        }
+      } catch {}
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [tab, agent.id])
+
+  useEffect(() => {
+    const initialLog: Array<{ time: string; type: 'signal' | 'trade' | 'thinking'; message: string; details?: string }> = trades.slice(0, 20).map(t => ({
+      time: t.filled_at,
+      type: 'trade' as const,
+      message: `${t.side.toUpperCase()} ${t.qty.toFixed(6)} ${t.symbol} @ ${fmtUSD(t.fill_price)}`,
+      details: t.pnl_cents !== null ? `P&L: ${fmtUSD(t.pnl_cents / 100)}` : undefined,
+    }))
+    if (agent.signal_summary) {
+      initialLog.unshift({ time: new Date().toISOString(), type: 'signal' as const, message: agent.signal_summary })
+    }
+    if (agent.thinking) {
+      initialLog.unshift({ time: new Date().toISOString(), type: 'thinking' as const, message: agent.thinking })
+    }
+    setActivityLog(initialLog)
+  }, [trades, agent.signal_summary, agent.thinking])
 
   const latestStats = statsHistory.length > 0 ? statsHistory[statsHistory.length - 1] : null
   const nav = latestStats?.nav_cents ?? 10000
@@ -195,6 +236,7 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
   const dataIntegrity = getDataIntegrityScore()
 
   return (
+    <>
     <div className="page-slide-in" style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto', minHeight: '100vh', fontFamily: 'var(--font-body)', color: '#E0E0E0' }}>
       {/* Header */}
       <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -240,6 +282,88 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
       </div>
 
       {/* Content */}
+      {tab === 'Activity' && (
+        <div>
+          {/* Live Signal */}
+          <div style={{ background: 'linear-gradient(135deg, #0d1421 0%, #111d2e 100%)', border: '1px solid #1a2640', borderRadius: 12, padding: '1.5rem', marginBottom: '1.5rem', position: 'relative', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', top: '1rem', right: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: liveSignal.includes('BUY') ? '#0EAD6E' : liveSignal.includes('SELL') ? '#E84040' : '#E8AC20', boxShadow: `0 0 8px ${liveSignal.includes('BUY') ? '#0EAD6E' : liveSignal.includes('SELL') ? '#E84040' : '#E8AC20'}80`, animation: 'pulse 2s infinite' }} />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: '#888', textTransform: 'uppercase', letterSpacing: '0.1em' }}>LIVE</span>
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: '#666', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '0.5rem' }}>Current Signal</div>
+            <div style={{ fontSize: '0.95rem', fontWeight: 600, color: liveSignal.includes('BUY') ? '#0EAD6E' : liveSignal.includes('SELL') ? '#E84040' : '#E8AC20', lineHeight: 1.5, paddingRight: '4rem' }}>
+              {liveSignal}
+            </div>
+          </div>
+
+          {/* Activity Feed */}
+          <div style={{ background: 'rgba(11,23,40,0.5)', border: '1px solid #1a2640', borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ padding: '0.75rem 1.25rem', borderBottom: '1px solid #1a2640', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: '#888', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>
+                Thinking & Activity
+              </div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: '#555' }}>
+                Auto-refreshing every 30s
+              </div>
+            </div>
+            <div style={{ maxHeight: 500, overflowY: 'auto' }}>
+              {activityLog.length === 0 && (
+                <div style={{ padding: '2rem', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: '#555' }}>
+                  Waiting for activity...
+                </div>
+              )}
+              {activityLog.map((entry, i) => {
+                const typeConfig = entry.type === 'thinking' ? { icon: '💭', color: '#3B82F6', bg: '#1a2640' }
+                  : entry.type === 'trade' ? { icon: entry.message.startsWith('BUY') ? '📈' : '📉', color: entry.message.startsWith('BUY') ? '#0EAD6E' : '#E84040', bg: entry.message.startsWith('BUY') ? '#0a1f14' : '#1f0a0a' }
+                  : { icon: '⚡', color: '#E8AC20', bg: '#1f1a06' }
+                return (
+                  <div key={i} style={{
+                    display: 'flex', gap: '0.75rem', alignItems: 'flex-start',
+                    padding: '0.65rem 1.25rem',
+                    borderBottom: '1px solid #111d2e',
+                    background: i % 2 === 0 ? 'transparent' : '#080f1a',
+                  }}>
+                    <div style={{ fontSize: '1rem', flexShrink: 0, marginTop: '0.1rem' }}>{typeConfig.icon}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.2rem' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 600, color: typeConfig.color }}>
+                          {entry.type === 'thinking' ? 'THINKING' : entry.type === 'trade' ? 'TRADE' : 'SIGNAL'}
+                        </span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: '#555' }}>
+                          {fmtDateTime(entry.time)}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#ccc', lineHeight: 1.5, wordBreak: 'break-word' }}>
+                        {entry.message}
+                      </div>
+                      {entry.details && (
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: '#888', marginTop: '0.15rem' }}>
+                          {entry.details}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Recent Trades Summary */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginTop: '1.5rem' }}>
+            {[
+              { label: 'TOTAL TRADES', value: trades.length.toString(), color: '#E8AC20' },
+              { label: 'BUY ORDERS', value: trades.filter(t => t.side === 'buy').length.toString(), color: '#0EAD6E' },
+              { label: 'SELL ORDERS', value: trades.filter(t => t.side === 'sell').length.toString(), color: '#E84040' },
+            ].map((m, i) => (
+              <div key={i} style={{ background: '#0d1421', border: '1px solid #1a2640', borderRadius: 8, padding: '1.25rem' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.1em', color: '#666', marginBottom: '0.5rem', textTransform: 'uppercase', fontWeight: 600 }}>{m.label}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.4rem', fontWeight: 700, color: m.color, fontVariantNumeric: 'tabular-nums' }}>{m.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {tab === 'Performance' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
           {/* NAV Chart with Premium Gradient */}
@@ -760,5 +884,12 @@ export default function AgentDiveClient({ agent, statsHistory, trades, userHoldi
         </div>
       )}
     </div>
+    <style>{`
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+      }
+    `}</style>
+    </>
   )
 }
