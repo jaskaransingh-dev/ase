@@ -69,6 +69,7 @@ export default function BacktestComparePage() {
     try { return JSON.parse(localStorage.getItem('ase_backtest_tabs') ?? '[]') } catch { return [] }
   })
   const [activeTabId, setActiveTabId] = useState<string>('default')
+  const [savedResults, setSavedResults] = useState<Record<string, any>>({})
 
   const toBacktestSymbol = (value: string) => value.replace(/\//g, '-')
 
@@ -112,6 +113,50 @@ export default function BacktestComparePage() {
     localStorage.setItem('ase_backtest_tabs', JSON.stringify(next))
     if (activeTabId === tabId) setActiveTabId('default')
   }
+
+  // Save results to localStorage
+  function saveResultsToStorage(key: string, res: Record<string, any>, bench: Record<string, any>) {
+    try {
+      const data = { results: res, benchmarks: bench, timestamp: new Date().toISOString() }
+      localStorage.setItem(key, JSON.stringify(data))
+    } catch {}
+  }
+
+  // Load results from localStorage
+  function loadResultsFromStorage(key: string) {
+    try {
+      const raw = localStorage.getItem(key)
+      if (!raw) return null
+      const data = JSON.parse(raw)
+      // Only use if less than 1 hour old
+      if (data.timestamp && Date.now() - new Date(data.timestamp).getTime() < 3600000) {
+        return data
+      }
+    } catch {}
+    return null
+  }
+
+  // Autoload last results on mount
+  useEffect(() => {
+    const cached = loadResultsFromStorage('ase_backtest_cache')
+    if (cached) {
+      if (cached.results && Object.keys(cached.results).length > 0) {
+        setResults(cached.results)
+        setBenchmarks(cached.benchmarks || {})
+      }
+      const cachedResults = loadResultsFromStorage('ase_backtest_saved_cache')
+      if (cachedResults) {
+        setSavedResults(cachedResults.results || {})
+      }
+    }
+  }, [])
+
+  // Auto-save results when they update
+  useEffect(() => {
+    if (Object.keys(results).length > 0) {
+      saveResultsToStorage('ase_backtest_cache', results, benchmarks)
+    }
+  }, [results, benchmarks])
 
   useEffect(() => {
     async function fetchAgents() {
@@ -232,6 +277,19 @@ export default function BacktestComparePage() {
         } catch {}
       })
       await Promise.all(benchPromises)
+
+      // Add Buy & Hold benchmark for the primary symbol
+      try {
+        const bhRes = await fetch('/api/backtest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol: toBacktestSymbol(symbol), strategy: 'momentum_crossover', period, fee: feeBps / 10000, slippage: slippageBps / 10000 }),
+        })
+        const bhData = await bhRes.json()
+        if (bhRes.ok && !bhData.error && bhData.buyHold) {
+          newBenchmarks['buy_hold'] = { bars: bhData.buyHold, stats: bhData.buyHold }
+        }
+      } catch {}
       setBenchmarks(newBenchmarks)
 
       if (enableMonteCarlo && selectedAgents.length > 0) {
@@ -837,12 +895,24 @@ export default function BacktestComparePage() {
 
               {hasResults && selectedAgents.length > 0 && (
                 <div style={{ display: 'flex', gap: '.4rem' }}>
+                  <button onClick={() => {
+                    saveResultsToStorage('ase_backtest_saved_cache', results, benchmarks)
+                    setSavedResults(results)
+                  }} style={{ flex: 1, padding: '.5rem', borderRadius: 10, border: `1px solid ${colors.blue}55`, background: `${colors.blue}15`, color: colors.blue, fontSize: '.65rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                    Save Results
+                  </button>
                   <button onClick={() => toggleGoodStrategy(selectedAgents[0])} style={{ flex: 1, padding: '.5rem', borderRadius: 10, border: `1px solid ${goodStrategies.includes(selectedAgents[0]) ? colors.mint : colors.border}`, background: goodStrategies.includes(selectedAgents[0]) ? `${colors.mint}15` : colors.bg3, color: goodStrategies.includes(selectedAgents[0]) ? colors.mint : colors.muted, fontSize: '.65rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                     <CheckCircle2 size={12} />{goodStrategies.includes(selectedAgents[0]) ? '[SAVED]' : 'Mark Good'}
                   </button>
                   <button onClick={() => router.push(`/agents/submit?symbol=${symbol}&strategy=${strategy}`)} style={{ flex: 1, padding: '.5rem', borderRadius: 10, border: 'none', background: `linear-gradient(135deg, ${colors.blue}, #3B7BEE)`, color: '#fff', fontSize: '.65rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                     <TrendingUp size={12} />Deploy
                   </button>
+                </div>
+              )}
+
+              {Object.keys(savedResults).length > 0 && (
+                <div style={{ marginTop: '.4rem', padding: '.4rem .6rem', background: `${colors.mint}10`, border: `1px solid ${colors.mint}30`, borderRadius: 8, fontSize: '.58rem', color: colors.mint, display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                  Results saved to browser
                 </div>
               )}
 

@@ -270,7 +270,7 @@ export default function DashboardPage() {
     <div style={{ maxWidth: 1400, margin: '0 auto' }}>
 
       {/* ── TOP BAR ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 700, color: 'var(--white)', letterSpacing: '-0.01em', marginBottom: '0.2rem' }}>
             {getGreeting()}, <span style={{ color: 'var(--blue2)' }}>{userName || '—'}</span>
@@ -301,6 +301,28 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* ── ALLOCATIONS ── */}
+      {subscriptions.filter(s => s.has_investment).length > 0 && (
+        <div style={{ marginBottom: '1rem', padding: '0.85rem 1.25rem', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.65rem' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', color: 'var(--faint)', letterSpacing: '0.1em' }}>ALLOCATIONS</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', fontWeight: 700, color: 'var(--white)' }}>{fmtMoney(totalInvested / 100)}</div>
+          </div>
+          <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {subscriptions.filter(s => s.has_investment).map(sub => {
+              const invested = sub.holding?.invested_cents ?? 0
+              const pct = totalInvested > 0 ? (invested / totalInvested) * 100 : 0
+              return (
+                <div key={sub.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.3rem 0.6rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 6 }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', fontWeight: 600, color: 'var(--white)' }}>{sub.agents?.name?.split(' ')[0] ?? '—'}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: 'var(--faint)' }}>{pct.toFixed(0)}%</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ── QUICK ACTIONS ── */}
       {subscriptions.length > 0 && (
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', padding: '0.5rem 0.75rem', background: 'var(--bg3)', borderRadius: 8, border: '1px solid var(--border)' }}>
@@ -317,15 +339,15 @@ export default function DashboardPage() {
       )}
 
       {/* ── PORTFOLIO HERO ── */}
-      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, marginBottom: '1rem', overflow: 'hidden' }}>
+      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, marginBottom: '1.5rem', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'stretch', flexWrap: 'wrap' }} className="portfolio-hero-grid">
           {/* Main value */}
-          <div style={{ flex: '1 1 260px', padding: '1.25rem 1.5rem', borderRight: '1px solid var(--border)' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)', letterSpacing: '0.12em', marginBottom: '0.5rem' }}>PORTFOLIO VALUE</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '2.2rem', fontWeight: 700, color: 'var(--white)', letterSpacing: '-0.03em', lineHeight: 1 }}>
+          <div style={{ flex: '1 1 260px', padding: '1.75rem 2rem', borderRight: '1px solid var(--border)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', color: 'var(--faint)', letterSpacing: '0.12em', marginBottom: '0.65rem' }}>PORTFOLIO VALUE</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '2.4rem', fontWeight: 700, color: 'var(--white)', letterSpacing: '-0.03em', lineHeight: 1 }}>
               {fmtMoney(portfolioValue)}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', marginTop: '1rem' }}>
               <div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)', letterSpacing: '0.08em', marginBottom: '0.15rem' }}>TODAY P&L</div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', fontWeight: 700, color: todayPnl >= 0 ? 'var(--mint)' : 'var(--red)' }}>
@@ -356,19 +378,18 @@ export default function DashboardPage() {
           </div>
 
           {/* Quick stats */}
-          <div style={{ flex: '1 1 400px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
+          <div style={{ flex: '1 1 400px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
             {[
-              { label: 'KRAKEN CASH', value: krakenCash !== null ? fmtMoney(krakenCash) : '--', sub: brokerAccount?.has_account ? 'connected' : 'not connected', color: 'var(--white)', click: undefined },
-              { label: 'INVESTED', value: totalInvested > 0 ? `$${(totalInvested / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$0.00', sub: `${subscriptions.filter(s => s.has_investment).length} agent${subscriptions.filter(s => s.has_investment).length !== 1 ? 's' : ''}`, color: 'var(--white)', click: undefined },
-              { label: 'ACTIVE', value: `${subscriptions.length}`, sub: `${activeCount} running`, color: activeCount > 0 ? 'var(--mint)' : 'var(--faint)', click: undefined },
+              { label: 'BUYING POWER', value: krakenCash !== null ? fmtMoney(krakenCash) : '--', sub: brokerAccount?.has_account ? 'available' : 'not connected', color: 'var(--white)', click: undefined },
+              { label: 'ALLOCATIONS', value: totalInvested > 0 ? `$${(totalInvested / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$0.00', sub: `${subscriptions.filter(s => s.has_investment).length} agent${subscriptions.filter(s => s.has_investment).length !== 1 ? 's' : ''}`, color: 'var(--white)', click: undefined },
               { label: 'TOTAL P&L', value: totalInvested > 0 ? fmt$(totalPnL) : '—', sub: totalInvested > 0 ? fmtPct(portfolioReturnPct) : 'no positions', color: totalPnL >= 0 ? 'var(--mint)' : 'var(--red)', click: undefined },
             ].map((item, i) => (
-              <div key={item.label} onClick={item.click} style={{ padding: '1.25rem 1rem', borderRight: i < 3 ? '1px solid var(--border)' : 'none', cursor: item.click ? 'pointer' : 'default', transition: 'background 0.14s' }}
+              <div key={item.label} onClick={item.click} style={{ padding: '1.5rem 1.25rem', borderRight: i < 2 ? '1px solid var(--border)' : 'none', cursor: item.click ? 'pointer' : 'default', transition: 'background 0.14s' }}
                 onMouseEnter={e => { if (item.click) e.currentTarget.style.background = 'rgba(79,140,255,0.04)' }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)', letterSpacing: '0.1em', marginBottom: '0.35rem' }}>{item.label}</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1rem', color: item.color, letterSpacing: '-0.02em' }}>{item.value}</div>
-                {item.sub && <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)', marginTop: '0.2rem' }}>{item.sub}</div>}
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)', letterSpacing: '0.1em', marginBottom: '0.4rem' }}>{item.label}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.1rem', color: item.color, letterSpacing: '-0.02em' }}>{item.value}</div>
+                {item.sub && <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', color: 'var(--faint)', marginTop: '0.25rem' }}>{item.sub}</div>}
               </div>
             ))}
           </div>
@@ -422,7 +443,7 @@ export default function DashboardPage() {
       )}
 
       {/* ── MAIN GRID ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '1rem', alignItems: 'start' }} className="dash-main-grid">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1.5rem', alignItems: 'start' }} className="dash-main-grid">
 
         {/* LEFT */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -435,7 +456,7 @@ export default function DashboardPage() {
               </Link>
             } />
             {subscriptions.length === 0 ? (
-              <div style={{ padding: '2.5rem', textAlign: 'center' }}>
+              <div style={{ padding: '3rem', textAlign: 'center' }}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--faint)', marginBottom: '0.5rem' }}>NO HOLDINGS YET</div>
                 <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>Invest in a verified agent starting from $1 — trades execute live on your Kraken account.</div>
                 <Link href="/dashboard/marketplace" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1.1rem', borderRadius: 8, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 700, textDecoration: 'none' }}>

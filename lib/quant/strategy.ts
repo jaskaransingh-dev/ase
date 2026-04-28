@@ -83,14 +83,14 @@ export const STRATEGY_TEMPLATES: Record<string, Omit<QuantStrategyPackage, 'id' 
   },
   'composite_balanced': {
     universeConfig:  { ...DEFAULT_UNIVERSE, symbols: ['BTC-USD','ETH-USD','SOL-USD','BNB-USD','XRP-USD'] },
-    optimizerConfig: { ...DEFAULT_OPTIMIZER, riskAversion: 1, maxWeight: 0.30, turnoverPenalty: 0.5, maxTurnover: 0.15 },
+    optimizerConfig: { ...DEFAULT_OPTIMIZER, riskAversion: 8, maxWeight: 0.25, turnoverPenalty: 0.5, maxTurnover: 0.15, minWeight: 0, leverage: 1.0 },
     executionConfig: { ...DEFAULT_EXECUTION, slippageModel: 'market_impact', slippageBps: 5 },
     riskLimits:      DEFAULT_RISK_LIMITS,
     alphaType:       'composite',
-    alphaWeights:    { momentum: 0.45, mean_reversion: 0.20, volatility: 0.20, volume: 0.15 },
+    alphaWeights:    { momentum: 0.45, mean_reversion: 0.30, volatility: 0.15, volume: 0.10 },
     forecastHorizon: 10,
     signalScaleBps:  300,
-    rebalanceFreq:   'weekly',
+    rebalanceFreq:   'daily',
     lookbackDays:    90,
   },
   'ml_aggressive': {

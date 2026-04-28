@@ -345,14 +345,20 @@ export function strategyGrade(ts: TearSheet): {
   score: number
   breakdown: Record<string, number>
 } {
+  const yearly = ts.yearlyReturns ?? {}
+  const yearlyVals = Object.entries(yearly)
+    .filter(([_, v]) => v !== 0)
+    .map(([k, v]) => v)
+  const posYears = yearlyVals.filter(v => v > 0).length
+  const totalYears = yearlyVals.length
+
   const breakdown = {
-    sharpe:    Math.min(ts.sharpeRatio / 1.0, 1) * 25,
+    sharpe:    Math.min(Math.max(ts.sharpeRatio, 0) / 1.0, 1) * 25,
     drawdown:  Math.max(1 + ts.maxDrawdownPct / 60, 0) * 20,
     ic_ir:     Math.min(Math.abs(ts.icIR) / 0.8, 1) * 20,
-    calmar:    Math.min(ts.calmarRatio / 0.5, 1) * 20,
-    stability: ts.yearlyReturns
-      ? (Object.values(ts.yearlyReturns).filter(r => r > 0).length /
-         Math.max(Object.values(ts.yearlyReturns).length, 1)) * 15
+    calmar:    Math.min(Math.max(ts.calmarRatio, 0) / 0.5, 1) * 20,
+    stability: totalYears > 0
+      ? (posYears / totalYears) * 15
       : 0,
   }
   const score = Object.values(breakdown).reduce((a, b) => a + b, 0)

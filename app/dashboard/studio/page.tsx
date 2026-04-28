@@ -172,10 +172,18 @@ export default function StudioPage() {
   function openEdit(id: string) {
     const a = agents.find(x => x.id === id)
     if (!a) return
-    const code = encodeURIComponent(a.strategyCode || '')
-    const desc = encodeURIComponent(a.description || '')
-    const name = encodeURIComponent(a.name || '')
-    router.push(`/dashboard/build?edit=1&name=${name}&code=${code}&desc=${desc}`)
+    const saved = loadSaves(userId)[id]
+    setDraft({
+      name: a.name,
+      description: a.description,
+      tagline: a.tagline,
+      ticker: a.ticker,
+      status: a.status,
+      strategyCode: a.strategyCode,
+      configJson: a.configJson,
+      ...(saved ? { name: saved.name, description: saved.description, tagline: saved.tagline, ticker: saved.ticker, status: saved.status, strategyCode: saved.strategyCode, configJson: saved.configJson } : {}),
+    })
+    setEditingId(id)
   }
 
   function closeSlide() {
@@ -728,6 +736,21 @@ function EditPanel({ agent, draft, setDraft, onSave, onRepublish, onClose }: {
 }) {
   const [tab, setTab] = useState<'meta' | 'strategy' | 'config'>('meta')
   const [republishing, setRepublishing] = useState(false)
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const patch: Partial<AgentSave> = { ...draft }
+      if (Object.keys(patch).length > 0 && typeof window !== 'undefined') {
+        try {
+          const userId = localStorage.getItem('ase_user_id') || 'anonymous'
+          const key = `ase_agent_saves_${userId}`
+          const existing = JSON.parse(localStorage.getItem(key) || '{}')
+          localStorage.setItem(key, JSON.stringify({ ...existing, [agent.id]: { ...existing[agent.id], ...patch, updatedAt: new Date().toISOString() } }))
+        } catch {}
+      }
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [draft, agent.id])
 
   const fields: { key: keyof AgentSave; label: string; multiline?: boolean }[] = [
     { key: 'name', label: 'Agent Name' },

@@ -108,6 +108,7 @@ export const BENCHMARKS: Record<string, { label: string; color: string }> = {
   'BTC-USD': { label: 'Bitcoin', color: '#f7931a' },
   'ETH-USD': { label: 'Ethereum', color: '#627eea' },
   'SOL-USD': { label: 'Solana', color: '#19E6A7' },
+  'buy_hold': { label: 'Buy $100k Buy & Hold', color: '#f59e0b' },
 }
 
 // Only expose the standardized Active Swing engine. Other internal strategies
@@ -171,9 +172,9 @@ export const GRADE_CLR: Record<string, string> = {
 }
 
 export const DEFAULT_STRATEGY_TS = `// ─── ASE Multi-Factor Crypto Strategy ───────────────────────────────
-// Template : composite_balanced
-// Alpha    : momentum x trend x mean-reversion x on-chain x LLM
-// Risk     : vol-target 15% ann. | ATR(10) trailing stop | kill switch
+// Template : composite_balanced (grade C, score 46)
+// Alpha    : momentum × trend × mean-reversion × volatility × volume
+// Risk     : vol-targeting | mean-variance optimizer | ATR stop
 //
 // Backtest Features:
 //   Walk-Forward  - Rolling train/test to prevent overfitting
@@ -183,29 +184,27 @@ export const DEFAULT_STRATEGY_TS = `// ─── ASE Multi-Factor Crypto Strateg
 //   Risk Metrics   - Sharpe, Sortino, Calmar, VaR 95/99, CVaR
 //   Trade Ledger   - every fill with P&L attribution
 //
-// Target   : Sharpe > 1.8 | Max DD < 18% | Calmar > 1.2
+// Target   : Sharpe > 0.5 | Max DD < 25% | positive years > 50%
 // Engine   : POST /api/quant/run  |  Cmd+Enter to backtest
 // ─────────────────────────────────────────────────────────────────────
 
 import type { FeatureRow } from '@ase/quant'
 
 export const config = {
-  name:          'Composite Alpha v2',
-  universe:      ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'ADA-USD'],
-  rebalanceFreq: 'daily' as const,
-  riskAversion:  7,
+  name:          'Composite Balanced',
+  universe:      ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'XRP-USD'],
+  rebalanceFreq: 'weekly' as const,
+  riskAversion:  4,
   maxWeight:     0.30,
-  killSwitch:    0.20,
+  killSwitch:    0.25,
 }
 
 // ── Signal weights ────────────────────────────────────────────────────
 const W = {
-  mom5:    0.25,   // short-term momentum
-  mom20:   0.20,   // medium-term momentum
-  mom60:   0.10,   // long-term trend
-  rsi:     0.20,   // mean-reversion (RSI z-score)
-  ema:     0.15,   // trend filter (EMA crossover)
-  onchain: 0.10,   // on-chain alpha (NUPL / fear-greed)
+  momentum:     0.45,   // cross-sectional momentum
+  meanRev:     0.30,   // mean-reversion (RSI/Bollinger)
+  volatility:  0.15,   // vol breakouts
+  volume:     0.10,   // volume confirmation
 }
 
 // ── RSI z-score: convert RSI to a mean-reversion signal ───────────────
@@ -341,7 +340,7 @@ export function generateSignals(features: FeatureRow[]): Record<string, number> 
 export const DEFAULT_CONFIG_JSON = JSON.stringify({
   template: 'composite_balanced',
   alpha_type: 'composite',
-  symbols: ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'ADA-USD'],
+  symbols: ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'XRP-USD'],
   rebalanceFreq: 'daily',
   riskAversion: 8,
   maxWeight: 0.25,
@@ -353,7 +352,9 @@ export const DEFAULT_CONFIG_JSON = JSON.stringify({
   killSwitch: 0.20,
   benchmark: 'BTC-USD',
   slippageBps: 5,
-  participationRate: 0.10,
+  participationRate: 0.1,
+  alphaWeights: { momentum: 0.45, mean_reversion: 0.30, volatility: 0.15, volume: 0.10 },
+  forecastHorizon: 10,
 }, null, 2)
 
 export const DEFAULT_DOCS = `# ASE Quant Engine — Developer Reference
