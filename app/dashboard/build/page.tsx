@@ -413,7 +413,29 @@ export default function QuantLabPage() {
   const handleSave = () => {
     setSaved(true)
     try { localStorage.setItem('ase-files', JSON.stringify(fileContents)) } catch {}
-    addTerm(`[OK] ${activeFile} saved`)
+    
+    // Save as Studio draft
+    const key = 'ase_agent_saves_anonymous'
+    try {
+      const existing = JSON.parse(localStorage.getItem(key) ?? '{}')
+      const id = (agentName || 'untitled').toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'untitled'
+      existing[id] = {
+        id,
+        name: agentName || 'Untitled',
+        description: '',
+        tagline: agentName || 'Untitled',
+        ticker: (agentName || 'AGNT').slice(0, 4).toUpperCase(),
+        status: 'draft',
+        published: false,
+        updatedAt: new Date().toISOString(),
+        strategyCode: fileContents['strategy.ts'] || '',
+        configJson: fileContents['config.json'] || '{}',
+        version: 1,
+      }
+      localStorage.setItem(key, JSON.stringify(existing))
+    } catch {}
+    
+    addTerm(`[OK] ${activeFile} saved — /dashboard/studio`)
   }
 
   const openFile = (name: string) => {
