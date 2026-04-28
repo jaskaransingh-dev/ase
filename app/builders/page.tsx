@@ -13,6 +13,7 @@ interface MyAgent {
   status: string
   display_status: string
   strategy_type: string | null
+  strategy_code: string | null
   primary_symbol: string | null
   backtest_stats: any
   latest_stats: any
@@ -411,7 +412,7 @@ export default function BuildersPage() {
               <p style={{ color: 'var(--muted)', fontSize: '.88rem', marginBottom: '1.5rem', lineHeight: 1.65 }}>
                 Build and backtest your strategy using the Quant Lab. Save in-progress agents and manage them here.
               </p>
-              <Link href="/dashboard/quant" style={{
+              <Link href="/dashboard/build?new=1" style={{
                 display: 'inline-flex', alignItems: 'center', gap: '.5rem',
                 padding: '.7rem 1.4rem', borderRadius: 10,
                 background: 'linear-gradient(135deg, var(--blue3), var(--blue))',

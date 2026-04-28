@@ -89,24 +89,23 @@ export async function POST(req: Request) {
   }
 
   // Build strategy package
-  const overrides: Partial<Omit<QuantStrategyPackage, 'id' | 'name'>> = {
-    alphaType:       (body.alpha_type as QuantStrategyPackage['alphaType']) ?? undefined,
-    alphaWeights:    body.alpha_weights,
-    rebalanceFreq:   body.rebalance_freq,
-    forecastHorizon: body.forecast_horizon,
-    signalScaleBps:  body.signal_scale_bps,
-    universeConfig: body.symbols ? {
+  const overrides: Partial<Omit<QuantStrategyPackage, 'id' | 'name'>> = {}
+  if (body.alpha_type) overrides.alphaType = body.alpha_type as QuantStrategyPackage['alphaType']
+  if (body.alpha_weights) overrides.alphaWeights = body.alpha_weights
+  if (body.rebalance_freq) overrides.rebalanceFreq = body.rebalance_freq
+  if (body.forecast_horizon) overrides.forecastHorizon = body.forecast_horizon
+  if (body.signal_scale_bps) overrides.signalScaleBps = body.signal_scale_bps
+  if (body.symbols) overrides.universeConfig = {
       symbols:       body.symbols,
       minAdvUsd:     500_000,
       minPriceUsd:   0.001,
       maxAssets:     body.symbols.length,
       rebalanceFreq: body.rebalance_freq ?? 'daily',
-    } : undefined,
-    optimizerConfig: {
+    }
+  if (body.risk_aversion != null || body.max_weight != null) overrides.optimizerConfig = {
       ...body.risk_aversion != null && { riskAversion: body.risk_aversion },
       ...body.max_weight != null && { maxWeight: body.max_weight },
-    } as Partial<QuantStrategyPackage['optimizerConfig']> as QuantStrategyPackage['optimizerConfig'],
-  }
+    } as Partial<QuantStrategyPackage['optimizerConfig']> as QuantStrategyPackage['optimizerConfig']
   const pkg: QuantStrategyPackage = buildStrategyPackage(
     body.strategy_id ?? 'adhoc',
     template,
@@ -153,7 +152,7 @@ export async function POST(req: Request) {
   }
 
   // Update pkg universe to only include symbols we have data for (exclude benchmark)
-  pkg.universeConfig.symbols = Object.keys(panel).filter(s => s !== benchmark)
+  pkg.universeConfig.symbols = Object.keys(panel)
 
   // Compute benchmark CAGR for comparison
   const benchStartPrice = panel[benchmark]?.find(b => b.date >= startDate)?.close ?? 1
@@ -269,7 +268,7 @@ export async function POST(req: Request) {
       alpha_vs_benchmark: result.tearSheet.alphaAnnualizedPct,
       beta_to_benchmark:  result.tearSheet.betaToMarket,
       tracking_error:     result.tearSheet.informationRatio > 0
-                           ? (result.tearSheet.cagr - benchCagr) / result.tearSheet.informationRatio * 100
+                           ? (result.tearSheet.cagr * 100 - benchCagrValue) / result.tearSheet.informationRatio * 100
                            : null,
 
       // Trade ledger (detailed fills)

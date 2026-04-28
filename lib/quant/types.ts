@@ -67,6 +67,8 @@ export interface FeatureRow {
   // Volume
   vol_shock: number        // today's volume / 20d avg volume
   amihud: number           // |ret| / dollar_volume (illiquidity)
+  // Bollinger Band %B
+  bb_pct: number           // (close - lower) / (upper - lower), 0-1 range
   // Cross-sectional ranks (0-1, computed across universe on each date)
   rank_ret_20d: number
   rank_vol_20d: number

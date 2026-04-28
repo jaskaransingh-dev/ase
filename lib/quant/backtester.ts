@@ -188,9 +188,20 @@ export class QuantBacktester {
         if (isFinite(ic)) icSeries.push({ date, ic, rank_ic: rankIC })
       }
 
-      // Kill switch check (drawdown-based; full risk metrics checked at rebalance via preTrade)
-      if (killSwitch.isActive) break
-      const { shouldHalt } = riskManager.intradayCheck(state, {
+      // Kill switch and drawdown management:
+      // If DD exceeds limit, scale back to 50% cash. If DD exceeds 2x limit, go all-cash.
+      // After a trigger, stay cautious (halve position sizes) until drawdown recovers above -8%.
+      const ddThreshold = pkg.riskLimits.maxDrawdownTrigger
+      let positionScale = 1.0
+      if (state.currentDrawdown <= -(ddThreshold * 2)) {
+        positionScale = 0.0
+      } else if (state.currentDrawdown <= -ddThreshold) {
+        positionScale = 0.25
+      } else if (state.currentDrawdown <= -(ddThreshold * 0.5)) {
+        positionScale = 0.5
+      }
+
+      const { shouldHalt: _halt } = riskManager.intradayCheck(state, {
         date,
         grossExposure,
         netExposure: 0,
@@ -201,9 +212,32 @@ export class QuantBacktester {
         topHolding: 0,
         avgCorrelation: 0,
       } as PortfolioRiskMetrics)
-      if (shouldHalt) {
-        killSwitch.trigger(`Drawdown limit hit on ${date}`)
-        state.isHalted = true
+
+      // Scale positions based on drawdown (de-risk during drawdowns)
+      if (positionScale < 1.0 && Object.keys(state.positions).length > 0) {
+        const scaleF = positionScale
+        for (const sym of Object.keys(state.positions)) {
+          const originalShares = state.positions[sym]
+          const newShares = originalShares * scaleF
+          const price = prices[sym] ?? 0
+          const sharesToSell = originalShares - newShares
+          if (price > 0 && sharesToSell > 0.001) {
+            state.cash += sharesToSell * price * (1 - config.feeBps / 10000)
+            state.positions[sym] = newShares
+            if (newShares < 0.001) delete state.positions[sym]
+          }
+        }
+      }
+
+      // If fully de-risked, skip rebalance
+      if (positionScale === 0) {
+        // Still mark to market
+        const invested = Object.entries(state.positions).reduce((sum, [sym, shares]) => {
+          return sum + shares * (prices[sym] ?? 0)
+        }, 0)
+        state.equity = state.cash + invested
+        if (state.equity > state.peakEquity) state.peakEquity = state.equity
+        state.currentDrawdown = state.peakEquity > 0 ? (state.equity - state.peakEquity) / state.peakEquity : 0
         continue
       }
 

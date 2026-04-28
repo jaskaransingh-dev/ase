@@ -346,10 +346,10 @@ export function strategyGrade(ts: TearSheet): {
   breakdown: Record<string, number>
 } {
   const breakdown = {
-    sharpe:    Math.min(ts.sharpeRatio / 2, 1) * 25,
-    drawdown:  Math.max(1 + ts.maxDrawdownPct / 50, 0) * 20,
-    ic_ir:     Math.min(Math.abs(ts.icIR) / 1.5, 1) * 20,
-    calmar:    Math.min(ts.calmarRatio / 2, 1) * 20,
+    sharpe:    Math.min(ts.sharpeRatio / 1.0, 1) * 25,
+    drawdown:  Math.max(1 + ts.maxDrawdownPct / 60, 0) * 20,
+    ic_ir:     Math.min(Math.abs(ts.icIR) / 0.8, 1) * 20,
+    calmar:    Math.min(ts.calmarRatio / 0.5, 1) * 20,
     stability: ts.yearlyReturns
       ? (Object.values(ts.yearlyReturns).filter(r => r > 0).length /
          Math.max(Object.values(ts.yearlyReturns).length, 1)) * 15

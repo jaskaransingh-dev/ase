@@ -216,6 +216,23 @@ export class FeatureEngine {
 
     const amihud = amihudIlliquidity(closes, volumes, 20)
 
+    const bbUpper = rollingMean(closes, 20).map((avg, i) => {
+      if (i < 19) return NaN
+      const band = 2 * vol20[i] * closes[i] / Math.sqrt(252)
+      return avg + band
+    })
+    const bbLower = rollingMean(closes, 20).map((avg, i) => {
+      if (i < 19) return NaN
+      const band = 2 * vol20[i] * closes[i] / Math.sqrt(252)
+      return avg - band
+    })
+    const bbPct = closes.map((c, i) => {
+      const upper = bbUpper[i]
+      const lower = bbLower[i]
+      if (!isFinite(upper) || !isFinite(lower) || upper === lower) return 0.5
+      return Math.max(0, Math.min(1, (c - lower) / (upper - lower)))
+    })
+
     return bars.map((bar, i) => ({
       date:         bar.date,
       symbol,
@@ -233,6 +250,7 @@ export class FeatureEngine {
       rsi_14:       rsi14[i],
       vol_shock:    volShock[i],
       amihud:       amihud[i],
+      bb_pct:       bbPct[i],
     }))
   }
 }

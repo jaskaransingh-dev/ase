@@ -69,43 +69,48 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
 
 // ── Simple markdown renderer ───────────────────────────────────────────────────
 function MdText({ text, onApply }: { text: string; onApply?: (edit: FileEdit) => void }) {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const parts: React.ReactNode[] = []
-  let remaining = text
   let key = 0
 
-  // Extract code blocks first
   const codeBlockRe = /```(\w+)?\n([\s\S]*?)```/g
   let lastIndex = 0
   let m: RegExpExecArray | null
 
   while ((m = codeBlockRe.exec(text)) !== null) {
-    // Text before block
     if (m.index > lastIndex) {
       parts.push(<InlineText key={key++} text={text.slice(lastIndex, m.index)} />)
     }
     const lang = m[1] || 'text'
     const code = m[2]
-    // Detect FILE directive
     const fileMatch = code.match(/^\/\/ FILE: ([^\n]+)\n/)
     const filename = fileMatch ? fileMatch[1].trim() : null
     const displayCode = fileMatch ? code.slice(fileMatch[0].length) : code
+    const isCollapsed = collapsed[`${key}`] ?? (displayCode.split('\n').length > 8)
+    const lineCount = displayCode.split('\n').length
 
     parts.push(
-      <div key={key++} style={{ margin: '.5rem 0', borderRadius: 8, overflow: 'hidden', border: `1px solid ${C.border2}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '.25rem .6rem', background: C.bg3, borderBottom: `1px solid ${C.border}` }}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint }}>{filename || lang}</span>
+      <div key={key++} style={{ margin: '.5rem 0', borderRadius: 8, overflow: 'hidden', border: `1px solid ${filename ? C.mint + '30' : C.border2}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '.22rem .6rem', background: filename ? `${C.mint}08` : C.bg3, borderBottom: `1px solid ${C.border}`, cursor: 'pointer' }} onClick={() => setCollapsed(p => ({ ...p, [`${key - 1}`]: !isCollapsed }))}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
+            <span style={{ color: C.faint, fontSize: '.48rem', fontFamily: 'var(--font-mono)' }}>{isCollapsed ? '▸' : '▾'}</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: filename ? C.mint : C.faint }}>{filename || lang}</span>
+            {lineCount > 8 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.42rem', color: C.faint }}>{lineCount} lines</span>}
+          </div>
           {filename && onApply && (
             <button
-              onClick={() => onApply({ filename, content: displayCode, lang })}
-              style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, padding: '.15rem .45rem', borderRadius: 5, background: `${C.mint}20`, border: `1px solid ${C.mint}40`, color: C.mint, cursor: 'pointer' }}
+              onClick={(e) => { e.stopPropagation(); onApply({ filename, content: displayCode, lang }) }}
+              style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, padding: '.12rem .42rem', borderRadius: 5, background: `${C.mint}20`, border: `1px solid ${C.mint}40`, color: C.mint, cursor: 'pointer' }}
             >
-              [OK] Apply
+              Apply
             </button>
           )}
         </div>
-        <pre style={{ margin: 0, padding: '.6rem .75rem', background: C.bg, fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: C.text, lineHeight: 1.55, overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-          {displayCode.trimEnd()}
-        </pre>
+        {!isCollapsed && (
+          <pre style={{ margin: 0, padding: '.5rem .75rem', background: C.bg, fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: C.text, lineHeight: 1.55, overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 300, overflowY: 'auto' }}>
+            {displayCode.trimEnd()}
+          </pre>
+        )}
       </div>
     )
     lastIndex = m.index + m[0].length
@@ -115,7 +120,6 @@ function MdText({ text, onApply }: { text: string; onApply?: (edit: FileEdit) =>
   }
 
   return <div>{parts}</div>
-  void remaining
 }
 
 function InlineText({ text }: { text: string }) {
@@ -243,7 +247,7 @@ export default function QuantLabPage() {
       if (template) {
         setFileContents(prev => ({
           ...prev,
-          'config.json': JSON.stringify({ template, symbols: ['BTC-USD','ETH-USD','SOL-USD','BNB-USD','ADA-USD'], rebalanceFreq: 'daily', riskAversion: 8, maxWeight: 0.25, walkForward: true, initialCapital: 1000000, feeBps: 7 }, null, 2)
+          'config.json': JSON.stringify({ template, symbols: ['BTC-USD','ETH-USD','SOL-USD','BNB-USD','XRP-USD'], rebalanceFreq: 'weekly', riskAversion: 1, maxWeight: 0.30, walkForward: true, initialCapital: 1000000, feeBps: 7 }, null, 2)
         }))
       }
       setAgentName(name ? decodeURIComponent(name) : 'New Agent')
@@ -264,12 +268,31 @@ export default function QuantLabPage() {
     } catch {}
     return DEFAULT_FILES
   })
-  const [saved, setSaved]               = useState(true)
+  const [saved, setSaved] = useState(true)
 
   // Layout
-  const [sideOpen, setSideOpen]   = useState(true)
-  const [rightTab, setRightTab]   = useState<'backtest'|'data'|'docs'>('data')
+  const [sideOpen, setSideOpen] = useState(true)
+  const [rightTab, setRightTab] = useState<'backtest'|'data'|'docs'|'chat'>('backtest')
   const [bottomMode, setBottomMode] = useState<'terminal'|'chat'>('terminal')
+
+  // Cmd+K to toggle chat + auto-collapse sidebar
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setRightTab(t => t === 'chat' ? 'backtest' : 'chat')
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  // Auto-collapse sidebar when chat is open
+  useEffect(() => {
+    if (rightTab === 'chat') {
+      setSideOpen(false)
+    }
+  }, [rightTab])
 
   // Terminal
   const [termLines, setTermLines]     = useState(['> ASE Quant Lab ready', '> Cmd+Enter run  |  Cmd+S save  |  Cmd+K focus AI', ''])
@@ -277,11 +300,11 @@ export default function QuantLabPage() {
 
   // Backtest config (synced from config.json)
   const [template, setTemplate]       = useState('composite_balanced')
-  const [universe, setUniverse]       = useState('crypto_top5')
-  const [startDate, setStartDate]     = useState('2021-01-01')
+  const [universe, setUniverse]       = useState('crypto_top10')
+  const [startDate, setStartDate]     = useState('2024-01-01')
   const [endDate]                     = useState(new Date().toISOString().slice(0, 10))
-  const [rebalFreq, setRebalFreq]     = useState<'daily'|'weekly'|'monthly'>('daily')
-  const [riskAversion, setRiskAversion] = useState(7)
+  const [rebalFreq, setRebalFreq]     = useState<'daily'|'weekly'|'monthly'>('weekly')
+  const [riskAversion, setRiskAversion] = useState(4)
   const [maxWeight, setMaxWeight]     = useState(0.30)
   const [walkFwd, setWalkFwd]         = useState(true)
   const [initCapital, setInitCapital] = useState(1000000)
@@ -443,7 +466,7 @@ export default function QuantLabPage() {
     else if (cmd === 'grade') {
       if (btResult) {
         const ts = btResult.tear_sheet as Record<string, number>
-        addTerm(`[OK] Grade: ${btResult.grade}  CAGR: ${((ts.cagr ?? 0) * 100).toFixed(1)}%  Sharpe: ${ts.sharpeRatio?.toFixed(2)}  MaxDD: ${ts.maxDrawdownPct?.toFixed(1)}%`)
+        addTerm(`[OK] Grade: ${btResult.grade}  CAGR: ${(ts.cagr ?? 0).toFixed(1)}%  Sharpe: ${ts.sharpeRatio?.toFixed(2)}  MaxDD: ${ts.maxDrawdownPct?.toFixed(1)}%`)
       } else addTerm('[ERR] No backtest results. Run one first.')
     }
     else addTerm(`[ERR] Unknown: ${cmd}. Type "help".`)
@@ -466,7 +489,7 @@ export default function QuantLabPage() {
       if (!res.ok) throw new Error(data.error ?? 'Backtest failed')
       setBtResult(data)
       const ts = data.tear_sheet as Record<string, number>
-      addTerm(`[OK] Grade: ${data.grade}  CAGR: ${((ts.cagr ?? 0) * 100).toFixed(1)}%  Sharpe: ${ts.sharpeRatio?.toFixed(2)}  MaxDD: ${ts.maxDrawdownPct?.toFixed(1)}%`)
+      addTerm(`[OK] Grade: ${data.grade}  CAGR: ${(ts.cagr ?? 0).toFixed(1)}%  Sharpe: ${ts.sharpeRatio?.toFixed(2)}  MaxDD: ${ts.maxDrawdownPct?.toFixed(1)}%`)
       setRightTab('backtest')
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Error'
@@ -514,103 +537,73 @@ export default function QuantLabPage() {
     const msg = chatInput.trim()
     if (!msg || chatLoading) return
     setChatInput('')
-    setChatMsgs(p => [...p, { role: 'user', text: msg }])
+    setChatMsgs(p => [...p, { role: 'user', text: msg }, { role: 'ai', text: '' }])
     setChatLoading(true)
     const ts = (btResult?.tear_sheet ?? {}) as Record<string, number>
 
-    // Build full codebase context
     const allFilesCtx = Object.entries(fileContents).map(([name, content]) =>
       `### ${name}\n\`\`\`\n${content}\n\`\`\``
     ).join('\n\n')
 
     const btCtx = btResult
-      ? `**Grade:** ${btResult.grade} | **CAGR:** ${((ts.cagr??0)*100).toFixed(1)}% | **Sharpe:** ${(ts.sharpeRatio??0).toFixed(2)} | **MaxDD:** ${(ts.maxDrawdownPct??0).toFixed(1)}% | **Sortino:** ${(ts.sortinoRatio??0).toFixed(2)} | **Calmar:** ${(ts.calmarRatio??0).toFixed(2)} | **WinRate:** ${(ts.winRatePct??0).toFixed(1)}%`
+      ? `Grade: ${btResult.grade} | CAGR: ${(ts.cagr??0).toFixed(1)}% | Sharpe: ${(ts.sharpeRatio??0).toFixed(2)} | MaxDD: ${(ts.maxDrawdownPct??0).toFixed(1)}% | Sortino: ${(ts.sortinoRatio??0).toFixed(2)} | WinRate: ${(ts.winRatePct??0).toFixed(1)}%`
       : 'No backtest run yet.'
-
-    const context = `You are an **expert quantitative researcher and algo trader** for the ASE platform — crypto & DeFi only, no stocks.
-
-## Your Role
-You help users build institutional-quality crypto trading strategies. You understand:
-- **Cross-sectional momentum** (rank by trailing return, z-score signals)
-- **Mean reversion** (Ornstein-Uhlenbeck, Bollinger, RSI-based)
-- **On-chain alpha** (NUPL, SOPR, MVRV, NVT, exchange flows, miner data)
-- **DeFi signals** (TVL, funding rates, liquidation cascades, AMM flow)
-- **Portfolio optimization** (mean-variance, risk parity, Black-Litterman)
-- **Risk management** (Kelly criterion, drawdown limits, kill switches)
-- **Transaction cost modeling** (slippage bps, market impact, participation rate)
-
-## ASE Engine Architecture
-The platform runs a **9-layer quant pipeline**:
-\`Data Ingestion → Feature Engineering → Alpha → Forecast → Risk Model → Portfolio Optimizer → Risk Manager → Execution Simulation → Metrics\`
-
-Key parameters in **config.json**:
-- \`template\`: strategy template (momentum_conservative | composite_balanced | mean_reversion_active | ml_aggressive | risk_parity)
-- \`riskAversion\`: lambda λ (1–20); higher = less risk, smaller positions
-- \`maxWeight\`: per-asset cap (e.g. 0.30 = 30% max)
-- \`feeBps\`: round-trip fee in basis points (7 bps = 0.07%)
-- \`killSwitch\`: halt if drawdown exceeds this fraction (e.g. 0.20 = 20%)
-- \`walkForward\`: run out-of-sample validation windows
-- \`rebalanceFreq\`: daily | weekly | monthly
-
-## Active File
-**${activeFile}**
-
-## Full Codebase
-${allFilesCtx}
-
-## Backtest Results
-${btCtx}
-
-## Live APIs Detected in Code
-${Array.from(usedAPIIds).join(', ') || 'none'}
-
-## Available Free APIs
-Crypto: Binance, CoinGecko, CoinCap, Kraken, Bybit, OKX
-DeFi: DeFiLlama, Uniswap, Aave, Curve, The Graph, dYdX
-On-chain: Glassnode (free tier), CoinMetrics (community), Santiment
-Derivatives: CoinGlass, Laevitas, Tardis (delayed)
-Sentiment: Fear & Greed Index, LunarCrush, Alternative.me
-Macro: FRED (rates, DXY, CPI), World Bank
-
-## Response Format Rules
-- Use **markdown** throughout: \`**bold**\` for key terms, \`*italic*\` for emphasis, code blocks for all code
-- Structure responses with \`## headers\` for sections
-- Use bullet lists for options/ideas
-- **Never skip markdown** — formatted output only
-- When writing code, always include the FILE directive so users can apply with one click:
-
-\`\`\`typescript
-// FILE: strategy.ts
-[complete file content]
-\`\`\`
-
-- For config changes use:
-\`\`\`json
-// FILE: config.json
-{ ... }
-\`\`\`
-
-- Always explain **why** before showing code
-- Cite specific metrics from backtest when analyzing (Sharpe, CAGR, MaxDD)
-- If Sharpe < 1.0, diagnose root cause before suggesting fixes`
 
     try {
       const res = await fetch('/api/ai/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: [
-          { role: 'system', content: context },
-          { role: 'user', content: msg },
-        ]}),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: msg }],
+          codebase: allFilesCtx,
+          activeFile,
+          btContext: btCtx,
+          apiIds: Array.from(usedAPIIds).join(', '),
+          stream: true,
+        }),
       })
-      const d = await res.json()
-      const aiText = d.content ?? d.message ?? d.text ?? "I'm ready to help optimize your strategy. What would you like to improve?"
 
-      // Extract pending edits from AI response
+      if (!res.ok || !res.body) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error ?? 'Request failed')
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let fullText = ''
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') continue
+            try {
+              const parsed = JSON.parse(data)
+              if (parsed.content) {
+                fullText += parsed.content
+                setChatMsgs(p => {
+                  const updated = [...p]
+                  updated[updated.length - 1] = { ...updated[updated.length - 1], text: fullText }
+                  return updated
+                })
+              }
+            } catch {}
+          }
+        }
+      }
+
+      // Extract FILE directive edits from complete response
       const codeBlockRe = /```(\w+)?\n([\s\S]*?)```/g
       const extracted: FileEdit[] = []
       let m: RegExpExecArray | null
       const re = new RegExp(codeBlockRe.source, 'g')
-      while ((m = re.exec(aiText)) !== null) {
+      while ((m = re.exec(fullText)) !== null) {
         const lang = m[1] || 'text'
         const code = m[2]
         const fileMatch = code.match(/^\/\/ FILE: ([^\n]+)\n/)
@@ -636,9 +629,18 @@ Macro: FRED (rates, DXY, CPI), World Bank
         }
       }
 
-      setChatMsgs(p => [...p, { role: 'ai', text: aiText, edits: extracted }])
-    } catch {
-      setChatMsgs(p => [...p, { role: 'ai', text: "**Connection error.** I'm ready to help with alpha research, signal design, and strategy optimization.\n\nTry:\n- *Improve my Sharpe ratio*\n- *Add on-chain alpha signals*\n- *Reduce max drawdown*" }])
+      // Final update with edits attached
+      setChatMsgs(p => {
+        const updated = [...p]
+        updated[updated.length - 1] = { role: 'ai', text: fullText, edits: extracted.length > 0 ? extracted : undefined }
+        return updated
+      })
+    } catch (err) {
+      setChatMsgs(p => {
+        const updated = [...p]
+        updated[updated.length - 1] = { role: 'ai', text: `**Error:** ${err instanceof Error ? err.message : 'Connection failed'}. Check that Ollama is running (ollama serve).` }
+        return updated
+      })
     } finally { setChatLoading(false) }
   }
 
@@ -857,11 +859,12 @@ Macro: FRED (rates, DXY, CPI), World Bank
           </div>
 
           {/* RIGHT PANEL */}
-          <div style={{ width: 370, flexShrink: 0, borderLeft: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: C.bg2 }}>
+          <div style={{ width: rightTab === 'chat' ? 420 : 380, flexShrink: 0, borderLeft: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: C.bg2, transition: 'width 0.2s ease' }}>
             <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-              {(['backtest','data','docs'] as const).map(t => (
-                <button key={t} onClick={() => setRightTab(t)} style={{ flex: 1, padding: '.38rem .1rem', border: 'none', borderBottom: `2px solid ${rightTab === t ? C.blue : 'transparent'}`, background: 'transparent', color: rightTab === t ? C.blue2 : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, letterSpacing: '.06em', cursor: 'pointer', textTransform: 'uppercase' }}>
-                  {t === 'data' ? (rightTab === 'data' && dataView === 'blocks' ? '⊞ blocks' : 'blocks') : t}
+              {(['backtest','data','docs','chat'] as const).map(t => (
+                <button key={t} onClick={() => setRightTab(t)} style={{ flex: 1, padding: '.38rem .1rem', border: 'none', borderBottom: `2px solid ${rightTab === t ? C.blue : 'transparent'}`, background: 'transparent', color: rightTab === t ? C.blue2 : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, letterSpacing: '.06em', cursor: 'pointer', textTransform: 'uppercase', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.15rem' }}>
+                  {t === 'chat' && pendingEdits.length > 0 && <div style={{ width: 4, height: 4, borderRadius: '50%', background: C.blue, boxShadow: `0 0 4px ${C.blue}` }} />}
+                  {t === 'data' ? (rightTab === 'data' && dataView === 'blocks' ? '⊞' : '⊞') : t}
                 </button>
               ))}
             </div>
@@ -1002,7 +1005,7 @@ Macro: FRED (rates, DXY, CPI), World Bank
                         </div>
                         <div style={{ flex: 1 }} />
                         <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.82rem', fontWeight: 800, color: col(ts.cagr ?? 0) }}>{((ts.cagr ?? 0) * 100).toFixed(1)}%</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.82rem', fontWeight: 800, color: col(ts.cagr ?? 0) }}>{(ts.cagr ?? 0).toFixed(1)}%</div>
                           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.46rem', color: C.faint }}>CAGR</div>
                         </div>
                       </div>
@@ -1105,11 +1108,11 @@ Macro: FRED (rates, DXY, CPI), World Bank
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.28rem' }}>
                             {[
                               ['Benchmark CAGR', `${(btResult.benchmark_cagr as number ?? 0).toFixed(1)}%`],
-                              ['Strategy CAGR', `${((ts.cagr ?? 0) * 100).toFixed(1)}%`],
+                              ['Strategy CAGR', `${(ts.cagr ?? 0).toFixed(1)}%`],
                               ['Alpha', `${(ts.alphaAnnualizedPct ?? 0).toFixed(1)}%`],
                               ['Beta', (ts.betaToMarket ?? 0).toFixed(2)],
                               ['Info Ratio', (ts.informationRatio ?? 0).toFixed(2)],
-                              ['Tracking Err.', `${(((ts.annualizedVolPct ?? 0) * Math.abs(1 - (ts.betaToMarket ?? 1))) ?? 0).toFixed(1)}%`],
+                              ['Tracking Err.', `${((ts.annualizedVolPct ?? 0) * Math.abs(1 - (ts.betaToMarket ?? 1))).toFixed(1)}%`],
                             ].map(([l, v]) => (
                               <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '.15rem 0', borderBottom: `1px solid ${C.border}40` }}>
                                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: C.faint }}>{l}</span>
@@ -1295,73 +1298,78 @@ Macro: FRED (rates, DXY, CPI), World Bank
                 </div>
               )}
 
+              {/* ── CHAT TAB ── */}
+              {rightTab === 'chat' && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: C.bg, margin: '-.8rem', padding: '.8rem' }}>
+                  {/* Messages */}
+                  <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+                    {chatMsgs.map((m, i) => (
+                      <div key={i} style={{ display: 'flex', gap: '.3rem', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                        {m.role === 'ai' && (
+                          <div style={{ width: 18, height: 18, borderRadius: 5, background: `${C.blue}20`, border: `1px solid ${C.blue}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '.05rem' }}>
+                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={C.blue2} strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+                          </div>
+                        )}
+                        <div style={{ maxWidth: m.role === 'user' ? '75%' : '95%', padding: '.35rem .5rem', borderRadius: m.role === 'user' ? '8px 8px 2px 8px' : '8px 8px 8px 2px', background: m.role === 'user' ? `${C.blue}18` : C.bg3, border: `1px solid ${m.role === 'user' ? C.blue + '25' : C.border}`, fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: C.text, lineHeight: 1.5 }}>
+                          {m.role === 'ai' ? <MdText text={m.text} onApply={applyEdit} /> : <span style={{ whiteSpace: 'pre-wrap' }}>{m.text}</span>}
+                          {m.role === 'ai' && m.edits && m.edits.length > 0 && (
+                            <div style={{ marginTop: '.28rem', display: 'flex', gap: '.22rem', flexWrap: 'wrap' }}>
+                              {m.edits.map((e, ei) => (
+                                <button key={ei} onClick={() => applyEdit(e)} style={{ padding: '.1rem .38rem', borderRadius: 4, background: `${C.mint}15`, border: `1px solid ${C.mint}40`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.48rem', fontWeight: 600, cursor: 'pointer' }}>
+                                  Apply {e.filename}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {chatLoading && chatMsgs[chatMsgs.length - 1]?.text === '' && (
+                      <div style={{ display: 'flex', gap: '.22rem', paddingLeft: '.35rem' }}>
+                        {[0,1,2].map(j => <div key={j} style={{ width: 3, height: 3, borderRadius: '50%', background: C.blue, opacity: 0.6, animation: `bounce ${0.6 + j * 0.15}s ease-in-out infinite` }} />)}
+                      </div>
+                    )}
+                    <div ref={chatEndRef} />
+                  </div>
+                  {/* Quick prompts */}
+                  <div style={{ display: 'flex', gap: '.18rem', overflowX: 'auto', padding: '.18rem .1rem', flexShrink: 0, borderTop: `1px solid ${C.border}`, marginTop: '.18rem' }}>
+                    {['Improve Sharpe', 'Add NUPL', 'Reduce DD', 'Explain', 'Optimize λ', 'Write strategy'].map(s => (
+                      <button key={s} onClick={() => { setChatInput(s); chatInputRef.current?.focus() }} style={{ padding: '.1rem .32rem', borderRadius: 20, border: `1px solid ${C.border}`, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.45rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>{s}</button>
+                    ))}
+                  </div>
+                  {/* Input */}
+                  <div style={{ display: 'flex', gap: '.28rem', padding: '.28rem 0 .1rem', alignItems: 'flex-end', flexShrink: 0 }}>
+                    <textarea ref={chatInputRef} value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendChat() } }} placeholder="Ask AI…" rows={1} style={{ flex: 1, background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 6, padding: '.32rem .5rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.6rem', outline: 'none', resize: 'none', lineHeight: 1.4, maxHeight: 60 }} />
+                    <button onClick={() => void sendChat()} disabled={!chatInput.trim() || chatLoading} style={{ padding: '.32rem .42rem', borderRadius: 6, background: chatInput.trim() ? C.blue : `${C.blue}40`, border: 'none', color: '#fff', cursor: chatInput.trim() ? 'pointer' : 'default', alignSelf: 'flex-end', flexShrink: 0 }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                    </button>
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>
         </div>
 
-        {/* ── BOTTOM: TERMINAL or AI CHAT ── */}
-        <div style={{ height: 210, flexShrink: 0, borderTop: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column' }}>
+        {/* ── BOTTOM: TERMINAL ── */}
+        <div style={{ height: 180, flexShrink: 0, borderTop: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column' }}>
           {/* Bottom header */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', padding: '.25rem .65rem', borderBottom: `1px solid ${C.border}`, background: C.bg2, flexShrink: 0 }}>
             <div style={{ display: 'flex', gap: '.22rem' }}>
               {[C.red, C.orange, C.mint].map(c => <div key={c} style={{ width: 7, height: 7, borderRadius: '50%', background: c, opacity: 0.75 }} />)}
             </div>
-            {(['terminal','chat'] as const).map(mode => (
-              <button key={mode} onClick={() => setBottomMode(mode)} style={{ padding: '.18rem .45rem', borderRadius: 5, border: `1px solid ${bottomMode === mode ? C.blue + '40' : 'transparent'}`, background: bottomMode === mode ? `${C.blue}10` : 'transparent', color: bottomMode === mode ? C.blue2 : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '.04em' }}>
-                {mode === 'terminal' ? 'TERMINAL' : 'AI CHAT'}
-              </button>
-            ))}
+            <button onClick={() => setBottomMode('terminal')} style={{ padding: '.18rem .45rem', borderRadius: 5, border: `1px solid ${bottomMode === 'terminal' ? C.blue + '40' : 'transparent'}`, background: bottomMode === 'terminal' ? `${C.blue}10` : 'transparent', color: bottomMode === 'terminal' ? C.blue2 : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '.04em' }}>
+              TERMINAL
+            </button>
             <div style={{ flex: 1 }} />
-            {bottomMode === 'terminal' && <button onClick={() => setTermLines([])} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.52rem' }}>clear</button>}
-            {bottomMode === 'chat' && <button onClick={() => setChatMsgs(chatMsgs.slice(0, 1))} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.52rem' }}>clear</button>}
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: C.faint }}>⌘K to open AI chat</span>
+            <button onClick={() => setTermLines([])} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.52rem' }}>clear</button>
           </div>
 
           {/* Terminal */}
-          {bottomMode === 'terminal' && (
-            <div style={{ flex: 1, overflow: 'hidden' }}>
-              <TerminalPanel lines={termLines} input={termInput} onInput={setTermInput} onSubmit={handleTermSubmit} loading={btLoading} />
-            </div>
-          )}
-
-          {/* AI Chat */}
-          {bottomMode === 'chat' && (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: C.bg }}>
-              {/* Messages */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: '.5rem .75rem', display: 'flex', flexDirection: 'column', gap: '.45rem' }}>
-                {chatMsgs.map((m, i) => (
-                  <div key={i} style={{ display: 'flex', gap: '.4rem', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                    {m.role === 'ai' && (
-                      <div style={{ width: 20, height: 20, borderRadius: 6, background: `${C.blue}20`, border: `1px solid ${C.blue}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '.05rem' }}>
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.blue2} strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-                      </div>
-                    )}
-                    <div style={{ maxWidth: '88%', padding: '.4rem .6rem', borderRadius: m.role === 'user' ? '9px 9px 2px 9px' : '9px 9px 9px 2px', background: m.role === 'user' ? `${C.blue}20` : C.bg3, border: `1px solid ${m.role === 'user' ? C.blue + '28' : C.border}`, fontFamily: 'var(--font-mono)', fontSize: '.63rem', color: C.text, lineHeight: 1.6, maxHeight: 160, overflowY: 'auto' }}>
-                      {m.role === 'ai' ? <MdText text={m.text} onApply={applyEdit} /> : <span style={{ whiteSpace: 'pre-wrap' }}>{m.text}</span>}
-                    </div>
-                  </div>
-                ))}
-                {chatLoading && (
-                  <div style={{ display: 'flex', gap: '.28rem', paddingLeft: '.4rem' }}>
-                    {[0,1,2].map(j => <div key={j} style={{ width: 4, height: 4, borderRadius: '50%', background: C.blue, opacity: 0.6, animation: `bounce ${0.6 + j * 0.15}s ease-in-out infinite` }} />)}
-                  </div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
-              {/* Quick prompts */}
-              <div style={{ display: 'flex', gap: '.28rem', overflowX: 'auto', padding: '0 .65rem .28rem', flexShrink: 0 }}>
-                {['Improve Sharpe', 'Add NUPL signal', 'Reduce drawdown', 'Explain results', 'Optimize λ'].map(s => (
-                  <button key={s} onClick={() => { setChatInput(s); chatInputRef.current?.focus() }} style={{ padding: '.15rem .42rem', borderRadius: 20, border: `1px solid ${C.border}`, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.52rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>{s}</button>
-                ))}
-              </div>
-              {/* Input */}
-              <div style={{ display: 'flex', gap: '.32rem', borderTop: `1px solid ${C.border}`, padding: '.35rem .65rem', alignItems: 'flex-end', flexShrink: 0 }}>
-                <textarea ref={chatInputRef} value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendChat() } }} placeholder="Ask AI about your strategy… (Enter to send, Shift+Enter for newline)" rows={1} style={{ flex: 1, background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 7, padding: '.38rem .58rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.63rem', outline: 'none', resize: 'none', lineHeight: 1.5, maxHeight: 80, overflowY: 'auto' }} />
-                <button onClick={() => void sendChat()} disabled={!chatInput.trim() || chatLoading} style={{ padding: '.38rem .5rem', borderRadius: 7, background: chatInput.trim() ? C.blue : `${C.blue}40`, border: 'none', color: '#fff', cursor: chatInput.trim() ? 'pointer' : 'default', alignSelf: 'flex-end', flexShrink: 0 }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-                </button>
-              </div>
-            </div>
-          )}
+          <div style={{ flex: 1, overflow: 'hidden' }}>
+<TerminalPanel lines={termLines} input={termInput} onInput={setTermInput} onSubmit={handleTermSubmit} loading={btLoading} />
+          </div>
         </div>
       </div>
 

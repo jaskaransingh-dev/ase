@@ -289,18 +289,48 @@ export default function AIChatbot() {
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMessages }),
+        body: JSON.stringify({ messages: newMessages, stream: true }),
       })
-      const data = await res.json() as { reply?: string; error?: string }
 
-      if (!res.ok || data.error) {
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}))
         setError(res.status === 503 ? 'AI service not configured' : (data.error ?? 'Request failed'))
         setLoading(false)
         return
       }
-      setMessages(prev => [...prev, { role: 'model', content: data.reply ?? '' }])
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let fullText = ''
+      let buffer = ''
+      setMessages(prev => [...prev, { role: 'model', content: '' }])
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') continue
+            try {
+              const parsed = JSON.parse(data)
+              if (parsed.content) {
+                fullText += parsed.content
+                setMessages(prev => {
+                  const updated = [...prev]
+                  updated[updated.length - 1] = { role: 'model', content: fullText }
+                  return updated
+                })
+              }
+            } catch {}
+          }
+        }
+      }
     } catch {
-      setError('Network error — check your connection')
+      setError('Connection error — is Ollama running? (ollama serve)')
     } finally {
       setLoading(false)
     }

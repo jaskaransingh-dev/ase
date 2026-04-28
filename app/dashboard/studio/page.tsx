@@ -175,7 +175,7 @@ export default function StudioPage() {
     const code = encodeURIComponent(a.strategyCode || '')
     const desc = encodeURIComponent(a.description || '')
     const name = encodeURIComponent(a.name || '')
-    router.push(`/dashboard/quant?edit=1&name=${name}&code=${code}&desc=${desc}`)
+    router.push(`/dashboard/build?edit=1&name=${name}&code=${code}&desc=${desc}`)
   }
 
   function closeSlide() {
@@ -384,7 +384,7 @@ export default function StudioPage() {
                 )
               })}
               <button
-                onClick={() => router.push('/dashboard/quant')}
+                onClick={() => router.push('/dashboard/build?new=1')}
                 style={{
                   marginLeft: 'auto',
                   fontFamily: 'var(--font-mono)',
@@ -415,7 +415,7 @@ export default function StudioPage() {
                 <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>🤖</div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', fontWeight: 700, color: C.white, marginBottom: '.5rem' }}>No agents yet</div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: C.muted, marginBottom: '1.25rem' }}>Create your first trading agent from the Build tab or Quant Lab.</div>
-                <button onClick={() => router.push('/dashboard/quant')} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 600, padding: '0.55rem 1.3rem', borderRadius: 8, border: 'none', background: C.mint, color: '#fff', cursor: 'pointer' }}>
+                <button onClick={() => router.push('/dashboard/build?new=1')} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 600, padding: '0.55rem 1.3rem', borderRadius: 8, border: 'none', background: C.mint, color: '#fff', cursor: 'pointer' }}>
                   Open Quant Lab →
                 </button>
               </div>
@@ -588,7 +588,7 @@ export default function StudioPage() {
             </div>
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
               <button
-                onClick={() => router.push('/dashboard/quant')}
+                onClick={() => router.push('/dashboard/build?new=1')}
                 style={{
                   fontFamily: 'var(--font-mono)',
                   fontSize: '0.75rem',
@@ -645,7 +645,7 @@ export default function StudioPage() {
                       cursor: 'pointer',
                       transition: 'border-color 0.15s',
                     }}
-                    onClick={() => router.push('/dashboard/quant')}
+onClick={() => router.push('/dashboard/build?new=1')}
                     onMouseEnter={e => e.currentTarget.style.borderColor = C.blue + '60'}
                     onMouseLeave={e => e.currentTarget.style.borderColor = C.border}
                   >

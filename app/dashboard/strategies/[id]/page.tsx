@@ -159,7 +159,7 @@ export default function StrategyEditorPage() {
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <button onClick={() => {
             const params = new URLSearchParams({ edit: '1', name: strategy.name, code: strategy.code, template: 'composite_balanced', desc: strategy.description ?? '' })
-            router.push(`/dashboard/quant?${params.toString()}`)
+            router.push(`/dashboard/build?${params.toString()}`)
           }} style={{ ...btnGhostStyle, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             <ExternalLink size={13} />
             Edit in Lab

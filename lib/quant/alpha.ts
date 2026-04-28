@@ -61,86 +61,97 @@ function computeRank(scores: Record<string, number>, symbol: string): number {
 }
 
 // ── Momentum Alpha ────────────────────────────────────────────
-// Classic cross-sectional momentum: rank by trailing return,
-// penalised by short-term reversal and excess vol.
+// Cross-sectional momentum with adaptive scaling.
+// Uses tanh normalization to bound extreme returns, 
+// trend confirmation via EMA crossover, and vol dampening.
 
 export class MomentumAlpha extends AlphaModel {
   name = 'momentum'
 
   constructor(
     private params = {
-      w_ret20:  0.40,
+      w_ret5:   0.15,
+      w_ret20:  0.35,
       w_ret60:  0.30,
       w_trend:  0.20,
-      w_vol_pen: -0.10,  // penalise high volatility
+      w_vol_pen: -0.10,
     },
   ) { super() }
 
   score(f: FeatureRow): number {
-    const { w_ret20, w_ret60, w_trend, w_vol_pen } = this.params
+    const { w_ret5, w_ret20, w_ret60, w_trend, w_vol_pen } = this.params
+    const s5  = isFinite(f.ret_5d)  ? Math.tanh(f.ret_5d * 4) : 0
+    const s20 = isFinite(f.ret_20d) ? Math.tanh(f.ret_20d * 3) : 0
+    const s60 = isFinite(f.ret_60d) ? Math.tanh(f.ret_60d * 2) : 0
+    const sTr = isFinite(f.trend_spread) ? Math.tanh(f.trend_spread * 10) : 0
+    const sVol = isFinite(f.vol_20d) ? f.vol_20d : 0.5
     return (
-      w_ret20  * (isFinite(f.ret_20d)      ? f.ret_20d      : 0) +
-      w_ret60  * (isFinite(f.ret_60d)      ? f.ret_60d      : 0) +
-      w_trend  * (isFinite(f.trend_spread) ? f.trend_spread : 0) +
-      w_vol_pen * (isFinite(f.vol_20d)     ? f.vol_20d      : 0)
+      w_ret5    * s5 +
+      w_ret20   * s20 +
+      w_ret60   * s60 +
+      w_trend   * sTr +
+      w_vol_pen * (sVol - 0.8)
     )
   }
 }
 
 // ── Mean Reversion Alpha ──────────────────────────────────────
-// Short-term reversal: fade overextended RSI, buy vol spikes
+// Short-term reversal: fade overextended RSI, buy vol spikes,
+// with bounded signal contributions for consistency.
 
 export class MeanReversionAlpha extends AlphaModel {
   name = 'mean_reversion'
 
   constructor(
     private params = {
-      rsi_oversold:  30,
-      rsi_overbought: 70,
-      w_rsi:        -0.50,   // negative: buy oversold
-      w_ret5:       -0.30,   // fade 5-day momentum
-      w_vol_shock:   0.20,   // buy vol spikes
+      w_rsi:        -0.40,
+      w_ret5:       -0.35,
+      w_bb:          0.25,
     },
   ) { super() }
 
   score(f: FeatureRow): number {
-    const { w_rsi, w_ret5, w_vol_shock } = this.params
-    // Normalise RSI to [-1, +1]: -1 = oversold (buy signal), +1 = overbought (sell)
+    const { w_rsi, w_ret5, w_bb } = this.params
     const rsi_norm = isFinite(f.rsi_14) ? (f.rsi_14 - 50) / 50 : 0
+    const s5 = isFinite(f.ret_5d) ? Math.tanh(f.ret_5d * 5) : 0
+    const bb = isFinite(f.bb_pct) ? (f.bb_pct - 0.5) * 2 : 0
     return (
-      w_rsi       * rsi_norm +
-      w_ret5      * (isFinite(f.ret_5d)    ? f.ret_5d    : 0) +
-      w_vol_shock * (isFinite(f.vol_shock) ? Math.min(f.vol_shock, 3) : 0)
+      w_rsi  * rsi_norm +
+      w_ret5 * s5 +
+      w_bb   * bb
     )
   }
 }
 
 // ── Volatility Alpha ──────────────────────────────────────────
-// Low-vol anomaly: persistently lower volatility → better risk-adj returns
+// Low-vol anomaly with regime switching: 
+// prefer low-vol in trending markets, vol expansion in mean-reverting.
 
 export class VolatilityAlpha extends AlphaModel {
   name = 'volatility'
 
   score(f: FeatureRow): number {
-    // Score high for low vol, low for high vol
-    // Also penalise vol expansion (high vol_ratio)
     const vol = isFinite(f.vol_20d) ? f.vol_20d : 0.5
     const ratio = isFinite(f.vol_ratio) ? f.vol_ratio : 1.0
-    return -vol - 0.3 * (ratio - 1)
+    const rsi = isFinite(f.rsi_14) ? (f.rsi_14 - 50) / 50 : 0
+    const lowVolBonus = vol < 0.6 ? 0.3 : (vol < 1.0 ? 0.1 : -0.2)
+    const expansionPenalty = ratio > 1.5 ? -0.2 : 0
+    const rsiInteraction = rsi * (ratio > 1.2 ? -0.15 : 0)
+    return lowVolBonus + expansionPenalty + rsiInteraction
   }
 }
 
 // ── Volume Alpha ──────────────────────────────────────────────
-// Informed order flow proxy: volume shock combined with direction
+// Volume-confirmed price moves with directional filter.
 
 export class VolumeAlpha extends AlphaModel {
   name = 'volume'
 
   score(f: FeatureRow): number {
-    const vs = isFinite(f.vol_shock) ? Math.min(f.vol_shock, 4) : 0
+    const vs = isFinite(f.vol_shock) ? Math.min(f.vol_shock, 4) : 1
     const ret = isFinite(f.ret_1d) ? f.ret_1d : 0
-    // High volume + positive return = strong buy signal
-    return vs * Math.sign(ret) * Math.abs(ret)
+    const obv = isFinite(f.ret_5d) ? f.ret_5d : 0
+    return 0.3 * vs * Math.sign(ret) * Math.sqrt(Math.abs(ret)) + 0.2 * Math.tanh(obv * 3)
   }
 }
 
@@ -163,13 +174,16 @@ export class CompositeAlpha extends AlphaModel {
     } = { momentum: 0.40, mean_reversion: 0.35, volatility: 0.15, volume: 0.10 },
   ) {
     super()
+    const w = weights && Object.keys(weights).length > 0
+      ? weights
+      : { momentum: 0.40, mean_reversion: 0.35, volatility: 0.15, volume: 0.10 }
     this.models  = []
     this.weights = []
 
-    if (weights.momentum       !== undefined) { this.models.push(new MomentumAlpha());      this.weights.push(weights.momentum) }
-    if (weights.mean_reversion !== undefined) { this.models.push(new MeanReversionAlpha()); this.weights.push(weights.mean_reversion) }
-    if (weights.volatility     !== undefined) { this.models.push(new VolatilityAlpha());    this.weights.push(weights.volatility) }
-    if (weights.volume         !== undefined) { this.models.push(new VolumeAlpha());        this.weights.push(weights.volume) }
+    if (w.momentum       !== undefined) { this.models.push(new MomentumAlpha());      this.weights.push(w.momentum) }
+    if (w.mean_reversion !== undefined) { this.models.push(new MeanReversionAlpha()); this.weights.push(w.mean_reversion) }
+    if (w.volatility     !== undefined) { this.models.push(new VolatilityAlpha());    this.weights.push(w.volatility) }
+    if (w.volume         !== undefined) { this.models.push(new VolumeAlpha());        this.weights.push(w.volume) }
 
     // Normalise weights
     const sum = this.weights.reduce((a, b) => a + Math.abs(b), 0)
@@ -177,51 +191,56 @@ export class CompositeAlpha extends AlphaModel {
   }
 
   score(f: FeatureRow): number {
-    return this.models.reduce((total, model, i) => total + this.weights[i] * model.score(f), 0)
+    const raw = this.models.reduce((total, model, i) => total + this.weights[i] * model.score(f), 0)
+    // Trend regime filter: reduce signals during bear and sideways markets
+    const trendMultiplier = f.regime_trend === 'down' ? 0.2 : (f.regime_trend === 'flat' ? 0.6 : 1.0)
+    // Vol regime: reduce exposure in extreme vol
+    const volMultiplier = f.regime_vol === 'extreme' ? 0.15 : (f.regime_vol === 'high' ? 0.5 : 1.0)
+    return raw * trendMultiplier * volMultiplier
   }
 }
 
 // ── ML Alpha (gradient boosted proxy) ────────────────────────
-// Deterministic feature-weighted model that approximates
-// a trained boosted tree for demonstration purposes.
-// In production this would deserialise a trained model artifact.
+// Nonlinear feature interactions with tanh-bounded inputs.
 
 export class MLAlpha extends AlphaModel {
   name = 'ml'
 
-  // Learned feature importance weights (normalised)
   private readonly featureWeights: Record<string, number> = {
-    ret_20d:      0.22,
-    ret_60d:      0.18,
-    vol_ratio:    -0.12,
-    trend_spread: 0.15,
-    rsi_14:       -0.08,  // negative: RSI > 50 → sell; < 50 → buy (reversal)
-    vol_shock:    0.10,
-    ret_5d:       -0.09,  // short-term reversal
-    amihud:       -0.06,  // penalise illiquid names
+    ret_5d:       -0.12,
+    ret_20d:       0.22,
+    ret_60d:       0.18,
+    vol_ratio:    -0.10,
+    trend_spread:  0.15,
+    rsi_14:       -0.10,
+    vol_shock:     0.08,
+    bb_pct:        0.12,
+    amihud:       -0.05,
   }
 
   score(f: FeatureRow): number {
-    // Simple depth-2 tree proxy
-    let score = 0
     const vals: Record<string, number> = {
-      ret_20d:      isFinite(f.ret_20d)      ? f.ret_20d      : 0,
-      ret_60d:      isFinite(f.ret_60d)      ? f.ret_60d      : 0,
-      vol_ratio:    isFinite(f.vol_ratio)    ? f.vol_ratio - 1 : 0,
-      trend_spread: isFinite(f.trend_spread) ? f.trend_spread : 0,
+      ret_5d:       isFinite(f.ret_5d)       ? Math.tanh(f.ret_5d * 5) : 0,
+      ret_20d:      isFinite(f.ret_20d)      ? Math.tanh(f.ret_20d * 4) : 0,
+      ret_60d:      isFinite(f.ret_60d)      ? Math.tanh(f.ret_60d * 2) : 0,
+      vol_ratio:    isFinite(f.vol_ratio)    ? (f.vol_ratio - 1) : 0,
+      trend_spread: isFinite(f.trend_spread) ? Math.tanh(f.trend_spread * 10) : 0,
       rsi_14:       isFinite(f.rsi_14)       ? (f.rsi_14 - 50) / 50 : 0,
       vol_shock:    isFinite(f.vol_shock)    ? Math.min(f.vol_shock - 1, 2) : 0,
-      ret_5d:       isFinite(f.ret_5d)       ? f.ret_5d       : 0,
+      bb_pct:       isFinite(f.bb_pct)       ? (f.bb_pct - 0.5) * 2 : 0,
       amihud:       isFinite(f.amihud)       ? -Math.min(f.amihud, 10) : 0,
     }
 
+    let score = 0
     for (const [feat, w] of Object.entries(this.featureWeights)) {
       score += w * (vals[feat] ?? 0)
     }
 
-    // Interaction term: momentum × vol regime
     if (f.regime_vol === 'low' && isFinite(f.ret_20d) && f.ret_20d > 0) {
-      score += 0.05 * f.ret_20d
+      score += 0.08 * Math.tanh(f.ret_20d * 3)
+    }
+    if (f.regime_vol === 'extreme') {
+      score -= 0.1
     }
 
     return score

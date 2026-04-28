@@ -227,7 +227,9 @@ export class PortfolioOptimizer {
       }
     }
 
-    // Scale forecasts from bps to decimal
+    // Scale forecasts from bps to decimal return expectations.
+    // With signalScaleBps=500 and typical z-scores in [-2, 2],
+    // forecasts range from [-1000, 1000] bps → [-0.1, 0.1] decimal.
     const mu = symbols.map(s => (forecasts[s] ?? 0) / 10000)
     const prevW = symbols.map(s => currentWeights[s] ?? 0)
 

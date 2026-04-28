@@ -173,6 +173,13 @@ export default function DashboardPage() {
     }
   }
 
+  const quickSell = (sub: Subscription) => {
+    if (!sub.holding?.id) return
+    setSellTarget({ holdingId: sub.holding.id, agentName: sub.agents?.name ?? 'Agent', shares: Number(sub.holding.shares), investedCents: sub.holding.invested_cents, currentValueCents: sub.holding.current_value_cents })
+    setSellError('')
+    setSellDone(null)
+  }
+
   const subscribedAgentIds = new Set(subscriptions.map(s => s.agent_id))
   const subscribedActivity = agentActivity.filter(a => subscribedAgentIds.has(a.agent_id))
   const totalInvested = subscriptions.reduce((sum, s) => sum + (s.holding?.invested_cents || 0), 0)
@@ -302,7 +309,7 @@ export default function DashboardPage() {
             Invest More
           </Link>
           {subscriptions.filter(s => s.holding?.id).map(sub => (
-            <button key={sub.id} onClick={() => { setSellTarget({ holdingId: sub.holding!.id, agentName: sub.agents?.name ?? 'Agent', shares: Number(sub.holding!.shares), investedCents: sub.holding!.invested_cents, currentValueCents: sub.holding!.current_value_cents }); setSellError(''); setSellDone(null)) }} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.35rem 0.65rem', borderRadius: 6, border: '1px solid rgba(228,88,103,.25)', background: 'rgba(228,88,103,.06)', color: '#E45867', fontFamily: 'var(--font-mono)', fontSize: '0.58rem', fontWeight: 700, cursor: 'pointer' }}>
+            <button key={sub.id} onClick={() => quickSell(sub)} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.35rem 0.65rem', borderRadius: 6, border: '1px solid rgba(228,88,103,.25)', background: 'rgba(228,88,103,.06)', color: '#E45867', fontFamily: 'var(--font-mono)', fontSize: '0.58rem', fontWeight: 700, cursor: 'pointer' }}>
               Sell {sub.agents?.name?.split(' ')[0] ?? 'Position'}
             </button>
           ))}

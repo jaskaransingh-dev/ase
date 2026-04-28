@@ -80,7 +80,7 @@ Backtesting security:
     'components/dashboard/DashboardShell.tsx': 'Main dashboard layout with sidebar and header',
     'app/dashboard/backtest/page.tsx': 'Backtest Studio page with comparison, robustness, and agent selection',
     'app/dashboard/geo/page.tsx': 'Geospatial data explorer with CSV/JSON upload and drill-down',
-    'app/dashboard/quant/page.tsx': 'Quant Lab IDE with file editor, terminal, backtest runner',
+    'app/dashboard/quant/page.tsx': 'Redirects to /dashboard/build (Quant Lab IDE)',
     'app/dashboard/marketplace/page.tsx': 'Agent exchange/marketplace',
     'app/api/backtest/route.ts': 'Main backtest API endpoint',
     'app/api/quant/run/route.ts': 'Institutional quant engine endpoint',
