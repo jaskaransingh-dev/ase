@@ -1,871 +1,1112 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+/**
+ * ASE Quant Lab — Agentic Strategy Builder
+ * Warm, creative UI with visual block canvas, AI thinking stream,
+ * live codebase editor, and AI-interpreted backtest results.
+ */
+
+import { useState, useRef, useEffect, useCallback, Suspense } from 'react'
 import Link from 'next/link'
-import { BLOCKS_BY_KIND, type Block, type BlockKind } from '@/lib/quant/blocks'
+import { useSearchParams } from 'next/navigation'
+import { BLOCKS, BLOCKS_BY_KIND, type Block, type BlockKind } from '@/lib/quant/blocks'
 
+// ─── Types ────────────────────────────────────────────────────────
 type AgentSpec = {
-  name: string
-  thesis: string
-  template: string
-  alpha_type: string
-  alpha_weights?: Record<string, number>
-  symbols: string[]
-  rebalance_freq: 'daily' | 'weekly' | 'monthly'
-  risk_aversion: number
-  max_weight: number
-  forecast_horizon: number
-  signal_scale_bps: number
-  walk_forward: boolean
-  cadence: '5m' | '15m' | '1h' | '2h' | '4h' | 'daily' | 'weekly'
-  start_date: string
-  end_date: string
-  initial_capital: number
+  name: string; thesis: string; template: string; alpha_type: string
+  alpha_weights?: Record<string, number>; symbols: string[]
+  rebalance_freq: 'daily' | 'weekly' | 'monthly'; risk_aversion: number
+  max_weight: number; forecast_horizon: number; signal_scale_bps: number
+  walk_forward: boolean; cadence: '5m' | '15m' | '1h' | '2h' | '4h' | 'daily' | 'weekly'
+  start_date: string; end_date: string; initial_capital: number
 }
-
-const CADENCES: AgentSpec['cadence'][] = ['5m', '15m', '1h', '2h', '4h', 'daily', 'weekly']
 
 type ChatTurn =
   | { id: string; role: 'user'; text: string; blocks?: string[] }
-  | { id: string; role: 'agent'; text: string; spec?: AgentSpec; collapsed?: boolean }
-  | { id: string; role: 'status'; text: string; stage: string }
+  | { id: string; role: 'agent'; text: string; spec?: AgentSpec }
+  | { id: string; role: 'status'; text: string; stage: string; done?: boolean }
 
-type WorkspaceTab = 'spec' | 'pipeline' | 'backtest' | 'ledger' | 'code' | 'codebase'
+type Phase = 'discover' | 'compiling' | 'ready'
+type CodeTab = 'spec' | 'strategy' | 'backtest' | 'pipeline' | 'ledger'
+type BacktestRun = { id: string; label: string; result: any; spec: AgentSpec; ts: number }
 
+const CADENCES: AgentSpec['cadence'][] = ['5m', '15m', '1h', '2h', '4h', 'daily', 'weekly']
+
+// ─── Warm color palette ───────────────────────────────────────────
 const C = {
-  bg: '#070A12',
-  panel: '#0C111B',
-  panel2: '#0A0F19',
-  border: 'rgba(30,42,61,0.8)',
-  borderSoft: 'rgba(30,42,61,0.4)',
-  text: '#E6EBF5',
-  muted: '#8A95AB',
-  faint: '#5A6478',
-  blue: '#4F8CFF',
-  green: '#22C55E',
-  red: '#EF4444',
-  amber: '#F59E0B',
-  purple: '#A78BFA',
+  bg:        '#08060F',
+  surface:   '#100E1C',
+  surface2:  '#181529',
+  surface3:  '#211E35',
+  border:    'rgba(255,255,255,0.07)',
+  borderAct: 'rgba(168,139,250,0.5)',
+  text:      '#EDE8FF',
+  muted:     '#8B80AA',
+  faint:     '#3A3356',
+  orange:    '#FF8C42',
+  purple:    '#A78BFA',
+  blue:      '#60A5FA',
+  green:     '#34D399',
+  red:       '#F87171',
+  amber:     '#FBBF24',
+  pink:      '#F472B6',
+  cyan:      '#22D3EE',
 }
 
-const KIND_COLOR: Record<BlockKind, string> = {
-  data: '#4F8CFF', indicator: '#22C55E', ml: '#A78BFA', api: '#F59E0B', risk: '#EF4444', execution: '#06B6D4', signal: '#EC4899',
+// ─── Block kind visual metadata ────────────────────────────────────
+const KIND_META: Record<BlockKind, { gradient: string; icon: string; label: string; glow: string }> = {
+  data:      { gradient: 'linear-gradient(135deg,#1e3a5f,#0f2847)', icon: '⬡', label: 'Data',        glow: '#60A5FA' },
+  indicator: { gradient: 'linear-gradient(135deg,#0f3d2a,#0a2820)', icon: '∿', label: 'Indicators',  glow: '#34D399' },
+  ml:        { gradient: 'linear-gradient(135deg,#2d1f5e,#1a1040)', icon: '◈', label: 'ML / AI',     glow: '#A78BFA' },
+  api:       { gradient: 'linear-gradient(135deg,#3d2c0a,#261c05)', icon: '⟳', label: 'APIs',        glow: '#FBBF24' },
+  risk:      { gradient: 'linear-gradient(135deg,#3d1212,#1f0a0a)', icon: '⊘', label: 'Risk',        glow: '#F87171' },
+  execution: { gradient: 'linear-gradient(135deg,#0a3340,#052230)', icon: '▸', label: 'Execution',   glow: '#22D3EE' },
+  signal:    { gradient: 'linear-gradient(135deg,#3d1a35,#200f20)', icon: '⚡', label: 'Signals',     glow: '#F472B6' },
 }
 
 const EXAMPLES = [
-  'Buy BTC and ETH on momentum, weekly rebalance, conservative risk',
-  'Mean-revert top 10 crypto when oversold (RSI < 30), daily rebal',
-  'Risk-parity sleeve across BTC/ETH/SOL/BNB/ADA, vol-targeted',
+  'Buy the top 3 crypto by 20-day momentum, risk-parity weighted, rebalance daily',
+  'Mean-revert BTC/ETH/SOL when RSI < 28 with a tight max-drawdown kill switch',
+  'Composite: 60% momentum + 40% mean-reversion across 5 large-cap coins',
+  'Aggressive momentum on SOL, AVAX, DOT — hourly cadence, 4h live trading',
 ]
 
-export default function AgenticQuantLab() {
+// ─── Spec → strategy code generator ──────────────────────────────
+function specToCode(spec: AgentSpec): string {
+  const aw = spec.alpha_weights
+  const awStr = aw ? JSON.stringify(aw, null, 4) : null
+  return `// ─── ASE Agent: ${spec.name} ──────────────────────────────────
+// Thesis   : ${spec.thesis.slice(0, 100)}
+// Alpha    : ${spec.alpha_type}${aw ? ' (composite)' : ''}
+// Universe : ${spec.symbols.join(', ')}
+// Rebalance: ${spec.rebalance_freq}  |  Live cadence: ${spec.cadence}
+// Signal   : ${spec.signal_scale_bps}bps  |  Risk λ: ${spec.risk_aversion}  |  Max weight: ${spec.max_weight}
+// Capital  : $${spec.initial_capital.toLocaleString()}
+//
+// Generated by ASE Quant Lab · ${new Date().toISOString().slice(0, 10)}
+// POST /api/quant/run to backtest  ·  POST /api/quant/agent/tick to trade
+// ─────────────────────────────────────────────────────────────────
+
+import type { FeatureRow } from '@ase/quant'
+
+export const config = {
+  name:            '${spec.name}',
+  universe:        [${spec.symbols.map(s => `'${s}'`).join(', ')}],
+  rebalanceFreq:   '${spec.rebalance_freq}' as const,
+  riskAversion:    ${spec.risk_aversion},
+  maxWeight:       ${spec.max_weight},
+  signalScaleBps:  ${spec.signal_scale_bps},
+  forecastHorizon: ${spec.forecast_horizon},
+  cadence:         '${spec.cadence}',
+  initialCapital:  ${spec.initial_capital},
+}
+${awStr ? `
+// ── Signal composition ────────────────────────────────────────────
+const WEIGHTS = ${awStr}
+` : ''}
+// ── Alpha scoring function ────────────────────────────────────────
+// Called once per symbol per rebalance date.
+// Returns a raw signal; the framework cross-sectionally z-scores it.
+export function score(row: FeatureRow): number {
+  const { ret5, ret20, ret60, zscore, rsi, vol20, trend } = row
+${spec.alpha_type === 'momentum' ? `
+  // Cross-sectional momentum: buy recent winners
+  return 0.15 * (ret5 ?? 0)
+       + 0.35 * (ret20 ?? 0)
+       + 0.30 * (ret60 ?? 0)
+       + 0.20 * (trend ?? 0)` :
+spec.alpha_type === 'mean_reversion' ? `
+  // Mean-reversion: fade extremes, buy oversold
+  const zRev = -(zscore ?? 0)
+  const rsiRev = rsi != null ? (50 - rsi) / 50 : 0
+  return 0.70 * zRev + 0.30 * rsiRev` :
+spec.alpha_type === 'volatility' ? `
+  // Volatility-adaptive: trade direction when vol is elevated
+  const volFlag = (vol20 ?? 0.05) > 0.04 ? -1 : 1
+  return volFlag * (ret20 ?? 0)` :
+`
+  // Composite blend
+  const momentum = 0.15 * (ret5 ?? 0) + 0.35 * (ret20 ?? 0)
+  const meanRev  = -(zscore ?? 0)
+  const volAdj   = (vol20 ?? 0.05) > 0.04 ? -(ret5 ?? 0) : (ret5 ?? 0)
+  return (WEIGHTS.momentum    ?? 0.5) * momentum
+       + (WEIGHTS.mean_reversion ?? 0.3) * meanRev
+       + (WEIGHTS.volatility  ?? 0.2) * volAdj`}
+}
+
+// ── Risk overrides ────────────────────────────────────────────────
+export const riskLimits = {
+  maxDrawdownTrigger: 0.25,
+  maxPositionWeight:  ${spec.max_weight},
+  maxGrossExposure:   1.0,
+  maxDailyTurnover:   0.40,
+}
+`
+}
+
+// ─── AI-powered backtest interpretation ───────────────────────────
+function interpretResults(result: any, spec: AgentSpec): string {
+  const ts = result.tear_sheet ?? {}
+  const grade = result.grade ?? '—'
+  const sharpe = ts.sharpeRatio?.toFixed(2) ?? '—'
+  const cagr = ts.cagr?.toFixed(1) ?? '—'
+  const maxDD = ts.maxDrawdownPct?.toFixed(1) ?? '—'
+  const trades = result.n_trades ?? 0
+  const winRate = ts.winRate ? (ts.winRate * 100).toFixed(0) : '—'
+  const alpha = ts.alphaAnnualizedPct?.toFixed(1) ?? '—'
+
+  const gradeEmoji = grade === 'A' || grade === 'A+' ? '🏆' : grade === 'B' || grade === 'B+' ? '✅' : grade === 'C' || grade === 'C+' ? '⚠️' : '🔴'
+  const sharpeNum = parseFloat(sharpe)
+  const cagrNum = parseFloat(cagr)
+
+  const lines: string[] = [
+    `${gradeEmoji} **Grade ${grade}** — ${
+      grade.startsWith('A') ? 'Excellent strategy. Strong risk-adjusted returns across the backtest window.' :
+      grade.startsWith('B') ? 'Good strategy with solid fundamentals. Acceptable risk profile.' :
+      grade.startsWith('C') ? 'Moderate performance. Consider tuning signal weights or expanding the universe.' :
+      'Underperforming. This configuration needs work — try adjusting risk_aversion or signal_scale_bps.'
+    }`,
+    '',
+    `**Performance**: CAGR **${cagr}%** with Sharpe **${sharpe}** over ${spec.symbols.length} crypto assets. ${
+      cagrNum > 20 ? 'Outperforming typical crypto buy-and-hold on a risk-adjusted basis.' :
+      cagrNum > 5 ? 'Positive alpha, though raw returns may lag pure buy-and-hold in bull markets.' :
+      'Returns are modest — the strategy is defensively positioned.'
+    }`,
+    '',
+    `**Drawdown**: Max **${maxDD}%**. ${
+      parseFloat(maxDD) < 15 ? 'Excellent drawdown control — well-suited for risk-averse investors.' :
+      parseFloat(maxDD) < 25 ? 'Acceptable for crypto, though some investors may find this uncomfortable.' :
+      'Significant drawdown — consider raising risk_aversion or tightening the kill switch.'
+    }`,
+    '',
+    `**Trading activity**: **${trades}** fills over the backtest window, **${winRate}%** win rate. ${
+      trades < 50 ? 'Very few trades — the strategy is highly selective. This can reduce costs but may miss opportunities.' :
+      trades > 500 ? 'High-turnover strategy with significant trading costs. Monitor net-of-fees performance.' :
+      'Healthy trading frequency — enough activity to demonstrate the edge without excessive costs.'
+    }`,
+    '',
+    alpha !== '—' ? `**Alpha vs BTC benchmark**: **${alpha}%** annualized — ${
+      parseFloat(alpha) > 5 ? 'strong outperformance vs passive Bitcoin hold.' :
+      parseFloat(alpha) > 0 ? 'slight edge vs benchmark, justifying active management.' :
+      'underperforming passive benchmark — reconsider the alpha type or parameters.'
+    }` : '',
+    '',
+    `**Next steps**: ${
+      grade.startsWith('A') ? `Publish this agent to start paper-trading at ${spec.cadence} cadence.` :
+      grade.startsWith('B') ? `Consider walk-forward validation before publishing, then deploy with ${spec.cadence} cadence.` :
+      `Try increasing signal_scale_bps to ${spec.signal_scale_bps + 100} or switching to composite alpha for better diversification.`
+    }`,
+  ]
+  return lines.filter(Boolean).join('\n')
+}
+
+// ─── Main component ────────────────────────────────────────────────
+function AgenticQuantLabInner() {
+  const searchParams = useSearchParams()
+
+  // Core state
   const [prompt, setPrompt] = useState('')
   const [turns, setTurns] = useState<ChatTurn[]>([])
+  const [phase, setPhase] = useState<Phase>('discover')
   const [compiling, setCompiling] = useState(false)
   const [running, setRunning] = useState(false)
-  const [activeSpec, setActiveSpec] = useState<AgentSpec | null>(null)
-  const [backtest, setBacktest] = useState<any>(null)
-  const [pinnedBlocks, setPinnedBlocks] = useState<string[]>([])
-  const [draggedBlock, setDraggedBlock] = useState<string | null>(null)
-  const [tab, setTab] = useState<WorkspaceTab>('spec')
-  const [agentId, setAgentId] = useState<string | null>(null)
-  const [savingDraft, setSavingDraft] = useState(false)
   const [publishing, setPublishing] = useState(false)
+  const [activeSpec, setActiveSpec] = useState<AgentSpec | null>(null)
+  const [agentId, setAgentId] = useState<string | null>(null)
   const [quickMode, setQuickMode] = useState(true)
-  const [lastPrompt, setLastPrompt] = useState('')
+
+  // Blocks
+  const [pinnedBlocks, setPinnedBlocks] = useState<string[]>([])
+  const [blockSearch, setBlockSearch] = useState('')
+
+  // Codebase editor
+  const [codeTab, setCodeTab] = useState<CodeTab>('strategy')
+  const [editedSpecJson, setEditedSpecJson] = useState('')
+  const [strategyCode, setStrategyCode] = useState('')
+  const [specJsonError, setSpecJsonError] = useState('')
+
+  // Backtest
+  const [backtestHistory, setBacktestHistory] = useState<BacktestRun[]>([])
+  const [activeBacktestId, setActiveBacktestId] = useState<string | null>(null)
+  const [btInterpretation, setBtInterpretation] = useState('')
+
+  // Ledger
+  const [ledgerRows, setLedgerRows] = useState<any[]>([])
+  const [ledgerLoading, setLedgerLoading] = useState(false)
+
+  // UI
+  const [threadCollapsed, setThreadCollapsed] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const composerRef = useRef<HTMLTextAreaElement>(null)
 
-  // First-prompt state — before first prompt, chat is centered (Nick-style hero)
-  const heroMode = turns.length === 0 && !activeSpec
+  const activeBacktest = backtestHistory.find(r => r.id === activeBacktestId) ?? backtestHistory.at(-1) ?? null
 
+  // Load agent from URL param
+  useEffect(() => {
+    const id = searchParams.get('agent')
+    if (!id) return
+    fetch(`/api/quant/agent/save?id=${id}`)
+      .then(r => r.json()).then(j => {
+        if (!j.agent) return
+        const a = j.agent
+        setAgentId(a.id)
+        setActiveSpec(a.spec as AgentSpec)
+        setEditedSpecJson(JSON.stringify(a.spec, null, 2))
+        setStrategyCode(specToCode(a.spec as AgentSpec))
+        setTurns([
+          { id: 'lu', role: 'user', text: a.prompt ?? '(loaded)', blocks: [] },
+          { id: 'la', role: 'agent', text: a.thesis ?? '', spec: a.spec as AgentSpec },
+          { id: 'ls', role: 'status', text: `Loaded "${a.name}" · ${a.status}`, stage: 'done', done: true },
+        ])
+        setPhase('ready')
+      }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Auto-scroll chat thread
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [turns])
 
-  const addTurn = useCallback((t: ChatTurn) => setTurns(prev => [...prev, t]), [])
-  const updateTurn = useCallback((id: string, patch: Partial<ChatTurn>) => {
-    setTurns(prev => prev.map(t => t.id === id ? { ...t, ...patch } as ChatTurn : t))
-  }, [])
+  // Load ledger when switching to that tab
+  useEffect(() => {
+    if (codeTab !== 'ledger' || !agentId) return
+    setLedgerLoading(true)
+    fetch(`/api/quant/agent/ledger?agent_id=${agentId}&limit=50`)
+      .then(r => r.json()).then(j => setLedgerRows(j.rows ?? []))
+      .catch(() => {}).finally(() => setLedgerLoading(false))
+  }, [codeTab, agentId])
 
-  async function compile(text: string) {
+  const addTurn = useCallback((t: ChatTurn) => setTurns(prev => [...prev, t]), [])
+
+  // ─── Compile & backtest ─────────────────────────────────────────
+  async function submit(text: string) {
     if (!text.trim() || compiling) return
     setCompiling(true)
-    const userId = `u-${Date.now()}`
-    addTurn({ id: userId, role: 'user', text, blocks: [...pinnedBlocks] })
+    setPhase('compiling')
+    setThreadCollapsed(false)
+    addTurn({ id: `u-${Date.now()}`, role: 'user', text, blocks: [...pinnedBlocks] })
     setPrompt('')
 
     try {
       const res = await fetch('/api/quant/agent/compile', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
         body: JSON.stringify({ prompt: text, prior: activeSpec ?? undefined, blocks: pinnedBlocks, stream: true }),
       })
-      if (!res.ok || !res.body) throw new Error(`compile failed: HTTP ${res.status}`)
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
       const reader = res.body.getReader()
       const dec = new TextDecoder()
-      let buf = ''
-      let agent: AgentSpec | null = null
-      let rationale = ''
+      let buf = ''; let agent: AgentSpec | null = null
       while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
+        const { value, done } = await reader.read(); if (done) break
         buf += dec.decode(value, { stream: true })
-        const events = buf.split('\n\n')
-        buf = events.pop() || ''
+        const events = buf.split('\n\n'); buf = events.pop() || ''
         for (const ev of events) {
           const lines = ev.split('\n')
-          const eventLine = lines.find(l => l.startsWith('event: '))?.slice(7) ?? 'message'
-          const dataLine = lines.find(l => l.startsWith('data: '))?.slice(6) ?? '{}'
-          let data: any = {}
-          try { data = JSON.parse(dataLine) } catch {}
-          if (eventLine === 'status') {
-            addTurn({ id: `s-${Date.now()}-${Math.random()}`, role: 'status', text: data.message, stage: data.stage })
-          } else if (eventLine === 'agent') {
-            agent = data.agent
-            rationale = data.rationale
-          } else if (eventLine === 'error') {
-            throw new Error(data.message)
-          }
+          const type = lines.find(l => l.startsWith('event: '))?.slice(7) ?? 'message'
+          const raw = lines.find(l => l.startsWith('data: '))?.slice(6) ?? '{}'
+          let data: any = {}; try { data = JSON.parse(raw) } catch {}
+          if (type === 'status') addTurn({ id: `s-${Date.now()}-${Math.random()}`, role: 'status', text: data.message ?? data.stage, stage: data.stage })
+          else if (type === 'agent') { agent = data.agent }
+          else if (type === 'error') throw new Error(data.message)
         }
       }
-      if (agent) {
-        setActiveSpec(agent)
-        setLastPrompt(text)
-        addTurn({ id: `a-${Date.now()}`, role: 'agent', text: rationale, spec: agent })
-        setTab('spec')
-        // Auto-save draft (fire-and-forget, ignore auth errors silently)
-        saveDraft(agent, text).catch(() => {})
-        // Auto-run backtest (Cursor-style: agent acts on its own)
-        await runBacktest(agent, true)
-      }
-    } catch (e: any) {
-      addTurn({ id: `err-${Date.now()}`, role: 'status', text: `⚠ ${e.message}`, stage: 'error' })
-    } finally {
-      setCompiling(false)
-    }
-  }
+      if (!agent) throw new Error('No spec returned from AI')
 
-  async function saveDraft(spec: AgentSpec, prompt: string) {
-    setSavingDraft(true)
-    try {
-      const res = await fetch('/api/quant/agent/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: spec.name, thesis: spec.thesis, prompt, spec, status: 'draft' }),
+      // File creation steps
+      addTurn({ id: `fc1-${Date.now()}`, role: 'status', text: `📝 Writing strategy.ts for "${agent.name}"…`, stage: 'writing', done: false })
+      await new Promise(r => setTimeout(r, 200))
+      addTurn({ id: `fc2-${Date.now()}`, role: 'status', text: `✓ spec.json compiled — ${agent.symbols.length} symbols, ${agent.alpha_type} alpha, λ=${agent.risk_aversion}`, stage: 'done', done: true })
+
+      setActiveSpec(agent)
+      setEditedSpecJson(JSON.stringify(agent, null, 2))
+      setStrategyCode(specToCode(agent))
+      setPhase('ready')
+      setCodeTab('strategy')
+
+      addTurn({ id: `a-${Date.now()}`, role: 'agent', text: agent.thesis, spec: agent })
+
+      // Save draft
+      const sr = await fetch('/api/quant/agent/save', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: agent.name, thesis: agent.thesis, prompt: text, spec: agent, status: 'draft' }),
       })
-      const json = await res.json()
-      if (res.ok && json.agent?.id) {
-        setAgentId(json.agent.id)
-        addTurn({ id: `sv-${Date.now()}`, role: 'status', text: `Saved draft · agent_id=${json.agent.id.slice(0, 8)}`, stage: 'done' })
+      const sj = await sr.json()
+      if (sr.ok && sj.agent?.id) {
+        setAgentId(sj.agent.id)
+        addTurn({ id: `sv-${Date.now()}`, role: 'status', text: `✓ Draft saved · ${sj.agent.id.slice(0, 8)}`, stage: 'done', done: true })
       }
-    } catch {} finally { setSavingDraft(false) }
-  }
 
-  async function publishAgent() {
-    if (!activeSpec || !agentId || publishing) return
-    setPublishing(true)
-    addTurn({ id: `pub-${Date.now()}`, role: 'status', text: `Publishing ${activeSpec.name} (paper-trade mode)…`, stage: 'planning' })
-    try {
-      const res = await fetch(`/api/quant/agent/publish?id=${agentId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ live: false }) })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error)
-      addTurn({ id: `pub-d-${Date.now()}`, role: 'status', text: `✓ Published · ${json.note}`, stage: 'done' })
-      // Trigger first tick immediately
-      const tick = await fetch('/api/quant/agent/tick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: agentId }) })
-      const tj = await tick.json()
-      addTurn({ id: `tk-${Date.now()}`, role: 'status', text: `First tick: ${tj.ticked?.[0]?.trades ?? 0} trades posted to ledger`, stage: 'done' })
+      // Auto-run backtest
+      await runBacktest(agent, true)
     } catch (e: any) {
-      addTurn({ id: `pub-e-${Date.now()}`, role: 'status', text: `⚠ Publish failed: ${e.message}`, stage: 'error' })
-    } finally { setPublishing(false) }
+      setPhase(activeSpec ? 'ready' : 'discover')
+      addTurn({ id: `err-${Date.now()}`, role: 'status', text: `⚠ ${e.message}`, stage: 'error' })
+    } finally { setCompiling(false) }
   }
 
   async function runBacktest(spec: AgentSpec, auto = false) {
     if (running) return
     setRunning(true)
-    const t0 = Date.now()
-    addTurn({ id: `bt-${Date.now()}`, role: 'status', text: auto ? `Auto-running ${quickMode ? 'QUICK ' : ''}backtest for ${spec.name}…` : `Running ${quickMode ? 'quick ' : ''}backtest…`, stage: 'backtest' })
-    setTab('backtest')
+    setCodeTab('backtest')
+    const runId = `bt-${Date.now()}`
+    addTurn({ id: `bt-${Date.now()}`, role: 'status', text: `⚙ Running ${quickMode ? 'quick ' : ''}backtest (${spec.rebalance_freq} rebalance, ${spec.symbols.length} symbols)…`, stage: 'backtest' })
     try {
       const res = await fetch('/api/quant/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          template: spec.template,
-          alpha_type: spec.alpha_type,
-          alpha_weights: spec.alpha_weights,
-          symbols: spec.symbols,
-          start_date: spec.start_date,
-          end_date: spec.end_date,
-          initial_capital: spec.initial_capital,
-          rebalance_freq: spec.rebalance_freq,
-          risk_aversion: spec.risk_aversion,
-          max_weight: spec.max_weight,
-          forecast_horizon: spec.forecast_horizon,
-          signal_scale_bps: spec.signal_scale_bps,
-          walk_forward: spec.walk_forward,
-          quick: quickMode,
+          template: spec.template, alpha_type: spec.alpha_type, alpha_weights: spec.alpha_weights,
+          symbols: spec.symbols, start_date: spec.start_date, end_date: spec.end_date,
+          initial_capital: spec.initial_capital, rebalance_freq: spec.rebalance_freq,
+          risk_aversion: spec.risk_aversion, max_weight: spec.max_weight,
+          forecast_horizon: spec.forecast_horizon, signal_scale_bps: spec.signal_scale_bps,
+          walk_forward: spec.walk_forward, quick: quickMode,
         }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'backtest failed')
-      setBacktest(json)
-      const grade = json.grade || '—'
-      const sharpe = json.tear_sheet?.sharpe?.toFixed(2) ?? '—'
-      const cagr = json.tear_sheet?.cagr ? (json.tear_sheet.cagr * 100).toFixed(1) + '%' : '—'
-      const ms = Date.now() - t0
-      addTurn({ id: `bt-d-${Date.now()}`, role: 'status', text: `✓ Backtest ${json.mode === 'quick' ? 'QUICK ' : ''}complete in ${ms}ms · ${json.n_trades} trades · Grade ${grade} · Sharpe ${sharpe} · CAGR ${cagr}${json.data_source === 'synthetic' ? ' (synthetic data)' : ''}`, stage: 'done' })
-      // Patch saved draft with metrics
-      if (agentId) {
-        fetch(`/api/quant/agent/save?id=${agentId}`, {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            status: 'tested',
-            last_grade: grade,
-            last_score: json.score,
-            last_sharpe: json.tear_sheet?.sharpe ?? null,
-            last_cagr: json.tear_sheet?.cagr ?? null,
-            last_max_dd: json.tear_sheet?.maxDrawdown ?? null,
-          }),
-        }).catch(() => {})
-      }
+      const run: BacktestRun = { id: runId, label: `${spec.alpha_type} #${backtestHistory.length + 1}`, result: json, spec, ts: Date.now() }
+      setBacktestHistory(prev => [...prev.slice(-4), run])
+      setActiveBacktestId(runId)
+      const ts = json.tear_sheet ?? {}
+      const grade = json.grade ?? '—'
+      addTurn({ id: `btd-${Date.now()}`, role: 'status', text: `✓ Backtest complete · Grade ${grade} · Sharpe ${ts.sharpeRatio?.toFixed(2) ?? '—'} · ${json.n_trades ?? 0} trades${json.data_source === 'synthetic' ? ' (synthetic data)' : ''}`, stage: 'done', done: true })
+      const interp = interpretResults(json, spec)
+      setBtInterpretation(interp)
+      addTurn({ id: `bti-${Date.now()}`, role: 'agent', text: interp.slice(0, 300) + (interp.length > 300 ? '…' : '') })
+      if (agentId) fetch(`/api/quant/agent/save?id=${agentId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'tested', last_grade: grade, last_score: json.score, last_sharpe: ts.sharpeRatio ?? null, last_cagr: ts.cagr ?? null, last_max_dd: ts.maxDrawdownPct ?? null }),
+      }).catch(() => {})
     } catch (e: any) {
-      addTurn({ id: `bt-e-${Date.now()}`, role: 'status', text: `⚠ Backtest failed: ${e.message}`, stage: 'error' })
-    } finally {
-      setRunning(false)
+      addTurn({ id: `bte-${Date.now()}`, role: 'status', text: `⚠ Backtest failed: ${e.message}`, stage: 'error' })
+    } finally { setRunning(false) }
+  }
+
+  async function publish() {
+    if (!activeSpec || !agentId || publishing) return
+    setPublishing(true)
+    addTurn({ id: `pub-${Date.now()}`, role: 'status', text: `🚀 Publishing "${activeSpec.name}" in paper-trade mode…`, stage: 'planning' })
+    try {
+      const res = await fetch(`/api/quant/agent/publish?id=${agentId}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ live: false, skip_tick: true }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      const tr = await fetch('/api/quant/agent/tick', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentId }),
+      })
+      const tj = await tr.json()
+      addTurn({ id: `pubd-${Date.now()}`, role: 'status', text: `✓ Published · ${tj.ticked?.[0]?.trades ?? 0} initial paper trade(s) posted`, stage: 'done', done: true })
+      setCodeTab('ledger')
+    } catch (e: any) {
+      addTurn({ id: `pube-${Date.now()}`, role: 'status', text: `⚠ Publish failed: ${e.message}`, stage: 'error' })
+    } finally { setPublishing(false) }
+  }
+
+  function applyEditedSpec() {
+    try {
+      const parsed = JSON.parse(editedSpecJson) as AgentSpec
+      setActiveSpec(parsed)
+      setStrategyCode(specToCode(parsed))
+      setSpecJsonError('')
+      addTurn({ id: `edit-${Date.now()}`, role: 'status', text: '✓ Spec updated from editor — rerun backtest to validate', stage: 'done', done: true })
+    } catch (e: any) {
+      setSpecJsonError(e.message)
     }
   }
 
-  function togglePin(blockId: string) {
-    setPinnedBlocks(prev => prev.includes(blockId) ? prev.filter(b => b !== blockId) : [...prev, blockId])
+  function togglePin(id: string) {
+    setPinnedBlocks(prev => prev.includes(id) ? prev.filter(b => b !== id) : [...prev, id])
   }
 
-  function handleDrop(e: React.DragEvent) {
-    e.preventDefault()
-    const id = e.dataTransfer.getData('application/x-block-id') || draggedBlock
-    if (id && !pinnedBlocks.includes(id)) {
-      setPinnedBlocks(prev => [...prev, id])
-    }
-    setDraggedBlock(null)
-  }
+  const filteredBlocks = blockSearch
+    ? BLOCKS.filter(b => b.label.toLowerCase().includes(blockSearch.toLowerCase()) || b.description.toLowerCase().includes(blockSearch.toLowerCase()))
+    : BLOCKS
 
+  // ─── Render ─────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: C.bg, color: C.text, fontFamily: 'var(--font-sans)' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.7rem 1.1rem', borderBottom: `1px solid ${C.border}`, background: C.panel2 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <div>
-            <div style={{ fontSize: '0.55rem', letterSpacing: '0.2em', color: C.faint, fontFamily: 'var(--font-mono)' }}>QUANT LAB</div>
-            <div style={{ fontSize: '0.95rem', fontWeight: 600, marginTop: 1 }}>Agentic Builder</div>
-          </div>
-          {activeSpec && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.3rem 0.6rem', background: 'rgba(79,140,255,0.08)', border: `1px solid rgba(79,140,255,0.25)`, borderRadius: 6 }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: C.blue, animation: 'pulse 2s infinite' }} />
-              <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: C.text }}>{activeSpec.name}</span>
-            </div>
-          )}
-        </div>
-        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.62rem', color: C.muted, fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', cursor: 'pointer' }}>
-            <input type="checkbox" checked={quickMode} onChange={e => setQuickMode(e.target.checked)} style={{ accentColor: C.blue }} />
-            QUICK 5s
-          </label>
-          {activeSpec && agentId && (
-            <button onClick={publishAgent} disabled={publishing} style={{ padding: '0.4rem 0.8rem', fontSize: '0.62rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em', background: publishing ? C.border : C.green, color: 'white', border: 'none', borderRadius: 6, cursor: publishing ? 'not-allowed' : 'pointer', fontWeight: 700 }}>
-              {publishing ? 'PUBLISHING…' : 'PUBLISH ↗'}
-            </button>
-          )}
-          <Link href="/dashboard/lab/agents" style={ghostBtn}>MY AGENTS</Link>
-        </div>
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: C.bg, color: C.text, fontFamily: 'var(--font-sans)', overflow: 'hidden' }}>
 
-      {/* Main 3-pane */}
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {/* LEFT — Block palette */}
-        <BlockPalette pinnedBlocks={pinnedBlocks} togglePin={togglePin} setDraggedBlock={setDraggedBlock} />
+      {/* ── Top bar ───────────────────────────────────────────────── */}
+      <TopBar
+        phase={phase} quickMode={quickMode} setQuickMode={setQuickMode}
+        activeSpec={activeSpec} agentId={agentId}
+        publishing={publishing} onPublish={publish}
+        running={running} onRunBacktest={() => activeSpec && runBacktest(activeSpec)}
+      />
 
-        {/* CENTER — Chat (collapses left when workspace shows) */}
-        <div
-          onDragOver={e => e.preventDefault()}
-          onDrop={handleDrop}
-          style={{ flex: heroMode ? 1 : '0 0 42%', borderLeft: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', minWidth: 0, transition: 'flex-basis 0.4s cubic-bezier(0.4, 0, 0.2, 1)' }}
-        >
-          {heroMode ? (
-            <HeroChat prompt={prompt} setPrompt={setPrompt} compile={compile} compiling={compiling} pinnedBlocks={pinnedBlocks} togglePin={togglePin} examples={EXAMPLES} />
-          ) : (
-            <>
-              <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                {turns.map(t => <Turn key={t.id} turn={t} onCollapse={(id: string, c: boolean) => updateTurn(id, { collapsed: c } as any)} onRun={runBacktest} running={running} />)}
-                {compiling && <Thinking />}
-              </div>
-              <Composer prompt={prompt} setPrompt={setPrompt} compile={compile} compiling={compiling} pinnedBlocks={pinnedBlocks} togglePin={togglePin} compact />
-            </>
-          )}
-        </div>
+      {phase === 'discover' ? (
+        /* ── DISCOVER PHASE ── */
+        <DiscoverView
+          blocks={filteredBlocks}
+          blockSearch={blockSearch} setBlockSearch={setBlockSearch}
+          pinnedBlocks={pinnedBlocks} onTogglePin={togglePin}
+          prompt={prompt} setPrompt={setPrompt}
+          onSubmit={submit} compiling={compiling}
+        />
+      ) : (
+        /* ── READY / COMPILING PHASE ── */
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-        {/* RIGHT — Workspace */}
-        {!heroMode && (
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-            <WorkspaceTabs tab={tab} setTab={setTab} hasSpec={!!activeSpec} hasBacktest={!!backtest} />
-            <div style={{ flex: 1, overflow: 'auto', padding: '1rem 1.25rem' }}>
-              {tab === 'spec' && activeSpec && <SpecView spec={activeSpec} onRun={() => runBacktest(activeSpec)} running={running} onCadenceChange={c => setActiveSpec({ ...activeSpec, cadence: c })} />}
-              {tab === 'spec' && !activeSpec && <Empty msg="No agent yet — describe one in chat." />}
-              {tab === 'pipeline' && <PipelineView spec={activeSpec} blocks={pinnedBlocks} />}
-              {tab === 'backtest' && backtest && <BacktestView result={backtest} spec={activeSpec!} />}
-              {tab === 'backtest' && !backtest && <Empty msg={running ? 'Running backtest…' : 'No backtest yet.'} />}
-              {tab === 'ledger' && <LedgerView agentId={agentId} backtest={backtest} />}
-              {tab === 'code' && activeSpec && <CodeView spec={activeSpec} agentId={agentId} />}
-              {tab === 'code' && !activeSpec && <Empty msg="No spec to view." />}
-              {tab === 'codebase' && <CodebaseView />}
+          {/* AI Thread (collapsible) */}
+          <AIThread
+            turns={turns} phase={phase} compiling={compiling}
+            collapsed={threadCollapsed} onToggle={() => setThreadCollapsed(p => !p)}
+            scrollRef={scrollRef}
+          />
+
+          {/* Main workspace */}
+          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+
+            {/* Left: Mini block palette */}
+            <MiniBlocks
+              blocks={filteredBlocks} pinnedBlocks={pinnedBlocks}
+              onTogglePin={togglePin} blockSearch={blockSearch} setBlockSearch={setBlockSearch}
+            />
+
+            {/* Center: Codebase panel */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <CodebasePanel
+                codeTab={codeTab} setCodeTab={setCodeTab}
+                activeSpec={activeSpec}
+                editedSpecJson={editedSpecJson} setEditedSpecJson={setEditedSpecJson}
+                specJsonError={specJsonError} onApplySpec={applyEditedSpec}
+                strategyCode={strategyCode} setStrategyCode={setStrategyCode}
+                activeBacktest={activeBacktest}
+                backtestHistory={backtestHistory} activeBacktestId={activeBacktestId} setActiveBacktestId={setActiveBacktestId}
+                btInterpretation={btInterpretation}
+                ledgerRows={ledgerRows} ledgerLoading={ledgerLoading}
+                agentId={agentId}
+                running={running} onRunBacktest={() => activeSpec && runBacktest(activeSpec)}
+              />
+              {/* Composer at bottom */}
+              <Composer
+                prompt={prompt} setPrompt={setPrompt}
+                onSubmit={submit} compiling={compiling}
+                pinnedBlocks={pinnedBlocks} onTogglePin={togglePin}
+                phase={phase}
+              />
             </div>
           </div>
-        )}
-      </div>
-
-      <style jsx global>{`
-        @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.4 } }
-        @keyframes thinking { 0%,80%,100% { transform: scale(0.6); opacity: 0.4 } 40% { transform: scale(1); opacity: 1 } }
-      `}</style>
+        </div>
+      )}
     </div>
   )
 }
 
-const ghostBtn: React.CSSProperties = {
-  fontSize: '0.65rem', padding: '0.4rem 0.7rem', borderRadius: 6, border: `1px solid ${C.border}`, color: C.muted, textDecoration: 'none', fontFamily: 'var(--font-mono)', letterSpacing: '0.08em',
+// ─── Top Bar ──────────────────────────────────────────────────────
+function TopBar({ phase, quickMode, setQuickMode, activeSpec, agentId, publishing, onPublish, running, onRunBacktest }: {
+  phase: Phase; quickMode: boolean; setQuickMode: (v: boolean) => void
+  activeSpec: AgentSpec | null; agentId: string | null
+  publishing: boolean; onPublish: () => void
+  running: boolean; onRunBacktest: () => void
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 1rem', height: 44, borderBottom: `1px solid ${C.border}`, background: C.surface, flexShrink: 0 }}>
+      <div style={{ fontSize: '0.6rem', letterSpacing: '0.2em', color: C.faint, fontFamily: 'var(--font-mono)' }}>QUANT LAB</div>
+      {activeSpec && (
+        <>
+          <span style={{ color: C.faint }}>›</span>
+          <span style={{ fontSize: '0.82rem', fontWeight: 600, color: C.text, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeSpec.name}</span>
+        </>
+      )}
+      <div style={{ flex: 1 }} />
+      {/* Quick mode toggle */}
+      <button onClick={() => setQuickMode(p => !p)} title={quickMode ? 'Quick mode (synthetic data)' : 'Full mode (live data)'} style={{ padding: '0.25rem 0.6rem', background: quickMode ? `${C.amber}22` : 'transparent', border: `1px solid ${quickMode ? C.amber : C.border}`, borderRadius: 6, color: quickMode ? C.amber : C.muted, fontSize: '0.6rem', fontFamily: 'var(--font-mono)', cursor: 'pointer', letterSpacing: '0.08em' }}>
+        {quickMode ? '⚡ QUICK' : '🔬 FULL'}
+      </button>
+      {/* Run backtest */}
+      {activeSpec && (
+        <button onClick={onRunBacktest} disabled={running} style={{ padding: '0.25rem 0.7rem', background: running ? C.surface2 : `${C.purple}22`, border: `1px solid ${running ? C.border : C.purple}`, borderRadius: 6, color: running ? C.muted : C.purple, fontSize: '0.6rem', fontFamily: 'var(--font-mono)', cursor: running ? 'not-allowed' : 'pointer', letterSpacing: '0.08em' }}>
+          {running ? '⏳ RUNNING…' : '▶ BACKTEST'}
+        </button>
+      )}
+      {/* Publish */}
+      {activeSpec && agentId && (
+        <button onClick={onPublish} disabled={publishing} style={{ padding: '0.25rem 0.8rem', background: publishing ? C.surface2 : C.orange, border: 'none', borderRadius: 6, color: publishing ? C.muted : 'white', fontSize: '0.6rem', fontFamily: 'var(--font-mono)', cursor: publishing ? 'not-allowed' : 'pointer', fontWeight: 700, letterSpacing: '0.08em' }}>
+          {publishing ? 'PUBLISHING…' : '🚀 PUBLISH'}
+        </button>
+      )}
+      <Link href="/dashboard/lab/agents" style={{ padding: '0.25rem 0.6rem', borderRadius: 6, fontSize: '0.6rem', fontFamily: 'var(--font-mono)', background: 'transparent', color: C.muted, border: `1px solid ${C.border}`, textDecoration: 'none', letterSpacing: '0.08em' }}>MY AGENTS</Link>
+      <Link href="/dashboard/lab/backtest" style={{ padding: '0.25rem 0.6rem', borderRadius: 6, fontSize: '0.6rem', fontFamily: 'var(--font-mono)', background: 'transparent', color: C.muted, border: `1px solid ${C.border}`, textDecoration: 'none', letterSpacing: '0.08em' }}>BACKTEST</Link>
+    </div>
+  )
 }
 
-// ─── HERO (first prompt, centered) ─────────────────────────────
-function HeroChat({ prompt, setPrompt, compile, compiling, pinnedBlocks, togglePin, examples }: any) {
+// ─── Discover View ────────────────────────────────────────────────
+function DiscoverView({ blocks, blockSearch, setBlockSearch, pinnedBlocks, onTogglePin, prompt, setPrompt, onSubmit, compiling }: {
+  blocks: Block[]; blockSearch: string; setBlockSearch: (v: string) => void
+  pinnedBlocks: string[]; onTogglePin: (id: string) => void
+  prompt: string; setPrompt: (v: string) => void
+  onSubmit: (text: string) => void; compiling: boolean
+}) {
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem', gap: '1.5rem' }}>
-      <div style={{ textAlign: 'center', maxWidth: 620 }}>
-        <div style={{ fontSize: '1.7rem', fontWeight: 700, marginBottom: '0.4rem' }}>Describe a trading agent.</div>
-        <div style={{ fontSize: '0.9rem', color: C.muted }}>I&apos;ll compile it, wire the data, run a backtest, and tell you exactly what I did.</div>
+    <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 0 }}>
+      {/* Hero */}
+      <div style={{ padding: '2.5rem 2rem 1.5rem', textAlign: 'center', background: `linear-gradient(180deg, ${C.surface2} 0%, ${C.bg} 100%)` }}>
+        <div style={{ fontSize: '0.6rem', letterSpacing: '0.3em', color: C.purple, fontFamily: 'var(--font-mono)', marginBottom: 8 }}>QUANT LAB · AGENTIC BUILDER</div>
+        <div style={{ fontSize: '2rem', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 8, background: `linear-gradient(135deg, ${C.text}, ${C.purple})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+          Build Your Crypto Algo
+        </div>
+        <div style={{ fontSize: '0.9rem', color: C.muted, maxWidth: 500, margin: '0 auto' }}>
+          Describe a trading strategy — AI compiles it, backtests it, and deploys it as a paper-trading agent.
+        </div>
       </div>
-      <div style={{ width: '100%', maxWidth: 720 }}>
-        <Composer prompt={prompt} setPrompt={setPrompt} compile={compile} compiling={compiling} pinnedBlocks={pinnedBlocks} togglePin={togglePin} />
+
+      {/* Block palette */}
+      <div style={{ padding: '0 2rem 1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <div style={{ fontSize: '0.6rem', letterSpacing: '0.2em', color: C.faint, fontFamily: 'var(--font-mono)' }}>BUILDING BLOCKS · DRAG TO COMPOSE</div>
+          <input
+            value={blockSearch} onChange={e => setBlockSearch(e.target.value)}
+            placeholder="Filter blocks…"
+            style={{ marginLeft: 'auto', padding: '0.25rem 0.6rem', background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 6, color: C.text, fontSize: '0.72rem', width: 160, outline: 'none' }}
+          />
+        </div>
+
+        {(Object.entries(BLOCKS_BY_KIND) as Array<[BlockKind, Block[]]>).map(([kind, kindBlocks]) => {
+          const meta = KIND_META[kind]
+          const visible = kindBlocks.filter(b => !blockSearch || b.label.toLowerCase().includes(blockSearch.toLowerCase()) || b.description.toLowerCase().includes(blockSearch.toLowerCase()))
+          if (visible.length === 0) return null
+          return (
+            <div key={kind} style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <span style={{ fontSize: '0.9rem' }}>{meta.icon}</span>
+                <span style={{ fontSize: '0.6rem', letterSpacing: '0.18em', color: meta.glow, fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{meta.label.toUpperCase()}</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8 }}>
+                {visible.map(b => (
+                  <BlockCard key={b.id} block={b} meta={meta} pinned={pinnedBlocks.includes(b.id)} onToggle={() => onTogglePin(b.id)} />
+                ))}
+              </div>
+            </div>
+          )
+        })}
+
+        {pinnedBlocks.length > 0 && (
+          <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.6rem', letterSpacing: '0.15em', color: C.faint, fontFamily: 'var(--font-mono)' }}>PINNED:</span>
+            {pinnedBlocks.map(id => {
+              const b = BLOCKS.find(x => x.id === id)
+              if (!b) return null
+              const meta = KIND_META[b.kind]
+              return (
+                <span key={id} style={{ padding: '2px 8px', borderRadius: 12, background: `${meta.glow}22`, border: `1px solid ${meta.glow}55`, color: meta.glow, fontSize: '0.65rem', cursor: 'pointer' }}
+                  onClick={() => onTogglePin(id)}>
+                  {meta.icon} {b.label} ×
+                </span>
+              )
+            })}
+          </div>
+        )}
       </div>
-      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'center', maxWidth: 720 }}>
-        {examples.map((ex: string, i: number) => (
-          <button key={i} onClick={() => compile(ex)} disabled={compiling} style={{ fontSize: '0.7rem', padding: '0.5rem 0.8rem', borderRadius: 8, border: `1px solid ${C.border}`, background: C.panel, color: C.muted, cursor: 'pointer' }}>
-            {ex}
+
+      {/* Examples */}
+      <div style={{ padding: '0 2rem', marginBottom: 16 }}>
+        <div style={{ fontSize: '0.6rem', letterSpacing: '0.2em', color: C.faint, fontFamily: 'var(--font-mono)', marginBottom: 8 }}>TRY AN EXAMPLE</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {EXAMPLES.map((ex, i) => (
+            <button key={i} onClick={() => setPrompt(ex)} style={{ padding: '0.4rem 0.8rem', background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 20, color: C.muted, fontSize: '0.72rem', cursor: 'pointer', textAlign: 'left' }}>
+              {ex.slice(0, 50)}…
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Composer */}
+      <div style={{ padding: '0 2rem 2rem', marginTop: 'auto' }}>
+        <DiscoverComposer prompt={prompt} setPrompt={setPrompt} onSubmit={onSubmit} compiling={compiling} pinnedCount={pinnedBlocks.length} />
+      </div>
+    </div>
+  )
+}
+
+// ─── Block Card (visual, discover mode) ──────────────────────────
+function BlockCard({ block, meta, pinned, onToggle }: { block: Block; meta: typeof KIND_META[BlockKind]; pinned: boolean; onToggle: () => void }) {
+  return (
+    <button
+      draggable
+      onDragStart={e => e.dataTransfer.setData('application/x-block-id', block.id)}
+      onClick={onToggle}
+      style={{
+        padding: '0.7rem 0.8rem', borderRadius: 10,
+        background: pinned ? `${meta.glow}18` : meta.gradient,
+        border: `1px solid ${pinned ? meta.glow : meta.glow + '40'}`,
+        boxShadow: pinned ? `0 0 12px ${meta.glow}30` : 'none',
+        cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
+        display: 'flex', flexDirection: 'column', gap: 4,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: '1rem', color: meta.glow }}>{meta.icon}</span>
+        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: C.text }}>{block.label}</span>
+        {pinned && <span style={{ marginLeft: 'auto', fontSize: '0.55rem', color: meta.glow }}>✓</span>}
+      </div>
+      <div style={{ fontSize: '0.62rem', color: C.muted, lineHeight: 1.35 }}>{block.description}</div>
+    </button>
+  )
+}
+
+// ─── Discover Composer ────────────────────────────────────────────
+function DiscoverComposer({ prompt, setPrompt, onSubmit, compiling, pinnedCount }: {
+  prompt: string; setPrompt: (v: string) => void; onSubmit: (t: string) => void
+  compiling: boolean; pinnedCount: number
+}) {
+  return (
+    <div style={{ background: C.surface, border: `1px solid ${C.borderAct}`, borderRadius: 14, padding: '0.75rem 1rem', boxShadow: `0 0 30px ${C.purple}15` }}>
+      <textarea
+        value={prompt} onChange={e => setPrompt(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (prompt.trim()) onSubmit(prompt) } }}
+        placeholder="Describe your strategy… e.g. 'Buy top 3 crypto by momentum, rebalance daily, risk-parity weights'"
+        rows={3}
+        style={{ width: '100%', background: 'transparent', border: 'none', color: C.text, fontSize: '0.9rem', resize: 'none', outline: 'none', fontFamily: 'var(--font-sans)', lineHeight: 1.5 }}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+        {pinnedCount > 0 && <span style={{ fontSize: '0.65rem', color: C.purple, fontFamily: 'var(--font-mono)' }}>{pinnedCount} block(s) pinned</span>}
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: '0.6rem', color: C.faint }}>↵ to build</span>
+        <button
+          onClick={() => prompt.trim() && onSubmit(prompt)}
+          disabled={!prompt.trim() || compiling}
+          style={{
+            padding: '0.5rem 1.2rem', background: compiling ? C.surface2 : `linear-gradient(135deg,${C.orange},${C.purple})`,
+            border: 'none', borderRadius: 8, color: 'white', fontSize: '0.8rem', fontWeight: 700,
+            cursor: compiling ? 'not-allowed' : 'pointer', letterSpacing: '0.05em',
+          }}
+        >
+          {compiling ? '⏳ Building…' : 'Build Agent →'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── AI Thread ────────────────────────────────────────────────────
+function AIThread({ turns, phase, compiling, collapsed, onToggle, scrollRef }: {
+  turns: ChatTurn[]; phase: Phase; compiling: boolean
+  collapsed: boolean; onToggle: () => void
+  scrollRef: React.RefObject<HTMLDivElement>
+}) {
+  const latestTurn = turns[turns.length - 1]
+  return (
+    <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0, maxHeight: collapsed ? 36 : 220, transition: 'max-height 0.25s ease', overflow: 'hidden' }}>
+      {/* Thread header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', height: 36, cursor: 'pointer', userSelect: 'none' }} onClick={onToggle}>
+        <span style={{ fontSize: '0.6rem', letterSpacing: '0.18em', color: C.purple, fontFamily: 'var(--font-mono)', fontWeight: 700 }}>AI ASSISTANT</span>
+        {compiling && <ThinkingDots />}
+        {!compiling && latestTurn?.role === 'status' && (
+          <span style={{ fontSize: '0.68rem', color: (latestTurn as any).done ? C.green : C.amber }}>{(latestTurn as any).text}</span>
+        )}
+        <div style={{ flex: 1 }} />
+        <span style={{ color: C.muted, fontSize: '0.65rem' }}>{collapsed ? '▾ expand' : '▴ collapse'}</span>
+      </div>
+      {/* Thread body */}
+      {!collapsed && (
+        <div ref={scrollRef} style={{ maxHeight: 184, overflowY: 'auto', padding: '0 12px 8px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {turns.map(t => <TurnLine key={t.id} turn={t} />)}
+          {compiling && <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0' }}><ThinkingDots /><span style={{ fontSize: '0.7rem', color: C.muted }}>AI is composing your strategy…</span></div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TurnLine({ turn }: { turn: ChatTurn }) {
+  if (turn.role === 'user') return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', padding: '2px 0' }}>
+      <span style={{ fontSize: '0.6rem', color: C.orange, fontFamily: 'var(--font-mono)', fontWeight: 700, marginTop: 1, flexShrink: 0 }}>YOU</span>
+      <span style={{ fontSize: '0.72rem', color: C.text }}>{turn.text}</span>
+    </div>
+  )
+  if (turn.role === 'status') {
+    const t = turn as any
+    const isDone = t.done || t.stage === 'done'
+    const isError = t.stage === 'error'
+    return (
+      <div style={{ fontSize: '0.68rem', color: isError ? C.red : isDone ? C.green : C.amber, fontFamily: 'var(--font-mono)', padding: '1px 0' }}>
+        {turn.text}
+      </div>
+    )
+  }
+  if (turn.role === 'agent') return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', padding: '2px 0' }}>
+      <span style={{ fontSize: '0.6rem', color: C.purple, fontFamily: 'var(--font-mono)', fontWeight: 700, marginTop: 1, flexShrink: 0 }}>AI</span>
+      <span style={{ fontSize: '0.72rem', color: C.muted, lineHeight: 1.4, maxWidth: 600, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>{turn.text}</span>
+    </div>
+  )
+  return null
+}
+
+function ThinkingDots() {
+  return (
+    <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
+      {[0, 1, 2].map(i => (
+        <span key={i} style={{ width: 4, height: 4, borderRadius: '50%', background: C.purple, animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+      ))}
+    </span>
+  )
+}
+
+// ─── Mini Block Palette (ready mode sidebar) ──────────────────────
+function MiniBlocks({ blocks, pinnedBlocks, onTogglePin, blockSearch, setBlockSearch }: {
+  blocks: Block[]; pinnedBlocks: string[]; onTogglePin: (id: string) => void
+  blockSearch: string; setBlockSearch: (v: string) => void
+}) {
+  return (
+    <div style={{ width: 180, borderRight: `1px solid ${C.border}`, background: C.surface, display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0 }}>
+      <div style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ fontSize: '0.55rem', letterSpacing: '0.18em', color: C.faint, fontFamily: 'var(--font-mono)' }}>BLOCKS</div>
+        <input
+          value={blockSearch} onChange={e => setBlockSearch(e.target.value)}
+          placeholder="Filter…"
+          style={{ padding: '3px 6px', background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 5, color: C.text, fontSize: '0.65rem', outline: 'none', width: '100%' }}
+        />
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: 4 }}>
+        {(Object.entries(BLOCKS_BY_KIND) as Array<[BlockKind, Block[]]>).map(([kind, kindBlocks]) => {
+          const meta = KIND_META[kind]
+          const visible = kindBlocks.filter(b => !blockSearch || b.label.toLowerCase().includes(blockSearch.toLowerCase()))
+          if (!visible.length) return null
+          return (
+            <div key={kind} style={{ marginBottom: 6 }}>
+              <div style={{ fontSize: '0.52rem', letterSpacing: '0.15em', color: meta.glow, fontFamily: 'var(--font-mono)', padding: '2px 4px', opacity: 0.7 }}>{meta.icon} {meta.label.toUpperCase()}</div>
+              {visible.map(b => {
+                const pinned = pinnedBlocks.includes(b.id)
+                return (
+                  <button key={b.id} draggable onDragStart={e => e.dataTransfer.setData('application/x-block-id', b.id)}
+                    onClick={() => onTogglePin(b.id)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 5, width: '100%', padding: '3px 6px', background: pinned ? `${meta.glow}15` : 'transparent', border: `1px solid ${pinned ? meta.glow + '55' : 'transparent'}`, borderRadius: 5, cursor: 'pointer', textAlign: 'left', marginBottom: 1 }}>
+                    <span style={{ fontSize: '0.7rem', color: meta.glow, flexShrink: 0 }}>{meta.icon}</span>
+                    <span style={{ fontSize: '0.62rem', color: pinned ? C.text : C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.label}</span>
+                    {pinned && <span style={{ marginLeft: 'auto', fontSize: '0.5rem', color: meta.glow }}>✓</span>}
+                  </button>
+                )
+              })}
+            </div>
+          )
+        })}
+      </div>
+      {pinnedBlocks.length > 0 && (
+        <div style={{ padding: '6px 8px', borderTop: `1px solid ${C.border}`, fontSize: '0.6rem', color: C.muted }}>
+          {pinnedBlocks.length} block(s) pinned
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Codebase Panel ───────────────────────────────────────────────
+function CodebasePanel({
+  codeTab, setCodeTab, activeSpec,
+  editedSpecJson, setEditedSpecJson, specJsonError, onApplySpec,
+  strategyCode, setStrategyCode,
+  activeBacktest, backtestHistory, activeBacktestId, setActiveBacktestId,
+  btInterpretation, ledgerRows, ledgerLoading, agentId,
+  running, onRunBacktest,
+}: {
+  codeTab: CodeTab; setCodeTab: (t: CodeTab) => void
+  activeSpec: AgentSpec | null
+  editedSpecJson: string; setEditedSpecJson: (v: string) => void
+  specJsonError: string; onApplySpec: () => void
+  strategyCode: string; setStrategyCode: (v: string) => void
+  activeBacktest: BacktestRun | null
+  backtestHistory: BacktestRun[]; activeBacktestId: string | null; setActiveBacktestId: (id: string) => void
+  btInterpretation: string; ledgerRows: any[]; ledgerLoading: boolean; agentId: string | null
+  running: boolean; onRunBacktest: () => void
+}) {
+  const TABS: { id: CodeTab; label: string; icon: string }[] = [
+    { id: 'strategy', label: 'strategy.ts', icon: '⌨' },
+    { id: 'spec', label: 'spec.json', icon: '{}' },
+    { id: 'backtest', label: 'Backtest', icon: '📊' },
+    { id: 'pipeline', label: 'Pipeline', icon: '⟶' },
+    { id: 'ledger', label: 'Ledger', icon: '📋' },
+  ]
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Tab bar */}
+      <div style={{ display: 'flex', background: C.surface2, borderBottom: `1px solid ${C.border}`, flexShrink: 0, overflowX: 'auto' }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setCodeTab(t.id)} style={{
+            padding: '0 1rem', height: 36, background: codeTab === t.id ? C.bg : 'transparent',
+            border: 'none', borderRight: `1px solid ${C.border}`,
+            borderBottom: codeTab === t.id ? `2px solid ${C.purple}` : 'none',
+            color: codeTab === t.id ? C.text : C.muted, fontSize: '0.68rem',
+            fontFamily: 'var(--font-mono)', cursor: 'pointer', whiteSpace: 'nowrap', letterSpacing: '0.05em',
+          }}>
+            <span style={{ marginRight: 4 }}>{t.icon}</span>{t.label}
           </button>
         ))}
       </div>
-      <div style={{ fontSize: '0.68rem', color: C.faint, fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}>
-        TIP: drag blocks from the left panel into the prompt to constrain the agent
-      </div>
-    </div>
-  )
-}
 
-// ─── BLOCK PALETTE ─────────────────────────────────────────────
-function BlockPalette({ pinnedBlocks, togglePin, setDraggedBlock }: any) {
-  const groups: BlockKind[] = ['data', 'indicator', 'ml', 'api', 'risk', 'execution', 'signal']
-  return (
-    <div style={{ width: 220, background: C.panel2, overflow: 'auto', padding: '0.7rem 0.5rem' }}>
-      <div style={{ fontSize: '0.55rem', letterSpacing: '0.2em', color: C.faint, fontFamily: 'var(--font-mono)', padding: '0 0.4rem 0.5rem' }}>BLOCKS · DRAG OR CLICK</div>
-      {groups.map(kind => (
-        <div key={kind} style={{ marginBottom: '0.85rem' }}>
-          <div style={{ fontSize: '0.55rem', fontFamily: 'var(--font-mono)', color: KIND_COLOR[kind], letterSpacing: '0.18em', padding: '0 0.4rem 0.3rem' }}>{kind.toUpperCase()}</div>
-          {(BLOCKS_BY_KIND[kind] || []).map((b: Block) => {
-            const pinned = pinnedBlocks.includes(b.id)
-            return (
-              <div
-                key={b.id}
-                draggable
-                onDragStart={e => { e.dataTransfer.setData('application/x-block-id', b.id); setDraggedBlock(b.id) }}
-                onDragEnd={() => setDraggedBlock(null)}
-                onClick={() => togglePin(b.id)}
-                title={b.description}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '0.4rem 0.5rem', marginBottom: 3, borderRadius: 5, cursor: 'grab',
-                  background: pinned ? `${KIND_COLOR[kind]}1F` : 'transparent',
-                  border: `1px solid ${pinned ? KIND_COLOR[kind] + '55' : 'transparent'}`,
-                  fontSize: '0.7rem',
-                  transition: 'all 0.12s',
-                }}
-                onMouseEnter={e => { if (!pinned) e.currentTarget.style.background = C.borderSoft }}
-                onMouseLeave={e => { if (!pinned) e.currentTarget.style.background = 'transparent' }}
-              >
-                <div style={{ width: 4, height: 4, borderRadius: '50%', background: KIND_COLOR[kind], flexShrink: 0 }} />
-                <span style={{ flex: 1, color: pinned ? C.text : C.muted, fontWeight: pinned ? 600 : 400 }}>{b.label}</span>
-                {pinned && <span style={{ fontSize: '0.55rem', color: KIND_COLOR[kind], fontFamily: 'var(--font-mono)' }}>✓</span>}
-              </div>
-            )
-          })}
-        </div>
-      ))}
-    </div>
-  )
-}
+      {/* Panel content */}
+      <div style={{ flex: 1, overflow: 'auto', background: C.bg }}>
 
-// ─── COMPOSER ─────────────────────────────────────────────────
-function Composer({ prompt, setPrompt, compile, compiling, pinnedBlocks, togglePin, compact }: any) {
-  return (
-    <div style={{ padding: compact ? '0.7rem 0.9rem 0.9rem' : '0', borderTop: compact ? `1px solid ${C.border}` : 'none', background: compact ? C.panel : 'transparent' }}>
-      {pinnedBlocks.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-          {pinnedBlocks.map((id: string) => {
-            const b = Object.values(BLOCKS_BY_KIND).flat().find(x => x.id === id)
-            if (!b) return null
-            return (
-              <button key={id} onClick={() => togglePin(id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.62rem', padding: '2px 6px', borderRadius: 4, background: `${KIND_COLOR[b.kind]}22`, border: `1px solid ${KIND_COLOR[b.kind]}55`, color: C.text, fontFamily: 'var(--font-mono)', cursor: 'pointer' }}>
-                {b.label} ×
-              </button>
-            )
-          })}
-        </div>
-      )}
-      <form onSubmit={e => { e.preventDefault(); compile(prompt) }} style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-        <textarea
-          value={prompt}
-          onChange={e => setPrompt(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); compile(prompt) } }}
-          placeholder="Describe your agent… (e.g. 'BTC momentum, weekly rebal, conservative')"
-          rows={compact ? 2 : 3}
-          disabled={compiling}
-          style={{ flex: 1, resize: 'none', padding: '0.7rem 0.85rem', background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, fontSize: '0.85rem', fontFamily: 'var(--font-sans)', outline: 'none' }}
-        />
-        <button type="submit" disabled={!prompt.trim() || compiling} style={{ padding: '0.7rem 1.1rem', borderRadius: 8, background: prompt.trim() && !compiling ? C.blue : C.border, color: 'white', border: 'none', fontWeight: 700, fontSize: '0.78rem', cursor: prompt.trim() && !compiling ? 'pointer' : 'not-allowed', fontFamily: 'var(--font-mono)', letterSpacing: '0.08em' }}>
-          {compiling ? '…' : 'BUILD →'}
-        </button>
-      </form>
-    </div>
-  )
-}
-
-// ─── CHAT TURNS ────────────────────────────────────────────────
-function Turn({ turn, onCollapse, onRun, running }: any) {
-  if (turn.role === 'user') {
-    return (
-      <div style={{ alignSelf: 'flex-end', maxWidth: '85%', padding: '0.55rem 0.85rem', background: 'rgba(79,140,255,0.12)', border: `1px solid rgba(79,140,255,0.25)`, borderRadius: 10, fontSize: '0.84rem' }}>
-        {turn.text}
-        {turn.blocks?.length > 0 && (
-          <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-            {turn.blocks.map((id: string) => {
-              const b = Object.values(BLOCKS_BY_KIND).flat().find(x => x.id === id)
-              return b && <span key={id} style={{ fontSize: '0.58rem', padding: '1px 5px', borderRadius: 3, background: KIND_COLOR[b.kind] + '33', color: C.text, fontFamily: 'var(--font-mono)' }}>{b.label}</span>
-            })}
+        {codeTab === 'strategy' && (
+          <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '6px 12px', background: C.surface, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.65rem', color: C.muted }}>
+              <span style={{ color: C.purple }}>◈</span> Generated strategy code · editable
+              <button onClick={() => { /* copy */ navigator.clipboard?.writeText(strategyCode) }} style={{ marginLeft: 'auto', padding: '2px 8px', background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 4, color: C.muted, fontSize: '0.6rem', cursor: 'pointer' }}>Copy</button>
+            </div>
+            <textarea
+              value={strategyCode} onChange={e => setStrategyCode(e.target.value)}
+              spellCheck={false}
+              style={{ flex: 1, width: '100%', background: C.bg, border: 'none', color: '#C8BEFF', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', lineHeight: 1.6, padding: '1rem', resize: 'none', outline: 'none' }}
+            />
           </div>
         )}
+
+        {codeTab === 'spec' && (
+          <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '6px 12px', background: C.surface, borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '0.65rem', color: C.muted }}>
+                <span style={{ color: C.amber }}>{'{ }'}</span> spec.json · edit and apply
+              </span>
+              {specJsonError && <span style={{ fontSize: '0.6rem', color: C.red }}>{specJsonError}</span>}
+              <button onClick={onApplySpec} style={{ marginLeft: 'auto', padding: '3px 10px', background: C.purple, border: 'none', borderRadius: 5, color: 'white', fontSize: '0.62rem', cursor: 'pointer', fontWeight: 700 }}>Apply →</button>
+            </div>
+            <textarea
+              value={editedSpecJson} onChange={e => setEditedSpecJson(e.target.value)}
+              spellCheck={false}
+              style={{ flex: 1, width: '100%', background: C.bg, border: 'none', color: '#A8EDCC', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', lineHeight: 1.6, padding: '1rem', resize: 'none', outline: 'none' }}
+            />
+          </div>
+        )}
+
+        {codeTab === 'backtest' && (
+          <BacktestView
+            activeBacktest={activeBacktest} backtestHistory={backtestHistory}
+            activeBacktestId={activeBacktestId} setActiveBacktestId={setActiveBacktestId}
+            btInterpretation={btInterpretation} running={running} onRunBacktest={onRunBacktest}
+            activeSpec={activeSpec}
+          />
+        )}
+
+        {codeTab === 'pipeline' && <PipelineView spec={activeSpec} />}
+
+        {codeTab === 'ledger' && <LedgerView rows={ledgerRows} loading={ledgerLoading} agentId={agentId} />}
       </div>
-    )
-  }
-  if (turn.role === 'status') {
-    const color = turn.stage === 'error' ? C.red : turn.stage === 'done' ? C.green : C.muted
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.7rem', color, fontFamily: 'var(--font-mono)', padding: '2px 4px' }}>
-        <span style={{ width: 4, height: 4, borderRadius: '50%', background: color }} />
-        {turn.text}
-      </div>
-    )
-  }
-  // agent turn
-  const collapsed = turn.collapsed ?? true
+    </div>
+  )
+}
+
+// ─── Backtest View ────────────────────────────────────────────────
+function BacktestView({ activeBacktest, backtestHistory, activeBacktestId, setActiveBacktestId, btInterpretation, running, onRunBacktest, activeSpec }: {
+  activeBacktest: BacktestRun | null; backtestHistory: BacktestRun[]
+  activeBacktestId: string | null; setActiveBacktestId: (id: string) => void
+  btInterpretation: string; running: boolean; onRunBacktest: () => void; activeSpec: AgentSpec | null
+}) {
+  if (!activeBacktest && !running) return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12, color: C.muted }}>
+      <div style={{ fontSize: '2rem' }}>📊</div>
+      <div style={{ fontSize: '0.9rem', fontWeight: 600, color: C.text }}>No backtest yet</div>
+      <div style={{ fontSize: '0.8rem' }}>Build an agent and it will auto-backtest</div>
+      {activeSpec && <button onClick={onRunBacktest} style={{ padding: '0.5rem 1.2rem', background: C.purple, border: 'none', borderRadius: 8, color: 'white', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 700 }}>▶ Run Backtest</button>}
+    </div>
+  )
+  if (running) return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12 }}>
+      <ThinkingDots />
+      <div style={{ fontSize: '0.85rem', color: C.muted }}>Running backtest simulation…</div>
+    </div>
+  )
+  const ts = activeBacktest!.result.tear_sheet ?? {}
+  const grade = activeBacktest!.result.grade ?? '—'
+  const gradeColor = grade.startsWith('A') ? C.green : grade.startsWith('B') ? C.blue : grade.startsWith('C') ? C.amber : C.red
+  const equity: Array<{ date: string; equity: number }> = activeBacktest!.result.equity_curve ?? []
+
   return (
-    <div style={{ alignSelf: 'flex-start', maxWidth: '90%', padding: '0.7rem 0.9rem', background: C.panel, border: `1px solid ${C.border}`, borderRadius: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-        <div style={{ fontSize: '0.55rem', color: C.faint, letterSpacing: '0.2em', fontFamily: 'var(--font-mono)' }}>AGENT · {turn.spec?.name?.toUpperCase()}</div>
-        <button onClick={() => onCollapse(turn.id, !collapsed)} style={{ background: 'transparent', border: 'none', color: C.muted, fontSize: '0.65rem', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>
-          {collapsed ? '▸ expand' : '▾ collapse'}
-        </button>
-      </div>
-      <div style={{ fontSize: '0.8rem', color: C.text, lineHeight: 1.5 }}>{turn.text}</div>
-      {!collapsed && turn.spec && (
-        <div style={{ marginTop: 8, padding: '0.5rem 0.7rem', background: C.bg, borderRadius: 6, fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: C.muted }}>
-          <div>template: <span style={{ color: C.text }}>{turn.spec.template}</span></div>
-          <div>alpha: <span style={{ color: C.text }}>{turn.spec.alpha_type}</span> · rebal: <span style={{ color: C.text }}>{turn.spec.rebalance_freq}</span> · risk λ: <span style={{ color: C.text }}>{turn.spec.risk_aversion}</span></div>
-          <div>universe: <span style={{ color: C.text }}>{turn.spec.symbols.join(', ')}</span></div>
+    <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* History tabs */}
+      {backtestHistory.length > 1 && (
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {backtestHistory.map(r => (
+            <button key={r.id} onClick={() => setActiveBacktestId(r.id)} style={{
+              padding: '3px 10px', borderRadius: 6, border: `1px solid ${r.id === activeBacktestId ? C.purple : C.border}`,
+              background: r.id === activeBacktestId ? `${C.purple}22` : 'transparent',
+              color: r.id === activeBacktestId ? C.purple : C.muted, fontSize: '0.62rem', cursor: 'pointer', fontFamily: 'var(--font-mono)',
+            }}>{r.label}</button>
+          ))}
         </div>
       )}
+
+      {/* Stats grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8 }}>
+        {[
+          { label: 'Grade', value: grade, color: gradeColor, large: true },
+          { label: 'CAGR', value: ts.cagr != null ? `${ts.cagr.toFixed(1)}%` : '—', color: ts.cagr > 0 ? C.green : C.red },
+          { label: 'Sharpe', value: ts.sharpeRatio?.toFixed(2) ?? '—', color: ts.sharpeRatio > 1 ? C.green : ts.sharpeRatio > 0 ? C.amber : C.red },
+          { label: 'Max DD', value: ts.maxDrawdownPct != null ? `${ts.maxDrawdownPct.toFixed(1)}%` : '—', color: C.red },
+          { label: 'Trades', value: activeBacktest!.result.n_trades ?? 0, color: C.cyan },
+          { label: 'Win Rate', value: ts.winRate != null ? `${(ts.winRate * 100).toFixed(0)}%` : '—', color: C.blue },
+          { label: 'Sortino', value: ts.sortinoRatio?.toFixed(2) ?? '—', color: C.purple },
+          { label: 'Alpha %', value: ts.alphaAnnualizedPct != null ? `${ts.alphaAnnualizedPct.toFixed(1)}%` : '—', color: ts.alphaAnnualizedPct > 0 ? C.green : C.red },
+        ].map(s => (
+          <div key={s.label} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '0.6rem 0.75rem' }}>
+            <div style={{ fontSize: '0.55rem', letterSpacing: '0.15em', color: C.faint, fontFamily: 'var(--font-mono)', marginBottom: 4 }}>{s.label}</div>
+            <div style={{ fontSize: s.large ? '1.5rem' : '1.1rem', fontWeight: 800, color: s.color, fontFamily: 'var(--font-mono)' }}>{String(s.value)}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Equity curve (simple SVG sparkline) */}
+      {equity.length > 2 && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '0.75rem' }}>
+          <div style={{ fontSize: '0.6rem', letterSpacing: '0.15em', color: C.faint, fontFamily: 'var(--font-mono)', marginBottom: 6 }}>EQUITY CURVE</div>
+          <EquitySVG data={equity} />
+        </div>
+      )}
+
+      {/* AI interpretation */}
+      {btInterpretation && (
+        <div style={{ background: `${C.purple}10`, border: `1px solid ${C.purple}30`, borderRadius: 10, padding: '0.85rem 1rem' }}>
+          <div style={{ fontSize: '0.6rem', letterSpacing: '0.15em', color: C.purple, fontFamily: 'var(--font-mono)', marginBottom: 6 }}>◈ AI INTERPRETATION</div>
+          <div style={{ fontSize: '0.75rem', color: C.text, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>{btInterpretation}</div>
+        </div>
+      )}
+
+      <button onClick={onRunBacktest} disabled={running} style={{ padding: '0.5rem', background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 8, color: C.muted, fontSize: '0.65rem', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>
+        ↺ Re-run backtest
+      </button>
     </div>
   )
 }
 
-function Thinking() {
+function EquitySVG({ data }: { data: Array<{ date: string; equity: number }> }) {
+  const W = 600; const H = 100
+  const vals = data.map(d => d.equity)
+  const min = Math.min(...vals); const max = Math.max(...vals)
+  const range = max - min || 1
+  const pts = vals.map((v, i) => `${(i / (vals.length - 1)) * W},${H - ((v - min) / range) * H}`).join(' ')
+  const color = vals[vals.length - 1] > vals[0] ? C.green : C.red
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', color: C.muted, fontSize: '0.7rem' }}>
-      <span style={{ display: 'inline-flex', gap: 3 }}>
-        {[0, 1, 2].map(i => <span key={i} style={{ width: 5, height: 5, borderRadius: '50%', background: C.blue, animation: `thinking 1.2s infinite ease-in-out`, animationDelay: `${i * 0.16}s` }} />)}
-      </span>
-      <span style={{ fontFamily: 'var(--font-mono)' }}>thinking…</span>
-    </div>
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 80 }} preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polygon points={`0,${H} ${pts} ${W},${H}`} fill="url(#eqGrad)" />
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" />
+    </svg>
   )
 }
 
-// ─── WORKSPACE ────────────────────────────────────────────────
-function WorkspaceTabs({ tab, setTab, hasSpec, hasBacktest }: { tab: WorkspaceTab; setTab: (t: WorkspaceTab) => void; hasSpec: boolean; hasBacktest: boolean }) {
-  const tabs: Array<{ id: WorkspaceTab; label: string; badge?: string }> = [
-    { id: 'spec', label: 'SPEC', badge: hasSpec ? '●' : undefined },
-    { id: 'pipeline', label: 'PIPELINE' },
-    { id: 'backtest', label: 'BACKTEST', badge: hasBacktest ? '●' : undefined },
-    { id: 'ledger', label: 'LEDGER' },
-    { id: 'code', label: 'CODE', badge: hasSpec ? '●' : undefined },
-    { id: 'codebase', label: 'FILES' },
+// ─── Pipeline View ────────────────────────────────────────────────
+function PipelineView({ spec }: { spec: AgentSpec | null }) {
+  if (!spec) return <div style={{ padding: '2rem', color: C.muted, textAlign: 'center' }}>Build an agent to see the pipeline.</div>
+  const layers = [
+    { n: '1', name: 'Data Layer', desc: `${spec.symbols.join(', ')} · OHLCV from Binance/Yahoo`, color: C.blue },
+    { n: '2', name: 'Feature Eng.', desc: 'RSI · EMA · vol · momentum · z-score · Amihud illiquidity', color: C.green },
+    { n: '3', name: 'Alpha Model', desc: `${spec.alpha_type.toUpperCase()} · ${spec.signal_scale_bps}bps scale · ${spec.forecast_horizon}d horizon`, color: C.purple },
+    { n: '4', name: 'Risk Model', desc: 'Ledoit-Wolf covariance · market betas · rolling vol', color: C.amber },
+    { n: '5', name: 'Optimizer', desc: `Mean-variance · λ=${spec.risk_aversion} · max ${(spec.max_weight * 100).toFixed(0)}%/asset`, color: C.orange },
+    { n: '6', name: 'Risk Manager', desc: `Max DD trigger 25% · gross exposure ≤ 100%`, color: C.red },
+    { n: '7', name: 'Execution', desc: 'Market-impact slippage · TWAP simulation · participation limit', color: C.cyan },
+    { n: '8', name: 'Metrics', desc: 'Sharpe · Sortino · Calmar · IC · WF · regime breakdown', color: C.pink },
+    { n: '9', name: 'Paper Ledger', desc: `Ticks every ${spec.cadence} · writes to agent_paper_ledger`, color: C.green },
   ]
   return (
-    <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, background: C.panel2, paddingLeft: '0.5rem' }}>
-      {tabs.map(t => (
-        <button key={t.id} onClick={() => setTab(t.id)} style={{
-          padding: '0.65rem 1rem', background: 'transparent', border: 'none', borderBottom: `2px solid ${tab === t.id ? C.blue : 'transparent'}`,
-          color: tab === t.id ? C.text : C.muted, fontSize: '0.65rem', fontWeight: 600, fontFamily: 'var(--font-mono)', letterSpacing: '0.1em', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
-        }}>
-          {t.label} {t.badge && <span style={{ color: C.green, fontSize: '0.55rem' }}>{t.badge}</span>}
-        </button>
+    <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ fontSize: '0.6rem', letterSpacing: '0.2em', color: C.faint, fontFamily: 'var(--font-mono)', marginBottom: 4 }}>9-LAYER STRATEGY PIPELINE</div>
+      {layers.map((l, i) => (
+        <div key={l.n} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <div style={{ width: 24, height: 24, borderRadius: '50%', background: `${l.color}22`, border: `1px solid ${l.color}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', fontWeight: 700, color: l.color, flexShrink: 0, marginTop: 2 }}>{l.n}</div>
+          {i < layers.length - 1 && (
+            <div style={{ position: 'absolute', left: 'calc(1rem + 12px)', marginTop: 24, width: 1, height: 6, background: `${l.color}44` }} />
+          )}
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: C.text }}>{l.name}</div>
+            <div style={{ fontSize: '0.65rem', color: C.muted, lineHeight: 1.4 }}>{l.desc}</div>
+          </div>
+        </div>
       ))}
     </div>
   )
 }
 
-function Empty({ msg }: { msg: string }) {
-  return <div style={{ padding: '3rem 1rem', textAlign: 'center', color: C.faint, fontSize: '0.85rem', fontStyle: 'italic' }}>{msg}</div>
-}
-
-function SpecView({ spec, onRun, running, onCadenceChange }: { spec: AgentSpec; onRun: () => void; running: boolean; onCadenceChange: (c: AgentSpec['cadence']) => void }) {
+// ─── Ledger View ──────────────────────────────────────────────────
+function LedgerView({ rows, loading, agentId }: { rows: any[]; loading: boolean; agentId: string | null }) {
+  if (!agentId) return <div style={{ padding: '2rem', color: C.muted, textAlign: 'center' }}>Publish the agent to see paper trades here.</div>
+  if (loading) return <div style={{ padding: '2rem', color: C.muted, textAlign: 'center' }}>Loading trades…</div>
+  if (rows.length === 0) return <div style={{ padding: '2rem', color: C.muted, textAlign: 'center' }}>No paper trades yet. Click Publish → first tick fires immediately.</div>
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem', gap: '1rem' }}>
-        <div>
-          <div style={{ fontSize: '0.55rem', color: C.faint, letterSpacing: '0.2em', fontFamily: 'var(--font-mono)' }}>AGENT</div>
-          <div style={{ fontSize: '1.4rem', fontWeight: 700, marginTop: 2 }}>{spec.name}</div>
-          <div style={{ fontSize: '0.85rem', color: C.muted, marginTop: 6, lineHeight: 1.5, maxWidth: 540 }}>{spec.thesis}</div>
-        </div>
-        <button onClick={onRun} disabled={running} style={{ padding: '0.6rem 1rem', borderRadius: 7, background: running ? C.border : C.green, color: 'white', border: 'none', fontWeight: 700, fontSize: '0.72rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em', cursor: running ? 'not-allowed' : 'pointer' }}>
-          {running ? 'RUNNING…' : 'RE-RUN ▶'}
-        </button>
-      </div>
-      <div style={{ marginBottom: '0.85rem', padding: '0.7rem 0.9rem', background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8 }}>
-        <div style={{ fontSize: '0.55rem', color: C.faint, letterSpacing: '0.2em', fontFamily: 'var(--font-mono)', marginBottom: 6 }}>LIVE TRADING CADENCE</div>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {CADENCES.map(c => (
-            <button key={c} onClick={() => onCadenceChange(c)} style={{
-              padding: '5px 10px', borderRadius: 5, fontSize: '0.7rem', fontFamily: 'var(--font-mono)', fontWeight: 600,
-              background: spec.cadence === c ? C.blue : 'transparent', color: spec.cadence === c ? 'white' : C.muted,
-              border: `1px solid ${spec.cadence === c ? C.blue : C.border}`, cursor: 'pointer',
-            }}>{c}</button>
+    <div style={{ padding: '0.75rem' }}>
+      <div style={{ fontSize: '0.6rem', letterSpacing: '0.18em', color: C.faint, fontFamily: 'var(--font-mono)', marginBottom: 6 }}>PAPER TRADE LEDGER</div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.68rem' }}>
+        <thead><tr style={{ borderBottom: `1px solid ${C.border}` }}>
+          {['Symbol', 'Side', 'Qty', 'Price', 'Notional', 'When'].map(h => (
+            <th key={h} style={{ textAlign: 'left', padding: '4px 6px', color: C.faint, fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.55rem', letterSpacing: '0.1em' }}>{h}</th>
           ))}
-        </div>
-        <div style={{ marginTop: 5, fontSize: '0.65rem', color: C.faint, fontFamily: 'var(--font-mono)' }}>
-          When published, the agent runs every <span style={{ color: C.text }}>{spec.cadence}</span> and writes trades to the public ledger.
-        </div>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.6rem 1.2rem', padding: '0.85rem 1rem', background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8 }}>
-        <KV k="Template" v={spec.template} />
-        <KV k="Alpha Type" v={spec.alpha_type} />
-        <KV k="Rebalance" v={spec.rebalance_freq} />
-        <KV k="Risk λ" v={String(spec.risk_aversion)} />
-        <KV k="Max Weight" v={`${(spec.max_weight * 100).toFixed(0)}%`} />
-        <KV k="Forecast" v={`${spec.forecast_horizon}d`} />
-        <KV k="Signal" v={`${spec.signal_scale_bps}bps`} />
-        <KV k="Walk-fwd" v={spec.walk_forward ? 'yes' : 'no'} />
-        <KV k="Capital" v={`$${spec.initial_capital.toLocaleString()}`} />
-        <KV k="Window" v={`${spec.start_date} → ${spec.end_date}`} wide />
-      </div>
-      <div style={{ marginTop: '1rem' }}>
-        <div style={{ fontSize: '0.55rem', color: C.faint, letterSpacing: '0.2em', fontFamily: 'var(--font-mono)', marginBottom: 6 }}>UNIVERSE</div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-          {spec.symbols.map(s => <span key={s} style={{ padding: '4px 9px', borderRadius: 5, background: C.panel, border: `1px solid ${C.border}`, fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>{s}</span>)}
-        </div>
-      </div>
-      {spec.alpha_weights && (
-        <div style={{ marginTop: '1rem' }}>
-          <div style={{ fontSize: '0.55rem', color: C.faint, letterSpacing: '0.2em', fontFamily: 'var(--font-mono)', marginBottom: 6 }}>ALPHA BLEND</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-            {Object.entries(spec.alpha_weights).map(([k, v]) => v && (
-              <div key={k} style={{ flex: '1 1 100px', minWidth: 100 }}>
-                <div style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: C.muted, marginBottom: 2 }}>{k} <span style={{ color: C.text }}>{(v * 100).toFixed(0)}%</span></div>
-                <div style={{ height: 4, background: C.bg, borderRadius: 2, overflow: 'hidden' }}>
-                  <div style={{ width: `${v * 100}%`, height: '100%', background: C.blue }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+        </tr></thead>
+        <tbody>
+          {rows.map((r: any, i: number) => (
+            <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
+              <td style={{ padding: '4px 6px', color: C.amber, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{r.symbol}</td>
+              <td style={{ padding: '4px 6px', color: r.side === 'BUY' ? C.green : C.red, fontWeight: 700 }}>{r.side}</td>
+              <td style={{ padding: '4px 6px', color: C.text, fontFamily: 'var(--font-mono)' }}>{typeof r.qty === 'number' ? r.qty.toFixed(4) : r.qty}</td>
+              <td style={{ padding: '4px 6px', color: C.text, fontFamily: 'var(--font-mono)' }}>${typeof r.price === 'number' ? r.price.toFixed(2) : r.price}</td>
+              <td style={{ padding: '4px 6px', color: C.muted, fontFamily: 'var(--font-mono)' }}>${typeof r.notional === 'number' ? r.notional.toFixed(0) : r.notional}</td>
+              <td style={{ padding: '4px 6px', color: C.faint }}>{r.executed_at ? new Date(r.executed_at).toLocaleString() : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
 
-function KV({ k, v, wide }: { k: string; v: string; wide?: boolean }) {
+// ─── Composer (ready mode) ────────────────────────────────────────
+function Composer({ prompt, setPrompt, onSubmit, compiling, pinnedBlocks, onTogglePin, phase }: {
+  prompt: string; setPrompt: (v: string) => void; onSubmit: (t: string) => void
+  compiling: boolean; pinnedBlocks: string[]; onTogglePin: (id: string) => void; phase: Phase
+}) {
   return (
-    <div style={wide ? { gridColumn: '1 / -1' } : undefined}>
-      <div style={{ fontSize: '0.55rem', color: C.faint, letterSpacing: '0.15em', fontFamily: 'var(--font-mono)' }}>{k}</div>
-      <div style={{ fontSize: '0.82rem', fontFamily: 'var(--font-mono)', marginTop: 1 }}>{v}</div>
-    </div>
-  )
-}
-
-function PipelineView({ spec, blocks }: { spec: AgentSpec | null; blocks: string[] }) {
-  const stages = [
-    { name: 'Data', desc: spec ? spec.symbols.join(', ') : 'select symbols' },
-    { name: 'Features', desc: 'returns, volatility, volume z-score, momentum scores' },
-    { name: 'Alpha', desc: spec ? `${spec.alpha_type} (horizon ${spec.forecast_horizon}d)` : '—' },
-    { name: 'Risk Model', desc: 'covariance, factor exposures' },
-    { name: 'Optimizer', desc: spec ? `λ=${spec.risk_aversion}, max_w=${(spec.max_weight*100).toFixed(0)}%` : '—' },
-    { name: 'Risk Manager', desc: 'kill switch, position limits' },
-    { name: 'Execution', desc: 'slippage, commission, market impact' },
-    { name: 'Metrics', desc: 'Sharpe, Sortino, MaxDD, IC, walk-forward' },
-  ]
-  return (
-    <div>
-      <div style={{ fontSize: '0.85rem', color: C.muted, marginBottom: '1rem' }}>9-layer pipeline. The agent flows through each stage.</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {stages.map((s, i) => (
-          <div key={s.name} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '0.6rem 0.85rem', background: C.panel, border: `1px solid ${C.border}`, borderRadius: 7 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 6, background: C.bg, color: C.blue, fontFamily: 'var(--font-mono)', fontSize: '0.7rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i+1}</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '0.78rem', fontWeight: 600 }}>{s.name}</div>
-              <div style={{ fontSize: '0.7rem', color: C.muted, fontFamily: 'var(--font-mono)' }}>{s.desc}</div>
-            </div>
-            <div style={{ color: spec ? C.green : C.faint, fontSize: '0.7rem' }}>{spec ? '✓' : '○'}</div>
-          </div>
-        ))}
-      </div>
-      {blocks.length > 0 && (
-        <div style={{ marginTop: '1rem', padding: '0.7rem 0.85rem', background: C.panel, border: `1px solid ${C.border}`, borderRadius: 7 }}>
-          <div style={{ fontSize: '0.55rem', color: C.faint, fontFamily: 'var(--font-mono)', letterSpacing: '0.2em', marginBottom: 5 }}>PINNED BLOCKS · INFLUENCING SPEC</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {blocks.map(id => {
-              const b = Object.values(BLOCKS_BY_KIND).flat().find(x => x.id === id)
-              return b && <span key={id} style={{ fontSize: '0.62rem', padding: '2px 7px', borderRadius: 4, background: KIND_COLOR[b.kind] + '22', border: `1px solid ${KIND_COLOR[b.kind]}55`, color: C.text, fontFamily: 'var(--font-mono)' }}>{b.label}</span>
-            })}
-          </div>
+    <div style={{ background: C.surface, borderTop: `1px solid ${C.border}`, padding: '0.6rem 0.75rem', flexShrink: 0 }}>
+      {pinnedBlocks.length > 0 && (
+        <div style={{ display: 'flex', gap: 4, marginBottom: 5, flexWrap: 'wrap' }}>
+          {pinnedBlocks.map(id => {
+            const b = BLOCKS.find(x => x.id === id)
+            if (!b) return null
+            const meta = KIND_META[b.kind]
+            return (
+              <span key={id} style={{ padding: '1px 7px', borderRadius: 10, background: `${meta.glow}18`, border: `1px solid ${meta.glow}44`, color: meta.glow, fontSize: '0.6rem', cursor: 'pointer' }}
+                onClick={() => onTogglePin(id)}>
+                {meta.icon} {b.label} ×
+              </span>
+            )
+          })}
         </div>
       )}
-    </div>
-  )
-}
-
-function BacktestView({ result, spec }: { result: any; spec: AgentSpec }) {
-  const ts = result.tear_sheet || {}
-  const grade = result.grade || '—'
-  const score = result.score ?? 0
-  const cagr = ts.cagr ? (ts.cagr * 100).toFixed(2) : '—'
-  const sharpe = ts.sharpe?.toFixed(2) ?? '—'
-  const maxDD = ts.maxDrawdown ? (ts.maxDrawdown * 100).toFixed(2) : '—'
-  const sortino = ts.sortino?.toFixed(2) ?? '—'
-  const winRate = ts.winRate ? (ts.winRate * 100).toFixed(1) : '—'
-  const benchCagr = result.benchmark_cagr?.toFixed(2) ?? '—'
-  const equity = result.equity_curve || []
-  const sparkline = equity.length > 1 ? buildSparkline(equity.map((e: any) => e.equity)) : null
-  const gradeColor = grade.startsWith('A') ? C.green : grade.startsWith('B') ? C.blue : grade.startsWith('C') ? C.amber : C.red
-
-  return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.9rem' }}>
-        <div>
-          <div style={{ fontSize: '0.55rem', color: C.faint, letterSpacing: '0.2em', fontFamily: 'var(--font-mono)' }}>BACKTEST RESULTS</div>
-          <div style={{ fontSize: '1.1rem', fontWeight: 700, marginTop: 2 }}>{spec.name}</div>
-          <div style={{ fontSize: '0.7rem', color: C.muted, marginTop: 2, fontFamily: 'var(--font-mono)' }}>{result.n_rebalances} rebalances · {result.n_trades} trades · {result.runtime_ms}ms</div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '0.55rem', color: C.faint, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em' }}>GRADE</div>
-            <div style={{ fontSize: '1.7rem', fontWeight: 800, color: gradeColor, fontFamily: 'var(--font-mono)' }}>{grade}</div>
-          </div>
-          <div style={{ textAlign: 'right', borderLeft: `1px solid ${C.border}`, paddingLeft: 14 }}>
-            <div style={{ fontSize: '0.55rem', color: C.faint, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em' }}>SCORE</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{score}/100</div>
-          </div>
-        </div>
-      </div>
-      {sparkline && (
-        <div style={{ marginBottom: '0.9rem', padding: '0.7rem', background: C.panel, border: `1px solid ${C.border}`, borderRadius: 7 }}>
-          <div style={{ fontSize: '0.55rem', color: C.faint, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em', marginBottom: 5 }}>EQUITY CURVE</div>
-          <svg viewBox="0 0 400 80" preserveAspectRatio="none" style={{ width: '100%', height: 80, display: 'block' }}>
-            <path d={sparkline} fill="none" stroke={C.blue} strokeWidth="1.5" />
-          </svg>
-        </div>
-      )}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10, marginBottom: '0.9rem' }}>
-        <Stat k="CAGR" v={`${cagr}%`} good={parseFloat(cagr) > parseFloat(benchCagr)} />
-        <Stat k="Sharpe" v={sharpe} good={parseFloat(sharpe) > 1} />
-        <Stat k="Sortino" v={sortino} good={parseFloat(sortino) > 1.5} />
-        <Stat k="Max DD" v={`${maxDD}%`} good={parseFloat(maxDD) > -20} />
-        <Stat k="Win Rate" v={`${winRate}%`} good={parseFloat(winRate) > 50} />
-        <Stat k="Bench" v={`${benchCagr}%`} />
-      </div>
-      {result.monte_carlo && (
-        <div style={{ padding: '0.7rem 0.85rem', background: C.panel, border: `1px solid ${C.border}`, borderRadius: 7, fontSize: '0.72rem', color: C.muted, marginBottom: '0.9rem' }}>
-          <div style={{ fontSize: '0.55rem', color: C.faint, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em', marginBottom: 4 }}>MONTE CARLO ({result.monte_carlo.nTrials} trials, {result.monte_carlo.windowDays}d windows)</div>
-          <div style={{ fontFamily: 'var(--font-mono)' }}>
-            median ret <span style={{ color: C.text }}>{result.monte_carlo.medianReturn?.toFixed(2)}%</span> ·
-            p10 <span style={{ color: C.text }}>{result.monte_carlo.p10Return?.toFixed(2)}%</span> ·
-            p90 <span style={{ color: C.text }}>{result.monte_carlo.p90Return?.toFixed(2)}%</span> ·
-            beat-rate <span style={{ color: C.text }}>{(result.monte_carlo.beatBuyHoldRate * 100).toFixed(0)}%</span>
-          </div>
-        </div>
-      )}
-
-      {/* Trade ledger from backtest */}
-      {result.trade_ledger && result.trade_ledger.length > 0 && (
-        <div style={{ marginTop: '0.7rem' }}>
-          <div style={{ fontSize: '0.55rem', color: C.faint, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em', marginBottom: 5 }}>BACKTEST TRADES ({result.trade_ledger.length})</div>
-          <div style={{ maxHeight: 280, overflow: 'auto', border: `1px solid ${C.border}`, borderRadius: 6 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.7rem', fontFamily: 'var(--font-mono)' }}>
-              <thead style={{ position: 'sticky', top: 0, background: C.panel }}>
-                <tr style={{ color: C.faint, textAlign: 'left' }}>
-                  <th style={tdh}>Date</th><th style={tdh}>Symbol</th><th style={tdh}>Side</th>
-                  <th style={tdhR}>Shares</th><th style={tdhR}>Price</th><th style={tdhR}>Notional</th><th style={tdhR}>Fee bps</th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.trade_ledger.slice(0, 200).map((t: any, i: number) => (
-                  <tr key={i} style={{ color: C.text, borderTop: `1px solid ${C.borderSoft}` }}>
-                    <td style={td}>{t.date}</td>
-                    <td style={td}>{t.symbol}</td>
-                    <td style={{ ...td, color: t.side === 'BUY' ? C.green : C.red }}>{t.side}</td>
-                    <td style={tdR}>{t.shares?.toFixed(4)}</td>
-                    <td style={tdR}>${t.price?.toFixed(2)}</td>
-                    <td style={tdR}>${t.notional?.toFixed(0)}</td>
-                    <td style={tdR}>{t.slippage_bps?.toFixed(1)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-const td: React.CSSProperties = { padding: '4px 8px' }
-const tdR: React.CSSProperties = { padding: '4px 8px', textAlign: 'right' }
-const tdh: React.CSSProperties = { padding: '6px 8px', fontWeight: 700, letterSpacing: '0.1em', fontSize: '0.55rem' }
-const tdhR: React.CSSProperties = { padding: '6px 8px', fontWeight: 700, letterSpacing: '0.1em', fontSize: '0.55rem', textAlign: 'right' }
-
-function LedgerView({ agentId, backtest }: { agentId: string | null; backtest: any }) {
-  const [rows, setRows] = useState<any[]>([])
-  const [loading, setLoading] = useState(false)
-
-  async function load() {
-    if (!agentId) return
-    setLoading(true)
-    try {
-      const r = await fetch(`/api/quant/agent/ledger?agent_id=${agentId}`)
-      const j = await r.json()
-      setRows(j.trades ?? [])
-    } finally { setLoading(false) }
-  }
-
-  useEffect(() => { load() /* eslint-disable-next-line */ }, [agentId])
-
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.7rem' }}>
-        <div>
-          <div style={{ fontSize: '0.55rem', color: C.faint, letterSpacing: '0.2em', fontFamily: 'var(--font-mono)' }}>PUBLIC TRADE LEDGER</div>
-          <div style={{ fontSize: '0.85rem', color: C.muted, marginTop: 2 }}>Live trades from this agent (paper or real). Users can copy.</div>
-        </div>
-        <button onClick={load} disabled={loading || !agentId} style={{ padding: '0.4rem 0.8rem', fontSize: '0.62rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em', background: C.blue, color: 'white', border: 'none', borderRadius: 6, cursor: loading || !agentId ? 'not-allowed' : 'pointer' }}>
-          {loading ? '…' : 'REFRESH'}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+        <textarea
+          value={prompt} onChange={e => setPrompt(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (prompt.trim()) onSubmit(prompt) } }}
+          placeholder="Refine strategy… e.g. 'make it more aggressive' or 'add SOL and DOT'"
+          rows={2}
+          style={{ flex: 1, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, fontSize: '0.78rem', padding: '0.5rem 0.75rem', resize: 'none', outline: 'none', fontFamily: 'var(--font-sans)' }}
+        />
+        <button
+          onClick={() => prompt.trim() && onSubmit(prompt)}
+          disabled={!prompt.trim() || compiling}
+          style={{ padding: '0.5rem 1rem', background: compiling ? C.surface2 : C.purple, border: 'none', borderRadius: 8, color: compiling ? C.muted : 'white', fontSize: '0.75rem', fontWeight: 700, cursor: compiling ? 'not-allowed' : 'pointer', flexShrink: 0 }}
+        >
+          {compiling ? '…' : '→'}
         </button>
       </div>
-
-      {!agentId && <Empty msg="Save the agent first (auto-saves after compile)." />}
-      {agentId && !loading && rows.length === 0 && <Empty msg="No live trades yet. Publish the agent to start posting on its cadence." />}
-
-      {rows.length > 0 && (
-        <div style={{ border: `1px solid ${C.border}`, borderRadius: 6, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem', fontFamily: 'var(--font-mono)' }}>
-            <thead style={{ background: C.panel }}>
-              <tr style={{ color: C.faint, textAlign: 'left' }}>
-                <th style={tdh}>Time</th><th style={tdh}>Mode</th><th style={tdh}>Symbol</th><th style={tdh}>Side</th>
-                <th style={tdhR}>Qty</th><th style={tdhR}>Price</th><th style={tdhR}>Notional</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={r.id ?? i} style={{ color: C.text, borderTop: `1px solid ${C.borderSoft}` }}>
-                  <td style={td}>{new Date(r.executed_at).toLocaleString()}</td>
-                  <td style={{ ...td, color: r.mode === 'live' ? C.amber : C.muted }}>{r.mode}</td>
-                  <td style={td}>{r.symbol}</td>
-                  <td style={{ ...td, color: r.side === 'BUY' ? C.green : C.red }}>{r.side}</td>
-                  <td style={tdR}>{Number(r.qty).toFixed(4)}</td>
-                  <td style={tdR}>${Number(r.price).toFixed(2)}</td>
-                  <td style={tdR}>${Number(r.notional).toFixed(0)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {backtest?.trade_ledger?.length > 0 && (
-        <div style={{ marginTop: '0.7rem', fontSize: '0.7rem', color: C.faint, fontFamily: 'var(--font-mono)' }}>
-          Backtest produced {backtest.trade_ledger.length} simulated trades — see Backtest tab.
-        </div>
-      )}
     </div>
   )
 }
 
-function CodeView({ spec, agentId }: { spec: AgentSpec; agentId: string | null }) {
-  const json = JSON.stringify(spec, null, 2)
+// ─── Entry point with Suspense ────────────────────────────────────
+export default function AgenticQuantLab() {
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.7rem' }}>
-        <div>
-          <div style={{ fontSize: '0.55rem', color: C.faint, letterSpacing: '0.2em', fontFamily: 'var(--font-mono)' }}>AGENT SPEC · JSON</div>
-          <div style={{ fontSize: '0.78rem', color: C.muted, marginTop: 2 }}>What the AI generated. Edit and re-run if needed.</div>
-        </div>
-        {agentId && <a href={`/dashboard/lab/studio?agent=${agentId}`} style={{ padding: '0.4rem 0.8rem', fontSize: '0.62rem', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em', background: C.purple, color: 'white', borderRadius: 6, textDecoration: 'none' }}>OPEN IN STUDIO →</a>}
-      </div>
-      <pre style={{ padding: '1rem', background: C.panel, border: `1px solid ${C.border}`, borderRadius: 7, fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: C.text, whiteSpace: 'pre-wrap', overflow: 'auto', maxHeight: '60vh' }}>
-        {json}
-      </pre>
-    </div>
+    <Suspense fallback={<div style={{ background: '#08060F', color: '#EDE8FF', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem' }}>Loading Quant Lab…</div>}>
+      <AgenticQuantLabInner />
+    </Suspense>
   )
-}
-
-function Stat({ k, v, good }: { k: string; v: string; good?: boolean }) {
-  return (
-    <div style={{ padding: '0.55rem 0.7rem', background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6 }}>
-      <div style={{ color: C.faint, fontSize: '0.55rem', letterSpacing: '0.15em', fontFamily: 'var(--font-mono)' }}>{k}</div>
-      <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.95rem', color: good === true ? C.green : good === false ? C.red : C.text, marginTop: 2 }}>{v}</div>
-    </div>
-  )
-}
-
-function CodebaseView() {
-  const files = [
-    { path: 'app/dashboard/build/page.tsx', desc: 'This page (agentic Quant Lab)' },
-    { path: 'app/api/quant/agent/compile/route.ts', desc: 'NL → AgentSpec compiler (streaming SSE, blocks-aware)' },
-    { path: 'app/api/quant/run/route.ts', desc: '9-layer backtest pipeline' },
-    { path: 'lib/quant/blocks.ts', desc: 'Drag-drop block catalog (data, indicators, ML, APIs)' },
-    { path: 'lib/quant/strategy.ts', desc: 'Strategy templates & builder' },
-    { path: 'lib/quant/backtester.ts', desc: 'Core backtester (buy-hold + walk-forward)' },
-    { path: 'lib/quant/metrics.ts', desc: 'Tear-sheet metrics & grading' },
-    { path: 'lib/quant-docs.ts', desc: 'Data sources, indicators, risk metrics docs' },
-    { path: 'supabase/migrations/20260428_ai_agents.sql', desc: 'ai_agents table (RLS, owner-scoped)' },
-  ]
-  return (
-    <div>
-      <div style={{ fontSize: '0.85rem', color: C.muted, marginBottom: '0.9rem' }}>The agent has read access to these files. Source-of-truth for compile + run.</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {files.map(f => (
-          <div key={f.path} style={{ padding: '0.55rem 0.75rem', background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6 }}>
-            <div style={{ fontSize: '0.74rem', fontFamily: 'var(--font-mono)', color: C.blue }}>{f.path}</div>
-            <div style={{ fontSize: '0.7rem', color: C.muted, marginTop: 2 }}>{f.desc}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function buildSparkline(values: number[]): string {
-  if (values.length < 2) return ''
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  const range = max - min || 1
-  const w = 400, h = 80
-  return values.map((v, i) => {
-    const x = (i / (values.length - 1)) * w
-    const y = h - ((v - min) / range) * h
-    return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
-  }).join(' ')
 }

@@ -87,6 +87,41 @@
   --radius-sm:  14px;
   --radius-xs:  10px;
   --radius-pill: 100px;
+
+  /* ── ASE Elevated (institutional palette, layered atop the existing tokens) ── */
+  --ase-bg-deep:      #0D1117;        /* navy-charcoal hero */
+  --ase-bg-panel:     #11161F;
+  --ase-bg-panel-2:   #161B26;
+  --ase-electric:     #58A6FF;        /* electric blue (builder accent) */
+  --ase-electric-dim: rgba(88, 166, 255, 0.14);
+  --ase-electric-glow: rgba(88, 166, 255, 0.32);
+  --ase-gold:         #FFB800;        /* institutional accent */
+  --ase-gold-dim:     rgba(255, 184, 0, 0.12);
+  --ase-emerald:      #16C784;
+  --ase-coral:        #E45867;
+  --ase-glass-bg:     rgba(13, 17, 23, 0.65);
+  --ase-glass-border: rgba(255, 255, 255, 0.06);
+
+  /* Font aliases (the rest of the codebase uses these names) */
+  --font-sans: var(--font-body);
+}
+
+/* ── Micro-animations ── */
+@keyframes ase-pulse-soft {
+  0%, 100% { box-shadow: 0 0 0 0 var(--ase-electric-glow); opacity: 1; }
+  50%      { box-shadow: 0 0 0 6px transparent; opacity: 0.55; }
+}
+@keyframes ase-tab-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ase-pulse { animation: ase-pulse-soft 2.4s ease-in-out infinite; }
+.ase-tab-in { animation: ase-tab-in 0.18s ease-out both; }
+.ase-glass {
+  background: var(--ase-glass-bg);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border-color: var(--ase-glass-border);
 }
 
 /* ── Reset ─────────────────────────────────────────────────── */

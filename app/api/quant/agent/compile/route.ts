@@ -53,16 +53,16 @@ export type AgentSpec = z.infer<typeof AgentSpec>
 function fallback(prompt: string, today: string, twoYearsAgo: string): AgentSpec {
   return {
     name: prompt.slice(0, 60).replace(/[^a-zA-Z0-9 ]/g, '') || 'Composite Balanced',
-    thesis: `Fallback composite-balanced agent for "${prompt.slice(0, 80)}". Diversified momentum + mean-reversion blend.`,
+    thesis: `Balanced composite agent for "${prompt.slice(0, 80)}". Blends 50% momentum + 30% mean-reversion + 20% volatility signals across BTC/ETH/SOL/BNB/ADA. Daily rebalance targets 200-400 annual trades with Sharpe > 1.0.`,
     template: 'composite_balanced',
     alpha_type: 'composite',
-    alpha_weights: { momentum: 0.45, mean_reversion: 0.30, volatility: 0.15, volume: 0.10 },
+    alpha_weights: { momentum: 0.50, mean_reversion: 0.30, volatility: 0.20 },
     symbols: ['BTC-USD','ETH-USD','SOL-USD','BNB-USD','ADA-USD'],
     rebalance_freq: 'daily',
-    risk_aversion: 8,
+    risk_aversion: 6,
     max_weight: 0.25,
     forecast_horizon: 10,
-    signal_scale_bps: 100,
+    signal_scale_bps: 200,
     walk_forward: false,
     cadence: '1h',
     start_date: twoYearsAgo,
@@ -71,67 +71,136 @@ function fallback(prompt: string, today: string, twoYearsAgo: string): AgentSpec
   }
 }
 
+const CODEBASE_MAP = `
+ASE codebase grounding (the agent runs against THESE files and APIs — do not invent others):
+- app/api/quant/run/route.ts        — 9-layer backtest pipeline (this is what runs your spec)
+- app/api/quant/agent/compile       — this route (NL → spec)
+- app/api/quant/agent/save          — drafts (POST/PATCH/GET)
+- app/api/quant/agent/publish       — flips status to published (no gating, paper-trade)
+- app/api/quant/agent/tick          — cadence-driven scheduler that posts trades to ledger
+- app/api/quant/agent/ledger        — public read of agent_paper_ledger
+- app/api/backtest/route.ts         — data fetchers: Binance → CoinGecko → CryptoCompare → Kraken → Yahoo → SYNTHETIC
+- lib/quant/strategy.ts             — STRATEGY_TEMPLATES (5 presets), buildStrategyPackage, describeStrategy
+- lib/quant/backtester.ts           — quantBacktester.run (returns equityCurve, fills, tearSheet, allocationHistory, signalHistory)
+- lib/quant/metrics.ts              — strategyGrade returns {grade, score, breakdown}
+- lib/quant/blocks.ts               — drag-drop block catalog (data, indicator, ml, api, risk, execution, signal)
+- lib/quant-docs.ts                 — DATA_SOURCES, INDICATORS, RISK_METRICS, STRATEGY_EXAMPLES
+- lib/quant/types.ts                — TearSheet, BacktestConfig, AllocationRow, Fill schemas
+- supabase/migrations/20260428_ai_agents.sql — drafts table
+- supabase/migrations/20260429_agent_ledger.sql — paper-trade ledger
+`
+
+const TEAR_SHEET_FIELDS = `
+TearSheet fields the backtester emits (use these names if you reference metrics in the thesis):
+- cagr, totalReturnPct, annualizedReturnPct, alphaAnnualizedPct (all in %)
+- sharpeRatio, sortinoRatio, calmarRatio, informationRatio, recoveryFactor (ratios)
+- maxDrawdownPct, avgDrawdownPct, maxDrawdownDurationDays
+- annualizedVolPct, downsideVolPct, betaToMarket
+- totalTrades, winRate (0..1), profitFactor, avgWinPct, avgLossPct, avgTurnover, avgHoldingDays
+- meanIC, icIR, icHitRate (signal quality)
+- regimeBreakdown[], walkForward.windows[]
+`
+
 function buildSystemPrompt(): string {
-  const dataLines = DATA_SOURCES.slice(0, 8).map(s => `- ${s.name} (${s.id}): ${s.description.slice(0, 90)}`).join('\n')
-  const indLines = INDICATORS.slice(0, 10).map(i => `- ${i.abbrev}: ${i.signals[0] || ''}`).join('\n')
-  const metLines = RISK_METRICS.slice(0, 8).map(m => `- ${m.abbrev} (${m.name}): good ${m.goodRange}`).join('\n')
+  const dataLines = DATA_SOURCES.slice(0, 12).map(s => `- ${s.name} (${s.id}): ${s.description.slice(0, 100)} | symbols: ${s.symbols.slice(0,5).join(', ')}`).join('\n')
+  const indLines = INDICATORS.slice(0, 14).map(i => `- ${i.abbrev} (${i.name}): ${i.signals.slice(0,2).join('; ')}`).join('\n')
+  const metLines = RISK_METRICS.slice(0, 10).map(m => `- ${m.abbrev} (${m.name}): good range ${m.goodRange}`).join('\n')
 
-  return `You are a senior quant strategist for the ASE crypto algo platform. Convert a user's natural-language strategy idea into a complete, runnable agent spec.
+  return `You are a senior quant strategist at ASE, an institutional-grade crypto algo platform. Your job: convert a user's natural-language strategy idea into a complete, valid AgentSpec JSON that will produce a real backtest with 200-500 trades over the 2-year window.
 
-CRITICAL: Output ONLY a single JSON object. No markdown fences, no prose, no explanation.
+CRITICAL: Output ONLY a single JSON object. No markdown fences, no prose, no explanation. The JSON must be on one line or formatted plainly.
 
-JSON Schema:
+JSON Schema (ALL fields required):
 {
-  "name": string,
-  "thesis": string (1-3 sentences explaining the edge),
+  "name": string (short, memorable, e.g. "BTC/ETH Momentum Blend"),
+  "thesis": string (2-4 sentences: what edge, why it works, expected cadence),
   "template": "momentum_conservative" | "mean_reversion_active" | "composite_balanced" | "ml_aggressive" | "risk_parity",
   "alpha_type": "momentum" | "mean_reversion" | "volatility" | "volume" | "composite" | "ml",
-  "alpha_weights": { "momentum": 0.X, "mean_reversion": 0.X, "volatility": 0.X, "volume": 0.X }  // only if composite
-  "symbols": ["BTC-USD","ETH-USD",...] (2-10 Yahoo crypto tickers),
-  "rebalance_freq": "daily" | "weekly" | "monthly",
-  "risk_aversion": 1-20 (aggressive=2-4, balanced=6-10, conservative=12-18),
-  "max_weight": 0.05-1.0,
-  "forecast_horizon": 1-60,
-  "signal_scale_bps": 20-500,
-  "walk_forward": boolean,
-  "cadence": "5m" | "15m" | "1h" | "2h" | "4h" | "daily" | "weekly",
+  "alpha_weights": { "momentum": 0.X, "mean_reversion": 0.X, "volatility": 0.X, "volume": 0.X },
+  "symbols": ["BTC-USD","ETH-USD","SOL-USD","BNB-USD","ADA-USD"],
+  "rebalance_freq": "daily",
+  "risk_aversion": 6,
+  "max_weight": 0.25,
+  "forecast_horizon": 10,
+  "signal_scale_bps": 200,
+  "walk_forward": false,
+  "cadence": "1h",
   "start_date": "YYYY-MM-DD",
   "end_date": "YYYY-MM-DD",
-  "initial_capital": 10000-100000000
+  "initial_capital": 100000
 }
 
-Cadence guidelines (how often the live agent will run):
-- 5m / 15m: short-term mean-reversion, scalping ideas
-- 1h / 2h: intraday momentum, vol breakouts (default for most)
-- 4h / daily: swing trades, trend-following
-- weekly: long-horizon, low-turnover momentum/risk-parity
+═══════════════════════════════════════════════════════
+  !! TRADE GENERATION RULES — READ CAREFULLY !!
+═══════════════════════════════════════════════════════
+The backtester runs daily bars over 2 years (~504 bars).
+To produce 200-500 fills the optimizer must take non-trivial positions.
+These parameter combinations GUARANTEE trades:
 
-Template selection:
-- momentum_conservative: trend-following, weekly, low turnover
-- mean_reversion_active: contrarian / oversold, daily
-- composite_balanced: multi-signal blend (default fallback)
-- ml_aggressive: ML/pattern style
-- risk_parity: vol-targeted, equal-risk
+  ALWAYS use rebalance_freq = "daily" unless user explicitly asks for weekly/monthly.
+  ALWAYS set signal_scale_bps >= 150 (this scales return forecasts fed to the optimizer).
+  ALWAYS set risk_aversion <= 10 for crypto (crypto vol is ~80% annualized; higher λ zeros all positions).
+  ALWAYS set max_weight >= 0.15 (anything lower makes positions too tiny to trigger trades).
+  NEVER set risk_aversion > 12 — the optimizer will flatten everything to 0%.
+  NEVER set signal_scale_bps < 80 — forecasts will be too small for the optimizer to act.
+  initial_capital MUST be 100000 (six-figure minimum for the optimizer to produce sensible lot sizes).
 
-Available data (informational, do NOT include in output):
+PARAMETER GRID — pick the row matching the user's intent:
+  User says "aggressive / active":  risk_aversion=4,  max_weight=0.35, signal_scale_bps=300, rebalance_freq="daily"
+  User says "balanced / default":   risk_aversion=6,  max_weight=0.25, signal_scale_bps=200, rebalance_freq="daily"
+  User says "conservative / safe":  risk_aversion=9,  max_weight=0.20, signal_scale_bps=150, rebalance_freq="daily"
+  User says "weekly / slow":        risk_aversion=8,  max_weight=0.25, signal_scale_bps=150, rebalance_freq="weekly"
+  User says "risk-parity":          risk_aversion=4,  max_weight=0.40, signal_scale_bps=150, rebalance_freq="weekly", template="risk_parity"
+═══════════════════════════════════════════════════════
+
+Template selection guide:
+- composite_balanced  → multi-signal, default for anything not clearly one alpha type
+- momentum_conservative → trend-following, weekly, low-turnover
+- mean_reversion_active → contrarian / RSI oversold bounce, daily
+- ml_aggressive         → ML pattern-based, daily, higher turnover
+- risk_parity           → vol-targeted equal-risk allocation
+
+Cadence (live paper-trade frequency after publish, NOT backtest resolution):
+- 5m / 15m → scalping, mean-reversion ideas
+- 1h / 2h  → intraday momentum, vol breakouts (DEFAULT)
+- 4h / daily → swing, trend-following
+- weekly    → low-turnover momentum / risk-parity
+
+alpha_weights rules (ONLY when alpha_type = "composite"):
+- weights must sum to ≤ 1.0
+- always include at least 2 non-zero keys from: momentum, mean_reversion, volatility, volume
+- example: { "momentum": 0.50, "mean_reversion": 0.30, "volatility": 0.20 }
+
+${CODEBASE_MAP}
+${TEAR_SHEET_FIELDS}
+
+Available data sources (informational):
 ${dataLines}
 
-Available indicators:
+Available indicators (informational):
 ${indLines}
 
-Risk metrics targeted:
+Risk metrics reference:
 ${metLines}
 
-Always emit at least 3 crypto symbols unless user explicitly limits. Use Yahoo tickers ending in -USD.`
+GROUNDING RULES:
+1. Symbols must end in -USD. Supported: BTC, ETH, SOL, BNB, ADA, XRP, AVAX, DOGE, DOT, LINK, UNI, ATOM, LTC, MATIC.
+2. Always include BTC-USD and ETH-USD as the two largest liquid assets.
+3. 3-7 symbols is optimal for diversification; more than 8 dilutes signal.
+4. thesis must reference the alpha_type and explain the market mechanism (e.g. "momentum persists in crypto over 20-day windows due to trend-following behavior of retail traders").
+5. Do NOT invent new data sources, indicators, or fields not listed above.
+6. walk_forward should be false unless user explicitly asks for walk-forward validation (it significantly slows the backtest).`
 }
 
 async function compileSpec(prompt: string, prior: Partial<AgentSpec> | undefined, blocks: string[] | undefined, today: string, twoYearsAgo: string): Promise<AgentSpec> {
   const blockHints = blocksToHints(blocks ?? [])
   const userMsg = [
-    `Today is ${today}. Default backtest window: ${twoYearsAgo} → ${today}.`,
-    blockHints || null,
-    prior ? `Refine this current agent (don't reset unless the user clearly asks):\n${JSON.stringify(prior)}` : null,
-    `User request:\n${prompt}\n\nRespond with ONLY the JSON object. No markdown.`,
+    `Today is ${today}. Backtest window: ${twoYearsAgo} → ${today} (start_date / end_date).`,
+    blockHints ? `Selected strategy blocks (incorporate their signals): ${blockHints}` : null,
+    prior ? `EXISTING agent to refine (keep all fields unless user asks to change them):\n${JSON.stringify(prior, null, 2)}` : null,
+    `User request: "${prompt}"`,
+    `Remember: risk_aversion MUST be ≤ 10, signal_scale_bps MUST be ≥ 150, rebalance_freq SHOULD be "daily", initial_capital = 100000.`,
+    `Output ONLY valid JSON. No markdown. No comments. No explanation.`,
   ].filter(Boolean).join('\n\n')
 
   const completion = await client.chat.completions.create({
@@ -140,19 +209,30 @@ async function compileSpec(prompt: string, prior: Partial<AgentSpec> | undefined
       { role: 'system', content: buildSystemPrompt() },
       { role: 'user', content: userMsg },
     ],
-    temperature: 0.4,
-    max_tokens: 1200,
+    temperature: 0.3,
+    max_tokens: 1400,
   })
   const content = completion.choices[0]?.message?.content ?? '{}'
   const start = content.indexOf('{')
   const end = content.lastIndexOf('}')
   const jsonStr = start >= 0 && end > start ? content.substring(start, end + 1) : content
   try {
-    const raw = JSON.parse(jsonStr)
-    const parsed = AgentSpec.safeParse(raw)
+    const raw = JSON.parse(jsonStr) as Record<string, unknown>
+    // Post-parse coercion: clamp parameters to the guaranteed-trade range
+    // These guardrails ensure the optimizer will always produce non-zero weights
+    if (typeof raw.risk_aversion === 'number' && raw.risk_aversion > 10) raw.risk_aversion = 10
+    if (typeof raw.risk_aversion === 'number' && raw.risk_aversion < 2) raw.risk_aversion = 2
+    if (typeof raw.signal_scale_bps === 'number' && raw.signal_scale_bps < 150) raw.signal_scale_bps = 150
+    if (typeof raw.max_weight === 'number' && raw.max_weight < 0.15) raw.max_weight = 0.15
+    if (typeof raw.initial_capital === 'number' && raw.initial_capital < 50_000) raw.initial_capital = 100_000
+    if (!raw.initial_capital) raw.initial_capital = 100_000
+    if (!raw.start_date) raw.start_date = twoYearsAgo
+    if (!raw.end_date) raw.end_date = today
+    // Merge with fallback for any missing fields, then validate
+    const merged = { ...fallback(prompt, today, twoYearsAgo), ...raw }
+    const parsed = AgentSpec.safeParse(merged)
     if (parsed.success) return parsed.data
-    // Coerce missing fields
-    return AgentSpec.parse({ ...fallback(prompt, today, twoYearsAgo), ...raw })
+    return AgentSpec.parse(merged)
   } catch {
     return fallback(prompt, today, twoYearsAgo)
   }

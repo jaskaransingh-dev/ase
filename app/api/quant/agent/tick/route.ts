@@ -49,22 +49,66 @@ function due(agent: AgentRow, now: number): boolean {
   return now - new Date(agent.last_tick_at).getTime() >= interval
 }
 
-/** Toy signal: pick the symbol with highest 1-day return as BUY, lowest as SELL. */
-function decide(symbols: string[]): Array<{ symbol: string; side: 'BUY' | 'SELL'; weight: number; price: number }> {
+/**
+ * Lightweight signal generator that respects the agent's spec:
+ *  - alpha_type: momentum / mean_reversion / composite
+ *  - max_weight: per-name cap → trade size
+ *  - risk_aversion: scales position weights down further (higher λ = smaller)
+ *  - symbols: universe
+ *
+ * Generates BUY/SELL decisions that reflect the configured edge, so the
+ * paper-trade ledger looks like the agent's actual strategy in action.
+ */
+function decide(spec: AgentRow['spec']): Array<{ symbol: string; side: 'BUY' | 'SELL'; weight: number; price: number }> {
+  const symbols = spec.symbols ?? []
   if (!symbols.length) return []
+  const alphaType = (spec.alpha_type as string) ?? 'composite'
+  const maxWeight = (spec.max_weight as number) ?? 0.25
+  const riskLambda = (spec.risk_aversion as number) ?? 8
+  const baseWeight = Math.min(maxWeight, 1 / Math.max(2, symbols.length)) * (10 / Math.max(2, riskLambda))
+
+  // Score each symbol per its alpha type
   const scored = symbols.map(sym => {
-    const bars = synthesizeBars(sym, '1mo')
-    const last = bars[bars.length - 1]
-    const prev = bars[bars.length - 2] ?? last
-    const ret = (last.close - prev.close) / prev.close
-    return { symbol: sym, ret, price: last.close }
+    const bars = synthesizeBars(sym, '3mo')
+    const n = bars.length
+    const last = bars[n - 1]
+    const d1 = bars[n - 2]?.close ?? last.close
+    const d5 = bars[n - 6]?.close ?? last.close
+    const d20 = bars[n - 21]?.close ?? last.close
+    const ret1 = (last.close - d1) / d1
+    const ret5 = (last.close - d5) / d5
+    const ret20 = (last.close - d20) / d20
+    // rolling volatility
+    const rets = bars.slice(-20).map((b, i, arr) => i === 0 ? 0 : (b.close - arr[i-1].close) / arr[i-1].close)
+    const mean = rets.reduce((s, r) => s + r, 0) / rets.length
+    const std = Math.sqrt(rets.reduce((s, r) => s + (r - mean) ** 2, 0) / rets.length) || 0.01
+    const z = (ret1 - mean) / std
+
+    let signal: number
+    if (alphaType === 'momentum') signal = ret20 * 0.6 + ret5 * 0.4
+    else if (alphaType === 'mean_reversion') signal = -z
+    else if (alphaType === 'volatility') signal = std > 0.04 ? -ret5 : ret5
+    else signal = 0.4 * ret20 + 0.3 * (-z) + 0.3 * ret5  // composite
+    return { symbol: sym, signal, price: last.close }
   })
-  scored.sort((a, b) => b.ret - a.ret)
-  const top = scored[0]
-  const bot = scored[scored.length - 1]
+
+  // Rank and emit top-K BUYs and bottom-K SELLs
+  // Always emit at least 2 trades: strongest signal → BUY, weakest signal → SELL
+  // (even if all signals are positive/negative — the relative ranking matters for rebalancing)
+  scored.sort((a, b) => b.signal - a.signal)
   const out: Array<{ symbol: string; side: 'BUY' | 'SELL'; weight: number; price: number }> = []
-  if (top && top.ret > 0) out.push({ symbol: top.symbol, side: 'BUY', weight: 0.25, price: top.price })
-  if (bot && bot.ret < 0 && bot.symbol !== top?.symbol) out.push({ symbol: bot.symbol, side: 'SELL', weight: 0.25, price: bot.price })
+  const nBuys  = Math.min(Math.ceil(scored.length / 2), 3)
+  const nSells = Math.min(Math.floor(scored.length / 2), 2)
+  // Top N by signal → BUY (always, regardless of sign — represents "overweight")
+  for (const b of scored.slice(0, nBuys)) {
+    out.push({ symbol: b.symbol, side: 'BUY', weight: baseWeight, price: b.price })
+  }
+  // Bottom N by signal → SELL (trim / underweight), avoid duplicates
+  for (const s of scored.slice(-nSells).reverse()) {
+    if (!out.some(o => o.symbol === s.symbol)) {
+      out.push({ symbol: s.symbol, side: 'SELL', weight: baseWeight, price: s.price })
+    }
+  }
   return out
 }
 
@@ -83,8 +127,7 @@ export async function POST(req: Request) {
   for (const agent of (agents ?? []) as AgentRow[]) {
     if (!body.agent_id && !due(agent, now)) continue
 
-    const symbols = agent.spec?.symbols ?? []
-    const decisions = decide(symbols)
+    const decisions = decide(agent.spec)
     if (decisions.length === 0) {
       await admin.from('ai_agents').update({ last_tick_at: new Date().toISOString() }).eq('id', agent.id)
       continue

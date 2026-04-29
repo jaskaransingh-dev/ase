@@ -38,9 +38,12 @@ export const BLOCKS: Block[] = [
   { id: 'ml.regime',       kind: 'ml',     label: 'HMM Regime',       description: 'Hidden Markov regime gate',  agentHint: 'gate signals through an HMM regime detector', affects: ['alpha_type'] },
 
   // ─── External APIs ────────────────────────────────────────
-  { id: 'api.fear_greed',  kind: 'api',    label: 'Fear & Greed',     description: 'Crypto sentiment index',     agentHint: 'fade extremes on the Crypto Fear & Greed Index', affects: ['alpha_type'] },
+  { id: 'api.fear_greed',  kind: 'api',    label: 'Fear & Greed',     description: 'Crypto sentiment index',     agentHint: 'fade extremes on the Crypto Fear & Greed Index; use contrarian mean-reversion entries when index < 25 or > 75', affects: ['alpha_type'] },
   { id: 'api.alternative', kind: 'api',    label: 'Alternative.me',   description: 'Sentiment + macro',          agentHint: 'pull sentiment from alternative.me',     affects: ['alpha_type'] },
   { id: 'api.kraken',      kind: 'api',    label: 'Kraken Exec',      description: 'Live execution venue',       agentHint: 'route execution through Kraken',         affects: [] },
+  { id: 'api.news',        kind: 'api',    label: 'Crypto News',      description: 'Live crypto news headlines', agentHint: 'incorporate real-time crypto news sentiment: positive headlines boost momentum signals, negative headlines trigger mean-reversion or de-risk', affects: ['alpha_type', 'signal_scale_bps'] },
+  { id: 'api.satellite',   kind: 'api',    label: 'Satellite Data',   description: 'Alt-data: exchange flows',   agentHint: 'integrate satellite alternative data (exchange reserve flows, miner outflows); use as a macro signal layer to gate position sizing', affects: ['alpha_type', 'risk_aversion'] },
+  { id: 'api.syne',        kind: 'api',    label: 'SYNE Terminal',    description: 'ASE live market intelligence', agentHint: 'pull live market data from ASE SYNE terminal: geo-macro events, news catalysts, on-chain alerts; blend into composite signal with 20% weight', affects: ['alpha_type', 'alpha_weights'] },
 
   // ─── Risk / Execution ────────────────────────────────────
   { id: 'risk.killswitch', kind: 'risk',   label: 'Kill Switch',      description: 'Halt at drawdown threshold', agentHint: 'add a max-drawdown kill switch',         affects: ['risk_aversion'] },

@@ -100,7 +100,7 @@ export default function MyAgents() {
               {a.status === 'published' && (
                 <button onClick={() => tick(a.id)} style={btn(C.blue)}>TICK NOW</button>
               )}
-              <Link href={`/dashboard/lab/studio?agent=${a.id}`} style={{ ...btn(C.border), color: C.muted, textDecoration: 'none' }}>EDIT</Link>
+              <Link href={`/dashboard/lab?agent=${a.id}`} style={{ ...btn(C.border), color: C.muted, textDecoration: 'none' }}>EDIT</Link>
             </div>
           </div>
         ))}

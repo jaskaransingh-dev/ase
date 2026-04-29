@@ -222,7 +222,27 @@ export default function SyneTerminal() {
 
   // Right rail state
   const [railOpen, setRailOpen] = useState(true)
-  const [activePanel, setActivePanel] = useState<'WATCH' | 'GEO' | 'ORACLE' | 'PULSE'>('WATCH')
+  const [activePanel, setActivePanel] = useState<'WATCH' | 'GEO' | 'ORACLE' | 'PULSE' | 'CRYPTO'>('WATCH')
+
+  // Live crypto news
+  const [cryptoNews, setCryptoNews] = useState<Array<{ id: string; t: string; ts: number; tag: string; severity: 'info' | 'risk' | 'alert'; headline: string; body: string; source: string; url?: string; sentiment: number }>>([])
+  const [newsLoading, setNewsLoading] = useState(false)
+  const [newsError, setNewsError] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      setNewsLoading(true)
+      try {
+        const r = await fetch('/api/syne/news')
+        const j = await r.json()
+        if (!cancelled) setCryptoNews(j.items ?? [])
+      } catch { if (!cancelled) setNewsError('feed unavailable') }
+      finally { if (!cancelled) setNewsLoading(false) }
+    }
+    load()
+    const id = setInterval(load, 5 * 60_000) // refresh every 5 min
+    return () => { cancelled = true; clearInterval(id) }
+  }, [])
 
   // Data
   const [prices, setPrices] = useState<CommodityPrice[]>(COMMODITIES)
@@ -898,14 +918,14 @@ export default function SyneTerminal() {
             background: '#000', overflow: 'hidden',
           }}>
             <div style={{ display: 'flex', height: 22, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-              {(['WATCH', 'GEO', 'ORACLE', 'PULSE'] as const).map(id => (
+              {(['WATCH', 'GEO', 'ORACLE', 'PULSE', 'CRYPTO'] as const).map(id => (
                 <button key={id} onClick={() => setActivePanel(id)} style={{
                   flex: 1, background: '#000', border: 'none',
                   borderRight: `1px solid ${C.border}`,
-                  borderBottom: activePanel === id ? `1px solid ${C.amber}` : `1px solid ${C.border}`,
-                  color: activePanel === id ? C.amber : C.muted,
-                  fontSize: 10, fontFamily: 'inherit', fontWeight: 700, letterSpacing: '0.16em', cursor: 'pointer',
-                }}>{id === 'WATCH' ? 'WATCHTOWER' : id}</button>
+                  borderBottom: activePanel === id ? `1px solid ${id === 'CRYPTO' ? C.green : C.amber}` : `1px solid ${C.border}`,
+                  color: activePanel === id ? (id === 'CRYPTO' ? C.green : C.amber) : C.muted,
+                  fontSize: 9, fontFamily: 'inherit', fontWeight: 700, letterSpacing: '0.12em', cursor: 'pointer',
+                }}>{id === 'WATCH' ? 'TOWER' : id}</button>
               ))}
             </div>
 
@@ -1034,6 +1054,42 @@ export default function SyneTerminal() {
                   <div><span style={{ color: C.red }}>■</span> <span style={{ color: C.red }}>VENEZUELA</span> sanctions news risk window</div>
                   <div><span style={{ color: C.amber }}>■</span> <span style={{ color: C.amber }}>LIBYA</span> port closure probability 0.34</div>
                   <div><span style={{ color: C.green }}>■</span> <span style={{ color: C.green }}>NORTH SEA</span> nominal flows</div>
+                </div>
+              </div>
+            )}
+
+            {activePanel === 'CRYPTO' && (
+              <div style={{ flex: 1, overflowY: 'auto' }}>
+                <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>CRYPTO INTEL · LIVE FEED</span>
+                  {newsLoading && <span style={{ color: C.amber, fontSize: 8, animation: 'pulse 1s infinite' }}>●</span>}
+                  {!newsLoading && cryptoNews.length > 0 && <span style={{ color: C.green, fontSize: 8 }}>● LIVE</span>}
+                </div>
+                {newsError && <div style={{ padding: '6px 8px', color: C.red, fontSize: 9 }}>{newsError}</div>}
+                {newsLoading && cryptoNews.length === 0 && (
+                  <div style={{ padding: '12px 8px', color: C.muted, fontSize: 9, textAlign: 'center' }}>FETCHING FEED…</div>
+                )}
+                {cryptoNews.map(n => (
+                  <div key={n.id}
+                    style={{ padding: '5px 8px', borderBottom: `1px solid ${C.border}`, cursor: 'default' }}>
+                    <div style={{ display: 'flex', gap: 5, alignItems: 'center', marginBottom: 2 }}>
+                      <span style={{ color: C.faint, fontSize: 8, flexShrink: 0 }}>{n.t}</span>
+                      <span style={{
+                        fontSize: 8, fontWeight: 700, letterSpacing: '0.12em', flexShrink: 0,
+                        color: n.severity === 'alert' ? C.red : n.severity === 'risk' ? C.amber : C.green,
+                      }}>{n.tag}</span>
+                      <span style={{
+                        marginLeft: 'auto', fontSize: 8, fontWeight: 700,
+                        color: n.sentiment > 0.1 ? C.green : n.sentiment < -0.1 ? C.red : C.muted,
+                      }}>{n.sentiment > 0.1 ? '▲' : n.sentiment < -0.1 ? '▼' : '─'} {Math.abs(n.sentiment * 100).toFixed(0)}%</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: C.text, lineHeight: 1.35 }}>{n.headline}</div>
+                    <div style={{ fontSize: 8, color: C.muted, marginTop: 2 }}>{n.source}</div>
+                  </div>
+                ))}
+                <div style={{ padding: '6px 8px', borderTop: `1px solid ${C.border}`, background: '#050505' }}>
+                  <div style={{ fontSize: 8, color: C.faint, letterSpacing: '0.1em' }}>USE AS QUANT BLOCK → api.syne</div>
+                  <div style={{ fontSize: 8, color: C.muted, marginTop: 2 }}>Drop "SYNE Terminal" block in Agent Builder to wire this feed into your strategy signal pipeline</div>
                 </div>
               </div>
             )}

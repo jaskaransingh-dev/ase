@@ -83,8 +83,22 @@ export async function GET(req: Request) {
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
   const url = new URL(req.url)
+  const id = url.searchParams.get('id')
   const status = url.searchParams.get('status')
 
+  // Single-agent fetch by ID
+  if (id) {
+    const { data, error } = await supabase
+      .from('ai_agents')
+      .select('id, name, thesis, prompt, spec, status, last_grade, last_sharpe, last_cagr, last_max_dd, created_at, updated_at')
+      .eq('id', id)
+      .eq('owner_id', user.id)
+      .single()
+    if (error) return NextResponse.json({ error: error.message }, { status: 404 })
+    return NextResponse.json({ agent: data })
+  }
+
+  // List all owned agents
   let q = supabase.from('ai_agents').select('id, name, thesis, spec, status, last_grade, last_sharpe, last_cagr, created_at, updated_at').eq('owner_id', user.id).order('updated_at', { ascending: false })
   if (status) q = q.eq('status', status)
 
