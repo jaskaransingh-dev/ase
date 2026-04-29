@@ -25,8 +25,14 @@ export default function SubscribeModal({ agentId, agentName, onClose, onSuccess 
     fetch('/api/account/balance')
       .then(r => r.json())
       .then(d => {
-        if (d.status === 'connected' && d.equity_cents > 0) {
-          setBalance(d.equity_cents)
+        const cashCents = d.cash_cents ?? 0
+        const availableCents = d.available_cents ?? cashCents
+        if (d.error) {
+          setError(d.error)
+          setBalance(0)
+          setConnected(false)
+        } else if (d.status === 'connected' && cashCents > 0) {
+          setBalance(availableCents > 0 ? availableCents : cashCents)
           setConnected(true)
         } else {
           setBalance(0)

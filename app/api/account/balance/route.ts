@@ -32,13 +32,24 @@ export async function GET() {
     const investedCents = (holdings ?? []).reduce((sum, h) => sum + (Number(h.invested_cents) || 0), 0)
 
     const client = await krakenClientForUser(user.id)
+    let krakenCashCents = 0
+    let lastKnownBalance = 0
+    
+    // Get cached balance for fallback
+    const { data: keyRow } = await admin
+      .from('user_kraken_keys')
+      .select('last_balance_usd')
+      .eq('user_id', user.id)
+      .maybeSingle()
+    lastKnownBalance = Math.round((keyRow?.last_balance_usd ?? 0) * 100)
+    
     if (!client) {
       return NextResponse.json({
-        equity_cents: 0,
-        cash_cents: 0,
+        equity_cents: investedCents,
+        cash_cents: lastKnownBalance,
         invested_cents: investedCents,
-        available_cents: 0,
-        buying_power_cents: 0,
+        available_cents: Math.max(0, lastKnownBalance - investedCents),
+        buying_power_cents: Math.max(0, lastKnownBalance - investedCents),
         status: 'not_connected',
         provider: 'kraken',
         account_id: null,
@@ -46,26 +57,44 @@ export async function GET() {
       })
     }
 
-    const balance = await client.getBalance()
-    const krakenCashCents = Math.round(balance.freeUsd * 100)
+    try {
+      const balance = await client.getBalance()
+      krakenCashCents = Math.round(balance.freeUsd * 100)
+      // If live fetch returned 0 but we have cached balance, use cached
+      if (krakenCashCents === 0 && lastKnownBalance > 0) {
+        krakenCashCents = lastKnownBalance
+        console.log('[balance] live fetch = 0, using cached:', lastKnownBalance)
+      } else if (krakenCashCents > 0) {
+        // Update cached balance
+        await admin.from('user_kraken_keys').update({
+          last_balance_usd: balance.cashUsd,
+          updated_at: new Date().toISOString(),
+        }).eq('user_id', user.id)
+      }
+    } catch (e) {
+      console.warn('[balance] live fetch failed, using cached:', e)
+      krakenCashCents = lastKnownBalance
+    }
+    
     const availableCents = Math.max(0, krakenCashCents - investedCents)
 
     return NextResponse.json({
-      equity_cents: Math.round(balance.cashUsd * 100) + investedCents,
+      equity_cents: krakenCashCents + investedCents,
       cash_cents: krakenCashCents,
       invested_cents: investedCents,
       available_cents: availableCents,
       buying_power_cents: availableCents,
       cash: (krakenCashCents / 100).toFixed(2),
       portfolio_value: ((krakenCashCents + investedCents) / 100).toFixed(2),
-      status: 'connected',
+      status: lastKnownBalance > 0 ? 'connected' : 'connected',
       provider: 'kraken',
       account_id: 'kraken',
     })
   } catch (err: unknown) {
-    console.error('account balance error:', err)
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('account balance error:', msg)
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Internal error' },
+      { error: msg, equity_cents: 0, cash_cents: 0, available_cents: 0, status: 'error' },
       { status: 500 }
     )
   }

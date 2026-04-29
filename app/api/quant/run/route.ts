@@ -25,7 +25,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { fetchYahooFinance } from '@/app/api/backtest/route'
+import { fetchYahooFinance, synthesizeBars } from '@/app/api/backtest/route'
 import { quantBacktester } from '@/lib/quant/backtester'
 import { buildStrategyPackage, STRATEGY_TEMPLATES, describeStrategy } from '@/lib/quant/strategy'
 import { strategyGrade } from '@/lib/quant/metrics'
@@ -78,6 +78,7 @@ export async function POST(req: Request) {
     max_weight?:     number
     walk_forward?:   boolean
     save?:           boolean
+    quick?:          boolean       // 5s mode — synthetic data, skip MC, sample 180 bars
     forecast_horizon?: number
     signal_scale_bps?: number
     benchmark?:      string
@@ -123,20 +124,17 @@ export async function POST(req: Request) {
 
   // Fetch data for all symbols + benchmark
   const allSymbols = [...new Set([benchmark, ...symbols])]
-  const panelEntries = await Promise.allSettled(
-    allSymbols.map(async sym => {
-      const raw = await fetchYahooFinance(sym, '2y', '1d')
-      const bars: Bar[] = raw.map(b => ({
-        date:   b.date,
-        open:   b.open,
-        high:   b.high,
-        low:    b.low,
-        close:  b.close,
-        volume: b.volume,
-      }))
-      return [sym, bars] as [string, Bar[]]
-    })
-  )
+  const fetchOne = async (sym: string): Promise<[string, Bar[]]> => {
+    // Quick mode: skip network, use synthetic bars only (deterministic, fast)
+    const raw = body.quick
+      ? synthesizeBars(sym, '6mo')
+      : await fetchYahooFinance(sym, '2y', '1d')
+    const bars: Bar[] = raw.map(b => ({
+      date: b.date, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume,
+    }))
+    return [sym, bars]
+  }
+  const panelEntries = await Promise.allSettled(allSymbols.map(fetchOne))
 
   const panel: BarPanel = {}
   for (const result of panelEntries) {
@@ -255,8 +253,10 @@ export async function POST(req: Request) {
       // Walk-forward
       walk_forward:       walkForwardResult,
 
-      // Monte Carlo robustness (200 trials on random windows)
-      monte_carlo:        runMonteCarloSimple(result.equityCurve, 200, 126),
+      // Monte Carlo robustness (skip in quick mode for speed)
+      monte_carlo:        body.quick ? null : runMonteCarloSimple(result.equityCurve, 200, 126),
+      mode:               body.quick ? 'quick' : 'full',
+      data_source:        body.quick ? 'synthetic' : 'live',
 
       // VaR (95th and 99th percentile daily losses)
       var_95:             percentile(result.equityCurve.map(e => e.dailyReturn).filter(isFinite), 0.05),
