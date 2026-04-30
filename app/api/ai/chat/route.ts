@@ -124,31 +124,84 @@ ${apiIds || 'none'}
 }
 
 export async function POST(req: Request) {
-  const { messages, codebase, activeFile, btContext, apiIds, stream } = await req.json();
+  const body = await req.json();
+  const { codebase, activeFile, btContext, apiIds, stream, buildMode } = body;
+  const messages: Array<{role: string; content: string}> = body.messages ?? [];
 
-  const systemPrompt = buildSystemPrompt(
+  if (!messages.length) {
+    return Response.json({ content: "Hello! Describe a trading strategy and I'll build it for you." });
+  }
+
+  let systemPrompt = buildSystemPrompt(
     codebase ?? '',
     activeFile ?? 'strategy.ts',
     btContext ?? 'No backtest run yet.',
     apiIds ?? ''
   );
 
+  if (buildMode) {
+    systemPrompt = `You are building a trading agent. When the user asks to build an agent:
+
+1. FIRST acknowledge which blocks you're incorporating (from the user's selection):
+   "I've selected these blocks: [list blocks]"
+
+2. THEN create the agent files using FILE: directives:
+   - spec.json (the complete agent spec)
+   - signals.ts (the signal generation logic based on the prompt and blocks)
+   - risk.ts (position sizing and risk controls)
+   - exec.ts (order execution)
+   - README.md (strategy explanation)
+
+Output format - respond in chat format with these sections:
+- A paragraph explaining which blocks you're using and why
+- The FILE: directives with complete, runnable code
+- Brief explanation of what each file does
+
+Generate a complete, working agent - not a template or placeholder.`
+
+    const userMsg = messages[messages.length - 1]?.content ?? ''
+    const enhancedUserMsg = userMsg + `\n\nRemember: Output the complete files using FILE: directives. Start by acknowledging the blocks.`
+    
+    const chatMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: enhancedUserMsg },
+    ];
+
+    try {
+      const completion = await client.chat.completions.create({
+        model: "qwen2.5-coder:7b",
+        messages: chatMessages,
+        temperature: 0.3,
+        max_tokens: 2000,
+      });
+      return Response.json({
+        content: completion.choices[0]?.message?.content ?? "",
+      });
+    } catch (err) {
+      return Response.json({
+        content: `Build failed: ${String(err).slice(0, 200)}. Make sure Ollama is running.`,
+      }, { status: 500 });
+    }
+  }
+
   const chatMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
-    ...messages.filter((m: { role: string }) => m.role !== 'system'),
+    ...messages.filter((m: { role: string }) => m.role !== 'system').map((m: { role: string; content: string }) => ({
+      role: m.role === 'user' ? 'user' as const : 'assistant' as const,
+      content: m.content ?? '',
+    })),
   ];
 
   if (stream) {
-    const completion = await client.chat.completions.create({
-      model: "qwen2.5-coder:7b",
-      messages: chatMessages,
-      stream: true,
-    });
-
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
         try {
+          const completion = await client.chat.completions.create({
+            model: "qwen2.5-coder:7b",
+            messages: chatMessages,
+            stream: true,
+          });
           for await (const chunk of completion) {
             const content = chunk.choices[0]?.delta?.content;
             if (content) {
@@ -158,7 +211,11 @@ export async function POST(req: Request) {
           controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
           controller.close();
         } catch (err) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: String(err) })}\n\n`));
+          // Ollama unreachable or any other LLM failure — emit a graceful message
+          // instead of dropping the connection silently.
+          const fallback = `**The local AI engine is not reachable.**\n\nStart Ollama with \`ollama serve\` and pull the model with \`ollama pull qwen2.5-coder:7b\`, then retry.\n\n_Original error: ${String(err).slice(0, 200)}_`;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: fallback })}\n\n`));
+          controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
           controller.close();
         }
       },
@@ -173,12 +230,18 @@ export async function POST(req: Request) {
     });
   }
 
-  const completion = await client.chat.completions.create({
-    model: "qwen2.5-coder:7b",
-    messages: chatMessages,
-  });
-
-  return Response.json({
-    content: completion.choices[0]?.message?.content ?? "",
-  });
+  try {
+    const completion = await client.chat.completions.create({
+      model: "qwen2.5-coder:7b",
+      messages: chatMessages,
+    });
+    return Response.json({
+      content: completion.choices[0]?.message?.content ?? "",
+    });
+  } catch (err) {
+    return Response.json({
+      content: `The local AI engine is not reachable. Start Ollama (\`ollama serve\` + \`ollama pull qwen2.5-coder:7b\`) and retry.\n\nOriginal error: ${String(err).slice(0, 200)}`,
+      offline: true,
+    });
+  }
 }

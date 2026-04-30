@@ -53,7 +53,7 @@ export class ExecutionModel {
     slippageModel: 'market_impact',
     slippageBps: 5,
     participationRate: 0.10,
-    minTradeSizeUsd: 100,
+    minTradeSizeUsd: 1,
     roundLots: false,
   }) {}
 

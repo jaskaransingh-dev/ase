@@ -588,55 +588,61 @@ export default function StudioPage() {
         )}
 
         {view === 'build' && (
-          <div style={{ textAlign: 'center', padding: '3rem 2rem' }}>
-            <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⚡</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: C.white, marginBottom: '.5rem' }}>Build Your Agent</div>
-            <div style={{ fontSize: '0.78rem', color: C.muted, maxWidth: 500, margin: '0 auto 1.5rem', lineHeight: 1.6 }}>
-              Write your trading strategy in the Quant Lab IDE using TypeScript. Configure parameters, run backtests, and deploy to the Exchange.
-            </div>
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
-              <button
-                onClick={() => router.push('/dashboard/build?new=1')}
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  padding: '0.6rem 1.5rem',
-                  borderRadius: 8,
-                  border: 'none',
-                  background: C.blue,
-                  color: '#fff',
-                  cursor: 'pointer',
-                  transition: 'background 0.15s',
-                }}
-              >
-                Open Quant Lab →
-              </button>
-              <button
-                onClick={() => router.push('/dashboard/backtest')}
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  padding: '0.6rem 1.5rem',
-                  borderRadius: 8,
-                  border: `1px solid ${C.border}`,
-                  background: 'transparent',
-                  color: C.text,
-                  cursor: 'pointer',
-                  transition: 'border-color 0.15s',
-                }}
-              >
-                Run Backtest
-              </button>
+          <div style={{ padding: '2rem 1rem', maxWidth: 900, margin: '0 auto' }}>
+            <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
+              <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>⚡</div>
+              <div style={{ fontSize: '1.3rem', fontWeight: 700, color: C.white, marginBottom: '0.75rem' }}>Build Your Agent</div>
+              <div style={{ fontSize: '0.82rem', color: C.muted, maxWidth: 550, margin: '0 auto 1.5rem', lineHeight: 1.6 }}>
+                Write your trading strategy in the Quant Lab IDE using TypeScript. Configure parameters, run backtests, and deploy to the Exchange.
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+                <button
+                  onClick={() => router.push('/dashboard/build?new=1')}
+                  style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    padding: '0.7rem 1.8rem',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: C.blue,
+                    color: '#fff',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.opacity = '0.9'}
+                  onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+                >
+                  Open Quant Lab →
+                </button>
+                <button
+                  onClick={() => router.push('/dashboard/backtest')}
+                  style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    padding: '0.7rem 1.8rem',
+                    borderRadius: 8,
+                    border: `1px solid ${C.border}`,
+                    background: 'transparent',
+                    color: C.text,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = C.blue}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = C.border}
+                >
+                  Run Backtest
+                </button>
+              </div>
             </div>
 
             {/* Templates */}
-            <div style={{ marginTop: '2.5rem', textAlign: 'left', maxWidth: 700, marginLeft: 'auto', marginRight: 'auto' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: C.muted, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '0.75rem' }}>
+            <div style={{ marginTop: '1rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: C.muted, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '1rem', paddingLeft: '0.25rem' }}>
                 Strategy Templates
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
                 {[
                   { name: 'Composite Alpha v2', desc: '6-signal composite score with vol targeting', icon: '🎯' },
                   { name: 'Momentum Crossover', desc: 'EMA crossover with RSI and ATR stops', icon: '📈' },
@@ -648,18 +654,29 @@ export default function StudioPage() {
                     style={{
                       background: C.bg3,
                       border: `1px solid ${C.border}`,
-                      borderRadius: 8,
-                      padding: '0.8rem 1rem',
+                      borderRadius: 10,
+                      padding: '1.25rem 1.5rem',
                       cursor: 'pointer',
-                      transition: 'border-color 0.15s',
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
                     }}
-onClick={() => router.push('/dashboard/build?new=1')}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = C.blue + '60'}
-                    onMouseLeave={e => e.currentTarget.style.borderColor = C.border}
+                    onClick={() => router.push('/dashboard/build?new=1')}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.borderColor = C.blue
+                      e.currentTarget.style.transform = 'translateY(-2px)'
+                      e.currentTarget.style.boxShadow = `0 4px 12px ${C.blue}20`
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.borderColor = C.border
+                      e.currentTarget.style.transform = 'translateY(0)'
+                      e.currentTarget.style.boxShadow = 'none'
+                    }}
                   >
-                    <div style={{ fontSize: '1.1rem', marginBottom: '0.25rem' }}>{t.icon}</div>
-                    <div style={{ fontSize: '0.78rem', fontWeight: 600, color: C.white, marginBottom: '0.15rem' }}>{t.name}</div>
-                    <div style={{ fontSize: '0.65rem', color: C.muted, lineHeight: 1.4 }}>{t.desc}</div>
+                    <div style={{ fontSize: '1.5rem', marginBottom: '0.75rem' }}>{t.icon}</div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: C.white, marginBottom: '0.35rem' }}>{t.name}</div>
+                    <div style={{ fontSize: '0.7rem', color: C.muted, lineHeight: 1.5 }}>{t.desc}</div>
                   </div>
                 ))}
               </div>

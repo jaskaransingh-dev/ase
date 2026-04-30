@@ -115,13 +115,21 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
   const [fetching, setFetching] = useState(true)
 
   useEffect(() => {
-    fetch('/api/account/balance').then(r => r.json()).then(d => {
-      setBalance(d.available_cents ?? d.buying_power_cents ?? d.cash_cents ?? 0)
-      setAccountStatus(d.status === 'connected' ? 'connected' : 'not_connected')
-    }).catch(() => { setBalance(0); setAccountStatus('error') }).finally(() => setFetching(false))
+    fetch('/api/account/balance', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => {
+        const cents = Number(d.available_cents ?? d.buying_power_cents ?? d.cash_cents ?? 0) || 0
+        setBalance(cents)
+        // Treat any non-zero balance as usable, even if Kraken isn't live-connected.
+        // We only block the user when there's truly nothing to spend.
+        if (cents > 0) setAccountStatus('connected')
+        else setAccountStatus(d.status === 'connected' ? 'connected' : 'not_connected')
+      })
+      .catch(() => { setBalance(0); setAccountStatus('error') })
+      .finally(() => setFetching(false))
   }, [])
 
-  const notConnected = accountStatus === 'not_connected'
+  const notConnected = accountStatus === 'not_connected' && (balance ?? 0) === 0
   const maxAmount = balance !== null ? Math.floor(balance / 100) : 0
   const cappedAmount = Math.min(Math.max(amount, 0), maxAmount)
   const projectedShares = navCents > 0 ? (cappedAmount * 100) / navCents : 0

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Logo } from '@/components/ui/Logo'
+import AIChatbot from '@/components/AIChatbot'
 import { NAV_CONFIG } from '@/lib/nav-config'
 
 export default function DashboardShell({ user, children }: { user: { id: string; email: string; name: string }; children: React.ReactNode }) {
@@ -509,6 +510,9 @@ export default function DashboardShell({ user, children }: { user: { id: string;
 
       {/* ⌘K command palette */}
       <CommandPalette />
+
+      {/* Global AI Chatbot */}
+      <AIChatbot />
 
       <style>{`
         @media (max-width: 768px) {

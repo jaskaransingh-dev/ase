@@ -86,7 +86,15 @@ export async function GET(req: Request) {
   const id = url.searchParams.get('id')
   const status = url.searchParams.get('status')
 
-  // Single-agent fetch by ID
+  async function getSlug(agentId: string, agentName: string): Promise<string | null> {
+    const baseSlug = agentName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'agent'
+    const expectedSlug = `${baseSlug}-${agentId.slice(0, 6)}`
+    try {
+      const { data } = await supabase.from('agents').select('slug').eq('slug', expectedSlug).single()
+      return (data as any)?.slug ?? null
+    } catch { return null }
+  }
+
   if (id) {
     const { data, error } = await supabase
       .from('ai_agents')
@@ -95,14 +103,20 @@ export async function GET(req: Request) {
       .eq('owner_id', user.id)
       .single()
     if (error) return NextResponse.json({ error: error.message }, { status: 404 })
-    return NextResponse.json({ agent: data })
+    const slug = data.status === 'published' ? await getSlug(data.id, data.name) : null
+    return NextResponse.json({ agent: { ...data, slug } })
   }
 
-  // List all owned agents
   let q = supabase.from('ai_agents').select('id, name, thesis, spec, status, last_grade, last_sharpe, last_cagr, created_at, updated_at').eq('owner_id', user.id).order('updated_at', { ascending: false })
   if (status) q = q.eq('status', status)
 
   const { data, error } = await q
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ agents: data ?? [] })
+
+  const agentsWithSlugs = await Promise.all((data ?? []).map(async (a: any) => {
+    const slug = a.status === 'published' ? await getSlug(a.id, a.name) : null
+    return { ...a, slug }
+  }))
+
+  return NextResponse.json({ agents: agentsWithSlugs })
 }

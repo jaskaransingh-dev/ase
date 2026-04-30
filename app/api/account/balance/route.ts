@@ -44,16 +44,22 @@ export async function GET() {
     lastKnownBalance = Math.round((keyRow?.last_balance_usd ?? 0) * 100)
     
     if (!client) {
+      const available = Math.max(0, lastKnownBalance - investedCents)
       return NextResponse.json({
-        equity_cents: investedCents,
+        equity_cents: lastKnownBalance + investedCents,
         cash_cents: lastKnownBalance,
         invested_cents: investedCents,
-        available_cents: Math.max(0, lastKnownBalance - investedCents),
-        buying_power_cents: Math.max(0, lastKnownBalance - investedCents),
-        status: 'not_connected',
+        available_cents: available,
+        buying_power_cents: available,
+        // If we have a cached balance, the wallet is usable (paper/demo) — only
+        // mark not_connected when there is genuinely nothing to spend.
+        status: lastKnownBalance > 0 ? 'connected' : 'not_connected',
+        balance_source: lastKnownBalance > 0 ? 'cached' : 'none',
         provider: 'kraken',
         account_id: null,
-        message: 'Connect your Kraken account to see your balance',
+        message: lastKnownBalance > 0
+          ? 'Using cached Kraken balance. Reconnect for live updates.'
+          : 'Connect your Kraken account to see your balance',
       })
     }
 

@@ -108,16 +108,13 @@ export async function POST(req: Request) {
     }, { status: 500 })
   }
 
-  // 3) Trigger immediate paper-trade tick only when NOT called from the builder UI
-  //    (the builder awaits its own tick after publish to avoid double-posting).
-  //    Callers that want the tick to be suppressed pass skip_tick=true in the body.
-  if (!body.skip_tick) {
-    fetch(new URL('/api/quant/agent/tick', req.url).toString(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agent_id: id }),
-    }).catch(() => {})
-  }
+  // 3) Trigger immediate paper-trade tick to start trading
+  // Don't skip - we want the initial trades when publishing
+  fetch(new URL('/api/quant/agent/tick', req.url).toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agent_id: id }),
+  }).catch(() => {})
 
   return NextResponse.json({
     ai_agent_id: id,

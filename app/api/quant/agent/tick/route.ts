@@ -112,24 +112,70 @@ function decide(spec: AgentRow['spec']): Array<{ symbol: string; side: 'BUY' | '
   return out
 }
 
+const INACTIVE_THRESHOLD_MS = 7 * 24 * 60 * 60_1000 // 7 days of no activity
+
+async function checkAndRemoveInactiveAgents(admin: ReturnType<typeof createAdminClient>) {
+  const sevenDaysAgo = new Date(Date.now() - INACTIVE_THRESHOLD_MS).toISOString()
+  
+  // Find published agents with no recent ledger activity
+  const { data: staleAgents } = await admin
+    .from('ai_agents')
+    .select('id, name, status, last_tick_at')
+    .eq('status', 'published')
+    .lt('last_tick_at', sevenDaysAgo)
+
+  if (!staleAgents?.length) return
+
+  // Check each stale agent for ledger activity
+  for (const agent of staleAgents) {
+    const { count } = await admin
+      .from('agent_paper_ledger')
+      .select('*', { count: 'exact', head: true })
+      .eq('agent_id', agent.id)
+      .gte('executed_at', sevenDaysAgo)
+
+    if (count === 0) {
+      // No trades in 7 days - auto-remove from exchange
+      await admin.from('ai_agents').update({ status: 'archived' }).eq('id', agent.id)
+      console.log(`[tick] Auto-archived agent "${agent.name}" (${agent.id}) - no trades in 7 days`)
+    }
+  }
+}
+
 export async function POST(req: Request) {
   const admin = createAdminClient()
   const body = await req.json().catch(() => ({})) as { agent_id?: string }
+
+  // Auto-cleanup inactive agents on each tick cycle
+  if (!body.agent_id) {
+    await checkAndRemoveInactiveAgents(admin)
+  }
 
   let q = admin.from('ai_agents').select('*').eq('status', 'published')
   if (body.agent_id) q = q.eq('id', body.agent_id)
   const { data: agents, error } = await q
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  if (!agents?.length) return NextResponse.json({ ticked: [], ts: new Date().toISOString(), note: 'No published agents found' })
+
   const now = Date.now()
-  const ticked: Array<{ agent_id: string; trades: number }> = []
+  const ticked: Array<{ agent_id: string; trades: number; note?: string }> = []
 
   for (const agent of (agents ?? []) as AgentRow[]) {
-    if (!body.agent_id && !due(agent, now)) continue
+    const isForcedTick = !!body.agent_id
+    if (!isForcedTick && !due(agent, now)) continue
+
+    const symbols = agent.spec?.symbols ?? []
+    if (!symbols.length) {
+      await admin.from('ai_agents').update({ last_tick_at: new Date().toISOString() }).eq('id', agent.id)
+      ticked.push({ agent_id: agent.id, trades: 0, note: 'No symbols in spec' })
+      continue
+    }
 
     const decisions = decide(agent.spec)
     if (decisions.length === 0) {
       await admin.from('ai_agents').update({ last_tick_at: new Date().toISOString() }).eq('id', agent.id)
+      ticked.push({ agent_id: agent.id, trades: 0, note: 'No trading decisions generated' })
       continue
     }
 
@@ -146,9 +192,13 @@ export async function POST(req: Request) {
       executed_at: new Date().toISOString(),
     }))
 
-    await admin.from('agent_paper_ledger').insert(rows)
-    await admin.from('ai_agents').update({ last_tick_at: new Date().toISOString() }).eq('id', agent.id)
-    ticked.push({ agent_id: agent.id, trades: rows.length })
+    try {
+      await admin.from('agent_paper_ledger').insert(rows)
+      await admin.from('ai_agents').update({ last_tick_at: new Date().toISOString() }).eq('id', agent.id)
+      ticked.push({ agent_id: agent.id, trades: rows.length })
+    } catch (insertErr: any) {
+      ticked.push({ agent_id: agent.id, trades: 0, note: 'Insert failed: ' + insertErr.message })
+    }
   }
 
   return NextResponse.json({ ticked, ts: new Date().toISOString() })

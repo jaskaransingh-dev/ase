@@ -1368,12 +1368,59 @@ input:checked + .toggle-slider::before { transform: translateX(18px); background
     transform: translateX(-100%);
     transition: transform 0.3s ease;
   }
-  
+
   .sidebar.open {
     transform: translateX(0);
   }
-  
+
   .quant-main {
     margin-left: 0;
   }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Project Thermal — Warm Premium Animations
+   ══════════════════════════════════════════════════════════════ */
+
+@keyframes thermalPulse {
+  0%, 100% {
+    box-shadow: 0 0 8px var(--accent-green, #7D9B76);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 16px var(--accent-green, #7D9B76), 0 0 24px var(--accent-green, #7D9B7640);
+    opacity: 0.85;
+  }
+}
+
+@keyframes thermalGlow {
+  0%, 100% {
+    box-shadow: 0 0 12px rgba(196, 145, 100, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 24px rgba(196, 145, 100, 0.5), 0 0 36px rgba(196, 145, 100, 0.2);
+  }
+}
+
+@keyframes thermalFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.thermal-pulse {
+  animation: thermalPulse 2s ease-in-out infinite;
+}
+
+.thermal-glow {
+  animation: thermalGlow 3s ease-in-out infinite;
+}
+
+.thermal-fade-in {
+  animation: thermalFadeIn 0.4s ease-out forwards;
 }

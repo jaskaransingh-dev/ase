@@ -8,10 +8,11 @@ export const AI_CONTEXT = {
     'Monte Carlo simulation and walk-forward analysis',
     'Institutional 9-layer quant engine',
     '18 pre-built trading agents',
-    'Live paper trading via Alpaca',
+    'Live paper trading via Kraken',
     'Agent marketplace with subscription model',
     'Geospatial data explorer',
     'Strategy comparison and robustness testing',
+    'Quant Lab IDE with AI code editor and cursor-style auto-apply',
   ],
 
   backtestStrategies: [
@@ -49,6 +50,15 @@ Key considerations for quant researchers:
 - Execution simulates market impact proportional to order size / daily volume
 - IC (Information Coefficient) tracks alpha quality over time
 - Scorecard grades: Performance (30%), Risk (25%), Robustness (30%), Execution (15%)
+
+Quant Lab IDE workflow:
+- Describe a strategy in Build, then scaffold files in Lab
+- Use AI chat to ask for improvements, block additions, or code edits
+- AI responses support FILE directives: \`\`\`typescript\n// FILE: signals.ts\n...\n\`\`\`
+- When AUTO-APPLY is ON, AI code edits apply instantly (Cursor-style)
+- When AUTO-APPLY is OFF, changes show in a pending banner for review
+- Run backtests directly in Lab to iterate on strategy performance
+- Publish successful agents directly to the exchange from Lab
 `,
 
   securityNotes: `
@@ -59,6 +69,12 @@ Backtesting security:
 - API keys are never logged or stored client-side
 - Walk-forward results include consistency ratio to prevent curve-fitting claims
 - Monte Carlo beat-rate must exceed 55% to receive B+ grade or above
+
+Lab IDE security:
+- Files are stored in localStorage (client-side only)
+- Strategy code is sent to AI for analysis but never to external servers
+- AI auto-apply only writes files you've opened in the editor
+- Publish step requires backend validation before going live
 `,
 
   fileDescriptions: {
@@ -82,6 +98,7 @@ Backtesting security:
     'app/dashboard/geo/page.tsx': 'Geospatial data explorer with CSV/JSON upload and drill-down',
     'app/dashboard/quant/page.tsx': 'Redirects to /dashboard/build (Quant Lab IDE)',
     'app/dashboard/marketplace/page.tsx': 'Agent exchange/marketplace',
+    'app/dashboard/lab/page.tsx': 'Quant Lab IDE with AI code editor, backtest runner, and FILE directive support',
     'app/api/backtest/route.ts': 'Main backtest API endpoint',
     'app/api/quant/run/route.ts': 'Institutional quant engine endpoint',
   },

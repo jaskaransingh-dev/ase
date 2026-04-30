@@ -54,12 +54,76 @@ export const BLOCKS: Block[] = [
   // ─── Signal combinators ──────────────────────────────────
   { id: 'sig.composite',   kind: 'signal', label: 'Composite Blend',  description: 'Weighted alpha mixing',      agentHint: 'use a composite alpha blend (momentum + mean-reversion + volume)', affects: ['alpha_type', 'alpha_weights'] },
   { id: 'sig.consensus',   kind: 'signal', label: 'AI Consensus',     description: 'N-model consensus vote',     agentHint: 'gate signals through multi-model consensus voting', affects: ['alpha_type'] },
+  { id: 'sig.majority',    kind: 'signal', label: 'Majority Vote',    description: '2-of-3 or 3-of-5 models',     agentHint: 'require majority agreement between momentum, mean-reversion, and ML models before executing', affects: ['alpha_type'] },
+  { id: 'sig.unanimous',   kind: 'signal', label: 'Unanimous',       description: 'All models must agree',      agentHint: 'only execute when ALL models (momentum + mean-reversion + ML + sentiment) agree', affects: ['alpha_type'] },
+  { id: 'sig.weighted',    kind: 'signal', label: 'Weighted Ensemble', description: 'Model weights 40/30/30',      agentHint: 'weighted ensemble: 40% momentum + 30% mean-reversion + 30% ML model', affects: ['alpha_type', 'alpha_weights'] },
+  { id: 'sig.stacking',    kind: 'signal', label: 'Meta-Learner',     description: 'Stacked generalization',     agentHint: 'use a meta-learner (logistic regression) that takes base model predictions as features', affects: ['alpha_type'] },
 ]
 
 export const BLOCKS_BY_KIND: Record<BlockKind, Block[]> = BLOCKS.reduce((acc, b) => {
   (acc[b.kind] ||= []).push(b)
   return acc
 }, {} as Record<BlockKind, Block[]>)
+
+/**
+ * Purpose-driven groups for the builder UI. Each category answers a question
+ * the user asks while composing a strategy:
+ *   1. "Where does my data come from?"
+ *   2. "How do I detect an edge?"
+ *   3. "How do I combine signals?"
+ *   4. "How do I size and protect positions?"
+ *   5. "How do I execute trades?"
+ */
+export type BlockCategory = {
+  id: 'data' | 'signal' | 'compositor' | 'risk' | 'execution'
+  label: string
+  description: string
+  /** CSS variable name from globals.css for the accent color. */
+  accentVar: string
+  blockIds: string[]
+}
+
+export const BLOCK_CATEGORIES: BlockCategory[] = [
+  {
+    id: 'data',
+    label: 'Data Sources',
+    description: 'Where the strategy reads from',
+    accentVar: '--blue',
+    blockIds: ['data.binance', 'data.coingecko', 'data.yahoo', 'data.onchain', 'data.funding', 'api.fear_greed', 'api.alternative', 'api.news', 'api.satellite', 'api.syne'],
+  },
+  {
+    id: 'signal',
+    label: 'Signals & Models',
+    description: 'How the strategy detects an edge',
+    accentVar: '--mint',
+    blockIds: ['ind.rsi', 'ind.macd', 'ind.bb', 'ind.atr', 'ind.ema_cross', 'ind.zscore', 'ml.gbm', 'ml.lstm', 'ml.regime'],
+  },
+  {
+    id: 'compositor',
+    label: 'Signal Combination',
+    description: 'How signals vote and combine',
+    accentVar: '--purple',
+    blockIds: ['sig.composite', 'sig.consensus', 'sig.majority', 'sig.unanimous', 'sig.weighted', 'sig.stacking'],
+  },
+  {
+    id: 'risk',
+    label: 'Risk & Sizing',
+    description: 'How positions are sized and protected',
+    accentVar: '--orange',
+    blockIds: ['risk.killswitch', 'risk.parity'],
+  },
+  {
+    id: 'execution',
+    label: 'Execution',
+    description: 'How orders hit the market',
+    accentVar: '--cyan',
+    blockIds: ['exec.twap', 'exec.vwap', 'api.kraken'],
+  },
+]
+
+export function getBlockById(id: string): Block | undefined {
+  return BLOCKS.find(b => b.id === id)
+}
 
 export function blocksToHints(ids: string[]): string {
   if (!ids.length) return ''

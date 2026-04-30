@@ -71,6 +71,111 @@ function fallback(prompt: string, today: string, twoYearsAgo: string): AgentSpec
   }
 }
 
+/** Deterministic baseline file tree generated from a spec — used when the LLM
+ * doesn't return its own `files` payload. Guarantees the Lab always opens with
+ * something the user can read, edit, and ship. */
+function baselineFiles(spec: AgentSpec): { path: string; content: string }[] {
+  const symbolsArr = JSON.stringify(spec.symbols)
+  const weightsLit = spec.alpha_weights ? JSON.stringify(spec.alpha_weights, null, 2) : '{}'
+  const score = spec.alpha_type === 'momentum'
+    ? `return 0.15 * (row.ret5 ?? 0) + 0.35 * (row.ret20 ?? 0)`
+    : spec.alpha_type === 'mean_reversion'
+    ? `return -0.7 * (row.zscore ?? 0) - 0.3 * (row.rsi != null ? (50 - row.rsi) / 50 : 0)`
+    : spec.alpha_type === 'volatility'
+    ? `return (row.vol20 ?? 0) > 0.04 ? -(row.ret5 ?? 0) : (row.ret5 ?? 0)`
+    : `return 0.4 * (row.ret20 ?? 0) - 0.3 * (row.zscore ?? 0) - 0.3 * (row.rsi != null ? (50 - row.rsi) / 50 : 0)`
+
+  return [
+    {
+      path: 'spec.json',
+      content: JSON.stringify(spec, null, 2),
+    },
+    {
+      path: 'signals.ts',
+      content: `// ${spec.name} — signal layer (alpha_type=${spec.alpha_type})
+// Universe: ${spec.symbols.join(', ')}
+// Scoring runs once per bar per symbol; output feeds the optimizer.
+export type FeatureRow = {
+  ret5?: number; ret20?: number; zscore?: number; rsi?: number; vol20?: number
+}
+
+export const UNIVERSE = ${symbolsArr}
+export const ALPHA_WEIGHTS = ${weightsLit}
+
+export function score(row: FeatureRow): number {
+  ${score}
+}
+`,
+    },
+    {
+      path: 'risk.ts',
+      content: `// ${spec.name} — risk and sizing layer
+// risk_aversion = ${spec.risk_aversion} (lambda; higher = smaller positions)
+// max_weight    = ${spec.max_weight} (per-name cap)
+export const RISK_AVERSION = ${spec.risk_aversion}
+export const MAX_WEIGHT    = ${spec.max_weight}
+
+/** ATR-style position sizing. Returns the fraction of capital to allocate. */
+export function size(rawSignal: number, vol20: number): number {
+  const target = rawSignal / Math.max(0.01, vol20 * RISK_AVERSION)
+  return Math.max(-MAX_WEIGHT, Math.min(MAX_WEIGHT, target))
+}
+
+/** Hard kill switch — flatten everything if drawdown exceeds threshold. */
+export function killSwitch(currentDrawdownPct: number): boolean {
+  return currentDrawdownPct >= 20
+}
+`,
+    },
+    {
+      path: 'exec.ts',
+      content: `// ${spec.name} — execution layer
+// Cadence: ${spec.cadence} · Rebalance: ${spec.rebalance_freq}
+import { UNIVERSE } from './signals'
+
+export type Order = { symbol: string; side: 'BUY' | 'SELL'; weight: number; price: number }
+export type LedgerEntry = Order & { mode: 'paper' | 'live'; executedAt: string; notional: number }
+
+export function execute(orders: Order[], capital: number, mode: 'paper' | 'live' = 'paper'): LedgerEntry[] {
+  const now = new Date().toISOString()
+  return orders
+    .filter(o => UNIVERSE.includes(o.symbol))
+    .map(o => ({
+      ...o,
+      mode,
+      executedAt: now,
+      notional: capital * o.weight,
+    }))
+}
+`,
+    },
+    {
+      path: 'README.md',
+      content: `# ${spec.name}
+
+${spec.thesis}
+
+## Universe
+${spec.symbols.map(s => `- ${s}`).join('\n')}
+
+## How it works
+This agent uses a **${spec.alpha_type}** alpha layered on top of the \`${spec.template}\` template.
+It rebalances ${spec.rebalance_freq} and reposts trades every \`${spec.cadence}\` once published.
+
+- \`signals.ts\` produces a per-symbol score each bar.
+- \`risk.ts\` converts the score into a position size, capped at ${(spec.max_weight * 100).toFixed(0)}% per name.
+- \`exec.ts\` writes the resulting orders to the paper-trade ledger.
+
+## When it works
+Crypto trends with persistent regime structure.
+
+## When it fails
+Sudden regime shifts (e.g. macro shocks). The kill switch in \`risk.ts\` halts trading on a ${'>'} 20% drawdown.
+`,
+    },
+  ]
+}
+
 const CODEBASE_MAP = `
 ASE codebase grounding (the agent runs against THESE files and APIs — do not invent others):
 - app/api/quant/run/route.ts        — 9-layer backtest pipeline (this is what runs your spec)
@@ -189,10 +294,42 @@ GROUNDING RULES:
 3. 3-7 symbols is optimal for diversification; more than 8 dilutes signal.
 4. thesis must reference the alpha_type and explain the market mechanism (e.g. "momentum persists in crypto over 20-day windows due to trend-following behavior of retail traders").
 5. Do NOT invent new data sources, indicators, or fields not listed above.
-6. walk_forward should be false unless user explicitly asks for walk-forward validation (it significantly slows the backtest).`
+6. walk_forward should be false unless user explicitly asks for walk-forward validation (it significantly slows the backtest).
+
+MULTI-FILE AGENT OUTPUT (REQUIRED):
+You MUST also emit a "files" array containing the agent's source tree. The Lab opens these files
+in an editor as soon as the user lands. ALWAYS include exactly these four files:
+
+{
+  "name": "...",
+  "thesis": "...",
+  ...all spec fields...,
+  "files": [
+    { "path": "spec.json",   "content": "<the entire spec as pretty JSON>" },
+    { "path": "signals.ts",  "content": "<TypeScript: export function score(row): number based on alpha_type>" },
+    { "path": "risk.ts",     "content": "<TypeScript: export function size(weight, vol, riskAversion): number using max_weight + ATR sizing>" },
+    { "path": "exec.ts",     "content": "<TypeScript: export function execute(orders, mode): ledger entries — TWAP if user mentioned twap, else MARKET>" },
+    { "path": "README.md",   "content": "<2-3 paragraph plain-English explanation of the strategy, when it works, when it fails>" }
+  ]
 }
 
-async function compileSpec(prompt: string, prior: Partial<AgentSpec> | undefined, blocks: string[] | undefined, today: string, twoYearsAgo: string): Promise<AgentSpec> {
+File content RULES:
+- Each file's content must be a complete, runnable file — no placeholders, no "TODO".
+- signals.ts and risk.ts must reference actual indicators from the spec (RSI, MACD, Z-score, etc.).
+- exec.ts must respect the spec's cadence and max_weight.
+- README.md must reference the actual symbols and alpha_type from the spec.
+- Keep file paths flat (no nested directories). Use forward slashes only.
+- Escape newlines in JSON strings as \\n. Escape quotes as \\". Do NOT use template literals.
+
+The Lab will save these files into the agent's spec.files array so they persist and can be edited.`
+}
+
+interface AgentWithFiles {
+  agent: AgentSpec
+  files?: { path: string; content: string }[]
+}
+
+async function compileSpec(prompt: string, prior: Partial<AgentSpec> | undefined, blocks: string[] | undefined, today: string, twoYearsAgo: string): Promise<AgentWithFiles> {
   const blockHints = blocksToHints(blocks ?? [])
   const userMsg = [
     `Today is ${today}. Backtest window: ${twoYearsAgo} → ${today} (start_date / end_date).`,
@@ -203,16 +340,24 @@ async function compileSpec(prompt: string, prior: Partial<AgentSpec> | undefined
     `Output ONLY valid JSON. No markdown. No comments. No explanation.`,
   ].filter(Boolean).join('\n\n')
 
-  const completion = await client.chat.completions.create({
-    model: 'qwen2.5-coder:7b',
-    messages: [
-      { role: 'system', content: buildSystemPrompt() },
-      { role: 'user', content: userMsg },
-    ],
-    temperature: 0.3,
-    max_tokens: 1400,
-  })
-  const content = completion.choices[0]?.message?.content ?? '{}'
+  let content = '{}'
+  try {
+    const completion = await client.chat.completions.create({
+      model: 'qwen2.5-coder:7b',
+      messages: [
+        { role: 'system', content: buildSystemPrompt() },
+        { role: 'user', content: userMsg },
+      ],
+      temperature: 0.3,
+      max_tokens: 1400,
+    })
+    content = completion.choices[0]?.message?.content ?? '{}'
+  } catch (err) {
+    // Ollama unreachable / network error / model crash → fall back to deterministic baseline.
+    console.warn('[compile] LLM call failed, using baseline:', err)
+    const spec = fallback(prompt, today, twoYearsAgo)
+    return { agent: spec, files: baselineFiles(spec) }
+  }
   const start = content.indexOf('{')
   const end = content.lastIndexOf('}')
   const jsonStr = start >= 0 && end > start ? content.substring(start, end + 1) : content
@@ -231,10 +376,24 @@ async function compileSpec(prompt: string, prior: Partial<AgentSpec> | undefined
     // Merge with fallback for any missing fields, then validate
     const merged = { ...fallback(prompt, today, twoYearsAgo), ...raw }
     const parsed = AgentSpec.safeParse(merged)
-    if (parsed.success) return parsed.data
-    return AgentSpec.parse(merged)
+    const spec = parsed.success ? parsed.data : AgentSpec.parse(merged)
+
+    let llmFiles: { path: string; content: string }[] = []
+    if (Array.isArray(raw.files)) {
+      llmFiles = raw.files.filter((f): f is { path: string; content: string } => {
+        return typeof f === 'object' && f !== null && 'path' in f && 'content' in f
+          && typeof (f as any).path === 'string' && typeof (f as any).content === 'string'
+      })
+    }
+
+    // Merge: LLM-provided files win on path collision, baseline fills the rest.
+    const baseline = baselineFiles(spec)
+    const seen = new Set(llmFiles.map(f => f.path))
+    const files = [...llmFiles, ...baseline.filter(f => !seen.has(f.path))]
+    return { agent: spec, files }
   } catch {
-    return fallback(prompt, today, twoYearsAgo)
+    const spec = fallback(prompt, today, twoYearsAgo)
+    return { agent: spec, files: baselineFiles(spec) }
   }
 }
 
@@ -255,8 +414,8 @@ export async function POST(req: Request) {
   // Non-streaming path
   if (!body.stream) {
     try {
-      const agent = await compileSpec(body.prompt, body.prior, body.blocks, today, twoYearsAgo)
-      return NextResponse.json({ agent, rationale: agent.thesis })
+      const result = await compileSpec(body.prompt, body.prior, body.blocks, today, twoYearsAgo)
+      return NextResponse.json({ agent: result.agent, rationale: result.agent.thesis, files: result.files })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'compile failed'
       return NextResponse.json({ error: msg }, { status: 500 })
@@ -275,8 +434,8 @@ export async function POST(req: Request) {
         await new Promise(r => setTimeout(r, 50))
         send('status', { stage: 'planning', message: 'Mapping intent to a strategy template…' })
         const agent = await compileSpec(body.prompt!, body.prior, body.blocks, today, twoYearsAgo)
-        send('status', { stage: 'validating', message: `Validated ${agent.symbols.length} symbols, alpha=${agent.alpha_type}, template=${agent.template}` })
-        send('agent', { agent, rationale: agent.thesis })
+        send('status', { stage: 'validating', message: `Validated ${agent.agent.symbols.length} symbols, alpha=${agent.agent.alpha_type}, template=${agent.agent.template}` })
+        send('agent', { agent: agent.agent, rationale: agent.agent.thesis, files: agent.files })
         send('done', { ok: true })
       } catch (err) {
         send('error', { message: err instanceof Error ? err.message : 'compile failed' })
