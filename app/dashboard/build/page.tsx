@@ -824,14 +824,31 @@ export default function BuildPage() {
           display: 'flex', justifyContent: 'center', alignItems: 'center',
           pointerEvents: 'none', // child nodes set their own pointer-events
         }}>
+          {(() => {
+            // Compute the *actual* bounding box of pinned nodes so the wrapper
+            // is symmetric and the flex parent truly centers it. Without this,
+            // adding a single block on the left would shift everything off-center.
+            const xs = nodes.map(n => n.x)
+            const ys = nodes.map(n => n.y)
+            const minX = xs.length ? Math.min(...xs) : 0
+            const maxX = xs.length ? Math.max(...xs) : 0
+            const minY = ys.length ? Math.min(...ys) : 0
+            const maxY = ys.length ? Math.max(...ys) : 0
+            const width  = Math.max(360, (maxX - minX) + 200)
+            const height = Math.max(220, (maxY - minY) + 80)
+            // Shift child node positions so the leftmost block sits at x=0,
+            // making the bounding box symmetric around the flex centroid.
+            const shiftX = -minX
+            const shiftY = -minY
+            return (
           <div style={{
             position: 'relative',
-            width: Math.max(360, (Math.max(...nodes.map(n => n.x), 0) + 200)),
-            height: Math.max(220, (Math.max(...nodes.map(n => n.y), 0) + 80)),
+            width, height,
             transform: `translate(${canvasOffset.x}px,${canvasOffset.y}px) scale(${zoom})`,
             transformOrigin: 'center',
             pointerEvents: 'auto',
           }}>
+          <div style={{ position: 'absolute', inset: 0, transform: `translate(${shiftX}px, ${shiftY}px)` }}>
           {/* Connection lines — every block in column N feeds every block
               in column N+1, plus the rightmost real column feeds both
               built-in sinks (Backtest, Kraken). Mirrors how data actually
@@ -911,6 +928,9 @@ export default function BuildPage() {
             )
           })}
         </div>
+        </div>
+            )
+          })()}
         </div>
       </div>
 

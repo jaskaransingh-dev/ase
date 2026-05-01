@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { calculateQuoteFromNav } from '@/lib/market'
 import { mergeHoldingPosition, syncAgentMarketState } from '@/lib/exchange'
 import { triggerImmediateAgentRun } from '@/lib/agent-cycle'
+import { krakenClientForUser } from '@/lib/kraken-client'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,15 +21,43 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdminClient()
 
-    // Check wallet balance
-    const { data: wallet } = await admin
+    // Read wallet balance, then top up from live Kraken cash if the wallet is
+    // stale. The dashboard shows Kraken balance directly, so if the user sees
+    // $10 there but `wallets` is at 0 we need to refresh before checking — the
+    // wallet table is just a cache, the Kraken account is source of truth.
+    let { data: wallet } = await admin
       .from('wallets')
       .select('balance_cents')
       .eq('user_id', user.id)
       .single()
 
     if (!wallet || wallet.balance_cents < amount_cents) {
-      return NextResponse.json({ error: 'Insufficient balance. Please sync your account or add funds.' }, { status: 400 })
+      try {
+        const kraken = await krakenClientForUser(user.id)
+        if (kraken) {
+          const krakenBalance = await kraken.getBalance()
+          const krakenCashCents = Math.round(((krakenBalance.freeUsd ?? krakenBalance.cashUsd ?? 0)) * 100)
+          if (krakenCashCents > 0) {
+            // Sync wallet to live Kraken cash so subsequent checks are honest.
+            if (!wallet) {
+              await admin.from('wallets').insert({ user_id: user.id, balance_cents: krakenCashCents })
+              wallet = { balance_cents: krakenCashCents }
+            } else if (wallet.balance_cents < krakenCashCents) {
+              await admin.from('wallets').update({ balance_cents: krakenCashCents, updated_at: new Date().toISOString() }).eq('user_id', user.id)
+              wallet = { balance_cents: krakenCashCents }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[invest] kraken sync skipped:', e instanceof Error ? e.message : e)
+      }
+    }
+
+    if (!wallet || wallet.balance_cents < amount_cents) {
+      return NextResponse.json({
+        error: `Insufficient balance. Available: $${((wallet?.balance_cents ?? 0) / 100).toFixed(2)}. Connect Kraken or add funds.`,
+        balance_cents: wallet?.balance_cents ?? 0,
+      }, { status: 400 })
     }
 
     // Get agent with current share price

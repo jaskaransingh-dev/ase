@@ -29,11 +29,14 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { agent_id, amount_cents, paper } = await req.json()
+    const { agent_id, amount_cents } = await req.json()
     if (!agent_id || !amount_cents || amount_cents < 100) {
       return NextResponse.json({ error: 'Minimum investment is $1' }, { status: 400 })
     }
-    const isPaper = !!paper
+    // Sandbox / paper mode removed — every subscription executes against the
+    // user's live Kraken account. The legacy `paper` flag on the request body
+    // is now ignored.
+    const isPaper = false
 
     const admin = createAdminClient()
 
