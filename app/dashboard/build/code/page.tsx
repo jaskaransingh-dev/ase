@@ -838,15 +838,23 @@ export default function QuantLabPage() {
       : 'No backtest run yet.'
 
     try {
+      // Send full chat history (not just latest msg) so the AI sees the
+      // iteration loop and can build on prior turns. buildMode=true makes the
+      // server use the strict file-emit prompt — same one the Build page uses.
+      const history = chatMsgs.concat({ role: 'user', text: msg }).map(m => ({
+        role: m.role === 'ai' ? 'assistant' : 'user',
+        content: m.text,
+      })).filter(m => m.content)
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', content: msg }],
+          messages: history,
           codebase: allFilesCtx,
           activeFile,
           btContext: btCtx,
           apiIds: Array.from(usedAPIIds).join(', '),
+          buildMode: true,
           stream: true,
         }),
       })

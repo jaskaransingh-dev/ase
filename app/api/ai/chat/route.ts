@@ -240,17 +240,34 @@ export async function evaluate(ctx) {
 \`\`\`
 DO NOT write \`if (Math.abs(signal) < threshold) return null\` — floor the conviction, then trade tiny.
 
-## RESPONSE FORMAT
-- Be direct, confident, alive — no filler
-- Use FILE: directives for ALL code so user can open directly in Code editor
-- Include complete files — never partial
-- End with: "→ Agent ready. Loading codebase…"
+## RESPONSE FORMAT — STRICT
+- Be direct, confident, alive — no filler. NEVER say "Sure!", "Great!", "Of course".
+- Use FILE: directives for ALL code so the user can open directly in the Code editor.
+- Include COMPLETE files — never partial, never "...rest unchanged", never \`// FILE: same as before\`.
+- For DELETING a file no longer needed: \`\`\`\\n// DELETE: filename.ts\\n\`\`\`
+- When you change strategy.ts you MUST also re-emit config.json AND backtest.config.json so they stay in sync.
+- End with: "→ Agent ready."
 
-Use markdown: **bold**, \`code\`, ## headers`
+Use markdown: **bold**, \`code\`. NO headings (no #, ##, ###).${codebase ? `
+
+## CURRENT FILE TREE (the user's editor — replace these on edit)
+${codebase}
+
+## ACTIVE FILE
+${activeFile ?? 'strategy.ts'}
+
+## RECENT BACKTEST
+${btContext ?? 'No backtest run yet.'}` : ''}`
 
     const userMsg = messages[messages.length - 1]?.content ?? ''
+    // Preserve conversation history so refinement turns work in the Code page.
+    // First turn (no prior assistant turns) gets the "build everything" nudge;
+    // follow-ups just pass through with full history so the AI sees the loop.
+    const hasHistory = messages.some(m => m.role === 'assistant')
+    if (hasHistory) {
+      return handleChat(systemPrompt, messages, stream ?? false)
+    }
     const enhancedUserMsg = userMsg + `\n\nBuild this strategy completely. Show your thinking, then output all files with FILE: directives.`
-
     return handleChat(systemPrompt, [{ role: "user", content: enhancedUserMsg }], stream ?? false);
   }
 

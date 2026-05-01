@@ -125,11 +125,14 @@ export async function POST(req: Request) {
 
   // Fetch data for all symbols + benchmark
   const allSymbols = [...new Set([benchmark, ...symbols])]
+  // Default to quick (synthetic) bars — Yahoo Finance is rate-limited and slow,
+  // and is the #1 reason the backtest hangs / 504s on Vercel. Only hit network
+  // when the caller explicitly asks for full mode.
+  const useLive = body.full === true
   const fetchOne = async (sym: string): Promise<[string, Bar[]]> => {
-    // Quick mode: skip network, use synthetic bars only (deterministic, fast)
-    const raw = body.quick
-      ? synthesizeBars(sym, '6mo')
-      : await fetchYahooFinance(sym, '2y', '1d')
+    const raw = useLive
+      ? await fetchYahooFinance(sym, '2y', '1d')
+      : synthesizeBars(sym, '2y')
     const bars: Bar[] = raw.map(b => ({
       date: b.date, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume,
     }))
