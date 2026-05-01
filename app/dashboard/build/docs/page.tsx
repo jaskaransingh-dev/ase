@@ -358,6 +358,95 @@ function ExampleCard({ example }: { example: typeof STRATEGY_EXAMPLES[0] }) {
   )
 }
 
+const PLATFORM_FLOW = [
+  { step: 'Build', desc: 'Describe your strategy or drag blocks onto the canvas', icon: '◈', href: '/dashboard/build', color: '#3b82f6' },
+  { step: 'Chat', desc: 'AI responds, shows thinking, initializes codebase', icon: '◉', href: '/dashboard/build', color: '#16c784' },
+  { step: 'Code', desc: 'Full editor with AI at bottom — modify, refine, test', icon: '◆', href: '/dashboard/build/code', color: '#a855f7' },
+  { step: 'Backtest', desc: 'Run strategy against historical crypto data', icon: '▶', href: '/dashboard/build/backtest', color: '#f59e0b' },
+  { step: 'Publish', desc: 'Submit to exchange — verification, legal, compliance', icon: '★', href: '/agents', color: '#ef4444' },
+  { step: 'Exchange', desc: 'Anyone can copy-trade your published strategy', icon: '⬡', href: '/agents', color: '#06b6d4' },
+]
+
+function PlatformFlowBar() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 0, overflowX: 'auto', padding: '1rem 1.25rem', background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 12, marginBottom: '2rem' }}>
+      {PLATFORM_FLOW.map((s, i) => (
+        <div key={s.step} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <Link href={s.href} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem', padding: '0.5rem 0.75rem', borderRadius: 8, textDecoration: 'none', background: `${s.color}10`, border: `1px solid ${s.color}30`, minWidth: 80 }}>
+            <span style={{ fontSize: '1.1rem', color: s.color }}>{s.icon}</span>
+            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: C.white, fontFamily: 'var(--font-mono)' }}>{s.step}</span>
+            <span style={{ fontSize: '0.6rem', color: C.muted, textAlign: 'center', lineHeight: 1.3 }}>{s.desc}</span>
+          </Link>
+          {i < PLATFORM_FLOW.length - 1 && (
+            <svg width="20" height="16" style={{ margin: '0 0.15rem', flexShrink: 0 }}>
+              <path d="M4 8h12M12 4l4 4-4 4" stroke={C.faint} strokeWidth="1.5" fill="none"/>
+            </svg>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+interface AgentDraft { id: string; name: string; prompt: string; files: Record<string, string>; blocks: string[]; createdAt: number }
+
+function AgentManager() {
+  const [drafts, setDrafts] = useState<AgentDraft[]>([])
+
+  useEffect(() => {
+    try { setDrafts(JSON.parse(localStorage.getItem('ase_agent_drafts') ?? '[]')) } catch {}
+  }, [])
+
+  const loadDraft = (d: AgentDraft) => {
+    try { localStorage.setItem('ase-files', JSON.stringify(d.files)) } catch {}
+  }
+
+  if (!drafts.length) return (
+    <div style={{ padding: '1.25rem', background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 10 }}>
+      <div style={{ fontSize: '0.82rem', color: C.muted, marginBottom: '0.5rem' }}>No agent drafts yet.</div>
+      <Link href="/dashboard/build" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.3rem 0.65rem', borderRadius: 6, background: `${C.blue}15`, border: `1px solid ${C.blue}30`, color: C.blue, fontSize: '0.72rem', fontWeight: 600, textDecoration: 'none' }}>
+        Build your first agent →
+      </Link>
+    </div>
+  )
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      {drafts.map(d => {
+        const fileList = Object.keys(d.files)
+        const age = Date.now() - d.createdAt
+        const ageStr = age < 3600000 ? Math.round(age / 60000) + 'm ago' : Math.round(age / 3600000) + 'h ago'
+        return (
+          <div key={d.id} style={{ padding: '0.85rem 1rem', background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+              <div style={{ fontWeight: 600, fontSize: '0.88rem', color: C.white }}>{d.name}</div>
+              <span style={{ fontSize: '0.65rem', color: C.muted, flexShrink: 0, marginLeft: '0.5rem' }}>{ageStr}</span>
+            </div>
+            <div style={{ fontSize: '0.72rem', color: C.muted, marginBottom: '0.5rem', lineHeight: 1.4 }}>{d.prompt.slice(0, 120)}{d.prompt.length > 120 ? '…' : ''}</div>
+            <div style={{ display: 'flex', gap: '0.3rem', marginBottom: '0.6rem', flexWrap: 'wrap' }}>
+              {fileList.map(f => {
+                const ext = f.split('.').pop() ?? ''
+                const lc: Record<string, string> = { ts: C.blue, py: C.mint, json: C.orange }
+                return <span key={f} style={{ fontSize: '0.65rem', color: lc[ext] ?? C.muted, fontFamily: 'var(--font-mono)', background: `${lc[ext] ?? C.muted}12`, padding: '0.05rem 0.3rem', borderRadius: 3 }}>{f}</span>
+              })}
+              {!fileList.length && <span style={{ fontSize: '0.65rem', color: C.faint }}>no files</span>}
+            </div>
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <Link href="/dashboard/build/code" onClick={() => loadDraft(d)}
+                style={{ padding: '0.25rem 0.65rem', borderRadius: 6, background: C.mint, color: '#000', fontSize: '0.7rem', fontWeight: 700, textDecoration: 'none' }}>
+                Open in Code →
+              </Link>
+              <Link href="/dashboard/build" style={{ padding: '0.25rem 0.55rem', borderRadius: 6, background: `${C.blue}15`, border: `1px solid ${C.blue}30`, color: C.blue, fontSize: '0.7rem', textDecoration: 'none' }}>
+                Continue Building
+              </Link>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function QuantDocsPage() {
   const [activeSection, setActiveSection] = useState('overview')
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
@@ -443,6 +532,21 @@ export default function QuantDocsPage() {
 
       {/* Main content */}
       <main style={{ flex: 1, overflowY: 'auto', padding: '2.5rem 2.5rem', maxWidth: 920 }}>
+
+        {/* ── Platform Flow ── */}
+        <div style={{ marginBottom: '2.5rem' }}>
+          <h2 style={{ fontSize: '0.9rem', fontWeight: 700, color: C.white, margin: '0 0 0.75rem', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Platform Flow</h2>
+          <PlatformFlowBar />
+        </div>
+
+        {/* ── Agent Manager ── */}
+        <div style={{ marginBottom: '3rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+            <h2 style={{ fontSize: '0.9rem', fontWeight: 700, color: C.white, margin: 0, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Your Agents</h2>
+            <Link href="/dashboard/build" style={{ padding: '0.3rem 0.7rem', borderRadius: 6, background: `${C.mint}15`, border: `1px solid ${C.mint}30`, color: C.mint, fontSize: '0.72rem', fontWeight: 700, textDecoration: 'none' }}>+ New Agent</Link>
+          </div>
+          <AgentManager />
+        </div>
 
         {/* ── Hero ── */}
         <div style={{ marginBottom: '3.5rem' }}>

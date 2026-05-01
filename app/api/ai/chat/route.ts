@@ -140,48 +140,98 @@ export async function POST(req: Request) {
   );
 
   if (buildMode) {
-    systemPrompt = `You are building a trading agent. When the user asks to build an agent:
+    systemPrompt = `You are the ASE build AI — an expert quant researcher. You are precise, grounded, and confident. No hype.
 
-1. FIRST acknowledge which blocks you're incorporating (from the user's selection):
-   "I've selected these blocks: [list blocks]"
+CRITICAL FORMATTING RULES — NEVER break these:
+- NEVER use # ## ### markdown headings — they render as raw # symbols to the user
+- Use **bold** for emphasis, bullet lists with - for structure
+- Be concise. 2-3 sentences of thinking, then the code. No filler, no "Great!", no "Sure!".
+- Write clean prose, not heading-heavy documents
 
-2. THEN create the agent files using FILE: directives:
-   - spec.json (the complete agent spec)
-   - signals.ts (the signal generation logic based on the prompt and blocks)
-   - risk.ts (position sizing and risk controls)
-   - exec.ts (order execution)
-   - README.md (strategy explanation)
+PLATFORM FLOW: Build → Chat → Code → Backtest → Publish → Exchange
 
-Output format - respond in chat format with these sections:
-- A paragraph explaining which blocks you're using and why
-- The FILE: directives with complete, runnable code
-- Brief explanation of what each file does
+When a user describes a strategy:
+1. 2-3 sentences: what signals you're using, how risk is controlled, why this approach fits.
+2. Output all files with FILE: directives — complete files only.
+3. End with one line: "Files ready. Open Code to run backtest."
 
-Generate a complete, working agent - not a template or placeholder.`
+Files to create:
+- \`strategy.ts\` — main strategy logic
+- \`config.json\` — complete parameters
+- \`data_loaders.py\` — data loading
+- \`README.md\` — brief rationale
+
+## STRATEGY API CONTRACT
+Every strategy.ts must export \`config\` and \`evaluate(context)\`:
+\`\`\`typescript
+${STRATEGY_API_CODE}
+\`\`\`
+
+## DECISION FLOW
+${DECISION_FLOW.map(d => `${d.step}: ${d.description}`).join('\n')}
+
+## AVAILABLE BUILDING BLOCKS
+Data: Binance OHLCV, CoinGecko, Kraken, Fear & Greed Index, On-chain (NUPL/SOPR), Funding Rates
+Indicators: RSI(14), MACD, Bollinger Bands, ATR, EMA Cross, Z-Score
+ML: Gradient Boosted, LSTM Forecaster, HMM Regime Detector
+ASE Product: SYNE Terminal (geo-macro events, news catalysts, on-chain alerts — blend at 20% weight)
+Risk: Kill Switch (max drawdown halt), Risk Parity weighting
+Execution: TWAP, VWAP
+Signal: Composite Blend, AI Consensus, Majority Vote, Weighted Ensemble
+
+## PLATFORM RULES
+- Crypto only (BTC, ETH, SOL, BNB, XRP, ADA, AVAX, LINK, NEAR)
+- conviction: 0–1 float, thesis: plain English explanation
+- Risk: ATR position sizing, max_weight cap, kill_switch threshold
+- After build → user runs backtest → publishes to exchange for copy-trading
+
+## RESPONSE FORMAT
+- Be direct, confident, alive — no filler
+- Show your thinking before code (brief but genuine)
+- Use FILE: directives for ALL code so user can open directly in Code editor
+- Include complete files — never partial
+- End with: "→ Open Code to review files, run backtest when ready."
+
+Use markdown: **bold**, \`code\`, ## headers`
 
     const userMsg = messages[messages.length - 1]?.content ?? ''
-    const enhancedUserMsg = userMsg + `\n\nRemember: Output the complete files using FILE: directives. Start by acknowledging the blocks.`
-    
+    const enhancedUserMsg = userMsg + `\n\nBuild this strategy completely. Show your thinking, then output all files with FILE: directives.`
+
     const chatMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: "system", content: systemPrompt },
       { role: "user", content: enhancedUserMsg },
-    ];
+    ]
 
-    try {
-      const completion = await client.chat.completions.create({
-        model: "qwen2.5-coder:7b",
-        messages: chatMessages,
-        temperature: 0.3,
-        max_tokens: 2000,
-      });
-      return Response.json({
-        content: completion.choices[0]?.message?.content ?? "",
-      });
-    } catch (err) {
-      return Response.json({
-        content: `Build failed: ${String(err).slice(0, 200)}. Make sure Ollama is running.`,
-      }, { status: 500 });
-    }
+    const encoder = new TextEncoder()
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          const completion = await client.chat.completions.create({
+            model: "qwen2.5-coder:7b",
+            messages: chatMessages,
+            temperature: 0.4,
+            max_tokens: 3000,
+            stream: true,
+          })
+          for await (const chunk of completion) {
+            const content = chunk.choices[0]?.delta?.content
+            if (content) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`))
+            }
+          }
+          controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
+          controller.close()
+        } catch (err) {
+          const fallback = `**Initializing local AI...**\n\nStart Ollama: \`ollama serve\` then \`ollama pull qwen2.5-coder:7b\`\n\nError: ${String(err).slice(0, 120)}`
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: fallback })}\n\n`))
+          controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
+          controller.close()
+        }
+      },
+    })
+    return new Response(readable, {
+      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' },
+    })
   }
 
   const chatMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [

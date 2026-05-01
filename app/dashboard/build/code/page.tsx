@@ -260,20 +260,33 @@ export default function QuantLabPage() {
   const [activeFile, setActiveFile]     = useState('strategy.ts')
   const [fileContents, setFileContents] = useState<Record<string, string>>(() => {
     try {
+      // Priority 1: files from the latest draft (written by build page on completion)
       const stored = localStorage.getItem('ase-files')
       if (stored) {
         const parsed = JSON.parse(stored) as Record<string, string>
-        if (parsed['strategy.ts'] || parsed['config.json']) return { ...DEFAULT_FILES, ...parsed }
+        // Only use if it has real content (not just default boilerplate length)
+        const hasFiles = Object.keys(parsed).length > 0
+        const hasContent = Object.values(parsed).some(v => v && v.length > 50)
+        if (hasFiles && hasContent) return { ...DEFAULT_FILES, ...parsed }
       }
     } catch {}
     return DEFAULT_FILES
+  })
+  const [draftLoaded, setDraftLoaded] = useState(() => {
+    try {
+      const stored = localStorage.getItem('ase-files')
+      if (!stored) return false
+      const parsed = JSON.parse(stored) as Record<string, string>
+      return Object.values(parsed).some(v => v && v.length > 50)
+    } catch { return false }
   })
   const [saved, setSaved] = useState(true)
 
   // Layout
   const [sideOpen, setSideOpen] = useState(true)
   const [rightTab, setRightTab] = useState<'backtest'|'data'|'docs'|'chat'>('backtest')
-  const [bottomMode, setBottomMode] = useState<'terminal'|'chat'>('terminal')
+  const [bottomMode, setBottomMode] = useState<'terminal'|'chat'>('chat')
+  const [bottomChatRef] = useState(() => ({ current: null as HTMLTextAreaElement | null }))
 
   // Cmd+K to toggle chat + auto-collapse sidebar
   useEffect(() => {
@@ -335,6 +348,11 @@ export default function QuantLabPage() {
   const [agentName, setAgentName]     = useState('Crypto Momentum')
   const [publishing, setPublishing]   = useState(false)
   const [published, setPublished]     = useState(false)
+  const [publishStep, setPublishStep] = useState<0|1|2|3>(0) // 0=closed 1=review 2=legal 3=done
+  const [publishDesc, setPublishDesc] = useState('')
+  const [publishTags, setPublishTags] = useState('crypto, momentum')
+  const [publishSharePrice, setPublishSharePrice] = useState('10.00')
+  const [legalChecked, setLegalChecked] = useState([false, false, false])
 
   // AI pending edits (cursor-like apply)
   const [pendingEdits, setPendingEdits] = useState<FileEdit[]>([])
@@ -403,7 +421,7 @@ export default function QuantLabPage() {
     const fn = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); void runBacktest() }
       if ((e.ctrlKey || e.metaKey) && e.key === 's')     { e.preventDefault(); handleSave() }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k')     { e.preventDefault(); setBottomMode('chat'); setTimeout(() => chatInputRef.current?.focus(), 50) }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k')     { e.preventDefault(); setBottomMode('chat'); setTimeout(() => { bottomChatRef.current?.focus() }, 50) }
     }
     window.addEventListener('keydown', fn)
     return () => window.removeEventListener('keydown', fn)
@@ -520,8 +538,15 @@ export default function QuantLabPage() {
   }
 
   // ── Publish ───────────────────────────────────────────────────────────────────
-  async function handlePublish() {
-    if (!btResult) { addTerm('[ERR] Run a backtest first before publishing.'); return }
+  function handlePublish() {
+    if (btResult) {
+      const ts = (btResult?.tear_sheet ?? {}) as Record<string, number>
+      setPublishDesc(`${template.replace(/_/g, ' ')} strategy — Grade ${btResult.grade} | Sharpe ${(ts.sharpeRatio??0).toFixed(2)} | CAGR ${(ts.cagr??0).toFixed(1)}% | MaxDD ${(ts.maxDrawdownPct??0).toFixed(1)}%`)
+    }
+    setPublishStep(1)
+  }
+
+  async function submitPublish() {
     setPublishing(true)
     try {
       const res = await fetch('/api/agents', {
@@ -529,7 +554,7 @@ export default function QuantLabPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: agentName,
-          description: `${template.replace(/_/g, ' ')} agent — published from Quant Lab. Grade ${btResult.grade}.`,
+          description: publishDesc,
           strategy_type: STRATEGY_MAP[template] ?? 'crypto_momentum',
           primary_symbol: 'BTC/USD',
           backtest_strategy: template,
@@ -538,19 +563,23 @@ export default function QuantLabPage() {
           ticker: agentName.slice(0, 4).toUpperCase(),
           strategy_code: fileContents['strategy.ts'],
           config_json: fileContents['config.json'],
+          share_price_cents: Math.round(parseFloat(publishSharePrice) * 100),
+          tags: publishTags.split(',').map(t => t.trim()).filter(Boolean),
           publish: true,
         }),
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
         addTerm(`[ERR] Publish failed: ${d.error ?? res.statusText}`)
+        setPublishStep(0)
       } else {
         setPublished(true)
-        addTerm(`[OK] "${agentName}" ${published ? 'republished' : 'published'} to exchange`)
+        setPublishStep(3)
+        addTerm(`[OK] "${agentName}" published to exchange — live for copy-trading`)
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Network error'
-      addTerm(`[ERR] Publish failed: ${msg}`)
+      addTerm(`[ERR] Publish failed: ${e instanceof Error ? e.message : 'Network error'}`)
+      setPublishStep(0)
     } finally { setPublishing(false) }
   }
 
@@ -716,7 +745,7 @@ export default function QuantLabPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <>
+    <div style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: C.bg, overflow: 'hidden' }}>
 
         {/* ── TOP BAR ── */}
@@ -731,6 +760,7 @@ export default function QuantLabPage() {
           <input value={agentName} onChange={e => setAgentName(e.target.value)} style={{ background: 'transparent', border: 'none', outline: 'none', fontWeight: 700, fontSize: '.86rem', color: C.white, minWidth: 100, maxWidth: 220 }} />
           {grade && <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 700, padding: '.15rem .5rem', borderRadius: 5, background: `${gradeCLR}18`, color: gradeCLR, border: `1px solid ${gradeCLR}30` }}>{grade}</div>}
           {published && <Tag text="LIVE" color={C.mint} />}
+          {draftLoaded && !published && <Tag text="DRAFT" color={C.blue} />}
           {!saved    && <Tag text="UNSAVED" color={C.orange} />}
           <div style={{ flex: 1 }} />
           <button onClick={handleSave} style={{ display: 'flex', alignItems: 'center', gap: '.28rem', padding: '.28rem .62rem', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.muted, fontFamily: 'var(--font-mono)', fontSize: '.58rem', cursor: 'pointer', fontWeight: 600 }}>
@@ -782,6 +812,27 @@ export default function QuantLabPage() {
                     </button>
                   )
                 })}
+              </div>
+
+              {/* ASE Pages navigator */}
+              <div style={{ padding: '.45rem .65rem', borderTop: `1px solid ${C.border}` }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, letterSpacing: '.1em', marginBottom: '.3rem' }}>ASE PAGES</div>
+                {[
+                  { label: 'dashboard', href: '/dashboard', icon: '◈' },
+                  { label: 'lab', href: '/dashboard/lab', icon: '⚗' },
+                  { label: 'backtest', href: '/dashboard/build/backtest', icon: '▶' },
+                  { label: 'docs', href: '/dashboard/build/docs', icon: '◉' },
+                  { label: 'agents', href: '/agents', icon: '★' },
+                  { label: 'settings', href: '/dashboard/settings', icon: '◆' },
+                ].map(p => (
+                  <a key={p.label} href={p.href}
+                    style={{ display: 'flex', alignItems: 'center', gap: '.35rem', padding: '.2rem .3rem', borderRadius: 4, color: C.faint, textDecoration: 'none', fontSize: '.58rem', fontFamily: 'var(--font-mono)', marginBottom: '.05rem', transition: 'color .12s' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = C.blue2)}
+                    onMouseLeave={e => (e.currentTarget.style.color = C.faint)}>
+                    <span style={{ fontSize: '.48rem' }}>{p.icon}</span>
+                    <span>{p.label}</span>
+                  </a>
+                ))}
               </div>
 
               {/* Upload custom data */}
@@ -1373,33 +1424,299 @@ export default function QuantLabPage() {
           </div>
         </div>
 
-        {/* ── BOTTOM: TERMINAL ── */}
-        <div style={{ height: 180, flexShrink: 0, borderTop: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column' }}>
-          {/* Bottom header */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', padding: '.25rem .65rem', borderBottom: `1px solid ${C.border}`, background: C.bg2, flexShrink: 0 }}>
-            <div style={{ display: 'flex', gap: '.22rem' }}>
-              {[C.red, C.orange, C.mint].map(c => <div key={c} style={{ width: 7, height: 7, borderRadius: '50%', background: c, opacity: 0.75 }} />)}
+        {/* ── BOTTOM: AI CHAT (dominant) + TERMINAL (collapsible) ── */}
+        <div style={{ height: bottomMode === 'chat' ? 320 : 160, flexShrink: 0, borderTop: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', transition: 'height .2s ease', background: C.bg2 }}>
+          {/* Bottom tabs */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', padding: '.2rem .65rem', borderBottom: `1px solid ${C.border}`, background: C.bg2, flexShrink: 0 }}>
+            <div style={{ display: 'flex', gap: '.22rem', marginRight: '.4rem' }}>
+              {[C.red, C.orange, C.mint].map(c => <div key={c} style={{ width: 6, height: 6, borderRadius: '50%', background: c, opacity: 0.7 }} />)}
             </div>
-            <button onClick={() => setBottomMode('terminal')} style={{ padding: '.18rem .45rem', borderRadius: 5, border: `1px solid ${bottomMode === 'terminal' ? C.blue + '40' : 'transparent'}`, background: bottomMode === 'terminal' ? `${C.blue}10` : 'transparent', color: bottomMode === 'terminal' ? C.blue2 : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '.04em' }}>
-              TERMINAL
-            </button>
+            {(['chat', 'terminal'] as const).map(mode => (
+              <button key={mode} onClick={() => setBottomMode(mode)}
+                style={{ padding: '.18rem .5rem', borderRadius: 5, border: `1px solid ${bottomMode === mode ? (mode === 'chat' ? C.mint + '50' : C.blue + '40') : 'transparent'}`, background: bottomMode === mode ? (mode === 'chat' ? `${C.mint}10` : `${C.blue}10`) : 'transparent', color: bottomMode === mode ? (mode === 'chat' ? C.mint : C.blue2) : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '.04em' }}>
+                {mode === 'chat' ? '◉ AI CHAT' : '›_ TERMINAL'}
+              </button>
+            ))}
+            {/* Live AI status indicator */}
+            {chatLoading && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', marginLeft: '.4rem' }}>
+                <div style={{ width: 5, height: 5, borderRadius: '50%', background: C.mint, animation: 'pulse 0.6s ease-in-out infinite' }} />
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: C.mint }}>AI thinking...</span>
+              </div>
+            )}
             <div style={{ flex: 1 }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: C.faint }}>⌘K to open AI chat</span>
-            <button onClick={() => setTermLines([])} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.52rem' }}>clear</button>
+            {bottomMode === 'chat' && (
+              <div style={{ display: 'flex', gap: '.2rem' }}>
+                {['Improve Sharpe', 'Reduce drawdown', 'Add signals', 'Optimize', 'Explain'].map(s => (
+                  <button key={s} onClick={() => { setChatInput(s); bottomChatRef.current?.focus() }}
+                    style={{ padding: '.1rem .3rem', borderRadius: 3, border: `1px solid ${C.border}`, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.44rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>{s}</button>
+                ))}
+              </div>
+            )}
+            {bottomMode === 'terminal' && (
+              <button onClick={() => setTermLines([])} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.52rem' }}>clear</button>
+            )}
           </div>
 
-          {/* Terminal */}
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-<TerminalPanel lines={termLines} input={termInput} onInput={setTermInput} onSubmit={handleTermSubmit} loading={btLoading} />
-          </div>
+          {/* Chat panel */}
+          {bottomMode === 'chat' && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              {/* Messages */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '.5rem .75rem', display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+                {chatMsgs.map((m, i) => (
+                  <div key={i} style={{ display: 'flex', gap: '.35rem', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', animation: 'slideInUp .2s ease' }}>
+                    {m.role === 'ai' && (
+                      <div style={{ width: 18, height: 18, borderRadius: 5, background: `${C.mint}18`, border: `1px solid ${C.mint}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '.05rem' }}>
+                        <span style={{ fontSize: '.55rem', color: C.mint }}>◉</span>
+                      </div>
+                    )}
+                    <div style={{
+                      maxWidth: m.role === 'user' ? '65%' : '85%',
+                      padding: '.35rem .55rem', borderRadius: 8,
+                      background: m.role === 'user' ? `${C.blue}18` : C.bg3,
+                      border: `1px solid ${m.role === 'user' ? C.blue + '25' : C.border}`,
+                      fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: C.text, lineHeight: 1.55,
+                    }}>
+                      {m.role === 'ai' ? <MdText text={m.text} onApply={applyEdit} /> : <span style={{ whiteSpace: 'pre-wrap' }}>{m.text}</span>}
+                      {m.role === 'ai' && m.edits && m.edits.length > 0 && (
+                        <div style={{ marginTop: '.25rem', display: 'flex', gap: '.2rem', flexWrap: 'wrap' }}>
+                          {m.edits.map((e, ei) => (
+                            <button key={ei} onClick={() => applyEdit(e)}
+                              style={{ padding: '.1rem .35rem', borderRadius: 4, background: `${C.mint}15`, border: `1px solid ${C.mint}40`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.48rem', fontWeight: 600, cursor: 'pointer' }}>
+                              Apply {e.filename}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {chatLoading && chatMsgs[chatMsgs.length - 1]?.text === '' && (
+                  <div style={{ display: 'flex', gap: '.22rem', paddingLeft: '.35rem', alignItems: 'center' }}>
+                    <span style={{ fontSize: '.5rem', color: C.mint, fontFamily: 'var(--font-mono)' }}>ASE AI</span>
+                    {[0,1,2].map(j => <div key={j} style={{ width: 4, height: 4, borderRadius: '50%', background: C.mint, animation: `bounce ${0.5 + j * .12}s ease-in-out infinite` }} />)}
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+              {/* Input */}
+              <div style={{ display: 'flex', gap: '.35rem', padding: '.4rem .75rem', borderTop: `1px solid ${C.border}`, flexShrink: 0, alignItems: 'flex-end' }}>
+                <textarea
+                  ref={el => { (bottomChatRef as any).current = el; if (chatInputRef.current !== el) (chatInputRef as any).current = el }}
+                  value={chatInput} onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendChat() } }}
+                  placeholder="Ask AI to modify your strategy, explain results, or write new code..."
+                  rows={1}
+                  style={{ flex: 1, background: C.bg3, border: `1px solid ${C.border2 ?? C.border}`, borderRadius: 7, padding: '.4rem .6rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.62rem', outline: 'none', resize: 'none', lineHeight: 1.4, maxHeight: 60 }}
+                />
+                <button onClick={() => void sendChat()} disabled={!chatInput.trim() || chatLoading}
+                  style={{ padding: '.4rem .6rem', borderRadius: 7, background: chatInput.trim() && !chatLoading ? C.mint : `${C.mint}30`, border: 'none', color: chatInput.trim() && !chatLoading ? '#000' : C.faint, cursor: chatInput.trim() ? 'pointer' : 'default', flexShrink: 0, fontWeight: 700, fontSize: '.6rem', transition: 'all .15s' }}>
+                  →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Terminal panel */}
+          {bottomMode === 'terminal' && (
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <TerminalPanel lines={termLines} input={termInput} onInput={setTermInput} onSubmit={handleTermSubmit} loading={btLoading} />
+            </div>
+          )}
         </div>
       </div>
 
+      {/* ── PUBLISH WIZARD MODAL ── */}
+      {publishStep > 0 && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.75)', backdropFilter: 'blur(6px)' }}
+          onClick={e => { if (e.target === e.currentTarget && publishStep !== 3) setPublishStep(0) }}>
+          <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 14, width: 520, maxWidth: '95vw', padding: '1.4rem 1.6rem', display: 'flex', flexDirection: 'column', gap: '1rem', position: 'relative', animation: 'slideInUp .2s ease' }}>
+
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+              <div style={{ width: 30, height: 30, borderRadius: 8, background: `${C.mint}18`, border: `1px solid ${C.mint}30`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ fontSize: '.9rem', color: C.mint }}>◈</span>
+              </div>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '.82rem', color: C.white }}>
+                  {publishStep === 3 ? 'Strategy Live on Exchange' : 'Publish to Exchange'}
+                </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint }}>
+                  {publishStep === 1 ? 'Step 1 of 2 — Review & Configure' : publishStep === 2 ? 'Step 2 of 2 — Legal & Compliance' : 'Your agent is live for copy-trading'}
+                </div>
+              </div>
+              {publishStep !== 3 && (
+                <button onClick={() => setPublishStep(0)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontSize: '1.1rem' }}>✕</button>
+              )}
+            </div>
+
+            {/* Step indicator */}
+            {publishStep < 3 && (
+              <div style={{ display: 'flex', gap: '.3rem' }}>
+                {[1,2].map(s => (
+                  <div key={s} style={{ flex: 1, height: 3, borderRadius: 2, background: publishStep >= s ? C.mint : C.border, transition: 'background .2s' }} />
+                ))}
+              </div>
+            )}
+
+            {/* ── STEP 1: Review ── */}
+            {publishStep === 1 && (() => {
+              const ts = (btResult?.tear_sheet ?? {}) as Record<string, number>
+              const grade = btResult?.grade as string ?? '—'
+              const gradeCLR2 = GRADE_CLR[grade] ?? C.faint
+              const sharpe = (ts.sharpeRatio ?? 0).toFixed(2)
+              const cagr = (ts.cagr ?? 0).toFixed(1)
+              const maxdd = (ts.maxDrawdownPct ?? 0).toFixed(1)
+              const beatRate = (ts.beatRate ?? 0).toFixed(0)
+              const checks = [
+                { label: 'Backtest complete', ok: !!btResult, detail: btResult ? `Grade ${grade}` : 'Run backtest first' },
+                { label: 'Walk-forward validated', ok: walkFwd, detail: walkFwd ? 'Out-of-sample verified' : 'Enable walkForward in config' },
+                { label: 'Sharpe ≥ 1.0', ok: (ts.sharpeRatio ?? 0) >= 1.0, detail: `Sharpe ${sharpe}` },
+                { label: 'Max drawdown ≤ 30%', ok: (ts.maxDrawdownPct ?? 0) <= 30, detail: `MaxDD ${maxdd}%` },
+                { label: 'Monte Carlo beat-rate ≥ 55%', ok: (ts.beatRate ?? 0) >= 55, detail: `Beat-rate ${beatRate}%` },
+              ]
+              const allPass = checks.every(c => c.ok)
+              return (
+                <>
+                  {/* Backtest scorecard */}
+                  <div style={{ background: C.bg3, borderRadius: 10, padding: '.75rem 1rem', border: `1px solid ${C.border}` }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, letterSpacing: '.1em', marginBottom: '.5rem' }}>BACKTEST SCORECARD</div>
+                    <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+                      {[['GRADE', grade, gradeCLR2], ['SHARPE', sharpe, parseFloat(sharpe) >= 1 ? C.mint : C.orange], ['CAGR', cagr + '%', C.blue], ['MAX DD', maxdd + '%', parseFloat(maxdd) <= 20 ? C.mint : C.orange]].map(([k, v, c]) => (
+                        <div key={k} style={{ flex: 1, minWidth: 80, background: C.bg, borderRadius: 7, padding: '.4rem .6rem', border: `1px solid ${C.border}` }}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: C.faint }}>{k}</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.88rem', fontWeight: 700, color: c as string }}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Verification checklist */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+                    {checks.map(c => (
+                      <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.3rem .6rem', borderRadius: 6, background: c.ok ? `${C.mint}08` : `${C.orange}08`, border: `1px solid ${c.ok ? C.mint + '25' : C.orange + '25'}` }}>
+                        <span style={{ color: c.ok ? C.mint : C.orange, fontSize: '.75rem' }}>{c.ok ? '✓' : '⚠'}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: C.text, flex: 1 }}>{c.label}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint }}>{c.detail}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Agent details */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '.55rem' }}>
+                    <div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, marginBottom: '.2rem' }}>AGENT NAME</div>
+                      <input value={agentName} onChange={e => setAgentName(e.target.value)}
+                        style={{ width: '100%', background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 6, padding: '.35rem .55rem', color: C.white, fontFamily: 'var(--font-mono)', fontSize: '.65rem', outline: 'none', boxSizing: 'border-box' }} />
+                    </div>
+                    <div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, marginBottom: '.2rem' }}>DESCRIPTION</div>
+                      <textarea value={publishDesc} onChange={e => setPublishDesc(e.target.value)} rows={2}
+                        style={{ width: '100%', background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 6, padding: '.35rem .55rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.6rem', outline: 'none', resize: 'none', boxSizing: 'border-box', lineHeight: 1.5 }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: '.5rem' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, marginBottom: '.2rem' }}>TAGS (comma-separated)</div>
+                        <input value={publishTags} onChange={e => setPublishTags(e.target.value)}
+                          style={{ width: '100%', background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 6, padding: '.35rem .55rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.6rem', outline: 'none', boxSizing: 'border-box' }} />
+                      </div>
+                      <div style={{ width: 110 }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, marginBottom: '.2rem' }}>SHARE PRICE (USD)</div>
+                        <input type="number" min="1" step="0.01" value={publishSharePrice} onChange={e => setPublishSharePrice(e.target.value)}
+                          style={{ width: '100%', background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 6, padding: '.35rem .55rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.6rem', outline: 'none', boxSizing: 'border-box' }} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end' }}>
+                    <button onClick={() => setPublishStep(0)} style={{ padding: '.4rem .8rem', borderRadius: 7, border: `1px solid ${C.border}`, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.6rem', cursor: 'pointer' }}>Cancel</button>
+                    <button onClick={() => setPublishStep(2)} disabled={!allPass}
+                      style={{ padding: '.4rem 1rem', borderRadius: 7, border: 'none', background: allPass ? C.mint : `${C.mint}30`, color: allPass ? '#000' : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, cursor: allPass ? 'pointer' : 'not-allowed' }}>
+                      Continue →
+                    </button>
+                  </div>
+                </>
+              )
+            })()}
+
+            {/* ── STEP 2: Legal ── */}
+            {publishStep === 2 && (
+              <>
+                <div style={{ background: C.bg3, borderRadius: 10, padding: '.75rem 1rem', border: `1px solid ${C.border}` }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.orange, letterSpacing: '.1em', marginBottom: '.4rem' }}>⚠ IMPORTANT DISCLOSURES</div>
+                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: C.text, lineHeight: 1.6, margin: 0 }}>
+                    By publishing to the ASE Exchange you allow other users to copy-trade this strategy. You understand that past backtest performance does not guarantee future results. Crypto markets are highly volatile and all trading involves risk of loss.
+                  </p>
+                </div>
+
+                {[
+                  'I confirm this strategy is my original work and I have the right to publish it on ASE.',
+                  'I understand backtest results are simulated and do not guarantee live performance. Copy-traders assume full risk.',
+                  'I agree to the ASE Exchange Terms of Service, including content policies and intellectual property rules.',
+                ].map((text, i) => (
+                  <div key={i} onClick={() => setLegalChecked(p => { const n = [...p]; n[i] = !n[i]; return n })}
+                    style={{ display: 'flex', gap: '.65rem', alignItems: 'flex-start', padding: '.45rem .6rem', borderRadius: 7, border: `1px solid ${legalChecked[i] ? C.mint + '35' : C.border}`, background: legalChecked[i] ? `${C.mint}06` : 'transparent', cursor: 'pointer' }}>
+                    <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${legalChecked[i] ? C.mint : C.border}`, background: legalChecked[i] ? C.mint : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '.05rem', transition: 'all .15s' }}>
+                      {legalChecked[i] && <span style={{ color: '#000', fontSize: '.65rem', fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                    </div>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: C.text, lineHeight: 1.55 }}>{text}</span>
+                  </div>
+                ))}
+
+                <div style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end' }}>
+                  <button onClick={() => setPublishStep(1)} style={{ padding: '.4rem .8rem', borderRadius: 7, border: `1px solid ${C.border}`, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.6rem', cursor: 'pointer' }}>← Back</button>
+                  <button onClick={() => void submitPublish()} disabled={!legalChecked.every(Boolean) || publishing}
+                    style={{ padding: '.4rem 1.1rem', borderRadius: 7, border: 'none', background: legalChecked.every(Boolean) && !publishing ? C.mint : `${C.mint}30`, color: legalChecked.every(Boolean) && !publishing ? '#000' : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, cursor: legalChecked.every(Boolean) && !publishing ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: '.3rem' }}>
+                    {publishing && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'spin 1s linear infinite' }}><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0"/></svg>}
+                    {publishing ? 'Publishing…' : '◈ Publish to Exchange'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ── STEP 3: Success ── */}
+            {publishStep === 3 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', padding: '.5rem 0' }}>
+                <div style={{ width: 60, height: 60, borderRadius: 16, background: `${C.mint}18`, border: `1px solid ${C.mint}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'glow 2s ease-in-out infinite' }}>
+                  <span style={{ fontSize: '1.8rem' }}>◈</span>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1rem', color: C.mint, marginBottom: '.3rem' }}>Live on Exchange</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: C.faint }}>
+                    <strong style={{ color: C.white }}>{agentName}</strong> is now live for copy-trading.
+                  </div>
+                </div>
+                <div style={{ background: C.bg3, borderRadius: 10, padding: '.65rem 1rem', border: `1px solid ${C.border}`, width: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.35rem' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint }}>Share price</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.7rem', fontWeight: 700, color: C.white }}>${publishSharePrice}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint }}>Status</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: C.mint, fontWeight: 700 }}>● ACTIVE</span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '.5rem', width: '100%' }}>
+                  <a href="/agents" style={{ flex: 1, padding: '.45rem 0', borderRadius: 7, border: 'none', background: C.mint, color: '#000', fontFamily: 'var(--font-mono)', fontSize: '.62rem', fontWeight: 700, cursor: 'pointer', textAlign: 'center', textDecoration: 'none' }}>
+                    View on Exchange →
+                  </a>
+                  <button onClick={() => setPublishStep(0)} style={{ flex: 1, padding: '.45rem 0', borderRadius: 7, border: `1px solid ${C.border}`, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.62rem', cursor: 'pointer' }}>
+                    Back to Code
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <style>{`
         @keyframes spin   { to { transform: rotate(360deg) } }
-        @keyframes bounce { 0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)} }
+        @keyframes bounce { 0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)} }
         @keyframes pulse  { 0%,100%{opacity:1}50%{opacity:.3} }
+        @keyframes slideInUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes glow { 0%,100%{box-shadow:0 0 4px rgba(22,199,132,.3)} 50%{box-shadow:0 0 12px rgba(22,199,132,.6)} }
       `}</style>
-    </>
+    </div>
   )
 }

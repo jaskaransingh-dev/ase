@@ -63,17 +63,21 @@ export async function GET() {
       })
     }
 
+    let liveSuccess = false
     try {
       const balance = await client.getBalance()
-      krakenCashCents = Math.round(balance.freeUsd * 100)
-      // If live fetch returned 0 but we have cached balance, use cached
+      // Use freeUsd (USD cash only) as spendable balance — this is what the buy screen needs
+      const liveFreeUsd = Math.round(balance.freeUsd * 100)
+      const liveCashUsd = Math.round(balance.cashUsd * 100)
+      // Prefer freeUsd for buying power; fall back to cashUsd if free is 0 but cash > 0
+      krakenCashCents = liveFreeUsd > 0 ? liveFreeUsd : liveCashUsd
+      liveSuccess = krakenCashCents > 0
       if (krakenCashCents === 0 && lastKnownBalance > 0) {
         krakenCashCents = lastKnownBalance
-        console.log('[balance] live fetch = 0, using cached:', lastKnownBalance)
       } else if (krakenCashCents > 0) {
-        // Update cached balance
+        // Cache the free USD balance so next load is accurate
         await admin.from('user_kraken_keys').update({
-          last_balance_usd: balance.cashUsd,
+          last_balance_usd: balance.freeUsd > 0 ? balance.freeUsd : balance.cashUsd,
           updated_at: new Date().toISOString(),
         }).eq('user_id', user.id)
       }
@@ -81,7 +85,7 @@ export async function GET() {
       console.warn('[balance] live fetch failed, using cached:', e)
       krakenCashCents = lastKnownBalance
     }
-    
+
     const availableCents = Math.max(0, krakenCashCents - investedCents)
 
     return NextResponse.json({
@@ -92,7 +96,8 @@ export async function GET() {
       buying_power_cents: availableCents,
       cash: (krakenCashCents / 100).toFixed(2),
       portfolio_value: ((krakenCashCents + investedCents) / 100).toFixed(2),
-      status: lastKnownBalance > 0 ? 'connected' : 'connected',
+      status: krakenCashCents > 0 ? 'connected' : 'not_connected',
+      balance_source: liveSuccess ? 'live' : krakenCashCents > 0 ? 'cached' : 'none',
       provider: 'kraken',
       account_id: 'kraken',
     })

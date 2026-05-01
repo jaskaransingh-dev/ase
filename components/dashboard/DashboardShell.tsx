@@ -511,8 +511,7 @@ export default function DashboardShell({ user, children }: { user: { id: string;
       {/* ⌘K command palette */}
       <CommandPalette />
 
-      {/* Global AI Chatbot */}
-      <AIChatbot />
+      {/* AI is now embedded in the Build/Code pages — no global overlay needed */}
 
       <style>{`
         @media (max-width: 768px) {
