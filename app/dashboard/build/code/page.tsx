@@ -368,15 +368,11 @@ export default function QuantLabPage() {
   })
   const [saved, setSaved] = useState(true)
 
-  // Layout — codebase is visible by default on /dashboard/build/code (that's
-  // the whole point of being here). The HIDE CODE button in the top bar
-  // collapses it to a chat-dominant Build-style view at any time.
-  const [sideOpen, setSideOpen] = useState(true)
-  // Codebase tree condense mode: collapse the explorer to just the active file
-  // (plus an "+N more" affordance) when the AI is streaming or a backtest is
-  // running, but never collapse below one visible file. Manual override via
-  // the chevron in the explorer header.
-  const [treeCondensed, setTreeCondensed] = useState(false)
+  // Code panel starts collapsed — user presses "CODE" to open it.
+  // Mirrors how the Build page hides the codebase by default.
+  const [sideOpen, setSideOpen] = useState(false)
+  // Codebase tree condense mode: collapsed by default, expands on demand.
+  const [treeCondensed, setTreeCondensed] = useState(true)
   // Block panel — same data + behavior as Build page. Hydrated from the
   // same localStorage key Build writes to so the two surfaces share state.
   const [pinnedBlocks, setPinnedBlocks] = useState<string[]>(() => {
@@ -431,12 +427,14 @@ export default function QuantLabPage() {
   // Backtest config (synced from config.json)
   const [template, setTemplate]       = useState('composite_balanced')
   const [universe, setUniverse]       = useState('crypto_top10')
-  const [startDate, setStartDate]     = useState('2024-01-01')
+  const [startDate, setStartDate]     = useState(() => {
+    const d = new Date(); d.setMonth(d.getMonth() - 6); return d.toISOString().slice(0, 10)
+  })
   const [endDate]                     = useState(new Date().toISOString().slice(0, 10))
   const [rebalFreq, setRebalFreq]     = useState<'daily'|'weekly'|'monthly'>('weekly')
   const [riskAversion, setRiskAversion] = useState(4)
   const [maxWeight, setMaxWeight]     = useState(0.30)
-  const [walkFwd, setWalkFwd]         = useState(true)
+  const [walkFwd, setWalkFwd]         = useState(false)
   const [initCapital, setInitCapital] = useState(1000000)
   const [feeBps, setFeeBps]           = useState(7)
   const [btLoading, setBtLoading]     = useState(false)
@@ -968,34 +966,41 @@ export default function QuantLabPage() {
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
+      <style>{`
+        @keyframes blink { 0%,100%{opacity:.3} 50%{opacity:1} }
+        @keyframes fade-up { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes spin { to{transform:rotate(360deg)} }
+        @keyframes slide-in-right { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+      `}</style>
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: C.bg, overflow: 'hidden' }}>
 
-        {/* ── LIVE PIPELINE GRAPHIC — same component the Build page uses;
-            blocks animate in as the AI edits files / pinned blocks change.
-            Clicking a block jumps to the matching file in the editor so
-            the pipeline and codebase feel like one connected surface. */}
-        <CanvasAssembly
-          blocks={pinnedBlocks}
-          phase="done"
-          height={150}
-          onBlockClick={(blockId) => {
-            // Map block id → which file most likely implements it. Look
-            // at every file's contents and open whichever mentions the
-            // id. Falls back to strategy.ts.
-            const target = Object.entries(fileContents).find(([, content]) =>
-              typeof content === 'string' && content.toLowerCase().includes(blockId.toLowerCase())
-            )?.[0]
-            const file = target ?? 'strategy.ts'
-            if (!openFiles.includes(file) && fileContents[file] !== undefined) setOpenFiles(p => [...p, file])
-            if (fileContents[file] !== undefined) setActiveFile(file)
-          }}
-        />
+        {/* ── PIPELINE STRIP — shows block graph; clicking a block opens the file */}
+        <div style={{ borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <CanvasAssembly
+            blocks={pinnedBlocks}
+            phase="done"
+            height={90}
+            onBlockClick={(blockId) => {
+              const target = Object.entries(fileContents).find(([, content]) =>
+                typeof content === 'string' && content.toLowerCase().includes(blockId.toLowerCase())
+              )?.[0]
+              const file = target ?? 'strategy.ts'
+              if (!openFiles.includes(file) && fileContents[file] !== undefined) setOpenFiles(p => [...p, file])
+              if (fileContents[file] !== undefined) { setActiveFile(file); setSideOpen(true) }
+            }}
+          />
+        </div>
 
         {/* ── TOP BAR ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.4rem .75rem', borderBottom: `1px solid ${C.border}`, background: C.bg2, flexShrink: 0, height: 42 }}>
-          {/* HIDE CODE / BRING UP CODEBASE toggle removed — codebase is
-              always visible on this route; the build page is the chat
-              surface. */}
+          {/* CODE toggle — show/hide the editor panel */}
+          <button onClick={() => setSideOpen(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', gap: '.28rem', padding: '.28rem .62rem', borderRadius: 6, border: `1px solid ${sideOpen ? C.mint + '55' : C.border}`, background: sideOpen ? `${C.mint}12` : 'transparent', color: sideOpen ? C.mint : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '.05em' }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            CODE
+          </button>
+          <div style={{ width: 1, height: 16, background: C.border }} />
           <button onClick={() => setAgentIconIdx(i => (i + 1) % AGENT_ICONS.length)} title="Change agent icon" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.blue2, display: 'flex', alignItems: 'center', fontSize: '1.1rem', padding: '0 .15rem' }}>
             {AGENT_ICONS[agentIconIdx]}
           </button>
@@ -1222,16 +1227,17 @@ export default function QuantLabPage() {
           </div>
           )}
 
-          {/* RIGHT PANEL — Backtest only. Side AI chat removed. */}
+          {/* RIGHT PANEL — Backtest. Expands to fill when code is hidden. */}
           <div style={{
-            width: 380, flexShrink: 0, flex: '0 0 auto',
-            borderLeft: `1px solid ${C.border}`,
+            width: sideOpen ? 380 : '100%', flexShrink: 0, flex: sideOpen ? '0 0 auto' : '1 1 auto',
+            borderLeft: sideOpen ? `1px solid ${C.border}` : 'none',
             display: 'flex', flexDirection: 'column', overflow: 'hidden',
-            background: C.bg2,
+            background: C.bg2, transition: 'width .25s ease',
           }}>
-            <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, flexShrink: 0, alignItems: 'center' }}>
-              <span style={{ flex: 1, padding: '.45rem .8rem', color: C.blue2, fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' }}>
-                Backtest
+            <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, flexShrink: 0, alignItems: 'center', background: `${C.bg2}cc`, backdropFilter: 'blur(8px)' }}>
+              <div style={{ width: 7, height: 7, borderRadius: '50%', background: btLoading ? C.orange : btResult ? C.mint : C.faint, animation: btLoading ? 'blink .6s infinite' : 'none', marginLeft: '.85rem', flexShrink: 0 }} />
+              <span style={{ flex: 1, padding: '.45rem .5rem', color: C.white, fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, letterSpacing: '.06em' }}>
+                {btLoading ? `Running… ${btElapsed}s` : btResult ? `Backtest — Grade ${grade}` : 'Backtest'}
               </span>
               <a href="/dashboard/build/docs" title="Open docs page"
                 style={{ padding: '.45rem .55rem', borderLeft: `1px solid ${C.border}`, color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.5rem', textDecoration: 'none', display: 'flex', alignItems: 'center' }}>DOCS ↗</a>

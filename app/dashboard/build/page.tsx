@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { BLOCKS, getBlockById } from '@/lib/quant/blocks'
 import type { BlockKind } from '@/lib/quant/blocks'
 import { runBuild as runBuildBg, subscribe as subscribeBg, getState as getBgState, abortBuild as abortBuildBg, clearState as clearBgState } from '@/lib/build-bg'
+import CanvasAssembly from '@/components/dashboard/CanvasAssembly'
 
 const C = {
   bg: '#030608', bg2: '#060d17', bg3: '#0a1525', bg4: '#0e1c30',
@@ -1090,10 +1091,6 @@ export default function BuildPage() {
             background: 'transparent',
           }}>
 
-            {/* Pipeline graphic removed — the foreground canvas (above)
-                already renders the assembled pipeline. Duplicating it here
-                made two stacked pipelines, which we now collapse into one. */}
-
             <div style={{
               display: 'flex', flexDirection: 'column',
               maxHeight: '60vh', minHeight: 280,
@@ -1104,6 +1101,11 @@ export default function BuildPage() {
               pointerEvents: 'auto',
               overflow: 'hidden',
             }}>
+
+            {/* Pipeline strip — lives inside the "Building strategy" panel */}
+            <div style={{ flexShrink: 0, borderBottom: `1px solid ${C.border}`, overflow: 'hidden' }}>
+              <CanvasAssembly blocks={nodes.map(n => n.id)} phase={phase} height={90} />
+            </div>
 
             {/* Header */}
             <div style={{ padding: '.5rem .85rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '.5rem', flexShrink: 0, background: `${C.bg2}cc`, backdropFilter: 'blur(8px)' }}>
