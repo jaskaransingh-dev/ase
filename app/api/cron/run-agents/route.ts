@@ -51,6 +51,10 @@ import { calculateNavFromState, calculateHoldingValueCents, calculateTradingCapi
 import { distributeTradeToUsers, getUsersWithHoldings, syncAlpacaBalance } from '@/lib/user-trading'
 
 export const dynamic = 'force-dynamic'
+// Agents fan out across many Alpaca/Kraken calls — give the cron the full
+// 5-minute Vercel pro budget so it can finish a tick on every active agent
+// instead of being killed mid-loop.
+export const maxDuration = 300
 
 // Map agent DB slug → strategy runner
 const STRATEGY_MAP: Record<
@@ -106,6 +110,11 @@ export async function POST(req: NextRequest) {
 
   const admin = createAdminClient()
   const ran_at = new Date().toISOString()
+
+  // The 5 featured launchase.com agents — these get processed first on
+  // every tick so their last_run_at + signal_summary stay fresh even if
+  // the rest of the loop runs long.
+  const FEATURED = ['composite-alpha-v2','btc-momentum','eth-mean-revert','defi-basket','sol-breakout']
 
   let agentsQuery = admin
     .from('agents')
@@ -174,6 +183,16 @@ export async function POST(req: NextRequest) {
       })
     }
   }
+
+  // Sort featured agents to the front so they always get a turn even
+  // if the cron tick gets killed before the rest of the list runs.
+  agents = [...agents].sort((a, b) => {
+    const ai = FEATURED.indexOf(a.slug); const bi = FEATURED.indexOf(b.slug)
+    if (ai === -1 && bi === -1) return 0
+    if (ai === -1) return 1
+    if (bi === -1) return -1
+    return ai - bi
+  })
 
   console.log(`[run-agents] ${agents.length} agents in this cron tick`)
 

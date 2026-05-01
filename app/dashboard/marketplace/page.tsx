@@ -96,11 +96,23 @@ export default function MarketplacePage() {
     router.push(`/agents/${listing.slug}`)
   }
 
+  // Featured slugs always rank to the top regardless of sort, so the
+  // launchase.com hero agents are immediately visible to first-time
+  // visitors. Within the featured set the user-selected sort still
+  // applies, then everything else follows.
+  const FEATURED = ['composite-alpha-v2','btc-momentum','eth-mean-revert','defi-basket','sol-breakout']
+  const featuredRank = (slug: string) => {
+    const i = FEATURED.indexOf(slug)
+    return i === -1 ? Infinity : i
+  }
+
   const displayed = listings.filter(l =>
     !search || l.name?.toLowerCase().includes(search.toLowerCase()) ||
     l.ticker?.toLowerCase().includes(search.toLowerCase()) ||
     l.description?.toLowerCase().includes(search.toLowerCase())
   ).sort((a, b) => {
+    const fa = featuredRank(a.slug); const fb = featuredRank(b.slug)
+    if (fa !== fb) return fa - fb
     if (sort === 'return') return ((b.return30d ?? 0) - (a.return30d ?? 0))
     if (sort === 'sharpe') return ((b.sharpe ?? 0) - (a.sharpe ?? 0))
     if (sort === 'drawdown') return ((a.maxDD ?? 999) - (b.maxDD ?? 999))

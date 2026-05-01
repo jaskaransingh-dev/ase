@@ -130,6 +130,10 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
   }, [])
 
   const notConnected = accountStatus === 'not_connected' && (balance ?? 0) === 0
+  // Connected to Kraken but the USD cash balance is $0 — the user's funds
+  // are likely sitting in positions, stakes, or non-USD currencies that
+  // ASE can't draw from. Surface this state with its own copy.
+  const connectedNoCash = accountStatus === 'connected' && (balance ?? 0) === 0
   const maxAmount = balance !== null ? Math.floor(balance / 100) : 0
   const cappedAmount = Math.min(Math.max(amount, 0), maxAmount)
   const projectedShares = navCents > 0 ? (cappedAmount * 100) / navCents : 0
@@ -185,6 +189,51 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
               <a href="/dashboard/connect/kraken" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', padding: '.75rem 1.5rem', borderRadius: 10, border: 0, background: 'linear-gradient(135deg,#5741D9,#7B64FF)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, textDecoration: 'none' }}>
                 Connect Kraken →
               </a>
+            </div>
+          ) : connectedNoCash ? (
+            <div style={{ padding: '.5rem 0' }}>
+              <div style={{ background: 'rgba(245,185,66,.06)', border: '1px solid rgba(245,185,66,.22)', borderRadius: 10, padding: '.85rem 1rem', marginBottom: '1rem' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, color: '#f5b942', letterSpacing: '.08em', marginBottom: '.4rem' }}>
+                  KRAKEN CONNECTED · NO USD CASH
+                </div>
+                <div style={{ color: 'var(--muted)', fontSize: '.78rem', lineHeight: 1.65 }}>
+                  Your Kraken account is linked, but the USD cash balance ASE can pull from is $0.
+                  Your funds are likely in one of these places:
+                </div>
+                <ul style={{ color: 'var(--muted)', fontSize: '.74rem', lineHeight: 1.7, margin: '.6rem 0 0 0', paddingLeft: '1.1rem' }}>
+                  <li>Held as crypto positions (BTC, ETH, etc.)</li>
+                  <li>Earning yield in Kraken Earn / Staking</li>
+                  <li>Held in EUR, GBP, or another non-USD fiat</li>
+                  <li>On a Kraken Futures or Margin sub-account ASE doesn't read</li>
+                </ul>
+                <div style={{ color: 'var(--muted)', fontSize: '.74rem', lineHeight: 1.65, marginTop: '.65rem' }}>
+                  ASE only invests from your Kraken <strong>spot USD</strong> wallet. Convert or transfer
+                  funds into spot USD on Kraken, then come back and try again.
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem' }}>
+                <a href="https://www.kraken.com/u/funding" target="_blank" rel="noreferrer"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem', padding: '.7rem', borderRadius: 9, background: 'rgba(94,65,217,.12)', border: '1px solid rgba(94,65,217,.3)', color: '#a78bfa', fontFamily: 'var(--font-mono)', fontSize: '.66rem', fontWeight: 700, textDecoration: 'none', letterSpacing: '.04em' }}>
+                  Open Kraken →
+                </a>
+                <button
+                  onClick={() => {
+                    setFetching(true)
+                    fetch('/api/account/balance?refresh=1', { cache: 'no-store' })
+                      .then(r => r.json())
+                      .then(d => {
+                        const cents = Number(d.available_cents ?? d.buying_power_cents ?? d.cash_cents ?? 0) || 0
+                        setBalance(cents)
+                        if (cents > 0) setAccountStatus('connected')
+                      })
+                      .catch(() => {})
+                      .finally(() => setFetching(false))
+                  }}
+                  style={{ padding: '.7rem', borderRadius: 9, background: 'rgba(59,127,255,.1)', border: '1px solid rgba(59,127,255,.25)', color: 'var(--blue2)', fontFamily: 'var(--font-mono)', fontSize: '.66rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '.04em' }}
+                >
+                  {fetching ? 'Syncing…' : 'Re-sync Balance'}
+                </button>
+              </div>
             </div>
           ) : (
             <>

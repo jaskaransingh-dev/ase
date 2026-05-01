@@ -131,7 +131,7 @@ export default function BlockCanvas({ nodes, onNodesChange, showConnector = true
         {showConnector && nodes.map((node, i) => i < nodes.length - 1 ? <SVGConnector key={node.nodeId} from={node} to={nodes[i + 1]} /> : null)}
       </svg>
       {nodes.map((node) => (
-        <CanvasNode key={node.nodeId} node={node} index={0} total={0}
+        <CanvasNode key={node.nodeId} node={node}
           onMouseDown={handleNodeMouseDown} onRemove={handleRemove} dragging={dragging} />
       ))}
     </div>

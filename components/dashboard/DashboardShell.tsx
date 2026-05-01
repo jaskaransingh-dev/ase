@@ -164,7 +164,12 @@ export default function DashboardShell({ user, children }: { user: { id: string;
                     <Link
                       key={item.href}
                       href={item.href}
-                      onClick={() => setMobileOpen(false)}
+                      onClick={() => {
+                        // Always collapse the sidebar after navigation so
+                        // the content area takes over the full viewport.
+                        setMobileOpen(false)
+                        setSidebarOpen(false)
+                      }}
                       title={iconOnly ? item.label : undefined}
                       style={{
                         display: 'flex',

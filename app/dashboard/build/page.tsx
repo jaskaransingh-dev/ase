@@ -1075,13 +1075,35 @@ export default function BuildPage() {
           </div>
         )}
 
-        {/* ── BUILDING / DONE: workspace ── */}
+        {/* ── BUILDING / DONE: workspace ──
+            Layout note: the workspace is anchored to the BOTTOM half of
+            the main area (justifyContent:flex-end + maxHeight:60vh) so the
+            real canvas pipeline above remains visible BEHIND the
+            Agent-ready header. Backgrounds are translucent + blurred to
+            keep the pipeline readable underneath. */}
         {phase !== 'idle' && (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', animation: 'fade-up .35s ease' }}>
+          <div style={{
+            flex: 1, display: 'flex', flexDirection: 'column',
+            justifyContent: 'flex-end',
+            overflow: 'hidden', animation: 'fade-up .35s ease',
+            pointerEvents: 'none', // children re-enable as needed
+            background: 'transparent',
+          }}>
 
             {/* Pipeline graphic removed — the foreground canvas (above)
                 already renders the assembled pipeline. Duplicating it here
                 made two stacked pipelines, which we now collapse into one. */}
+
+            <div style={{
+              display: 'flex', flexDirection: 'column',
+              maxHeight: '60vh', minHeight: 280,
+              borderTop: `1px solid ${C.border}`,
+              background: `${C.bg}d9`,
+              backdropFilter: 'blur(14px)',
+              boxShadow: '0 -10px 40px rgba(0,0,0,.45)',
+              pointerEvents: 'auto',
+              overflow: 'hidden',
+            }}>
 
             {/* Header */}
             <div style={{ padding: '.5rem .85rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '.5rem', flexShrink: 0, background: `${C.bg2}cc`, backdropFilter: 'blur(8px)' }}>
@@ -1221,6 +1243,7 @@ export default function BuildPage() {
                     style={{ padding: '.42rem .75rem', borderRadius: 8, background: C.mint, color: '#000', fontWeight: 700, fontSize: '.56rem', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all .15s' }}>Code →</button>
                 )}
               </div>
+            </div>
             </div>
           </div>
         )}
