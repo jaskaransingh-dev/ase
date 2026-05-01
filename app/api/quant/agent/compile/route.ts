@@ -8,15 +8,51 @@
  */
 
 import { NextResponse } from 'next/server'
-import OpenAI from 'openai'
 import { z } from 'zod'
 import { DATA_SOURCES, INDICATORS, RISK_METRICS } from '@/lib/quant-docs'
 import { blocksToHints } from '@/lib/quant/blocks'
 
-const client = new OpenAI({
-  baseURL: 'http://127.0.0.1:11434/v1',
-  apiKey: 'ollama',
-})
+const CF_WORKER_URL = "https://ase-ai.jazing14.workers.dev";
+
+/** Extract the first balanced JSON object from a possibly-noisy LLM response.
+ * Handles: ```json fences, leading/trailing prose, multiple sibling {} blocks
+ * (e.g. python examples after the real payload). Tracks string/escape state so
+ * braces inside strings don't confuse the matcher. */
+function extractJsonObject(text: string): string | null {
+  if (!text) return null
+  // Strip code fences first — they're the most common wrapper.
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  const haystack = fenceMatch ? fenceMatch[1] : text
+  const start = haystack.indexOf('{')
+  if (start < 0) return null
+  let depth = 0
+  let inStr = false
+  let esc = false
+  for (let i = start; i < haystack.length; i++) {
+    const c = haystack[i]
+    if (esc) { esc = false; continue }
+    if (c === '\\') { esc = true; continue }
+    if (c === '"') { inStr = !inStr; continue }
+    if (inStr) continue
+    if (c === '{') depth++
+    else if (c === '}') {
+      depth--
+      if (depth === 0) return haystack.substring(start, i + 1)
+    }
+  }
+  return null
+}
+
+async function callAI(messages: Array<{role: string; content: string}>, maxTokens = 2048) {
+  const response = await fetch(CF_WORKER_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages, max_tokens: maxTokens }),
+  });
+  if (!response.ok) throw new Error(`AI error: ${response.status}`);
+  const data = await response.json();
+  return data.content || "";
+}
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -207,99 +243,53 @@ TearSheet fields the backtester emits (use these names if you reference metrics 
 `
 
 function buildSystemPrompt(): string {
-  const dataLines = DATA_SOURCES.slice(0, 12).map(s => `- ${s.name} (${s.id}): ${s.description.slice(0, 100)} | symbols: ${s.symbols.slice(0,5).join(', ')}`).join('\n')
-  const indLines = INDICATORS.slice(0, 14).map(i => `- ${i.abbrev} (${i.name}): ${i.signals.slice(0,2).join('; ')}`).join('\n')
-  const metLines = RISK_METRICS.slice(0, 10).map(m => `- ${m.abbrev} (${m.name}): good range ${m.goodRange}`).join('\n')
+  // Lean prompt: small models (Llama-3.1-8B on CF Workers AI) get slow + chatty
+  // when the system prompt grows past ~1.5KB. Trim aggressively. We keep only:
+  //   1. The output contract (raw JSON, schema)
+  //   2. The "guaranteed-trade" parameter grid (the single most-load-bearing rule)
+  //   3. The required files array shape
+  // Indicator/data-source/metric reference lists were dropped — they were never
+  // grounding the model, just slowing it down.
+  return `You are a quant strategist for the ASE crypto algo platform. Convert the user's idea into ONE valid AgentSpec JSON that yields 200-500 fills over a 2-year daily backtest.
 
-  return `You are a senior quant strategist at ASE, an institutional-grade crypto algo platform. Your job: convert a user's natural-language strategy idea into a complete, valid AgentSpec JSON that will produce a real backtest with 200-500 trades over the 2-year window.
+OUTPUT CONTRACT — read carefully:
+- Reply with ONE raw JSON object. NO markdown fences. NO prose before or after. NO code examples in other languages.
+- First character of your reply MUST be "{". Last MUST be "}".
+- Every scalar field below MUST be a number (not a nested object): risk_aversion, signal_scale_bps, max_weight, forecast_horizon, initial_capital.
 
-CRITICAL: Output ONLY a single JSON object. No markdown fences, no prose, no explanation. The JSON must be on one line or formatted plainly.
-
-JSON Schema (ALL fields required):
+Schema (every field required):
 {
-  "name": string (short, memorable, e.g. "BTC/ETH Momentum Blend"),
-  "thesis": string (2-4 sentences: what edge, why it works, expected cadence),
-  "template": "momentum_conservative" | "mean_reversion_active" | "composite_balanced" | "ml_aggressive" | "risk_parity",
-  "alpha_type": "momentum" | "mean_reversion" | "volatility" | "volume" | "composite" | "ml",
-  "alpha_weights": { "momentum": 0.X, "mean_reversion": 0.X, "volatility": 0.X, "volume": 0.X },
-  "symbols": ["BTC-USD","ETH-USD","SOL-USD","BNB-USD","ADA-USD"],
-  "rebalance_freq": "daily",
-  "risk_aversion": 6,
-  "max_weight": 0.25,
-  "forecast_horizon": 10,
-  "signal_scale_bps": 200,
-  "walk_forward": false,
-  "cadence": "1h",
-  "start_date": "YYYY-MM-DD",
-  "end_date": "YYYY-MM-DD",
+  "name": string,
+  "thesis": string (2-4 sentences explaining the edge),
+  "template": "momentum_conservative"|"mean_reversion_active"|"composite_balanced"|"ml_aggressive"|"risk_parity",
+  "alpha_type": "momentum"|"mean_reversion"|"volatility"|"volume"|"composite"|"ml",
+  "alpha_weights": { "momentum": 0..1, "mean_reversion": 0..1, "volatility": 0..1, "volume": 0..1 },
+  "symbols": [string, ...] (3-7 USD-quoted: BTC-USD ETH-USD SOL-USD BNB-USD ADA-USD XRP-USD AVAX-USD DOGE-USD DOT-USD LINK-USD; ALWAYS include BTC-USD and ETH-USD),
+  "rebalance_freq": "daily"|"weekly"|"monthly",
+  "risk_aversion": number (2..10),
+  "max_weight": number (0.15..0.5),
+  "forecast_horizon": number (5..20),
+  "signal_scale_bps": number (>=150),
+  "walk_forward": boolean,
+  "cadence": "5m"|"15m"|"1h"|"2h"|"4h"|"daily"|"weekly",
+  "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD",
   "initial_capital": 100000
 }
 
-═══════════════════════════════════════════════════════
-  !! TRADE GENERATION RULES — READ CAREFULLY !!
-═══════════════════════════════════════════════════════
-The backtester runs daily bars over 2 years (~504 bars).
-To produce 200-500 fills the optimizer must take non-trivial positions.
-These parameter combinations GUARANTEE trades:
+PARAMETER GRID — pick the row matching the user's intent (these guarantee non-zero positions):
+  aggressive/active:   risk_aversion=4,  max_weight=0.35, signal_scale_bps=300, rebalance_freq=daily
+  balanced/default:    risk_aversion=6,  max_weight=0.25, signal_scale_bps=200, rebalance_freq=daily
+  conservative/safe:   risk_aversion=9,  max_weight=0.20, signal_scale_bps=150, rebalance_freq=daily
+  weekly/slow:         risk_aversion=8,  max_weight=0.25, signal_scale_bps=150, rebalance_freq=weekly
+  risk-parity:         risk_aversion=4,  max_weight=0.40, signal_scale_bps=150, rebalance_freq=weekly, template=risk_parity
 
-  ALWAYS use rebalance_freq = "daily" unless user explicitly asks for weekly/monthly.
-  ALWAYS set signal_scale_bps >= 150 (this scales return forecasts fed to the optimizer).
-  ALWAYS set risk_aversion <= 10 for crypto (crypto vol is ~80% annualized; higher λ zeros all positions).
-  ALWAYS set max_weight >= 0.15 (anything lower makes positions too tiny to trigger trades).
-  NEVER set risk_aversion > 12 — the optimizer will flatten everything to 0%.
-  NEVER set signal_scale_bps < 80 — forecasts will be too small for the optimizer to act.
-  initial_capital MUST be 100000 (six-figure minimum for the optimizer to produce sensible lot sizes).
+Template guide: composite_balanced (default multi-signal); momentum_conservative (trend); mean_reversion_active (RSI bounce); ml_aggressive (pattern-based); risk_parity (vol-targeted).
 
-PARAMETER GRID — pick the row matching the user's intent:
-  User says "aggressive / active":  risk_aversion=4,  max_weight=0.35, signal_scale_bps=300, rebalance_freq="daily"
-  User says "balanced / default":   risk_aversion=6,  max_weight=0.25, signal_scale_bps=200, rebalance_freq="daily"
-  User says "conservative / safe":  risk_aversion=9,  max_weight=0.20, signal_scale_bps=150, rebalance_freq="daily"
-  User says "weekly / slow":        risk_aversion=8,  max_weight=0.25, signal_scale_bps=150, rebalance_freq="weekly"
-  User says "risk-parity":          risk_aversion=4,  max_weight=0.40, signal_scale_bps=150, rebalance_freq="weekly", template="risk_parity"
-═══════════════════════════════════════════════════════
+alpha_weights: only meaningful when alpha_type="composite"; sum ≤ 1.0; ≥2 non-zero keys. Otherwise omit alpha_weights.
 
-Template selection guide:
-- composite_balanced  → multi-signal, default for anything not clearly one alpha type
-- momentum_conservative → trend-following, weekly, low-turnover
-- mean_reversion_active → contrarian / RSI oversold bounce, daily
-- ml_aggressive         → ML pattern-based, daily, higher turnover
-- risk_parity           → vol-targeted equal-risk allocation
+Source files (signals.ts / risk.ts / exec.ts / README.md / spec.json) are generated by the platform from your spec — DO NOT include a "files" field in your reply.
 
-Cadence (live paper-trade frequency after publish, NOT backtest resolution):
-- 5m / 15m → scalping, mean-reversion ideas
-- 1h / 2h  → intraday momentum, vol breakouts (DEFAULT)
-- 4h / daily → swing, trend-following
-- weekly    → low-turnover momentum / risk-parity
-
-alpha_weights rules (ONLY when alpha_type = "composite"):
-- weights must sum to ≤ 1.0
-- always include at least 2 non-zero keys from: momentum, mean_reversion, volatility, volume
-- example: { "momentum": 0.50, "mean_reversion": 0.30, "volatility": 0.20 }
-
-${CODEBASE_MAP}
-${TEAR_SHEET_FIELDS}
-
-Available data sources (informational):
-${dataLines}
-
-Available indicators (informational):
-${indLines}
-
-Risk metrics reference:
-${metLines}
-
-GROUNDING RULES:
-1. Symbols must end in -USD. Supported: BTC, ETH, SOL, BNB, ADA, XRP, AVAX, DOGE, DOT, LINK, UNI, ATOM, LTC, MATIC.
-2. Always include BTC-USD and ETH-USD as the two largest liquid assets.
-3. 3-7 symbols is optimal for diversification; more than 8 dilutes signal.
-4. thesis must reference the alpha_type and explain the market mechanism (e.g. "momentum persists in crypto over 20-day windows due to trend-following behavior of retail traders").
-5. Do NOT invent new data sources, indicators, or fields not listed above.
-6. walk_forward should be false unless user explicitly asks for walk-forward validation (it significantly slows the backtest).
-
-MULTI-FILE AGENT OUTPUT (REQUIRED):
-You MUST also emit a "files" array containing the agent's source tree. The Lab opens these files
-in an editor as soon as the user lands. ALWAYS include exactly these four files:
-
+Pseudo-shape (illustrative — produce real values):
 {
   "name": "...",
   "thesis": "...",
@@ -337,34 +327,29 @@ async function compileSpec(prompt: string, prior: Partial<AgentSpec> | undefined
     prior ? `EXISTING agent to refine (keep all fields unless user asks to change them):\n${JSON.stringify(prior, null, 2)}` : null,
     `User request: "${prompt}"`,
     `Remember: risk_aversion MUST be ≤ 10, signal_scale_bps MUST be ≥ 150, rebalance_freq SHOULD be "daily", initial_capital = 100000.`,
-    `Output ONLY valid JSON. No markdown. No comments. No explanation.`,
+    `Output a single raw JSON object. Do NOT wrap it in \`\`\`json fences. Do NOT add commentary, examples in other languages, or trailing prose. The first character of your reply MUST be "{" and the last character MUST be "}". Every scalar field (risk_aversion, signal_scale_bps, max_weight, forecast_horizon, initial_capital) MUST be a number, NOT a nested object.`,
   ].filter(Boolean).join('\n\n')
 
   let content = '{}'
   try {
-    const completion = await client.chat.completions.create({
-      model: 'qwen2.5-coder:7b',
-      messages: [
-        { role: 'system', content: buildSystemPrompt() },
-        { role: 'user', content: userMsg },
-      ],
-      temperature: 0.3,
-      max_tokens: 1400,
-    })
-    content = completion.choices[0]?.message?.content ?? '{}'
+    content = await callAI([
+      { role: 'system', content: buildSystemPrompt() },
+      { role: 'user', content: userMsg },
+    ])
   } catch (err) {
-    // Ollama unreachable / network error / model crash → fall back to deterministic baseline.
     console.warn('[compile] LLM call failed, using baseline:', err)
     const spec = fallback(prompt, today, twoYearsAgo)
     return { agent: spec, files: baselineFiles(spec) }
   }
-  const start = content.indexOf('{')
-  const end = content.lastIndexOf('}')
-  const jsonStr = start >= 0 && end > start ? content.substring(start, end + 1) : content
+  const jsonStr = extractJsonObject(content) ?? content
   try {
     const raw = JSON.parse(jsonStr) as Record<string, unknown>
+    // Defensive: some models return nested objects/strings for scalar fields.
+    if (typeof raw.risk_aversion !== 'number') raw.risk_aversion = 6
+    if (typeof raw.signal_scale_bps !== 'number') raw.signal_scale_bps = 200
+    if (typeof raw.max_weight !== 'number') raw.max_weight = 0.25
+    if (typeof raw.forecast_horizon !== 'number') raw.forecast_horizon = 10
     // Post-parse coercion: clamp parameters to the guaranteed-trade range
-    // These guardrails ensure the optimizer will always produce non-zero weights
     if (typeof raw.risk_aversion === 'number' && raw.risk_aversion > 10) raw.risk_aversion = 10
     if (typeof raw.risk_aversion === 'number' && raw.risk_aversion < 2) raw.risk_aversion = 2
     if (typeof raw.signal_scale_bps === 'number' && raw.signal_scale_bps < 150) raw.signal_scale_bps = 150

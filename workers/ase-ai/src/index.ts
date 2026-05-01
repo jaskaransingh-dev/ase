@@ -20,13 +20,16 @@ export default {
 
     try {
       const body = await request.json()
-      const { messages, stream } = body as { messages?: Array<{role: string; content: string}>; stream?: boolean }
+      const { messages, stream, max_tokens } = body as { messages?: Array<{role: string; content: string}>; stream?: boolean; max_tokens?: number }
 
       if (!messages || !messages.length) {
         return Response.json({ content: "No messages provided" }, { status: 400 })
       }
 
-      const lastMessage = messages[messages.length - 1]
+      // Default to a generous output budget — the small model is cheap and our
+      // callers (agent compile, AI chat) routinely produce 1-2KB responses.
+      // The 256-token default truncates JSON specs mid-string.
+      const outputTokens = typeof max_tokens === "number" && max_tokens > 0 ? max_tokens : 2048
 
       const response = await env.AI.run(
         "@cf/meta/llama-3.1-8b-instruct",
@@ -35,6 +38,7 @@ export default {
             role: m.role,
             content: m.content,
           })),
+          max_tokens: outputTokens,
         }
       )
 
