@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, Suspense } from 'react'
+import { useEffect, useState, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -10,15 +10,22 @@ function VerifyEmailContent() {
   const searchParams = useSearchParams()
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
   const [message, setMessage] = useState('')
+  // Guard against React Strict Mode double-invocation in dev — without
+  // this, the second pass burns the (single-use) PKCE code and the user
+  // sees a false "link expired" error.
+  const ranRef = useRef(false)
 
   useEffect(() => {
+    if (ranRef.current) return
+    ranRef.current = true
+
     const verifyAndLogin = async () => {
       const supabase = createClient()
 
       const redirectTo = () => {
         setStatus('success')
         setMessage('Email verified successfully!')
-        setTimeout(() => router.push('/dashboard'), 2000)
+        setTimeout(() => router.push('/dashboard'), 1500)
       }
       const failWith = (msg: string) => {
         setStatus('error')
@@ -26,11 +33,23 @@ function VerifyEmailContent() {
         setTimeout(() => router.push('/login'), 3000)
       }
 
+      // 0. If the user is ALREADY logged in (e.g. they clicked the link
+      //    twice, or an email pre-scanner already burned the token but
+      //    Supabase set the cookie), short-circuit to the dashboard.
+      const { data: { user: existing } } = await supabase.auth.getUser()
+      if (existing) return redirectTo()
+
       // 1. PKCE flow — Supabase sends ?code=xxx (most common with SSR)
       const code = searchParams.get('code')
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code)
-        if (error) return failWith('Verification link expired or already used')
+        if (error) {
+          // Re-check session: some flows (and email pre-scanners) can
+          // still leave a valid cookie even when exchange fails.
+          const { data: { user: after } } = await supabase.auth.getUser()
+          if (after) return redirectTo()
+          return failWith('Verification link expired or already used')
+        }
         return redirectTo()
       }
 
@@ -42,25 +61,29 @@ function VerifyEmailContent() {
           token_hash: tokenHash,
           type: type as 'signup',
         })
-        if (error) return failWith('Verification link expired or already used')
+        if (error) {
+          const { data: { user: after } } = await supabase.auth.getUser()
+          if (after) return redirectTo()
+          return failWith('Verification link expired or already used')
+        }
         return redirectTo()
       }
 
-      // 3. Implicit flow — Supabase sends #access_token=xxx (legacy)
-      const accessToken = searchParams.get('access_token')
-      const refreshToken = searchParams.get('refresh_token')
-      if (accessToken && refreshToken) {
-        const { error } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        })
-        if (error) return failWith('Failed to verify email')
-        return redirectTo()
+      // 3. Implicit flow — Supabase sends #access_token=xxx (legacy).
+      //    Hash params aren't on searchParams, so read them from the URL.
+      if (typeof window !== 'undefined' && window.location.hash) {
+        const hashParams = new URLSearchParams(window.location.hash.slice(1))
+        const accessToken = hashParams.get('access_token')
+        const refreshToken = hashParams.get('refresh_token')
+        if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          })
+          if (error) return failWith('Failed to verify email')
+          return redirectTo()
+        }
       }
-
-      // 4. Already logged in — just redirect
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) return redirectTo()
 
       // Nothing matched
       failWith('Invalid verification link — please sign up again')

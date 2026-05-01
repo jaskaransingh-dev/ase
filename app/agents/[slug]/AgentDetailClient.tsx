@@ -588,7 +588,7 @@ export default function AgentDetailClient({
       )}
       {agent.alert_level === 'hard' && (
         <div style={{ background: 'rgba(242,54,69,.06)', border: '1px solid rgba(242,54,69,.2)', borderRadius: 9, padding: '.65rem 1rem', marginBottom: '.75rem', color: 'var(--red)', fontSize: '.78rem', fontFamily: 'var(--font-mono)' }}>
-          Hard alert — 40%+ drawdown. Agent under review. New investments suspended.
+          Hard alert — {agent.drawdown_pct?.toFixed(1)}% below peak NAV. Investments still open, but proceed with caution.
         </div>
       )}
 
@@ -1008,9 +1008,9 @@ export default function AgentDetailClient({
                     <Link href={`/login?redirect=/agents/${agent.slug}`} style={{ color: 'var(--blue2)', textDecoration: 'none' }}>Sign in</Link> to allocate funds
                   </div>
                 )}
-                <button onClick={handleSubscribe} disabled={loading || agent.alert_level === 'hard'} style={{ width: '100%', padding: '.72rem', borderRadius: 9, border: 0, background: agent.alert_level === 'hard' ? 'var(--bg3)' : 'var(--blue)', color: agent.alert_level === 'hard' ? 'var(--faint)' : '#fff', fontFamily: 'var(--font-head)', fontSize: '.86rem', fontWeight: 700, cursor: loading || agent.alert_level === 'hard' ? 'not-allowed' : 'pointer', letterSpacing: '-.01em', transition: 'background .15s' }}
-                  onMouseEnter={e => { if (!loading && agent.alert_level !== 'hard') (e.currentTarget as HTMLButtonElement).style.background = 'var(--blue2)' }}
-                  onMouseLeave={e => { if (agent.alert_level !== 'hard') (e.currentTarget as HTMLButtonElement).style.background = 'var(--blue)' }}
+                <button onClick={handleSubscribe} disabled={loading} style={{ width: '100%', padding: '.72rem', borderRadius: 9, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.86rem', fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: '-.01em', transition: 'background .15s' }}
+                  onMouseEnter={e => { if (!loading) (e.currentTarget as HTMLButtonElement).style.background = 'var(--blue2)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--blue)' }}
                 >
                   {loading ? 'Processing...' : 'Allocate Funds'}
                 </button>
@@ -1060,8 +1060,7 @@ export default function AgentDetailClient({
                     </div>
                     <button
                       onClick={() => setShowInvestModal(true)}
-                      disabled={agent.alert_level === 'hard'}
-                      style={{ width: '100%', padding: '.62rem', borderRadius: 8, border: 0, background: agent.alert_level === 'hard' ? 'var(--bg3)' : 'var(--blue)', color: agent.alert_level === 'hard' ? 'var(--faint)' : '#fff', fontFamily: 'var(--font-head)', fontSize: '.84rem', fontWeight: 700, cursor: agent.alert_level === 'hard' ? 'not-allowed' : 'pointer', letterSpacing: '-.01em' }}
+                      style={{ width: '100%', padding: '.62rem', borderRadius: 8, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.84rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '-.01em' }}
                     >
                       Allocate Funds
                     </button>

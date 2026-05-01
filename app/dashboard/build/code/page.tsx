@@ -321,8 +321,29 @@ export default function QuantLabPage() {
   }, [])
 
   // Editor state
-  const [openFiles, setOpenFiles]       = useState(['strategy.ts', 'config.json'])
-  const [activeFile, setActiveFile]     = useState('strategy.ts')
+  // Open files + active file persist via localStorage so the workspace
+  // restores on tab switches.
+  const [openFiles, setOpenFiles] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return ['strategy.ts', 'config.json']
+    try {
+      const raw = localStorage.getItem('ase_code_open_files')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed) && parsed.length) return parsed
+      }
+    } catch {}
+    return ['strategy.ts', 'config.json']
+  })
+  const [activeFile, setActiveFile] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'strategy.ts'
+    try { return localStorage.getItem('ase_code_active_file') ?? 'strategy.ts' } catch { return 'strategy.ts' }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('ase_code_open_files', JSON.stringify(openFiles)) } catch {}
+  }, [openFiles])
+  useEffect(() => {
+    try { localStorage.setItem('ase_code_active_file', activeFile) } catch {}
+  }, [activeFile])
   const [fileContents, setFileContents] = useState<Record<string, string>>(() => {
     try {
       // Priority 1: files from the latest draft (written by build page on completion)
@@ -347,10 +368,10 @@ export default function QuantLabPage() {
   })
   const [saved, setSaved] = useState(true)
 
-  // Layout — defaults match the Build page (chat-dominant, sidebar hidden).
-  // The user explicitly "brings up the codebase" with the BRING CODEBASE
-  // UP button in the top bar.
-  const [sideOpen, setSideOpen] = useState(false)
+  // Layout — codebase is visible by default on /dashboard/build/code (that's
+  // the whole point of being here). The HIDE CODE button in the top bar
+  // collapses it to a chat-dominant Build-style view at any time.
+  const [sideOpen, setSideOpen] = useState(true)
   // Codebase tree condense mode: collapse the explorer to just the active file
   // (plus an "+N more" affordance) when the AI is streaming or a backtest is
   // running, but never collapse below one visible file. Manual override via
@@ -374,7 +395,10 @@ export default function QuantLabPage() {
   }, [])
   // Default to 'chat' so arriving from /dashboard/build feels continuous —
   // same dominant chat surface, just with the codebase available a click away.
-  const [rightTab, setRightTab] = useState<'backtest'|'data'|'docs'|'chat'>('chat')
+  // Right panel hosts ONLY the backtest now. Chat removed (Build page is
+  // the chat surface). 'data' / 'docs' tabs gone earlier. We keep the
+  // union type for backwards compatibility with existing setters.
+  const [rightTab, setRightTab] = useState<'backtest'|'data'|'docs'|'chat'>('backtest')
   // Bottom panel defaults to terminal — the right panel chat is dominant
   // now (mirroring Build page), so we don't duplicate the chat at the bottom.
   const [bottomMode, setBottomMode] = useState<'terminal'|'chat'>('terminal')
@@ -392,13 +416,8 @@ export default function QuantLabPage() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  // Auto-collapse sidebar when chat is open. We don't keep it forced —
-  // user can re-open via BRING UP CODEBASE in the top bar at any time.
-  useEffect(() => {
-    if (rightTab === 'chat') {
-      setSideOpen(false)
-    }
-  }, [rightTab])
+  // (Auto-collapse on chat removed — user explicitly toggles the codebase
+  // via the HIDE CODE / BRING UP CODEBASE button in the top bar.)
 
   // Auto-condense the codebase tree when work is happening; the explorer
   // still shows one file (the active one) so the user is never lost.
@@ -951,30 +970,32 @@ export default function QuantLabPage() {
     <div style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: C.bg, overflow: 'hidden' }}>
 
-        {/* ── LIVE PIPELINE CANVAS STRIP — mirrors Build.canvas, updates as AI edits files ── */}
-        <CodeCanvasStrip files={fileContents} pinned={pinnedBlocks} />
+        {/* ── LIVE PIPELINE GRAPHIC — same component the Build page uses;
+            blocks animate in as the AI edits files / pinned blocks change.
+            Clicking a block jumps to the matching file in the editor so
+            the pipeline and codebase feel like one connected surface. */}
+        <CanvasAssembly
+          blocks={pinnedBlocks}
+          phase="done"
+          height={150}
+          onBlockClick={(blockId) => {
+            // Map block id → which file most likely implements it. Look
+            // at every file's contents and open whichever mentions the
+            // id. Falls back to strategy.ts.
+            const target = Object.entries(fileContents).find(([, content]) =>
+              typeof content === 'string' && content.toLowerCase().includes(blockId.toLowerCase())
+            )?.[0]
+            const file = target ?? 'strategy.ts'
+            if (!openFiles.includes(file) && fileContents[file] !== undefined) setOpenFiles(p => [...p, file])
+            if (fileContents[file] !== undefined) setActiveFile(file)
+          }}
+        />
 
         {/* ── TOP BAR ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.4rem .75rem', borderBottom: `1px solid ${C.border}`, background: C.bg2, flexShrink: 0, height: 42 }}>
-          {/* BRING UP CODEBASE — explicit affordance to reveal the file
-              tree + editor. Hidden by default so the page opens chat-first
-              like the Build canvas. */}
-          <button onClick={() => setSideOpen(v => !v)}
-            title={sideOpen ? 'Hide codebase' : 'Bring up codebase'}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '.3rem',
-              padding: '.25rem .55rem', borderRadius: 6,
-              background: sideOpen ? `${C.mint}14` : 'transparent',
-              border: `1px solid ${sideOpen ? C.mint + '45' : C.border}`,
-              color: sideOpen ? C.mint : C.faint,
-              fontFamily: 'var(--font-mono)', fontSize: '.55rem',
-              fontWeight: 700, cursor: 'pointer', letterSpacing: '.04em',
-            }}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d={sideOpen ? 'M11 19l-7-7 7-7M19 12H4' : 'M13 5l7 7-7 7M5 12h14'} />
-            </svg>
-            {sideOpen ? 'HIDE CODE' : 'BRING UP CODEBASE'}
-          </button>
+          {/* HIDE CODE / BRING UP CODEBASE toggle removed — codebase is
+              always visible on this route; the build page is the chat
+              surface. */}
           <button onClick={() => setAgentIconIdx(i => (i + 1) % AGENT_ICONS.length)} title="Change agent icon" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.blue2, display: 'flex', alignItems: 'center', fontSize: '1.1rem', padding: '0 .15rem' }}>
             {AGENT_ICONS[agentIconIdx]}
           </button>
@@ -999,13 +1020,26 @@ export default function QuantLabPage() {
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
             {published ? 'LIVE' : 'PUBLISH'}
           </button>
-          <div style={{ display: 'flex', borderRadius: 6, background: C.bg3, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
-            {(['terminal','chat'] as const).map(mode => (
-              <button key={mode} onClick={() => setBottomMode(mode)} style={{ padding: '.25rem .5rem', border: 'none', background: bottomMode === mode ? C.bg4 : 'transparent', color: bottomMode === mode ? (mode === 'chat' ? C.blue2 : C.mint) : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                {mode === 'chat' ? '⌘K AI' : '›_'}
-              </button>
-            ))}
-          </div>
+          {/* + New Strategy — clears the editor + chat for a fresh build. */}
+          <button onClick={() => {
+            if (!confirm('Start a fresh strategy? Unsaved changes will be lost.')) return
+            try {
+              localStorage.removeItem('ase-files')
+              localStorage.removeItem('ase_build_chat')
+              localStorage.removeItem('ase_build_blocks')
+              localStorage.removeItem('ase_build_prompt_draft')
+              localStorage.removeItem('ase_build_agent_name')
+              localStorage.removeItem('ase_build_bg_v1')
+              localStorage.removeItem('ase_code_open_files')
+              localStorage.removeItem('ase_code_active_file')
+            } catch {}
+            window.location.href = '/dashboard/build'
+          }}
+            title="Start a fresh strategy"
+            style={{ display: 'flex', alignItems: 'center', gap: '.28rem', padding: '.28rem .62rem', borderRadius: 6, border: `1px solid ${C.mint}40`, background: 'transparent', color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.58rem', cursor: 'pointer', fontWeight: 700 }}>
+            + NEW STRATEGY
+          </button>
+          {/* Terminal / chat mode toggle removed — both panels are gone. */}
         </div>
 
         {/* ── BODY ── */}
@@ -1092,7 +1126,7 @@ export default function QuantLabPage() {
                         const pinned = pinnedBlocks.includes(b.id)
                         return (
                           <button key={b.id} onClick={() => togglePinnedBlock(b.id)}
-                            title={b.description}
+                            title={`${b.label} — ${b.description}\n\nUse: ${b.agentHint ?? '(no hint)'}\nKind: ${b.kind}`}
                             style={{
                               display: 'flex', alignItems: 'center', gap: '.3rem',
                               padding: '.22rem .38rem', borderRadius: 4,
@@ -1112,59 +1146,17 @@ export default function QuantLabPage() {
                 )}
               </div>
 
-              {/* ASE Pages navigator */}
-              <div style={{ padding: '.45rem .65rem', borderTop: `1px solid ${C.border}` }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, letterSpacing: '.1em', marginBottom: '.3rem' }}>ASE PAGES</div>
-                {[
-                  { label: 'dashboard', href: '/dashboard', icon: '◈' },
-                  { label: 'build', href: '/dashboard/build', icon: '◇' },
-                  { label: 'backtest', href: '/dashboard/build/backtest', icon: '▶' },
-                  { label: 'docs', href: '/dashboard/build/docs', icon: '◉' },
-                  { label: 'manage', href: '/dashboard/build/manage', icon: '★' },
-                  { label: 'settings', href: '/dashboard/settings', icon: '◆' },
-                ].map(p => (
-                  <a key={p.label} href={p.href}
-                    style={{ display: 'flex', alignItems: 'center', gap: '.35rem', padding: '.2rem .3rem', borderRadius: 4, color: C.faint, textDecoration: 'none', fontSize: '.58rem', fontFamily: 'var(--font-mono)', marginBottom: '.05rem', transition: 'color .12s' }}
-                    onMouseEnter={e => (e.currentTarget.style.color = C.blue2)}
-                    onMouseLeave={e => (e.currentTarget.style.color = C.faint)}>
-                    <span style={{ fontSize: '.48rem' }}>{p.icon}</span>
-                    <span>{p.label}</span>
-                  </a>
-                ))}
-              </div>
-
-              {/* Upload custom data */}
-              <div style={{ padding: '.45rem .65rem', borderTop: `1px solid ${C.border}` }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, letterSpacing: '.1em', marginBottom: '.3rem' }}>CUSTOM DATA</div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '.35rem', padding: '.28rem .45rem', borderRadius: 6, border: `1px dashed ${C.border2}`, cursor: 'pointer', fontSize: '.58rem', color: C.muted, fontFamily: 'var(--font-mono)' }}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
-                  Upload CSV / JSON
-                  <input type="file" accept=".csv,.json,.py,.ts" style={{ display: 'none' }} onChange={e => {
-                    const f = e.target.files?.[0]
-                    if (!f) return
-                    const reader = new FileReader()
-                    reader.onload = ev => { updateFile(f.name, ev.target?.result as string ?? ''); openFile(f.name) }
-                    reader.readAsText(f)
-                  }} />
-                </label>
-              </div>
-
-              {/* Data connections live status */}
-              <div style={{ padding: '.45rem .65rem', borderTop: `1px solid ${C.border}` }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, letterSpacing: '.1em', marginBottom: '.28rem' }}>DATA CONNECTIONS</div>
-                {DATA_APIS.filter(a => usedAPIIds.has(a.id)).map(api => (
-                  <div key={api.id} style={{ display: 'flex', alignItems: 'center', gap: '.3rem', padding: '.15rem 0' }}>
-                    <div style={{ width: 5, height: 5, borderRadius: '50%', background: C.mint, animation: 'pulse 2s infinite', flexShrink: 0 }} />
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: C.mint }}>{api.name}</span>
-                  </div>
-                ))}
-                {usedAPIIds.size === 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.56rem', color: C.faint }}>No APIs detected in code</div>}
-                <button onClick={() => { setRightTab('data'); }} style={{ marginTop: '.3rem', padding: '.18rem .45rem', border: `1px solid ${C.border}`, borderRadius: 5, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.54rem', cursor: 'pointer', width: '100%' }}>+ Add data source</button>
-              </div>
+              {/* ASE PAGES, CUSTOM DATA, and DATA CONNECTIONS all removed —
+                  navigation lives in the sidebar (Code/Backtest/Manage/Docs
+                  are sub-items of Build there) and "data" is the BLOCKS
+                  panel above (single source of truth with the canvas). */}
             </div>
           )}
 
-          {/* CODE EDITOR */}
+          {/* CODE EDITOR — only rendered when the user has explicitly
+              brought up the codebase. Otherwise the chat takes the entire
+              central area (mirrors the Build page experience). */}
+          {sideOpen && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
             {/* Auto-apply toggle (Cursor-style) */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.25rem .85rem', background: C.bg2, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
@@ -1228,19 +1220,19 @@ export default function QuantLabPage() {
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint }}>⌘↩ run · ⌘S save · ⌘K ai</span>
             </div>
           </div>
+          )}
 
-          {/* RIGHT PANEL — Chat is the dominant surface (mirrors Build).
-              Two simple tabs only: Chat (default) and Backtest. Old "data"
-              and "docs" right-tabs have been removed; their content lives
-              on dedicated pages (/dashboard/build/docs, /dashboard/build/manage). */}
-          <div style={{ width: rightTab === 'chat' ? 460 : 380, flexShrink: 0, borderLeft: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: C.bg2, transition: 'width 0.2s ease' }}>
-            <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-              {(['chat','backtest'] as const).map(t => (
-                <button key={t} onClick={() => setRightTab(t)} style={{ flex: 1, padding: '.45rem .1rem', border: 'none', borderBottom: `2px solid ${rightTab === t ? C.blue : 'transparent'}`, background: 'transparent', color: rightTab === t ? C.blue2 : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.55rem', fontWeight: 700, letterSpacing: '.08em', cursor: 'pointer', textTransform: 'uppercase', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.25rem' }}>
-                  {t === 'chat' && pendingEdits.length > 0 && <div style={{ width: 4, height: 4, borderRadius: '50%', background: C.blue, boxShadow: `0 0 4px ${C.blue}` }} />}
-                  {t === 'chat' ? 'AI Chat' : 'Backtest'}
-                </button>
-              ))}
+          {/* RIGHT PANEL — Backtest only. Side AI chat removed. */}
+          <div style={{
+            width: 380, flexShrink: 0, flex: '0 0 auto',
+            borderLeft: `1px solid ${C.border}`,
+            display: 'flex', flexDirection: 'column', overflow: 'hidden',
+            background: C.bg2,
+          }}>
+            <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, flexShrink: 0, alignItems: 'center' }}>
+              <span style={{ flex: 1, padding: '.45rem .8rem', color: C.blue2, fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' }}>
+                Backtest
+              </span>
               <a href="/dashboard/build/docs" title="Open docs page"
                 style={{ padding: '.45rem .55rem', borderLeft: `1px solid ${C.border}`, color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.5rem', textDecoration: 'none', display: 'flex', alignItems: 'center' }}>DOCS ↗</a>
               <a href="/dashboard/build/manage" title="Open manage page"
@@ -1515,164 +1507,106 @@ export default function QuantLabPage() {
               {/* DOCS / DATA tabs removed — see /dashboard/build/docs and the
                   BLOCKS panel in the left sidebar. */}
 
-              {/* ── CHAT TAB ── */}
-              {rightTab === 'chat' && (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: C.bg, margin: '-.8rem', padding: '.8rem' }}>
-                  {/* Canvas-assembly animation — same component as Build page,
-                      so the user's pipeline animates above the chat as the AI
-                      streams edits into the file tree. */}
-                  {chatLoading && (
-                    <CanvasAssembly blocks={pinnedBlocks} phase="building" height={180} />
-                  )}
-                  {/* Messages — scroll-locked: never yanks while user reads above */}
-                  <div ref={chatScrollRef} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '.35rem', overscrollBehavior: 'contain' }}>
-                    {chatMsgs.map((m, i) => (
-                      <div key={i} style={{ display: 'flex', gap: '.3rem', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                        {m.role === 'ai' && (
-                          <div style={{ width: 18, height: 18, borderRadius: 5, background: `${C.blue}20`, border: `1px solid ${C.blue}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '.05rem' }}>
-                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={C.blue2} strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-                          </div>
-                        )}
-                        <div style={{ maxWidth: m.role === 'user' ? '75%' : '95%', padding: '.35rem .5rem', borderRadius: m.role === 'user' ? '8px 8px 2px 8px' : '8px 8px 8px 2px', background: m.role === 'user' ? `${C.blue}18` : C.bg3, border: `1px solid ${m.role === 'user' ? C.blue + '25' : C.border}`, fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: C.text, lineHeight: 1.5 }}>
-                          {m.role === 'ai' ? <MdText text={m.text} onApply={applyEdit} /> : <span style={{ whiteSpace: 'pre-wrap' }}>{m.text}</span>}
-                          {m.role === 'ai' && m.edits && m.edits.length > 0 && (
-                            <div style={{ marginTop: '.28rem', display: 'flex', gap: '.22rem', flexWrap: 'wrap' }}>
-                              {m.edits.map((e, ei) => (
-                                <button key={ei} onClick={() => applyEdit(e)} style={{ padding: '.1rem .38rem', borderRadius: 4, background: `${C.mint}15`, border: `1px solid ${C.mint}40`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.48rem', fontWeight: 600, cursor: 'pointer' }}>
-                                  Apply {e.filename}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                    {chatLoading && chatMsgs[chatMsgs.length - 1]?.text === '' && (
-                      <div style={{ display: 'flex', gap: '.22rem', paddingLeft: '.35rem' }}>
-                        {[0,1,2].map(j => <div key={j} style={{ width: 3, height: 3, borderRadius: '50%', background: C.blue, opacity: 0.6, animation: `bounce ${0.6 + j * 0.15}s ease-in-out infinite` }} />)}
-                      </div>
-                    )}
-                    <div ref={chatEndRef} />
-                  </div>
-                  {/* Quick prompts */}
-                  <div style={{ display: 'flex', gap: '.18rem', overflowX: 'auto', padding: '.18rem .1rem', flexShrink: 0, borderTop: `1px solid ${C.border}`, marginTop: '.18rem' }}>
-                    {['Improve Sharpe', 'Add NUPL', 'Reduce DD', 'Explain', 'Optimize λ', 'Write strategy'].map(s => (
-                      <button key={s} onClick={() => { setChatInput(s); chatInputRef.current?.focus() }} style={{ padding: '.1rem .32rem', borderRadius: 20, border: `1px solid ${C.border}`, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.45rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>{s}</button>
-                    ))}
-                  </div>
-                  {/* Input */}
-                  <div style={{ display: 'flex', gap: '.28rem', padding: '.28rem 0 .1rem', alignItems: 'flex-end', flexShrink: 0 }}>
-                    <textarea ref={chatInputRef} value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendChat() } }} placeholder="Ask AI…" rows={1} style={{ flex: 1, background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 6, padding: '.32rem .5rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.6rem', outline: 'none', resize: 'none', lineHeight: 1.4, maxHeight: 60 }} />
-                    <button onClick={() => void sendChat()} disabled={!chatInput.trim() || chatLoading} style={{ padding: '.32rem .42rem', borderRadius: 6, background: chatInput.trim() ? C.blue : `${C.blue}40`, border: 'none', color: '#fff', cursor: chatInput.trim() ? 'pointer' : 'default', alignSelf: 'flex-end', flexShrink: 0 }}>
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* CHAT TAB removed — chat lives on /dashboard/build only. */}
 
             </div>
           </div>
         </div>
 
-        {/* ── BOTTOM: AI CHAT (dominant) + TERMINAL (collapsible) ── */}
-        <div style={{ height: bottomMode === 'chat' ? 320 : 160, flexShrink: 0, borderTop: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', transition: 'height .2s ease', background: C.bg2 }}>
-          {/* Bottom tabs */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', padding: '.2rem .65rem', borderBottom: `1px solid ${C.border}`, background: C.bg2, flexShrink: 0 }}>
-            <div style={{ display: 'flex', gap: '.22rem', marginRight: '.4rem' }}>
-              {[C.red, C.orange, C.mint].map(c => <div key={c} style={{ width: 6, height: 6, borderRadius: '50%', background: c, opacity: 0.7 }} />)}
-            </div>
-            {(['chat', 'terminal'] as const).map(mode => (
-              <button key={mode} onClick={() => setBottomMode(mode)}
-                style={{ padding: '.18rem .5rem', borderRadius: 5, border: `1px solid ${bottomMode === mode ? (mode === 'chat' ? C.mint + '50' : C.blue + '40') : 'transparent'}`, background: bottomMode === mode ? (mode === 'chat' ? `${C.mint}10` : `${C.blue}10`) : 'transparent', color: bottomMode === mode ? (mode === 'chat' ? C.mint : C.blue2) : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '.04em' }}>
-                {mode === 'chat' ? '◉ AI CHAT' : '›_ TERMINAL'}
-              </button>
-            ))}
-            {/* Live AI status indicator */}
-            {chatLoading && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', marginLeft: '.4rem' }}>
-                <div style={{ width: 5, height: 5, borderRadius: '50%', background: C.mint, animation: 'pulse 0.6s ease-in-out infinite' }} />
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: C.mint }}>AI thinking...</span>
-              </div>
-            )}
+        {/* ── BOTTOM CHAT — same UX as the Build page, dominant.
+            Pulls history straight from chatMsgs (which itself hydrates
+            from the Build handoff transcript on mount), renders full
+            markdown via MdText, and auto-applies AI edits. ── */}
+        <div style={{
+          height: 320, flexShrink: 0,
+          borderTop: `1px solid ${C.border}`, background: C.bg2,
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '.45rem',
+            padding: '.32rem .75rem', borderBottom: `1px solid ${C.border}`,
+            background: C.bg2, flexShrink: 0,
+          }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: C.mint, animation: chatLoading ? 'pulse .6s ease-in-out infinite' : 'none' }} />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 700, color: C.white, letterSpacing: '.06em' }}>
+              ASE AI {chatLoading ? '· thinking…' : '· ready'}
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint }}>
+              {chatMsgs.length} message{chatMsgs.length !== 1 ? 's' : ''}
+            </span>
             <div style={{ flex: 1 }} />
-            {bottomMode === 'chat' && (
-              <div style={{ display: 'flex', gap: '.2rem' }}>
-                {['Improve Sharpe', 'Reduce drawdown', 'Add signals', 'Optimize', 'Explain'].map(s => (
-                  <button key={s} onClick={() => { setChatInput(s); bottomChatRef.current?.focus() }}
-                    style={{ padding: '.1rem .3rem', borderRadius: 3, border: `1px solid ${C.border}`, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.44rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>{s}</button>
-                ))}
-              </div>
-            )}
-            {bottomMode === 'terminal' && (
-              <button onClick={() => setTermLines([])} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.52rem' }}>clear</button>
-            )}
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: autoApply ? C.mint : C.faint }}>
+              {autoApply ? '⚡ auto-apply ON' : 'auto-apply OFF'}
+            </span>
           </div>
 
-          {/* Chat panel */}
-          {bottomMode === 'chat' && (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              {/* Messages — scroll-locked (won't yank while user reads above) */}
-              <div ref={chatScrollRef} style={{ flex: 1, overflowY: 'auto', padding: '.5rem .75rem', display: 'flex', flexDirection: 'column', gap: '.4rem', overscrollBehavior: 'contain' }}>
-                {chatMsgs.map((m, i) => (
-                  <div key={i} style={{ display: 'flex', gap: '.35rem', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', animation: 'slideInUp .2s ease' }}>
-                    {m.role === 'ai' && (
-                      <div style={{ width: 18, height: 18, borderRadius: 5, background: `${C.mint}18`, border: `1px solid ${C.mint}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '.05rem' }}>
-                        <span style={{ fontSize: '.55rem', color: C.mint }}>◉</span>
-                      </div>
-                    )}
-                    <div style={{
-                      maxWidth: m.role === 'user' ? '65%' : '85%',
-                      padding: '.35rem .55rem', borderRadius: 8,
-                      background: m.role === 'user' ? `${C.blue}18` : C.bg3,
-                      border: `1px solid ${m.role === 'user' ? C.blue + '25' : C.border}`,
-                      fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: C.text, lineHeight: 1.55,
-                    }}>
-                      {m.role === 'ai' ? <MdText text={m.text} onApply={applyEdit} /> : <span style={{ whiteSpace: 'pre-wrap' }}>{m.text}</span>}
-                      {m.role === 'ai' && m.edits && m.edits.length > 0 && (
-                        <div style={{ marginTop: '.25rem', display: 'flex', gap: '.2rem', flexWrap: 'wrap' }}>
-                          {m.edits.map((e, ei) => (
-                            <button key={ei} onClick={() => applyEdit(e)}
-                              style={{ padding: '.1rem .35rem', borderRadius: 4, background: `${C.mint}15`, border: `1px solid ${C.mint}40`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.48rem', fontWeight: 600, cursor: 'pointer' }}>
-                              Apply {e.filename}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+          {/* Messages — scroll-locked so streaming tokens don't yank the user */}
+          <div ref={chatScrollRef} style={{
+            flex: 1, overflowY: 'auto', padding: '.65rem .85rem',
+            display: 'flex', flexDirection: 'column', gap: '.5rem',
+            overscrollBehavior: 'contain',
+          }}>
+            {chatMsgs.map((m, i) => (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start', animation: 'slideInUp .2s ease' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.42rem', color: C.faint, letterSpacing: '.08em', marginBottom: '.18rem' }}>
+                  {m.role === 'user' ? 'YOU' : 'ASE AI'}
+                </div>
+                <div style={{
+                  maxWidth: m.role === 'user' ? '70%' : '92%',
+                  padding: '.55rem .75rem', borderRadius: 10,
+                  background: m.role === 'user' ? `${C.mint}10` : `${C.bg3}cc`,
+                  border: `1px solid ${m.role === 'user' ? C.mint + '28' : C.border}`,
+                  fontFamily: 'var(--font-mono)', fontSize: '.62rem',
+                  color: m.role === 'user' ? C.mint : C.text, lineHeight: 1.55,
+                  whiteSpace: m.role === 'user' ? 'pre-wrap' : undefined,
+                }}>
+                  {m.role === 'ai'
+                    ? <MdText text={m.text} onApply={applyEdit} />
+                    : m.text}
+                  {m.role === 'ai' && m.edits && m.edits.length > 0 && (
+                    <div style={{ marginTop: '.35rem', display: 'flex', gap: '.25rem', flexWrap: 'wrap' }}>
+                      {m.edits.map((e, ei) => (
+                        <button key={ei} onClick={() => applyEdit(e)}
+                          style={{ padding: '.12rem .42rem', borderRadius: 4, background: `${C.mint}18`, border: `1px solid ${C.mint}40`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.5rem', fontWeight: 700, cursor: 'pointer' }}>
+                          Apply {e.filename}
+                        </button>
+                      ))}
                     </div>
-                  </div>
-                ))}
-                {chatLoading && chatMsgs[chatMsgs.length - 1]?.text === '' && (
-                  <div style={{ display: 'flex', gap: '.22rem', paddingLeft: '.35rem', alignItems: 'center' }}>
-                    <span style={{ fontSize: '.5rem', color: C.mint, fontFamily: 'var(--font-mono)' }}>ASE AI</span>
-                    {[0,1,2].map(j => <div key={j} style={{ width: 4, height: 4, borderRadius: '50%', background: C.mint, animation: `bounce ${0.5 + j * .12}s ease-in-out infinite` }} />)}
-                  </div>
-                )}
-                <div ref={chatEndRef} />
+                  )}
+                </div>
               </div>
-              {/* Input */}
-              <div style={{ display: 'flex', gap: '.35rem', padding: '.4rem .75rem', borderTop: `1px solid ${C.border}`, flexShrink: 0, alignItems: 'flex-end' }}>
-                <textarea
-                  ref={el => { (bottomChatRef as any).current = el; if (chatInputRef.current !== el) (chatInputRef as any).current = el }}
-                  value={chatInput} onChange={e => setChatInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendChat() } }}
-                  placeholder="Ask AI to modify your strategy, explain results, or write new code..."
-                  rows={1}
-                  style={{ flex: 1, background: C.bg3, border: `1px solid ${C.border2 ?? C.border}`, borderRadius: 7, padding: '.4rem .6rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.62rem', outline: 'none', resize: 'none', lineHeight: 1.4, maxHeight: 60 }}
-                />
-                <button onClick={() => void sendChat()} disabled={!chatInput.trim() || chatLoading}
-                  style={{ padding: '.4rem .6rem', borderRadius: 7, background: chatInput.trim() && !chatLoading ? C.mint : `${C.mint}30`, border: 'none', color: chatInput.trim() && !chatLoading ? '#000' : C.faint, cursor: chatInput.trim() ? 'pointer' : 'default', flexShrink: 0, fontWeight: 700, fontSize: '.6rem', transition: 'all .15s' }}>
-                  →
-                </button>
+            ))}
+            {chatLoading && chatMsgs[chatMsgs.length - 1]?.text === '' && (
+              <div style={{ display: 'flex', gap: '.25rem', paddingLeft: '.4rem', alignItems: 'center' }}>
+                {[0,1,2].map(j => <span key={j} style={{ width: 4, height: 4, borderRadius: '50%', background: C.mint, animation: `bounce ${0.5 + j * 0.12}s ease-in-out infinite` }} />)}
               </div>
-            </div>
-          )}
+            )}
+            <div ref={chatEndRef} />
+          </div>
 
-          {/* Terminal panel */}
-          {bottomMode === 'terminal' && (
-            <div style={{ flex: 1, overflow: 'hidden' }}>
-              <TerminalPanel lines={termLines} input={termInput} onInput={setTermInput} onSubmit={handleTermSubmit} loading={btLoading} />
-            </div>
-          )}
+          {/* Quick prompts */}
+          <div style={{ display: 'flex', gap: '.22rem', overflowX: 'auto', padding: '.25rem .85rem', flexShrink: 0, borderTop: `1px solid ${C.border}` }}>
+            {['Improve Sharpe', 'Add NUPL', 'Reduce drawdown', 'Explain results', 'Write a new strategy'].map(s => (
+              <button key={s} onClick={() => { setChatInput(s); chatInputRef.current?.focus() }}
+                style={{ padding: '.16rem .45rem', borderRadius: 4, background: 'rgba(10,21,37,.5)', border: `1px solid ${C.border}`, color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.48rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>{s}</button>
+            ))}
+          </div>
+
+          {/* Input */}
+          <div style={{ display: 'flex', gap: '.4rem', padding: '.45rem .85rem', borderTop: `1px solid ${C.border}`, flexShrink: 0, background: `${C.bg2}cc`, alignItems: 'flex-end' }}>
+            <textarea
+              ref={chatInputRef}
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendChat() } }}
+              placeholder="Ask AI to refine the strategy, explain results, or add signals..."
+              rows={1}
+              disabled={chatLoading}
+              style={{ flex: 1, background: 'rgba(10,21,37,.5)', border: `1px solid ${C.border}`, borderRadius: 7, padding: '.42rem .65rem', color: C.white, fontSize: '.62rem', outline: 'none', resize: 'none', lineHeight: 1.45, maxHeight: 80, fontFamily: 'var(--font-mono)' }}
+            />
+            <button onClick={() => void sendChat()} disabled={chatLoading || !chatInput.trim()}
+              style={{ padding: '.42rem .85rem', borderRadius: 8, background: chatLoading || !chatInput.trim() ? C.border : C.mint, color: chatLoading || !chatInput.trim() ? C.faint : '#000', fontSize: '.6rem', fontWeight: 700, border: 'none', cursor: chatLoading ? 'not-allowed' : 'pointer', transition: 'all .15s' }}>→</button>
+          </div>
         </div>
       </div>
 

@@ -88,9 +88,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Agent not available' }, { status: 400 })
     }
 
-    if (agent.alert_level === 'hard') {
-      return NextResponse.json({ error: 'Agent is under hard drawdown alert — new investments suspended.' }, { status: 409 })
-    }
+    // Auto-delisting on hard drawdown is disabled. Subscriptions remain
+    // open regardless of alert_level so users can always invest in any
+    // active agent. Hard delisting must be done manually.
 
     const maxAum = agent.max_aum_cents ?? 100_000_000
     const currentAum = agent.total_aum_cents ?? 0

@@ -293,11 +293,15 @@ export async function POST(req: NextRequest) {
         .eq('id', agent.id)
 
       // ── 13. DRAWDOWN TRACKING (White Paper Section 7.4) ───────────
+      // Drawdown is still tracked for display, but auto-delisting is
+      // disabled — agents never get promoted to a 'hard' alert level
+      // automatically. The worst auto-flag is 'orange' so investors
+      // see a warning, but trading continues. Hard delisting must be
+      // done manually via the admin tools.
       const currentNav = navCents
       const peakNav = Math.max(agent.peak_nav_cents ?? 10000, currentNav)
       const drawdownPct = peakNav > 0 ? ((peakNav - currentNav) / peakNav) * 100 : 0
-      const alertLevel = drawdownPct >= 40 ? 'hard'
-        : drawdownPct >= 25 ? 'orange'
+      const alertLevel = drawdownPct >= 25 ? 'orange'
         : drawdownPct >= 15 ? 'yellow' : 'none'
 
       await admin.from('agents').update({

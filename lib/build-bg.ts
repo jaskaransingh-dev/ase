@@ -43,6 +43,12 @@ function loadFromStorage(): BuildBgState | null {
     // If something was building when the tab closed, mark it as 'idle' on
     // hydration — we can't resume the fetch itself, only the UI state.
     if (parsed.phase === 'building') parsed.phase = 'idle'
+    // Don't restore stale chat history from completed/errored builds —
+    // the Build tab should always open with a clean prompt canvas.
+    if (parsed.phase === 'done' || parsed.phase === 'error' || parsed.phase === 'idle') {
+      try { localStorage.removeItem(STORAGE_KEY) } catch {}
+      return null
+    }
     return parsed
   } catch { return null }
 }

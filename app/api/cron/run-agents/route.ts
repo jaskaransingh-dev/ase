@@ -181,13 +181,10 @@ export async function POST(req: NextRequest) {
   let totalTrades = 0
 
   for (const agent of agents) {
-    // Skip agents under hard drawdown delisting
-    if (agent.alert_level === 'hard') {
-      results[agent.slug] = { agent_slug: agent.slug, error: 'Skipped — hard drawdown alert' }
-      console.warn(`[run-agents] ${agent.slug}: SKIPPED — hard drawdown`)
-      continue
-    }
-
+    // Auto-delisting on hard drawdown is intentionally disabled —
+    // active agents always trade their strategy regardless of past
+    // drawdown. The drawdown is still tracked for display, but it no
+    // longer halts execution.
     try {
       // Re-fetch latest AUM (may have changed since cron started)
       const { data: freshAgent } = await admin

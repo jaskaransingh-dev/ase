@@ -42,10 +42,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Agent not available' }, { status: 400 })
     }
 
-    // Check if agent is at hard delisting threshold
-    if (agent.alert_level === 'hard') {
-      return NextResponse.json({ error: 'Agent is under hard drawdown alert — new investments suspended.' }, { status: 409 })
-    }
+    // Auto-delisting on hard drawdown is disabled — investments accepted
+    // for any active agent regardless of alert_level. Manual delist via
+    // status='delisted' is the only path that blocks new investments.
 
     // Check AUM capacity cap (White Paper Section 6)
     const maxAum = agent.max_aum_cents ?? 100_000_000

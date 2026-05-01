@@ -4,8 +4,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { BLOCKS, getBlockById } from '@/lib/quant/blocks'
 import type { BlockKind } from '@/lib/quant/blocks'
-import { runBuild as runBuildBg, subscribe as subscribeBg, getState as getBgState, abortBuild as abortBuildBg } from '@/lib/build-bg'
-import CanvasAssembly from '@/components/dashboard/CanvasAssembly'
+import { runBuild as runBuildBg, subscribe as subscribeBg, getState as getBgState, abortBuild as abortBuildBg, clearState as clearBgState } from '@/lib/build-bg'
 
 const C = {
   bg: '#030608', bg2: '#060d17', bg3: '#0a1525', bg4: '#0e1c30',
@@ -76,8 +75,11 @@ function layoutPipeline(blockIds: string[]): { id: string; x: number; y: number;
     })
   }
 
-  // Always-on sinks at the rightmost column
-  const sinkCol = Math.max(7, ...positioned.map(n => Math.floor((n.x - COL_OFFSET_X) / COL_WIDTH)) ) + 1
+  // Always-on sinks placed one column to the right of whatever real
+  // blocks exist. When the canvas is empty, we put them at column 1 so
+  // they render in the visible viewport (instead of off-screen at col 8).
+  const realCols = positioned.map(n => Math.floor((n.x - COL_OFFSET_X) / COL_WIDTH))
+  const sinkCol = realCols.length ? Math.max(...realCols) + 1 : 1
   SINK_NODES.forEach((s, i) => {
     positioned.push({
       ...s,
@@ -264,15 +266,100 @@ function BtStrip({ result, loading, error }: { result: BtResult | null; loading:
   )
 }
 
-// AnimatedBlockBg removed — the foreground CanvasAssembly above the chat
-// already shows the pipeline coming together; the always-on background
-// version was redundant + visually noisy.
+// ── Canvas background: subtle box/grid pattern + vignette only.
+// The actual blocks render as interactive draggable nodes in the foreground
+// nodes layer below — this is just the texture beneath them.
+function CanvasBackground() {
+  return (
+    <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 }}>
+      {/* Subtle box grid — gives the canvas texture without animation noise */}
+      <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, opacity: 0.5 }}>
+        <defs>
+          <pattern id="canvas-grid" width="64" height="64" patternUnits="userSpaceOnUse">
+            <path d="M 64 0 L 0 0 0 64" fill="none" stroke="rgba(148,163,184,0.05)" strokeWidth="1" />
+          </pattern>
+          <pattern id="canvas-grid-coarse" width="320" height="320" patternUnits="userSpaceOnUse">
+            <path d="M 320 0 L 0 0 0 320" fill="none" stroke="rgba(148,163,184,0.10)" strokeWidth="1" />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#canvas-grid)" />
+        <rect width="100%" height="100%" fill="url(#canvas-grid-coarse)" />
+      </svg>
+
+      {/* Faint vignette so the centered prompt stands out */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: 'radial-gradient(ellipse 70% 55% at 50% 45%, transparent 0%, rgba(3,6,8,0.55) 100%)',
+      }} />
+    </div>
+  )
+}
+
+// Block-aware reactive background. Each pinned block emits a soft radial
+// glow at its canvas position. When the node count grows, the most recent
+// block spawns a brief expanding ripple — the background literally reacts
+// to the user's activity instead of being a static decoration.
+function CanvasReactiveBg({ nodes }: { nodes: CanvasNode[] }) {
+  const [pulseId, setPulseId] = useState<string | null>(null)
+  const lastCount = useRef(nodes.length)
+  useEffect(() => {
+    if (nodes.length > lastCount.current) {
+      const newest = nodes[nodes.length - 1]
+      setPulseId(newest?.id ?? null)
+      const t = setTimeout(() => setPulseId(null), 900)
+      lastCount.current = nodes.length
+      return () => clearTimeout(t)
+    }
+    lastCount.current = nodes.length
+  }, [nodes.length, nodes])
+
+  return (
+    <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+      <style>{`
+        @keyframes block-ripple { from { transform: scale(.4); opacity: .6 } to { transform: scale(2.6); opacity: 0 } }
+        @keyframes glow-soft   { 0%,100% { opacity: .55 } 50% { opacity: .85 } }
+        .blk-glow { animation: glow-soft 6s ease-in-out infinite; }
+      `}</style>
+      {nodes.map(n => (
+        <div key={n.id} className="blk-glow" style={{
+          position: 'absolute',
+          left: n.x + 60, top: n.y + 18,
+          width: 200, height: 200, borderRadius: '50%',
+          transform: 'translate(-50%, -50%)',
+          background: `radial-gradient(circle, ${n.color}1A 0%, transparent 60%)`,
+        }} />
+      ))}
+      {pulseId && (() => {
+        const n = nodes.find(x => x.id === pulseId)
+        if (!n) return null
+        return (
+          <div style={{
+            position: 'absolute',
+            left: n.x + 60, top: n.y + 18,
+            width: 60, height: 60, borderRadius: '50%',
+            transform: 'translate(-50%, -50%)',
+            border: `1.5px solid ${n.color}`,
+            animation: 'block-ripple .9s ease-out forwards',
+          }} />
+        )
+      })()}
+    </div>
+  )
+}
 
 export default function BuildPage() {
   const router = useRouter()
 
   // Build state
-  const [prompt, setPrompt] = useState('')
+  // Prompt text persists across tab switches via localStorage so users
+  // never lose mid-typed prompts when they jump to /code or /backtest.
+  const [prompt, setPrompt] = useState<string>(() => {
+    if (typeof window === 'undefined') return ''
+    try { return localStorage.getItem('ase_build_prompt_draft') ?? '' } catch { return '' }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('ase_build_prompt_draft', prompt) } catch {}
+  }, [prompt])
   const [phase, setPhase] = useState<'idle' | 'building' | 'done'>('idle')
   const [chat, setChat] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
@@ -301,7 +388,9 @@ export default function BuildPage() {
   // Block panel
   const [activeCat, setActiveCat] = useState<BlockKind | 'all'>('all')
   const [blockSearch, setBlockSearch] = useState('')
-  const [panelCollapsed, setPanelCollapsed] = useState(false)
+  // BLOCKS panel auto-collapses to icon-only by default so the canvas +
+  // prompt are dominant. The user expands it manually with the chevron.
+  const [panelCollapsed, setPanelCollapsed] = useState(true)
 
   // Post-build
   const [extractedFiles, setExtractedFiles] = useState<ExtractedFile[]>([])
@@ -311,12 +400,7 @@ export default function BuildPage() {
   const [btError, setBtError] = useState('')
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null)
 
-  // Agents drawer
-  const [agentsOpen, setAgentsOpen] = useState(false)
-  const [drafts, setDrafts] = useState<AgentDraft[]>([])
-  useEffect(() => {
-    if (agentsOpen) setDrafts(loadDrafts())
-  }, [agentsOpen])
+  // Agents drawer removed — drafts management now lives on /dashboard/build/manage.
 
   // Scroll the chat panel to the bottom only when the user is already
   // pinned to the bottom — so streaming tokens don't yank a user who
@@ -385,9 +469,14 @@ export default function BuildPage() {
 
   // Hydrate from the global background runner — this lets the AI keep
   // streaming after the user clicks away to another page and comes back.
+  //
+  // IMPORTANT: only hydrate if a build is actively running ('building').
+  // Old completed chats ('done') are intentionally NOT shown — the user
+  // wants a fresh build canvas every time they open the tab. Stale state
+  // from past sessions is cleared so the prompt area starts empty.
   useEffect(() => {
     const initial = getBgState()
-    if (initial.phase === 'building' || initial.phase === 'done') {
+    if (initial.phase === 'building') {
       setPhase(initial.phase)
       setChat(initial.chat as ChatMessage[])
       setExtractedFiles(initial.files)
@@ -406,6 +495,10 @@ export default function BuildPage() {
           }
         })
       }
+    } else if (initial.phase === 'done' || initial.phase === 'error') {
+      // Wipe stale finished/aborted state from a previous tab visit so the
+      // canvas, chat panel, and extracted-files strip all start clean.
+      clearBgState()
     }
     const unsub = subscribeBg(s => {
       setPhase(s.phase === 'error' ? 'idle' : (s.phase as 'idle' | 'building' | 'done'))
@@ -415,13 +508,81 @@ export default function BuildPage() {
 
       // Mine the streaming response for block references so blocks the
       // AI mentions get auto-pinned and laid out on the canvas in real time.
-      const corpus = (s.chat as ChatMessage[]).map(m => m.content).join('\n') +
-                     '\n' + s.files.map(f => f.content).join('\n')
+      // Match aggressively: id, exact label, plus a hand-picked alias list of
+      // common synonyms (e.g. "RSI" → ind.rsi, "Binance" → data.binance) so
+      // the canvas grows visibly as the AI writes.
+      const corpus = ((s.chat as ChatMessage[]).map(m => m.content).join('\n') +
+                     '\n' + s.files.map(f => f.content).join('\n')).toLowerCase()
+      const ALIASES: Record<string, string[]> = {
+        'data.binance': ['binance', 'spot ohlcv'],
+        'data.coingecko': ['coingecko'],
+        'data.yahoo': ['yahoo finance', 'yfinance'],
+        'data.onchain': ['nupl', 'sopr', 'glassnode', 'on-chain'],
+        'data.funding': ['funding rate', 'perp funding'],
+        'data.uniswap': ['uniswap', 'uni v3'],
+        'data.options': ['deribit', 'options chain', 'iv surface', 'put/call ratio'],
+        'data.perps': ['open interest', 'perps oi'],
+        'data.whale': ['whale wallet', 'whale movement'],
+        'data.macro_dxy': ['dxy', 'dollar index'],
+        'data.rates': ['10y yield', '2y yield', 'treasury'],
+        'data.cpi': ['cpi print', 'inflation'],
+        'data.fomc': ['fomc', 'fed meeting'],
+        'data.equity': ['spy', 'qqq', 's&p 500'],
+        'ind.rsi': ['rsi', 'relative strength'],
+        'ind.macd': ['macd', 'moving average convergence'],
+        'ind.bb': ['bollinger', 'bb bands'],
+        'ind.atr': ['atr', 'average true range'],
+        'ind.ema_cross': ['ema cross', 'ema(12)', 'ema(26)'],
+        'ind.zscore': ['z-score', 'zscore'],
+        'ind.adx': ['adx'],
+        'ind.stoch': ['stochastic'],
+        'ind.vwap': ['vwap'],
+        'ind.obv': ['obv', 'on-balance volume'],
+        'ind.donchian': ['donchian'],
+        'ind.supertrend': ['supertrend'],
+        'ind.ichimoku': ['ichimoku', 'cloud'],
+        'ml.gbm': ['gradient boost', 'xgboost', 'lightgbm'],
+        'ml.lstm': ['lstm', 'recurrent network'],
+        'ml.regime': ['hmm', 'hidden markov', 'regime'],
+        'ml.transformer': ['transformer', 'attention model'],
+        'ml.kalman': ['kalman'],
+        'sent.twitter': ['twitter sentiment', 'crypto twitter'],
+        'sent.gtrends': ['google trends'],
+        'api.fear_greed': ['fear and greed', 'fear & greed', 'fng'],
+        'api.kraken': ['kraken'],
+        'api.news': ['crypto news', 'cryptopanic'],
+        'api.syne': ['syne terminal', 'syne'],
+        'risk.killswitch': ['kill switch', 'killswitch', 'circuit'],
+        'risk.parity': ['risk parity'],
+        'risk.var': ['var cap', 'value at risk'],
+        'risk.cvar': ['cvar', 'expected shortfall'],
+        'risk.vol_target': ['vol target', 'volatility target'],
+        'risk.kelly': ['kelly criterion', 'kelly sizing'],
+        'risk.trailing': ['trailing stop'],
+        'risk.circuit': ['circuit breaker'],
+        'exec.twap': ['twap'],
+        'exec.vwap': ['vwap execution'],
+        'exec.iceberg': ['iceberg'],
+        'exec.coinbase': ['coinbase pro'],
+        'exec.binance': ['binance spot', 'binance exec'],
+        'exec.dydx': ['dydx'],
+        'exec.gmx': ['gmx'],
+        'exec.hyperliquid': ['hyperliquid'],
+        'sig.composite': ['composite blend', 'composite alpha'],
+        'sig.consensus': ['consensus voting', 'multi-model consensus'],
+        'sig.majority': ['majority vote'],
+        'sig.weighted': ['weighted ensemble'],
+        'sig.bayesian': ['bayesian average', 'bayesian blend'],
+        'sig.regime_gate': ['regime gate', 'regime filter'],
+      }
       const matched: string[] = []
       for (const b of BLOCKS) {
-        const idHit = corpus.includes(b.id)
-        const labelHit = new RegExp(`\\b${b.label.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\b`, 'i').test(corpus)
-        if (idHit || labelHit) matched.push(b.id)
+        const ll = b.label.toLowerCase()
+        if (corpus.includes(b.id.toLowerCase()) || corpus.includes(ll)) {
+          matched.push(b.id); continue
+        }
+        const aliases = ALIASES[b.id]
+        if (aliases && aliases.some(a => corpus.includes(a))) matched.push(b.id)
       }
       if (matched.length) {
         setPinnedIds(prev => {
@@ -445,6 +606,9 @@ export default function BuildPage() {
       localStorage.setItem('ase_build_prompt', text)
       localStorage.setItem('ase_build_blocks', JSON.stringify(pinnedIds))
     } catch {}
+    // If a previous build is still running, abort it first — the new prompt
+    // takes priority. The singleton runner already handles the cleanup.
+    abortBuildBg()
     // Hand the actual streaming work to the singleton runner.  This lets
     // the AI keep generating across page navigations.
     void runBuildBg({ prompt: text, blocks: pinnedIds, agentHints: hints })
@@ -544,6 +708,11 @@ export default function BuildPage() {
       style={{ width: '100%', height: 'calc(100vh - 56px)', overflow: 'hidden', background: C.bg, position: 'relative', display: 'flex', userSelect: nodeDrag ? 'none' : 'auto' }}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
+      // Drop targets are also wired here so users can drag a block anywhere
+      // on the page (idle prompt area included), not only on the canvas-bg.
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
       <style>{`
         @keyframes glow-pulse { 0%,100%{box-shadow:0 0 12px rgba(22,199,132,.18)} 50%{box-shadow:0 0 28px rgba(22,199,132,.45)} }
@@ -578,23 +747,34 @@ export default function BuildPage() {
         style={{
           position: 'absolute', inset: 0, cursor: canvasDrag ? 'grabbing' : nodeDrag ? 'grabbing' : 'default',
           border: dropHighlight ? `1.5px dashed ${C.mint}40` : '1.5px solid transparent',
-          background: `
-            radial-gradient(ellipse 110% 90% at 12% 8%, rgba(59,130,246,.05) 0%, transparent 55%),
-            radial-gradient(ellipse 75% 75% at 88% 88%, rgba(22,199,132,.04) 0%, transparent 50%),
-            radial-gradient(ellipse 55% 45% at 50% 50%, rgba(139,92,246,.03) 0%, transparent 45%)
-          `,
+          // Background reacts to blocks being added — see CanvasReactiveBg below
+          background: C.bg,
           zIndex: 0,
         }}
       >
-        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: isDone ? .04 : .08, pointerEvents: 'none' }}>
-          <defs><pattern id="g" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0L0 0 0 40" fill="none" stroke={C.blue} strokeWidth=".5"/></pattern></defs>
-          <rect width="100%" height="100%" fill="url(#g)"/>
-        </svg>
-        <div style={{ position: 'absolute', width: 350, height: 350, borderRadius: '50%', background: 'radial-gradient(circle, rgba(59,130,246,.05) 0%, transparent 70%)', top: '5%', left: '10%', animation: 'blink 5s ease-in-out infinite', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', width: 280, height: 280, borderRadius: '50%', background: 'radial-gradient(circle, rgba(22,199,132,.04) 0%, transparent 70%)', bottom: '18%', right: '12%', animation: 'blink 6s ease-in-out infinite 1.5s', pointerEvents: 'none' }} />
+        {/* Subtle background grid + vignette. Interactive blocks render
+            as foreground nodes on top of this texture. */}
+        <CanvasBackground />
+        {/* Decorative grid + blinking radial backgrounds removed — canvas
+            is clean. Pipeline nodes/edges below are the only visual. */}
 
-        {/* Canvas nodes layer */}
-        <div style={{ position: 'absolute', inset: 0, transform: `translate(${canvasOffset.x}px,${canvasOffset.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
+        {/* Canvas nodes layer — outer wrapper centers the nodes group
+            horizontally so the pipeline always sits in the middle of the
+            canvas regardless of how many blocks are pinned. Inner div
+            keeps the pan/zoom transform behavior intact. */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', justifyContent: 'center', alignItems: 'center',
+          pointerEvents: 'none', // child nodes set their own pointer-events
+        }}>
+          <div style={{
+            position: 'relative',
+            width: Math.max(360, (Math.max(...nodes.map(n => n.x), 0) + 200)),
+            height: Math.max(220, (Math.max(...nodes.map(n => n.y), 0) + 80)),
+            transform: `translate(${canvasOffset.x}px,${canvasOffset.y}px) scale(${zoom})`,
+            transformOrigin: 'center',
+            pointerEvents: 'auto',
+          }}>
           {/* Connection lines — every block in column N feeds every block
               in column N+1, plus the rightmost real column feeds both
               built-in sinks (Backtest, Kraken). Mirrors how data actually
@@ -673,6 +853,7 @@ export default function BuildPage() {
               </div>
             )
           })}
+        </div>
         </div>
       </div>
 
@@ -758,6 +939,7 @@ export default function BuildPage() {
                         <div key={block.id} className="block-row"
                           draggable onDragStart={e => handleDragStart(e, block.id)}
                           onClick={() => togglePin(block.id)}
+                          title={`${block.label} — ${block.description}\n\nUse: ${block.agentHint ?? '(no hint)'}\nKind: ${block.kind}`}
                           style={{
                             padding: '.38rem .5rem', borderRadius: 6, marginBottom: '.18rem',
                             background: pinned ? `${cat.color}10` : 'rgba(10,21,37,.4)',
@@ -807,128 +989,62 @@ export default function BuildPage() {
       {/* ══ MAIN AREA ════════════════════════════════════════════════════════════ */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', zIndex: 10, overflow: 'hidden' }}>
 
-        {/* Top utility bar */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '.4rem', padding: '.4rem .75rem', borderBottom: `1px solid ${C.border}`, flexShrink: 0, background: `${C.bg2}cc`, backdropFilter: 'blur(8px)' }}>
+        {/* Top utility bar removed. Floating Manage+Docs cluster lives in
+            the top-right of the canvas (rendered below). Drafts is folded
+            into the Manage page so there's a single agents-management
+            surface instead of two. */}
+        <div style={{
+          position: 'absolute', top: 10, right: 14, zIndex: 30,
+          display: 'flex', gap: '.4rem',
+        }}>
           <button onClick={() => router.push('/dashboard/build/manage')}
-            style={{ display: 'flex', alignItems: 'center', gap: '.3rem', padding: '.24rem .55rem', borderRadius: 6, background: 'transparent', border: `1px solid ${C.border}`, color: C.faint, fontSize: '.52rem', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>
-            <span style={{ fontSize: '.6rem' }}>◈</span> Manage
-            {loadDrafts().length > 0 && <span style={{ background: C.mint, color: '#000', borderRadius: 3, padding: '0 .3rem', fontSize: '.42rem', fontWeight: 700 }}>{loadDrafts().length}</span>}
-          </button>
-          <button onClick={() => { setDrafts(loadDrafts()); setAgentsOpen(true) }}
-            style={{ display: 'flex', alignItems: 'center', gap: '.3rem', padding: '.24rem .55rem', borderRadius: 6, background: 'transparent', border: `1px solid ${C.border}`, color: C.faint, fontSize: '.52rem', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>
-            <span style={{ fontSize: '.6rem' }}>★</span> Drafts
+            title="Manage drafts and published agents"
+            style={{ display: 'flex', alignItems: 'center', gap: '.35rem', padding: '.32rem .65rem', borderRadius: 7, background: `${C.bg2}d8`, border: `1px solid ${C.border}`, color: C.faint, fontSize: '.55rem', cursor: 'pointer', fontFamily: 'var(--font-mono)', backdropFilter: 'blur(10px)' }}>
+            <span style={{ fontSize: '.65rem', color: C.mint }}>◈</span> Manage
+            {loadDrafts().length > 0 && <span style={{ background: C.mint, color: '#000', borderRadius: 3, padding: '0 .35rem', fontSize: '.45rem', fontWeight: 700 }}>{loadDrafts().length}</span>}
           </button>
           <a href="/dashboard/build/docs"
-            style={{ display: 'flex', alignItems: 'center', gap: '.28rem', padding: '.24rem .55rem', borderRadius: 6, background: 'transparent', border: `1px solid ${C.border}`, color: C.faint, fontSize: '.52rem', cursor: 'pointer', fontFamily: 'var(--font-mono)', textDecoration: 'none' }}>
-            <span>⊙</span> Docs
+            style={{ display: 'flex', alignItems: 'center', gap: '.32rem', padding: '.32rem .65rem', borderRadius: 7, background: `${C.bg2}d8`, border: `1px solid ${C.border}`, color: C.faint, fontSize: '.55rem', cursor: 'pointer', fontFamily: 'var(--font-mono)', textDecoration: 'none', backdropFilter: 'blur(10px)' }}>
+            <span style={{ color: C.blue2 }}>⊙</span> Docs
           </a>
         </div>
 
-        {/* ── AGENTS DRAWER ── */}
-        {agentsOpen && (
-          <div style={{ position: 'absolute', inset: 0, zIndex: 50, display: 'flex' }}
-            onClick={e => { if (e.target === e.currentTarget) setAgentsOpen(false) }}>
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }} onClick={() => setAgentsOpen(false)} />
-            <div style={{
-              position: 'absolute', right: 0, top: 0, bottom: 0, width: 340,
-              background: `${C.bg2}f8`, borderLeft: `1px solid ${C.border}`,
-              backdropFilter: 'blur(16px)', display: 'flex', flexDirection: 'column',
-              animation: 'slide-from-right .2s ease',
-              zIndex: 1,
-            }}>
-              <div style={{ padding: '.75rem 1rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontSize: '.58rem', fontWeight: 700, color: C.white, fontFamily: 'var(--font-mono)' }}>Agent Drafts</div>
-                  <div style={{ fontSize: '.46rem', color: C.faint, marginTop: '.1rem' }}>{drafts.length} saved</div>
-                </div>
-                <button onClick={() => setAgentsOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.faint, fontSize: '.9rem' }}>✕</button>
-              </div>
-              <div style={{ flex: 1, overflowY: 'auto', padding: '.5rem .75rem', display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-                {drafts.length === 0 && (
-                  <div style={{ padding: '2rem 0', textAlign: 'center', fontSize: '.58rem', color: C.faint }}>
-                    No drafts yet. Build your first strategy above.
-                  </div>
-                )}
-                {drafts.map(d => {
-                  const isCurrent = d.id === currentDraftId
-                  const fileCount = Object.keys(d.files).length
-                  const age = Date.now() - d.createdAt
-                  const ageStr = age < 60000 ? 'just now' : age < 3600000 ? Math.round(age/60000) + 'm ago' : Math.round(age/3600000) + 'h ago'
-                  return (
-                    <div key={d.id} style={{
-                      padding: '.65rem .75rem', borderRadius: 9,
-                      background: isCurrent ? `${C.mint}0a` : C.bg3,
-                      border: `1px solid ${isCurrent ? C.mint + '40' : C.border}`,
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '.4rem', marginBottom: '.35rem' }}>
-                        <div style={{ fontSize: '.58rem', fontWeight: 600, color: C.white, flex: 1, lineHeight: 1.3 }}>{d.name}</div>
-                        {isCurrent && <span style={{ fontSize: '.42rem', color: C.mint, background: `${C.mint}15`, border: `1px solid ${C.mint}30`, borderRadius: 3, padding: '.05rem .3rem', flexShrink: 0 }}>current</span>}
-                      </div>
-                      <div style={{ fontSize: '.48rem', color: C.faint, marginBottom: '.45rem', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{d.prompt}</div>
-                      <div style={{ display: 'flex', gap: '.3rem', marginBottom: '.45rem', flexWrap: 'wrap' }}>
-                        {Object.keys(d.files).map(f => {
-                          const ext = f.split('.').pop() ?? ''
-                          const lc = { ts: C.blue, py: C.mint, json: C.orange }[ext] ?? C.faint
-                          return <span key={f} style={{ fontSize: '.42rem', color: lc, fontFamily: 'var(--font-mono)', background: `${lc}12`, padding: '.05rem .3rem', borderRadius: 3 }}>{f}</span>
-                        })}
-                        {fileCount === 0 && <span style={{ fontSize: '.44rem', color: C.faint }}>no files extracted</span>}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: '.44rem', color: C.faint, fontFamily: 'var(--font-mono)' }}>{ageStr}</span>
-                        <div style={{ display: 'flex', gap: '.3rem' }}>
-                          <button
-                            onClick={() => {
-                              saveDraft(d) // re-saves to ase-files
-                              setCurrentDraftId(d.id)
-                              setAgentsOpen(false)
-                              router.push('/dashboard/build/code')
-                            }}
-                            style={{ padding: '.22rem .5rem', borderRadius: 5, background: C.mint, color: '#000', border: 'none', fontSize: '.48rem', fontWeight: 700, cursor: 'pointer' }}>
-                            Open →
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (!confirm('Delete this draft?')) return
-                              try {
-                                const updated = drafts.filter(x => x.id !== d.id)
-                                localStorage.setItem(DRAFTS_KEY, JSON.stringify(updated))
-                                setDrafts(updated)
-                              } catch {}
-                            }}
-                            style={{ padding: '.22rem .4rem', borderRadius: 5, background: 'transparent', border: `1px solid ${C.border}`, color: C.faint, fontSize: '.46rem', cursor: 'pointer' }}>
-                            ×
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-              <div style={{ padding: '.6rem .75rem', borderTop: `1px solid ${C.border}` }}>
-                <button onClick={() => router.push('/dashboard/build/code?new=1')}
-                  style={{ width: '100%', padding: '.4rem 0', borderRadius: 7, background: 'transparent', border: `1px solid ${C.border}`, color: C.faint, fontSize: '.54rem', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>
-                  + New blank strategy
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* AGENTS DRAWER removed — Drafts list now lives on the Manage
+            page (/dashboard/build/manage), so we have a single agents
+            management surface instead of a duplicate drawer. */}
 
-        {/* ── IDLE: centered prompt ── */}
+        {/* ── IDLE: centered prompt. The wrapper is pointer-events:none
+             so drags pass through to the canvas; only the prompt card +
+             headline have pointer-events:auto. As soon as a block is
+             picked, the prompt slides DOWN to give the canvas more room
+             (justifyContent: flex-end + bottom padding). ── */}
         {phase === 'idle' && (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem', animation: 'fade-up .4s ease' }}>
-            <div style={{ animation: 'float 4s ease-in-out infinite', marginBottom: '1.75rem', textAlign: 'center' }}>
-              <div style={{ fontSize: '1.65rem', fontWeight: 800, color: C.white, letterSpacing: '-.02em', lineHeight: 1.15, marginBottom: '.4rem' }}>Build an Agent</div>
-              <div style={{ fontSize: '.72rem', color: C.faint }}>Describe your strategy or drag blocks from the left</div>
+          <div style={{
+            flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: pinnedIds.length > 0 ? 'flex-end' : 'center',
+            padding: pinnedIds.length > 0 ? '2rem 2rem 2.5rem' : '2rem',
+            animation: 'fade-up .4s ease', overflow: 'auto', pointerEvents: 'none',
+            transition: 'justify-content .35s ease, padding .35s ease',
+          }}>
+            <div style={{
+              animation: pinnedIds.length === 0 ? 'float 4s ease-in-out infinite' : 'none',
+              marginBottom: pinnedIds.length > 0 ? '.6rem' : '1.25rem',
+              textAlign: 'center', pointerEvents: 'auto',
+              opacity: pinnedIds.length > 0 ? 0 : 1, height: pinnedIds.length > 0 ? 0 : 'auto', overflow: 'hidden',
+              transition: 'opacity .25s ease, margin .25s ease',
+            }}>
+              <div style={{ fontSize: '1.65rem', fontWeight: 800, color: C.white, letterSpacing: '-.02em', lineHeight: 1.15, marginBottom: '.4rem' }}>What should your agent trade?</div>
+              <div style={{ fontSize: '.72rem', color: C.faint }}>Describe it in plain English — pick blocks if you want, or skip them. We&apos;ll handle the rest.</div>
             </div>
 
-            <div style={{ width: '100%', maxWidth: 540, background: `${C.bg2}ee`, borderRadius: 14, border: `1px solid ${C.border2}`, padding: '1.1rem', boxShadow: '0 20px 60px rgba(0,0,0,.5)', backdropFilter: 'blur(12px)' }}>
+            <div style={{ width: '100%', maxWidth: 540, background: `${C.bg2}ee`, borderRadius: 14, border: `1px solid ${C.border2}`, boxShadow: '0 20px 60px rgba(0,0,0,.5)', backdropFilter: 'blur(12px)', overflow: 'hidden', pointerEvents: 'auto' }}>
+              <div style={{ padding: '1.1rem' }}>
               <textarea
                 ref={textareaRef}
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleBuild() } }}
-                placeholder="e.g. BTC momentum when RSI < 30 and EMA(12) crosses EMA(26), 8% kill switch, weekly rebalance"
+                placeholder="e.g. Buy BTC when it dips below its 30-day average, sell when greed peaks. Stop out if I lose more than 8%."
                 style={{
                   width: '100%', background: 'rgba(10,21,37,.5)', border: `1px solid rgba(22,199,132,.12)`,
                   borderRadius: 8, padding: '.7rem .8rem', color: C.white,
@@ -951,15 +1067,11 @@ export default function BuildPage() {
                     color: '#000', border: 'none', cursor: 'pointer', transition: 'all .15s',
                   }}>Build →</button>
               </div>
+              </div>
             </div>
 
-            {pinnedIds.length > 0 && (
-              <div style={{ marginTop: '1.25rem', display: 'flex', gap: '.35rem', flexWrap: 'wrap', justifyContent: 'center', animation: 'fade-up .3s ease' }}>
-                {pinnedIds.map(id => { const b = getBlockById(id); if (!b) return null; return (
-                  <span key={id} style={{ padding: '.18rem .45rem', borderRadius: 4, fontSize: '.48rem', background: `${KIND_COLORS[b.kind]}12`, border: `1px solid ${KIND_COLORS[b.kind]}35`, color: KIND_COLORS[b.kind] }}>{KIND_ICONS[b.kind]} {b.label}</span>
-                )})}
-              </div>
-            )}
+            {/* Pinned-blocks badge row removed — the actual interactive
+                blocks on the canvas already show the user's selection. */}
           </div>
         )}
 
@@ -967,9 +1079,9 @@ export default function BuildPage() {
         {phase !== 'idle' && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', animation: 'fade-up .35s ease' }}>
 
-            {/* Pipeline assembly graphic — sits ABOVE the building header
-                so the user sees the canvas come together before any text */}
-            <CanvasAssembly blocks={pinnedIds} phase={phase as 'idle' | 'building' | 'done' | 'error'} height={220} />
+            {/* Pipeline graphic removed — the foreground canvas (above)
+                already renders the assembled pipeline. Duplicating it here
+                made two stacked pipelines, which we now collapse into one. */}
 
             {/* Header */}
             <div style={{ padding: '.5rem .85rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '.5rem', flexShrink: 0, background: `${C.bg2}cc`, backdropFilter: 'blur(8px)' }}>
@@ -984,8 +1096,20 @@ export default function BuildPage() {
                   Open in Code →
                 </button>
               )}
-              <button onClick={() => { setPhase('idle'); setChat([]); setExtractedFiles([]); setBtResult(null) }}
-                style={{ fontSize: '.5rem', color: C.faint, background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, padding: '.22rem .45rem', cursor: 'pointer' }}>← New</button>
+              <button onClick={() => {
+                // Abort in-flight stream + clear local state for a fresh
+                // build. Pinned blocks reset; canvas re-lays out with the
+                // built-in Backtest/Kraken sinks only.
+                abortBuildBg()
+                setPhase('idle'); setChat([]); setExtractedFiles([]); setBtResult(null)
+                setPinnedIds([])
+                setNodes(layoutPipeline([]))
+                setPrompt('')
+              }}
+                title="Start a fresh strategy"
+                style={{ display: 'flex', alignItems: 'center', gap: '.3rem', padding: '.3rem .65rem', borderRadius: 7, background: 'transparent', border: `1px solid ${C.mint}40`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.55rem', fontWeight: 700, cursor: 'pointer' }}>
+                + New Strategy
+              </button>
             </div>
 
             {/* Thinking strip */}
@@ -1102,13 +1226,7 @@ export default function BuildPage() {
         )}
       </div>
 
-      {/* Zoom controls */}
-      <div style={{ position: 'absolute', right: 14, bottom: 14, zIndex: 20, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
-        {[['−', () => setZoom(z => Math.max(.4, z - .15))], ['+', () => setZoom(z => Math.min(2, z + .15))], ['⊙', () => { setZoom(1); setCanvasOffset({ x: 0, y: 0 }) }]].map(([l, fn]) => (
-          <button key={l as string} onClick={fn as () => void}
-            style={{ width: 26, height: 26, borderRadius: 5, background: `${C.bg2}cc`, border: `1px solid ${C.border}`, color: C.text, cursor: 'pointer', fontSize: '.58rem', backdropFilter: 'blur(8px)' }}>{l as string}</button>
-        ))}
-      </div>
+      {/* Zoom controls (− / + / ⊙) removed — canvas auto-fits content. */}
     </div>
   )
 }

@@ -629,18 +629,23 @@ export default function SyneTerminal() {
           ) : <span style={{ color: C.muted }}>loading…</span>}
         </div>
 
-        {/* Quick-actions for traders */}
+        {/* Quick-actions for traders — direct links into the workspace */}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', height: '100%' }}>
           <a href="/dashboard/build" style={{
             border: `1px solid ${C.amber}55`, color: C.amber, padding: '3px 10px',
             textDecoration: 'none', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
             background: '#000',
           }}>+ AGENT</a>
-          <a href="/dashboard/build/backtest" style={{
+          <a href="/dashboard/backtest" style={{
             border: `1px solid ${C.green}55`, color: C.green, padding: '3px 10px',
             textDecoration: 'none', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
             background: '#000',
-          }}>QUICK BT</a>
+          }}>BACKTEST</a>
+          <a href="/dashboard/build/manage" style={{
+            border: `1px solid ${C.amber2}55`, color: C.amber2, padding: '3px 10px',
+            textDecoration: 'none', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
+            background: '#000',
+          }}>MY AGENTS</a>
           <a href="/dashboard/marketplace" style={{
             border: `1px solid ${C.border2}`, color: C.muted, padding: '3px 10px',
             textDecoration: 'none', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',

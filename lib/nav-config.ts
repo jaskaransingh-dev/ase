@@ -7,6 +7,8 @@ export interface NavItem {
   badge?: string
   badgeColor?: string
   disabled?: boolean
+  /** Render as a nested sub-link under the previous parent item. */
+  indent?: boolean
 }
 
 export interface NavSection {
@@ -31,6 +33,11 @@ export const NAV_CONFIG: NavSection[] = [
     section: 'EXPLORER',
     items: [
       { href: '/dashboard/build', label: 'Build', icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z', badge: 'AI', badgeColor: '#8B5CF6' },
+      // Sub-pages — rendered indented under "Build" in the sidebar.
+      { href: '/dashboard/build/code',     label: 'Code',     icon: 'M16 18l6-6-6-6M8 6l-6 6 6 6',                                                  indent: true },
+      { href: '/dashboard/backtest',       label: 'Backtest', icon: 'M3 3v18h18M7 14l4-4 4 4 5-5',                                                indent: true },
+      { href: '/dashboard/build/manage',   label: 'Manage',   icon: 'M9 12l2 2 4-4M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z', indent: true },
+      { href: '/dashboard/build/docs',     label: 'Docs',     icon: 'M4 19.5v-15A2.5 2.5 0 016.5 2H20v20H6.5a2.5 2.5 0 010-5H20',                  indent: true },
     ],
   },
   {

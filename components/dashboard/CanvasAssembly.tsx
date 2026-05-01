@@ -28,9 +28,12 @@ interface Props {
   blocks: string[]
   phase: 'idle' | 'building' | 'done' | 'error'
   height?: number
+  /** Click handler for a block card — used by the code page to open the
+      corresponding strategy file when the user clicks a block. */
+  onBlockClick?: (id: string) => void
 }
 
-export default function CanvasAssembly({ blocks, phase, height = 220 }: Props) {
+export default function CanvasAssembly({ blocks, phase, height = 220, onBlockClick }: Props) {
   const layout = useMemo(() => {
     // Group by pipeline column
     const cols: Map<number, { id: string; label: string; color: string }[]> = new Map()
@@ -130,9 +133,11 @@ export default function CanvasAssembly({ blocks, phase, height = 220 }: Props) {
             })}
           </svg>
 
-          {/* Block cards */}
+          {/* Block cards — clickable when an onBlockClick handler is wired
+              (used by the code page to open the matching file). */}
           {layout.positioned.map((p, i) => (
             <div key={p.id}
+              onClick={onBlockClick ? () => onBlockClick(p.id) : undefined}
               style={{
                 position: 'absolute', left: p.x, top: p.y,
                 width: 130, padding: '0.4rem 0.55rem',
@@ -142,7 +147,18 @@ export default function CanvasAssembly({ blocks, phase, height = 220 }: Props) {
                 borderRadius: 7,
                 animation: `ca-card .35s ease ${i * .07}s both`,
                 boxShadow: `0 0 16px ${p.color}25`,
-              }}>
+                cursor: onBlockClick ? 'pointer' : 'default',
+                transition: 'transform .12s ease, box-shadow .12s ease',
+              }}
+              onMouseEnter={onBlockClick ? (e) => {
+                e.currentTarget.style.transform = 'translateY(-1px)'
+                e.currentTarget.style.boxShadow = `0 0 22px ${p.color}55`
+              } : undefined}
+              onMouseLeave={onBlockClick ? (e) => {
+                e.currentTarget.style.transform = ''
+                e.currentTarget.style.boxShadow = `0 0 16px ${p.color}25`
+              } : undefined}
+              >
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: p.color, boxShadow: `0 0 6px ${p.color}` }} />
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', fontWeight: 600, color: '#f1f5f9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.label}</span>

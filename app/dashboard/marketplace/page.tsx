@@ -22,10 +22,10 @@ interface Listing {
   trade_count?: number
 }
 
-// Auto-delist threshold: an agent must have posted a trade in the last
-// STALE_HOURS for it to remain in the public marketplace. This stops dead
-// strategies from cluttering the page.
-const STALE_HOURS = 72
+// Auto-delisting was disabled — every active agent stays on the marketplace
+// regardless of trade recency, so users see the full catalog. The constant
+// is left here for backwards-compat with components that may still import it.
+const STALE_HOURS = Infinity
 
 const SORT_OPTIONS = [
   { value: 'rank', label: 'Top Ranked', icon: TrendingUp },
@@ -89,18 +89,14 @@ export default function MarketplacePage() {
     setLoading(false)
   }
 
-  // True if the agent has posted a trade within the staleness window.
-  function isFresh(l: Listing) {
-    if (!l.last_trade_at) return false
-    const ageHours = (Date.now() - new Date(l.last_trade_at).getTime()) / 3_600_000
-    return ageHours <= STALE_HOURS
-  }
+  // Auto-delisting disabled — show every active agent the API returns.
+  function isFresh(_l: Listing) { return true }
 
   function handleSubscribe(listing: Listing) {
     router.push(`/agents/${listing.slug}`)
   }
 
-  const displayed = listings.filter(l => isFresh(l)).filter(l =>
+  const displayed = listings.filter(l =>
     !search || l.name?.toLowerCase().includes(search.toLowerCase()) ||
     l.ticker?.toLowerCase().includes(search.toLowerCase()) ||
     l.description?.toLowerCase().includes(search.toLowerCase())

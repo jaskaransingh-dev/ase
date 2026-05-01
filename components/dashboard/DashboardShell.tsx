@@ -115,7 +115,10 @@ export default function DashboardShell({ user, children }: { user: { id: string;
           </button>
         </div>
 
-        {/* Market status strip */}
+        {/* Market status strip — crypto trades 24/7 so the binary
+            OPEN/CLOSED chip was misleading. We show only the live
+            clock now (and a steady mint dot to indicate the platform
+            itself is online). */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -127,12 +130,12 @@ export default function DashboardShell({ user, children }: { user: { id: string;
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             <div style={{
               width: 6, height: 6, borderRadius: '50%',
-              background: marketOpen ? 'var(--mint)' : 'var(--faint)',
-              boxShadow: marketOpen ? '0 0 6px var(--mint)' : 'none',
-              animation: marketOpen ? 'pulse 2s infinite' : 'none',
+              background: 'var(--mint)',
+              boxShadow: '0 0 6px var(--mint)',
+              animation: 'pulse 2s infinite',
             }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: marketOpen ? 'var(--mint)' : 'var(--faint)', letterSpacing: '0.06em' }}>
-              {marketOpen ? 'MARKET OPEN' : 'MARKET CLOSED'}
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: 'var(--mint)', letterSpacing: '0.06em' }}>
+              LIVE
             </span>
           </div>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: 'var(--faint)' }}>{currentTime}</span>
@@ -156,6 +159,7 @@ export default function DashboardShell({ user, children }: { user: { id: string;
               {group.items.map(item => {
                   const active = isActive(item.href, item.exact)
                   const iconOnly = (item as any).iconOnly
+                  const indent = (item as any).indent
                   return (
                     <Link
                       key={item.href}
@@ -165,18 +169,21 @@ export default function DashboardShell({ user, children }: { user: { id: string;
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: iconOnly ? 0 : '0.65rem',
+                        gap: iconOnly ? 0 : '0.55rem',
                         justifyContent: iconOnly ? 'center' : undefined,
-                        padding: iconOnly ? '0.6rem' : '0.6rem 0.75rem',
+                        // Indented sub-items get a left padding bump + smaller type
+                        // so the parent ↔ child relationship reads visually.
+                        padding: iconOnly ? '0.6rem' : indent ? '0.4rem 0.75rem 0.4rem 1.6rem' : '0.6rem 0.75rem',
                         borderRadius: 8,
                         color: active ? 'var(--white)' : 'var(--muted)',
-                        fontSize: '0.82rem',
+                        fontSize: indent ? '0.74rem' : '0.82rem',
                         fontWeight: active ? 600 : 400,
                         textDecoration: 'none',
                         background: active ? 'rgba(79,140,255,0.12)' : 'transparent',
                         border: active ? '1px solid rgba(79,140,255,0.18)' : '1px solid transparent',
                         transition: 'all 0.14s',
-                        marginBottom: '0.1rem',
+                        marginBottom: '0.05rem',
+                        position: 'relative',
                       }}
                       onMouseEnter={e => {
                         if (!active) {
@@ -544,12 +551,12 @@ function SystemHealthTray({ marketOpen, accountConnected }: { marketOpen: boolea
         fontFamily: 'var(--font-mono)', fontSize: '0.58rem', letterSpacing: '0.06em',
         color: 'var(--text)',
       }}>
-        <span className={ok && marketOpen ? 'ase-pulse' : ''} style={{
+        <span className={ok ? 'ase-pulse' : ''} style={{
           width: 6, height: 6, borderRadius: '50%',
           background: ok ? 'var(--ase-emerald)' : 'var(--orange)',
         }} />
         <span style={{ color: ok ? 'var(--ase-emerald)' : 'var(--orange)' }}>SYS</span>
-        <span style={{ color: 'var(--faint)' }}>{marketOpen ? 'OPEN' : 'IDLE'}</span>
+        <span style={{ color: 'var(--faint)' }}>LIVE</span>
       </button>
       {open && (
         <div className="ase-glass ase-tab-in" style={{
@@ -560,11 +567,11 @@ function SystemHealthTray({ marketOpen, accountConnected }: { marketOpen: boolea
         }}>
           <div style={{ fontSize: '0.55rem', color: 'var(--faint)', fontFamily: 'var(--font-mono)', letterSpacing: '0.18em', marginBottom: 6 }}>SYSTEM HEALTH</div>
           {[
-            { k: 'Market', v: marketOpen ? 'OPEN' : 'CLOSED', good: marketOpen },
+            { k: 'Market', v: 'LIVE · 24/7', good: true },
             { k: 'Kraken', v: accountConnected ? 'CONNECTED · ~120ms' : 'NOT LINKED', good: accountConnected },
             { k: 'API', v: 'HEALTHY', good: true },
             { k: 'Backtest engine', v: 'ONLINE', good: true },
-            { k: 'Agent scheduler', v: 'IDLE · cron disabled', good: false },
+            { k: 'Agent scheduler', v: 'RUNNING · 1m tick', good: true },
           ].map(row => (
             <div key={row.k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontFamily: 'var(--font-mono)', fontSize: '0.65rem' }}>
               <span style={{ color: 'var(--text)' }}>{row.k}</span>

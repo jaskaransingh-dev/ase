@@ -104,11 +104,12 @@ export const PERIODS = [
   { value: '5y', label: '5 Years' },
 ]
 
+// Crypto-only benchmarks. SPY and T-Bill removed — not relevant for the
+// crypto agents this platform builds.
 export const BENCHMARKS: Record<string, { label: string; color: string }> = {
-  'BTC-USD': { label: 'Bitcoin (BTC)', color: '#f7931a' },
+  'BTC-USD': { label: 'Bitcoin (BTC)',  color: '#f7931a' },
   'ETH-USD': { label: 'Ethereum (ETH)', color: '#627eea' },
-  'SPY':     { label: 'S&P 500 (SPY)', color: '#34d399' },
-  'TBILL':   { label: 'Risk-free T-Bill (3M)', color: '#94a3b8' },
+  'SOL-USD': { label: 'Solana (SOL)',   color: '#19E6A7' },
 }
 
 // Only expose the standardized Active Swing engine. Other internal strategies
