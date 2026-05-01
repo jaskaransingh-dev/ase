@@ -134,58 +134,68 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
 }
 
 // ── Simple markdown renderer ───────────────────────────────────────────────────
-function MdText({ text, onApply }: { text: string; onApply?: (edit: FileEdit) => void }) {
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-  const parts: React.ReactNode[] = []
+// Build-page-style clean renderer. No per-message Apply buttons (files
+// auto-apply when streaming finishes), no collapse, just prose + concise
+// pre-blocks. Mirrors `CleanMsg` from app/dashboard/build/page.tsx.
+function MdText({ text }: { text: string; onApply?: (edit: FileEdit) => void }) {
+  const lines = text.split('\n')
+  const out: React.ReactNode[] = []
+  let inCode = false
+  let codeLines: string[] = []
+  let codeLabel = ''
   let key = 0
 
-  const codeBlockRe = /```(\w+)?\n([\s\S]*?)```/g
-  let lastIndex = 0
-  let m: RegExpExecArray | null
-
-  while ((m = codeBlockRe.exec(text)) !== null) {
-    if (m.index > lastIndex) {
-      parts.push(<InlineText key={key++} text={text.slice(lastIndex, m.index)} />)
-    }
-    const lang = m[1] || 'text'
-    const code = m[2]
-    const fileMatch = code.match(/^\/\/ FILE: ([^\n]+)\n/)
-    const filename = fileMatch ? fileMatch[1].trim() : null
-    const displayCode = fileMatch ? code.slice(fileMatch[0].length) : code
-    const isCollapsed = collapsed[`${key}`] ?? (displayCode.split('\n').length > 8)
-    const lineCount = displayCode.split('\n').length
-
-    parts.push(
-      <div key={key++} style={{ margin: '.5rem 0', borderRadius: 8, overflow: 'hidden', border: `1px solid ${filename ? C.mint + '30' : C.border2}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '.22rem .6rem', background: filename ? `${C.mint}08` : C.bg3, borderBottom: `1px solid ${C.border}`, cursor: 'pointer' }} onClick={() => setCollapsed(p => ({ ...p, [`${key - 1}`]: !isCollapsed }))}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
-            <span style={{ color: C.faint, fontSize: '.48rem', fontFamily: 'var(--font-mono)' }}>{isCollapsed ? '▸' : '▾'}</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: filename ? C.mint : C.faint }}>{filename || lang}</span>
-            {lineCount > 8 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.42rem', color: C.faint }}>{lineCount} lines</span>}
+  for (const raw of lines) {
+    if (raw.startsWith('```')) {
+      if (inCode) {
+        const fileMatch = codeLines[0]?.match(/^(?:\/\/|#)\s*FILE:\s*(.+)$/)
+        const delMatch  = codeLines[0]?.match(/^(?:\/\/|#)\s*DELETE:\s*(.+)$/)
+        const label = fileMatch ? `FILE · ${fileMatch[1].trim()}` : delMatch ? `DELETE · ${delMatch[1].trim()}` : codeLabel
+        const body = (fileMatch || delMatch) ? codeLines.slice(1).join('\n') : codeLines.join('\n')
+        const accent = fileMatch ? C.mint : delMatch ? '#E45867' : C.blue2
+        out.push(
+          <div key={key++} style={{ margin: '.45rem 0', borderRadius: 7, overflow: 'hidden', border: `1px solid ${accent}30` }}>
+            <div style={{ padding: '.18rem .55rem', background: `${accent}10`, fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: accent, letterSpacing: '.06em', fontWeight: 700 }}>
+              {label || (fileMatch ? '' : 'CODE')}
+            </div>
+            <pre style={{ margin: 0, padding: '.45rem .65rem', background: 'rgba(0,0,0,.5)', fontFamily: 'var(--font-mono)', fontSize: '.54rem', color: C.blue2, lineHeight: 1.5, overflowX: 'auto', maxHeight: 260, overflowY: 'auto' }}>
+              {body.trim()}
+            </pre>
           </div>
-          {filename && onApply && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onApply({ filename, content: displayCode, lang }) }}
-              style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, padding: '.12rem .42rem', borderRadius: 5, background: `${C.mint}20`, border: `1px solid ${C.mint}40`, color: C.mint, cursor: 'pointer' }}
-            >
-              Apply
-            </button>
-          )}
-        </div>
-        {!isCollapsed && (
-          <pre style={{ margin: 0, padding: '.5rem .75rem', background: C.bg, fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: C.text, lineHeight: 1.55, overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 300, overflowY: 'auto' }}>
-            {displayCode.trimEnd()}
-          </pre>
-        )}
-      </div>
-    )
-    lastIndex = m.index + m[0].length
-  }
-  if (lastIndex < text.length) {
-    parts.push(<InlineText key={key++} text={text.slice(lastIndex)} />)
-  }
+        )
+        inCode = false; codeLines = []; codeLabel = ''
+      } else {
+        codeLabel = raw.slice(3).trim()
+        inCode = true
+      }
+      continue
+    }
+    if (inCode) { codeLines.push(raw); continue }
 
-  return <div>{parts}</div>
+    const isHeading = /^#{1,4}\s+/.test(raw)
+    const clean = raw.replace(/^#{1,4}\s+/, '').trim()
+
+    if (!clean) { out.push(<div key={key++} style={{ height: '.25rem' }} />); continue }
+
+    if (raw.match(/^[-•]\s/)) {
+      out.push(
+        <div key={key++} style={{ display: 'flex', gap: '.35rem', paddingLeft: '.1rem' }}>
+          <span style={{ color: C.mint, flexShrink: 0, marginTop: '.05em' }}>·</span>
+          <span>{applyInline(clean.replace(/^[-•]\s/, ''))}</span>
+        </div>
+      )
+    } else {
+      out.push(
+        <div key={key++} style={{
+          fontWeight: isHeading ? 700 : 400,
+          color: isHeading ? C.white : C.text,
+          fontSize: isHeading ? '.66rem' : '.62rem',
+          marginTop: isHeading ? '.4rem' : 0,
+        }}>{applyInline(clean)}</div>
+      )
+    }
+  }
+  return <div style={{ lineHeight: 1.65, display: 'flex', flexDirection: 'column', gap: '.06rem' }}>{out}</div>
 }
 
 function InlineText({ text }: { text: string }) {
@@ -894,25 +904,23 @@ export default function QuantLabPage() {
         }
       }
 
-      // Extract FILE / DELETE directives from complete response
-      const codeBlockRe = /```(\w+)?\n([\s\S]*?)```/g
+      // Extract FILE / DELETE directives — same parser the build page uses,
+      // handles both ```lang\n// FILE: name\n…``` AND // FILE: name\n```lang\n…```.
       const extracted: FileEdit[] = []
       const deletions: string[] = []
-      let m: RegExpExecArray | null
-      const re = new RegExp(codeBlockRe.source, 'g')
-      while ((m = re.exec(fullText)) !== null) {
-        const lang = m[1] || 'text'
-        const code = m[2]
-        const fileMatch = code.match(/^\/\/ FILE: ([^\n]+)\n/)
-        if (fileMatch) {
-          extracted.push({ filename: fileMatch[1].trim(), content: code.slice(fileMatch[0].length), lang })
-          continue
-        }
-        const delMatch = code.match(/^\/\/ DELETE: ([^\n]+)/)
-        if (delMatch) deletions.push(delMatch[1].trim())
+      const seen = new Set<string>()
+      const re1 = /```(\w*)[^\n]*\n(?:\/\/|#)\s*FILE:\s*([^\n]+)\n([\s\S]*?)```/g
+      const re2 = /(?:\/\/|#)\s*FILE:\s*([^\n]+)\n```(\w*)[^\n]*\n([\s\S]*?)```/g
+      let mm: RegExpExecArray | null
+      while ((mm = re1.exec(fullText)) !== null) {
+        const name = mm[2].trim()
+        if (!seen.has(name) && mm[3].trim()) { seen.add(name); extracted.push({ filename: name, content: mm[3], lang: mm[1] || 'text' }) }
       }
-      // Bare-line `// DELETE: foo.ts` outside code fences also counts.
-      const bareDelRe = /^\s*\/\/ DELETE: ([^\n]+)$/gm
+      while ((mm = re2.exec(fullText)) !== null) {
+        const name = mm[1].trim()
+        if (!seen.has(name) && mm[3].trim()) { seen.add(name); extracted.push({ filename: name, content: mm[3], lang: mm[2] || 'text' }) }
+      }
+      const bareDelRe = /(?:^|\n)\s*(?:\/\/|#)\s*DELETE:\s*([^\n]+)/g
       let dm: RegExpExecArray | null
       while ((dm = bareDelRe.exec(fullText)) !== null) deletions.push(dm[1].trim())
       if (extracted.length > 0 || deletions.length > 0) {
@@ -1640,15 +1648,15 @@ export default function QuantLabPage() {
                   whiteSpace: m.role === 'user' ? 'pre-wrap' : undefined,
                 }}>
                   {m.role === 'ai'
-                    ? <MdText text={m.text} onApply={applyEdit} />
+                    ? <MdText text={m.text} />
                     : m.text}
                   {m.role === 'ai' && m.edits && m.edits.length > 0 && (
-                    <div style={{ marginTop: '.35rem', display: 'flex', gap: '.25rem', flexWrap: 'wrap' }}>
+                    <div style={{ marginTop: '.4rem', display: 'flex', gap: '.25rem', flexWrap: 'wrap' }}>
                       {m.edits.map((e, ei) => (
-                        <button key={ei} onClick={() => applyEdit(e)}
-                          style={{ padding: '.12rem .42rem', borderRadius: 4, background: `${C.mint}18`, border: `1px solid ${C.mint}40`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.5rem', fontWeight: 700, cursor: 'pointer' }}>
-                          Apply {e.filename}
-                        </button>
+                        <span key={ei}
+                          style={{ padding: '.1rem .4rem', borderRadius: 4, background: `${C.mint}12`, border: `1px solid ${C.mint}30`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.48rem', fontWeight: 700 }}>
+                          ✓ {e.filename}
+                        </span>
                       ))}
                     </div>
                   )}

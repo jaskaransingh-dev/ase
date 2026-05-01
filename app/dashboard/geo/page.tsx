@@ -4,23 +4,26 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 
 export const dynamic = 'force-dynamic'
 
-// ── SYNE v2 unified palette · amber/emerald/blood on pure black ─────────────
+// ── SYNE v3 palette — aligned with the modern ASE landing/dashboard.
+// Deep-space backdrop, blue chrome, mint for green deltas, blood for risk.
+// We keep the legacy `amber*` keys to avoid breaking 50+ callsites, but they
+// now resolve to the new blue accent so the chrome reads consistent.
 const C = {
-  bg:      '#000000',
-  panel:   '#000000',
-  panel2:  '#050505',
-  panel3:  '#0A0A0A',
-  border:  '#161616',
-  border2: '#262626',
-  text:    '#D8D8D8',
-  muted:   '#6A6A6A',
-  faint:   '#2E2E2E',
-  white:   '#FFFFFF',
-  amber:   '#FFB800',  // infra / headers / chrome
-  amber2:  '#FFCB4D',
-  green:   '#00FF41',  // active agents / positive deltas
-  red:     '#FF3131',  // risk / alerts / negative deltas
-  dim:     '#444444',
+  bg:      '#04101F',
+  panel:   '#06111F',
+  panel2:  '#0A1729',
+  panel3:  '#101A2D',
+  border:  '#1E2A3D',
+  border2: '#26334A',
+  text:    '#CBD5E1',
+  muted:   '#94A3B8',
+  faint:   '#55657A',
+  white:   '#F7FAFF',
+  amber:   '#4F8CFF',  // → primary chrome accent (was amber)
+  amber2:  '#6BA3FF',
+  green:   '#16C784',  // mint — positive deltas / active
+  red:     '#E45867',  // risk / alerts / negative deltas
+  dim:     '#3B4A63',
 }
 
 // ── Tile map helpers ────────────────────────────────────────────────────────
@@ -554,15 +557,15 @@ export default function SyneTerminal() {
       {/* ── TOP RAIL: thin SYNE branding + Dylan + status ───────────────── */}
       <div style={{
         height: 22, flexShrink: 0, display: 'flex', alignItems: 'center',
-        borderBottom: `1px solid ${C.border}`, background: '#000', fontSize: 10,
+        borderBottom: `1px solid ${C.border}`, background: C.bg, fontSize: 10,
       }}>
-        <div style={{ padding: '0 8px', borderRight: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 6, height: '100%' }}>
-          <div style={{ width: 7, height: 7, background: C.amber }} />
-          <span style={{ color: C.amber, fontWeight: 700, letterSpacing: '0.18em' }}>SYNE</span>
-          <span style={{ color: C.faint, fontSize: 9 }}>v2.0</span>
+        <div style={{ padding: '0 10px', borderRight: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 7, height: '100%' }}>
+          <div style={{ width: 6, height: 6, background: C.amber, borderRadius: '50%', boxShadow: `0 0 6px ${C.amber}` }} />
+          <span style={{ color: C.white, fontWeight: 700, letterSpacing: '0.22em' }}>SYNE</span>
+          <span style={{ color: C.faint, fontSize: 9, letterSpacing: '0.08em' }}>TERMINAL · v3</span>
         </div>
-        <div style={{ padding: '0 10px', borderRight: `1px solid ${C.border}`, color: C.amber, fontWeight: 700, letterSpacing: '0.14em', height: '100%', display: 'flex', alignItems: 'center', fontSize: 9 }}>
-          ENERGY · GEOSPATIAL · INTELLIGENCE
+        <div style={{ padding: '0 12px', borderRight: `1px solid ${C.border}`, color: C.amber2, fontWeight: 600, letterSpacing: '0.16em', height: '100%', display: 'flex', alignItems: 'center', fontSize: 9 }}>
+          GEO · MACRO · INTEL
         </div>
         <div style={{ padding: '0 10px', borderRight: `1px solid ${C.border}`, color: C.muted, height: '100%', display: 'flex', alignItems: 'center', fontSize: 9, letterSpacing: '0.1em' }}>
           {filteredPoints.length} ASSETS · {COUNTRY_DATA.length} REGIONS · {prices.filter(p => p.price !== null).length}/{prices.length} FEEDS
@@ -575,7 +578,7 @@ export default function SyneTerminal() {
           <span style={{ color: wsStatus.ok ? C.green : C.red }}>● WS {wsStatus.latency}ms</span>
           <span style={{ color: C.muted }} suppressHydrationWarning>{fmtTime(now)}</span>
           <button onClick={() => setRailOpen(o => !o)} style={{
-            border: `1px solid ${C.border2}`, background: '#000', color: C.amber,
+            border: `1px solid ${C.border2}`, background: C.bg, color: C.amber,
             padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 9, fontWeight: 700, letterSpacing: '0.16em',
           }}>{railOpen ? 'RAIL ›' : '‹ RAIL'}</button>
         </div>
@@ -584,7 +587,7 @@ export default function SyneTerminal() {
       {/* ── TRADER INTEL STRIP — actionable crypto data, refreshed every 60s ── */}
       <div style={{
         height: 32, flexShrink: 0, display: 'flex', alignItems: 'center',
-        borderBottom: `1px solid ${C.border}`, background: '#020202', fontSize: 10,
+        borderBottom: `1px solid ${C.border}`, background: C.panel2, fontSize: 10,
         overflowX: 'auto',
       }}>
         {[
@@ -634,22 +637,22 @@ export default function SyneTerminal() {
           <a href="/dashboard/build" style={{
             border: `1px solid ${C.amber}55`, color: C.amber, padding: '3px 10px',
             textDecoration: 'none', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
-            background: '#000',
+            background: C.bg,
           }}>+ AGENT</a>
           <a href="/dashboard/backtest" style={{
             border: `1px solid ${C.green}55`, color: C.green, padding: '3px 10px',
             textDecoration: 'none', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
-            background: '#000',
+            background: C.bg,
           }}>BACKTEST</a>
           <a href="/dashboard/build/manage" style={{
             border: `1px solid ${C.amber2}55`, color: C.amber2, padding: '3px 10px',
             textDecoration: 'none', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
-            background: '#000',
+            background: C.bg,
           }}>MY AGENTS</a>
           <a href="/dashboard/marketplace" style={{
             border: `1px solid ${C.border2}`, color: C.muted, padding: '3px 10px',
             textDecoration: 'none', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
-            background: '#000',
+            background: C.bg,
           }}>MARKET</a>
         </div>
       </div>
@@ -661,7 +664,7 @@ export default function SyneTerminal() {
         <div ref={mapRef} style={{
           flex: 1, position: 'relative', overflow: 'hidden',
           cursor: dragging.current ? 'grabbing' : 'grab',
-          background: '#000', borderRight: railOpen ? `1px solid ${C.border}` : 'none',
+          background: C.bg, borderRight: railOpen ? `1px solid ${C.border}` : 'none',
         }} onWheel={onWheel} onMouseDown={onMouseDown} onMouseMove={onMouseMove}
           onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
 
@@ -837,7 +840,7 @@ export default function SyneTerminal() {
               }}>PULSE</button>
             </div>
             <div style={{
-              padding: '3px 8px', background: '#000', border: `1px solid ${C.border2}`,
+              padding: '3px 8px', background: C.bg, border: `1px solid ${C.border2}`,
               fontSize: 9, color: C.muted, letterSpacing: '0.08em',
             }}>
               <span style={{ color: C.amber }}>VIEW</span> {newsInView.length}/{NEWS_FEED.length} pulse · {filteredPoints.length} assets
@@ -847,7 +850,7 @@ export default function SyneTerminal() {
           {/* Coords (bottom-left) */}
           <div style={{
             position: 'absolute', bottom: 0, left: 0,
-            background: '#000', borderTop: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`,
+            background: C.bg, borderTop: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`,
             padding: '2px 8px', fontSize: 9, color: C.muted, letterSpacing: '0.08em',
           }}>
             <span style={{ color: C.amber }}>LAT</span> {mapCenter.lat.toFixed(2)} ·{' '}
@@ -880,14 +883,14 @@ export default function SyneTerminal() {
               onClick={e => e.stopPropagation()}
               style={{
                 position: 'absolute', top: 40, right: 40, width: 360,
-                background: '#000', border: `1px solid ${C.amber}`,
+                background: C.bg, border: `1px solid ${C.amber}`,
                 boxShadow: `0 0 0 1px ${C.amber}33`,
                 zIndex: 50,
               }}>
               {/* title bar */}
               <div style={{
                 display: 'flex', alignItems: 'center', height: 18,
-                borderBottom: `1px solid ${C.amber}`, background: '#000',
+                borderBottom: `1px solid ${C.amber}`, background: C.bg,
               }}>
                 <div style={{ padding: '0 8px', color: C.amber, fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', display: 'flex', gap: 6, alignItems: 'center' }}>
                   <span style={{ width: 6, height: 6, background: C.amber }} />
@@ -994,7 +997,7 @@ export default function SyneTerminal() {
               onClick={e => e.stopPropagation()}
               style={{
                 position: 'absolute', bottom: 32, left: 32, width: 420,
-                background: '#000', border: `1px solid ${selectedNews.severity === 'alert' ? C.red : C.amber}`,
+                background: C.bg, border: `1px solid ${selectedNews.severity === 'alert' ? C.red : C.amber}`,
                 boxShadow: `0 0 0 1px ${selectedNews.severity === 'alert' ? C.red : C.amber}33`,
                 zIndex: 50,
               }}>
@@ -1028,12 +1031,12 @@ export default function SyneTerminal() {
         {railOpen && (
           <div style={{
             width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column',
-            background: '#000', overflow: 'hidden',
+            background: C.bg, overflow: 'hidden',
           }}>
             <div style={{ display: 'flex', height: 22, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
               {(['WATCH', 'GEO', 'ORACLE', 'PULSE', 'CRYPTO'] as const).map(id => (
                 <button key={id} onClick={() => setActivePanel(id)} style={{
-                  flex: 1, background: '#000', border: 'none',
+                  flex: 1, background: C.bg, border: 'none',
                   borderRight: `1px solid ${C.border}`,
                   borderBottom: activePanel === id ? `1px solid ${id === 'CRYPTO' ? C.green : C.amber}` : `1px solid ${C.border}`,
                   color: activePanel === id ? (id === 'CRYPTO' ? C.green : C.amber) : C.muted,
@@ -1211,7 +1214,7 @@ export default function SyneTerminal() {
       </div>
 
       {/* ── BASE DECK (bottom) ────────────────────────────────────────────── */}
-      <div style={{ flexShrink: 0, borderTop: `1px solid ${C.border}`, background: '#000', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flexShrink: 0, borderTop: `1px solid ${C.border}`, background: C.bg, display: 'flex', flexDirection: 'column' }}>
 
         {/* Telemetry strip */}
         <div style={{
@@ -1242,7 +1245,7 @@ export default function SyneTerminal() {
         {/* Console log (last 3 lines) */}
         <div style={{
           maxHeight: 56, overflow: 'hidden', display: 'flex', flexDirection: 'column-reverse',
-          borderBottom: `1px solid ${C.border}`, background: '#000',
+          borderBottom: `1px solid ${C.border}`, background: C.bg,
         }}>
           {cmdLog.slice(-3).reverse().map((l, i) => (
             <div key={cmdLog.length - i} style={{
@@ -1297,7 +1300,7 @@ export default function SyneTerminal() {
         {/* Ticker tape — green-text */}
         <div style={{
           height: 22, display: 'flex', alignItems: 'center', overflow: 'hidden',
-          background: '#000',
+          background: C.bg,
         }}>
           <div style={{
             padding: '0 8px', borderRight: `1px solid ${C.border}`, height: '100%',
@@ -1343,7 +1346,7 @@ export default function SyneTerminal() {
 
 const sectionHeader: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6,
-  padding: '3px 8px', background: '#000',
+  padding: '3px 8px', background: C.bg,
   borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border2}`,
   color: C.amber, fontSize: 9, fontWeight: 700, letterSpacing: '0.18em',
   textTransform: 'uppercase', height: 18,
@@ -1356,12 +1359,12 @@ const th: React.CSSProperties = {
 }
 const td: React.CSSProperties = { padding: '3px 6px' }
 const zoomBtn: React.CSSProperties = {
-  width: 22, height: 22, border: `1px solid ${C.border2}`, background: '#000',
+  width: 22, height: 22, border: `1px solid ${C.border2}`, background: C.bg,
   color: C.amber, cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, fontWeight: 700,
 }
 const modalBtn: React.CSSProperties = {
   height: 18, padding: '0 8px', border: 'none', borderLeft: `1px solid ${C.border}`,
-  background: '#000', color: C.amber, cursor: 'pointer',
+  background: C.bg, color: C.amber, cursor: 'pointer',
   fontFamily: 'inherit', fontSize: 10, fontWeight: 700, letterSpacing: '0.14em',
 }
 const modalLabel: React.CSSProperties = {
