@@ -1,6 +1,8 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+export const dynamic = 'force-dynamic'
+
+import { useState, useCallback, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Upload, X, File, Image, Trash2, Copy, Check } from 'lucide-react'
 
@@ -37,9 +39,9 @@ export default function SiteAssetsPage() {
     setLoading(false)
   }, [selectedPath, supabase])
 
-  useState(() => {
+  useEffect(() => {
     loadFiles()
-  })
+  }, [loadFiles])
 
   const handleUpload = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return
