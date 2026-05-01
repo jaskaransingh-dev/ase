@@ -137,14 +137,18 @@ function decide(spec: AgentRow['spec'], agentName: string): Signal[] {
     return { sym, signal, price: last.close, ret1, ret5, ret20, z }
   })
 
-  // Adaptive: skip if all signals are below noise floor
-  const avgVol = totalVol / Math.max(1, scored.length)
-  if (cadence === 'adaptive' && avgVol < 0.008) return []
+  // Always-scanning: even in quiet markets we take the strongest 1-2 signals.
+  // The previous "adaptive skip" left agents idle for hours — agents must
+  // continuously trade on relative ranking, not absolute vol.
+  void totalVol
+  void cadence
 
   scored.sort((a, b) => b.signal - a.signal)
 
-  const nBuys  = Math.min(Math.ceil(scored.length / 2), 3)
-  const nSells = Math.min(Math.floor(scored.length / 2), 2)
+  // Wider bracket: top half buys, bottom half trims — guarantees ≥2 trades/cycle
+  // for any 3+ symbol agent.
+  const nBuys  = Math.min(Math.ceil(scored.length / 2), 4)
+  const nSells = Math.min(Math.floor(scored.length / 2), 3)
   const total  = scored.length
 
   const decisions: Signal[] = []
@@ -260,8 +264,8 @@ export async function POST(req: Request) {
       if (insertErr) throw insertErr
       await admin.from('ai_agents').update({ last_tick_at: ts }).eq('id', agent.id)
       ticked.push({ agent_id: agent.id, name: agent.name, trades: rows.length })
-    } catch (e: any) {
-      ticked.push({ agent_id: agent.id, name: agent.name, trades: 0, note: 'Insert error: ' + (e as Error).message })
+    } catch (e) {
+      ticked.push({ agent_id: agent.id, name: agent.name, trades: 0, note: 'Insert error: ' + (e instanceof Error ? e.message : String(e)) })
     }
   }
 

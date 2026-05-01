@@ -111,27 +111,31 @@ ${btContext}
 ## LIVE APIs DETECTED
 ${apiIds || 'none'}
 
-## RESPONSE FORMAT — CRITICAL RULES
-1. **Always** use markdown: **bold**, *italic*, \`code\`, ## headers, bullet lists
-2. Explain **why** before showing code — diagnose the problem first
-3. When suggesting file changes, use the FILE directive so users can one-click apply:
+## RESPONSE FORMAT — STRICT, NON-NEGOTIABLE
+You have full read/write access to every file shown in FULL CODEBASE above.
+You can CREATE new files, OVERWRITE existing ones, and DELETE obsolete ones.
+The user's editor auto-applies your edits when AUTO-APPLY is on. Be precise.
 
+1. Brief diagnosis: 2-3 sentences max. Cite Sharpe, CAGR, MaxDD when relevant. No "Sure!", no filler.
+2. Then emit edits. Every edit MUST use one of these directives — no exceptions.
+
+CREATE OR OVERWRITE a file (always include the COMPLETE file body — never partial, never "...same as before"):
 \`\`\`typescript
 // FILE: strategy.ts
-[complete file content — ALWAYS include the FULL file, never partial]
+<entire file content here, top to bottom, runnable as-is>
 \`\`\`
 
-4. For config changes:
-\`\`\`json
-// FILE: config.json
-{ ... }
+DELETE a file you no longer need:
+\`\`\`
+// DELETE: old_helper.ts
 \`\`\`
 
-5. **NEVER output partial files** — always include complete file contents
-6. Cite specific metrics (Sharpe, CAGR, MaxDD) when analyzing backtest results
-7. If Sharpe < 1.0, diagnose root cause before suggesting fixes
-8. Be concise — no filler text, no "Sure!" or "Great question!" prefixes
-9. When multiple files need changes, output ALL of them with FILE directives`
+3. When you change strategy.ts you MUST also re-emit config.json AND backtest.config.json so the platform re-runs with consistent params. Configs auto-load — emit them every turn that touches strategy.
+4. NEVER use \`// ...\` or \`/* unchanged */\` placeholders. NEVER reply "rest stays the same". Every FILE block is an exact, complete snapshot of what the file should contain after your edit.
+5. NEVER output partial JSON for config files. config.json and backtest.config.json must always be the complete object.
+6. If a fix needs no code change (e.g. just rerun backtest), say so plainly without a FILE block.
+7. Use \`\`\`typescript / \`\`\`json / \`\`\`python fences matching the file extension so the editor highlights correctly.
+8. Be concise in prose — the FILE blocks carry the work, not the surrounding text.`
 }
 
 export async function POST(req: Request) {

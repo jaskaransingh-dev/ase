@@ -276,12 +276,18 @@ Schema (every field required):
   "initial_capital": 100000
 }
 
-PARAMETER GRID — pick the row matching the user's intent (these guarantee non-zero positions):
-  aggressive/active:   risk_aversion=4,  max_weight=0.35, signal_scale_bps=300, rebalance_freq=daily
-  balanced/default:    risk_aversion=6,  max_weight=0.25, signal_scale_bps=200, rebalance_freq=daily
-  conservative/safe:   risk_aversion=9,  max_weight=0.20, signal_scale_bps=150, rebalance_freq=daily
-  weekly/slow:         risk_aversion=8,  max_weight=0.25, signal_scale_bps=150, rebalance_freq=weekly
-  risk-parity:         risk_aversion=4,  max_weight=0.40, signal_scale_bps=150, rebalance_freq=weekly, template=risk_parity
+PARAMETER GRID — pick the row matching the user's intent (these guarantee non-zero positions AND high trade flow):
+  aggressive/active:   risk_aversion=3,  max_weight=0.40, signal_scale_bps=400, rebalance_freq=daily, cadence=15m
+  balanced/default:    risk_aversion=5,  max_weight=0.30, signal_scale_bps=250, rebalance_freq=daily, cadence=1h
+  conservative/safe:   risk_aversion=8,  max_weight=0.20, signal_scale_bps=180, rebalance_freq=daily, cadence=2h
+  weekly/slow:         risk_aversion=7,  max_weight=0.25, signal_scale_bps=180, rebalance_freq=weekly, cadence=4h
+  risk-parity:         risk_aversion=4,  max_weight=0.40, signal_scale_bps=200, rebalance_freq=daily, cadence=1h, template=risk_parity
+
+TRADE FLOW REQUIREMENT (non-negotiable):
+- The agent MUST trade often. Default to rebalance_freq=daily over 2 years (~504 bars × 3-5 symbols → 1500-2500 fills target).
+- Live cadence (post-publish) MUST be 15m, 1h, or 2h — NEVER pick "weekly" or "daily" cadence unless the user EXPLICITLY says "swing" or "long-term".
+- Always pick 3-5 symbols. Single-symbol agents are forbidden (kills diversification + trade count).
+- thesis MUST mention: "continuously scans" or "evaluates every {cadence}" — the agent is always-on, never idle.
 
 Template guide: composite_balanced (default multi-signal); momentum_conservative (trend); mean_reversion_active (RSI bounce); ml_aggressive (pattern-based); risk_parity (vol-targeted).
 
@@ -345,19 +351,35 @@ async function compileSpec(prompt: string, prior: Partial<AgentSpec> | undefined
   try {
     const raw = JSON.parse(jsonStr) as Record<string, unknown>
     // Defensive: some models return nested objects/strings for scalar fields.
-    if (typeof raw.risk_aversion !== 'number') raw.risk_aversion = 6
-    if (typeof raw.signal_scale_bps !== 'number') raw.signal_scale_bps = 200
-    if (typeof raw.max_weight !== 'number') raw.max_weight = 0.25
+    if (typeof raw.risk_aversion !== 'number') raw.risk_aversion = 5
+    if (typeof raw.signal_scale_bps !== 'number') raw.signal_scale_bps = 250
+    if (typeof raw.max_weight !== 'number') raw.max_weight = 0.30
     if (typeof raw.forecast_horizon !== 'number') raw.forecast_horizon = 10
-    // Post-parse coercion: clamp parameters to the guaranteed-trade range
-    if (typeof raw.risk_aversion === 'number' && raw.risk_aversion > 10) raw.risk_aversion = 10
-    if (typeof raw.risk_aversion === 'number' && raw.risk_aversion < 2) raw.risk_aversion = 2
-    if (typeof raw.signal_scale_bps === 'number' && raw.signal_scale_bps < 150) raw.signal_scale_bps = 150
-    if (typeof raw.max_weight === 'number' && raw.max_weight < 0.15) raw.max_weight = 0.15
+    // Post-parse coercion: clamp toward the always-trading range
+    if (typeof raw.risk_aversion === 'number' && raw.risk_aversion > 9) raw.risk_aversion = 9
+    if (typeof raw.risk_aversion === 'number' && raw.risk_aversion < 3) raw.risk_aversion = 3
+    if (typeof raw.signal_scale_bps === 'number' && raw.signal_scale_bps < 180) raw.signal_scale_bps = 180
+    if (typeof raw.max_weight === 'number' && raw.max_weight < 0.20) raw.max_weight = 0.20
     if (typeof raw.initial_capital === 'number' && raw.initial_capital < 50_000) raw.initial_capital = 100_000
     if (!raw.initial_capital) raw.initial_capital = 100_000
     if (!raw.start_date) raw.start_date = twoYearsAgo
     if (!raw.end_date) raw.end_date = today
+    // Force fast live cadence — agents must always be scanning.
+    const slowCadence = new Set(['daily', 'weekly'])
+    if (typeof raw.cadence !== 'string' || slowCadence.has(raw.cadence as string)) raw.cadence = '1h'
+    // Force daily rebalance unless the user explicitly chose weekly/monthly via the prompt.
+    const wantsSlow = /\b(weekly|monthly|swing|long.?term)\b/i.test(prompt)
+    if (!wantsSlow) raw.rebalance_freq = 'daily'
+    // Enforce 3-5 symbol minimum (BTC + ETH + at least one alt).
+    if (Array.isArray(raw.symbols) && raw.symbols.length < 3) {
+      const fillers = ['BTC-USD','ETH-USD','SOL-USD','BNB-USD','ADA-USD']
+      const cur = new Set(raw.symbols.filter((s): s is string => typeof s === 'string'))
+      for (const f of fillers) {
+        if (cur.size >= 3) break
+        cur.add(f)
+      }
+      raw.symbols = Array.from(cur)
+    }
     // Merge with fallback for any missing fields, then validate
     const merged = { ...fallback(prompt, today, twoYearsAgo), ...raw }
     const parsed = AgentSpec.safeParse(merged)
@@ -366,8 +388,9 @@ async function compileSpec(prompt: string, prior: Partial<AgentSpec> | undefined
     let llmFiles: { path: string; content: string }[] = []
     if (Array.isArray(raw.files)) {
       llmFiles = raw.files.filter((f): f is { path: string; content: string } => {
-        return typeof f === 'object' && f !== null && 'path' in f && 'content' in f
-          && typeof (f as any).path === 'string' && typeof (f as any).content === 'string'
+        if (typeof f !== 'object' || f === null) return false
+        const obj = f as Record<string, unknown>
+        return typeof obj.path === 'string' && typeof obj.content === 'string'
       })
     }
 

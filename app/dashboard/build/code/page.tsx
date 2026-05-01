@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo, use } from 'react'
 import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import {
   C, UNIVERSES, CONFIG_FIELD_META, DATA_APIS, ML_TOOLS,
@@ -368,9 +369,9 @@ export default function QuantLabPage() {
   })
   const [saved, setSaved] = useState(true)
 
-  // Code panel starts collapsed — user presses "CODE" to open it.
+  // Code panel is always open — backtest never goes full-screen.
   // Mirrors how the Build page hides the codebase by default.
-  const [sideOpen, setSideOpen] = useState(false)
+  const [sideOpen, setSideOpen] = useState(true)
   // Codebase tree condense mode: collapsed by default, expands on demand.
   const [treeCondensed, setTreeCondensed] = useState(true)
   // Block panel — same data + behavior as Build page. Hydrated from the
@@ -511,6 +512,19 @@ export default function QuantLabPage() {
   useEffect(() => {
     try { localStorage.setItem('ase-auto-apply', autoApply ? '1' : '0') } catch {}
   }, [autoApply])
+
+  // Auto-iterate: after AI applies edits, automatically run a backtest and
+  // feed the result back to the AI so it can refine. Stops at grade ≥ B+ or
+  // after MAX_ITERATIONS rounds. The current iteration count + a guard flag
+  // prevent runaway loops if the AI never converges.
+  const [autoIterate, setAutoIterate] = useState<boolean>(() => {
+    try { return localStorage.getItem('ase-auto-iter') === '1' } catch { return false }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('ase-auto-iter', autoIterate ? '1' : '0') } catch {}
+  }, [autoIterate])
+  const iterCountRef = useRef(0)
+  const MAX_ITERATIONS = 3
 
   // Dynamic config fields (from codebase)
   const [configFields, setConfigFields] = useState<Record<string, { value: string | number | boolean; type: string }>>({})
@@ -663,7 +677,7 @@ export default function QuantLabPage() {
   }, [termInput, btResult, fileContents, addTerm])
 
   // ── Backtest ──────────────────────────────────────────────────────────────────
-  async function runBacktest() {
+  async function runBacktest(opts?: { fromIteration?: boolean }): Promise<{ grade?: string; tear_sheet?: Record<string, number> } | null> {
     setBtLoading(true); setBtError(''); setBtResult(null)
     setBtStartTime(Date.now()); setBtElapsed(0)
     addTerm('[RUN] Running backtest...')
@@ -680,9 +694,12 @@ export default function QuantLabPage() {
       const ts = data.tear_sheet as Record<string, number>
       addTerm(`[OK] Grade: ${data.grade}  CAGR: ${(ts.cagr ?? 0).toFixed(1)}%  Sharpe: ${ts.sharpeRatio?.toFixed(2)}  MaxDD: ${ts.maxDrawdownPct?.toFixed(1)}%`)
       setRightTab('backtest')
+      return data
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Error'
       setBtError(msg); addTerm(`[ERR] ${msg}`)
+      void opts
+      return null
     } finally { setBtLoading(false); setBtStartTime(null) }
   }
 
@@ -869,9 +886,10 @@ export default function QuantLabPage() {
         }
       }
 
-      // Extract FILE directive edits from complete response
+      // Extract FILE / DELETE directives from complete response
       const codeBlockRe = /```(\w+)?\n([\s\S]*?)```/g
       const extracted: FileEdit[] = []
+      const deletions: string[] = []
       let m: RegExpExecArray | null
       const re = new RegExp(codeBlockRe.source, 'g')
       while ((m = re.exec(fullText)) !== null) {
@@ -880,21 +898,75 @@ export default function QuantLabPage() {
         const fileMatch = code.match(/^\/\/ FILE: ([^\n]+)\n/)
         if (fileMatch) {
           extracted.push({ filename: fileMatch[1].trim(), content: code.slice(fileMatch[0].length), lang })
+          continue
         }
+        const delMatch = code.match(/^\/\/ DELETE: ([^\n]+)/)
+        if (delMatch) deletions.push(delMatch[1].trim())
       }
-      if (extracted.length > 0) {
+      // Bare-line `// DELETE: foo.ts` outside code fences also counts.
+      const bareDelRe = /^\s*\/\/ DELETE: ([^\n]+)$/gm
+      let dm: RegExpExecArray | null
+      while ((dm = bareDelRe.exec(fullText)) !== null) deletions.push(dm[1].trim())
+      if (extracted.length > 0 || deletions.length > 0) {
         if (autoApply) {
-          extracted.forEach(edit => {
+          if (extracted.length > 0) {
+            extracted.forEach(edit => {
+              setFileContents(prev => {
+                const updated = { ...prev, [edit.filename]: edit.content }
+                try { localStorage.setItem('ase-files', JSON.stringify(updated)) } catch {}
+                return updated
+              })
+              setOpenFiles(p => p.includes(edit.filename) ? p : [...p, edit.filename])
+            })
+            setActiveFile(extracted[0].filename)
+          }
+          if (deletions.length > 0) {
             setFileContents(prev => {
-              const updated = { ...prev, [edit.filename]: edit.content }
+              const updated = { ...prev }
+              deletions.forEach(f => { delete updated[f] })
               try { localStorage.setItem('ase-files', JSON.stringify(updated)) } catch {}
               return updated
             })
-            setOpenFiles(p => p.includes(edit.filename) ? p : [...p, edit.filename])
-          })
-          setActiveFile(extracted[0].filename)
-          addTerm(`[OK] Auto-applied ${extracted.length} AI edit${extracted.length !== 1 ? 's' : ''}`)
+            setOpenFiles(p => p.filter(f => !deletions.includes(f)))
+          }
+          const parts: string[] = []
+          if (extracted.length) parts.push(`${extracted.length} edit${extracted.length !== 1 ? 's' : ''}`)
+          if (deletions.length) parts.push(`${deletions.length} deletion${deletions.length !== 1 ? 's' : ''}`)
+          addTerm(`[OK] Auto-applied ${parts.join(' + ')}`)
           setSaved(false)
+
+          // Auto-iterate: AI just edited code. Run a fresh backtest and feed
+          // the result back to the AI for the next refinement round.
+          if (autoIterate && extracted.length > 0 && iterCountRef.current < MAX_ITERATIONS) {
+            iterCountRef.current += 1
+            const round = iterCountRef.current
+            addTerm(`[ITER ${round}/${MAX_ITERATIONS}] Running self-improvement backtest…`)
+            // Fire-and-forget: backtest + follow-up turn
+            ;(async () => {
+              const bt = await runBacktest({ fromIteration: true })
+              if (!bt || !bt.tear_sheet) {
+                addTerm(`[ITER] Backtest failed — stopping iteration loop`)
+                iterCountRef.current = 0
+                return
+              }
+              const ts = bt.tear_sheet
+              const grade = bt.grade ?? 'C'
+              if (grade === 'A' || grade === 'A+' || grade === 'B+') {
+                addTerm(`[ITER] Grade ${grade} reached — stopping iteration loop`)
+                iterCountRef.current = 0
+                return
+              }
+              if (round >= MAX_ITERATIONS) {
+                addTerm(`[ITER] Max iterations (${MAX_ITERATIONS}) hit — final grade ${grade}`)
+                iterCountRef.current = 0
+                return
+              }
+              // Build a self-correction prompt and re-enter sendChat with it.
+              const summary = `Backtest round ${round} just ran. Grade=${grade} CAGR=${(ts.cagr ?? 0).toFixed(2)}% Sharpe=${(ts.sharpeRatio ?? 0).toFixed(2)} MaxDD=${(ts.maxDrawdownPct ?? 0).toFixed(2)}% Trades=${ts.totalTrades ?? 0} WinRate=${((ts.winRate ?? 0) * 100).toFixed(1)}%. Diagnose the WEAKEST metric and emit FILE blocks to fix it. Trade often — if Trades < 200 over 2y you must increase signal_scale_bps and lower risk_aversion. Don't repeat your previous fix.`
+              setChatInput(summary)
+              setTimeout(() => { void sendChat() }, 50)
+            })()
+          }
         } else {
           setPendingEdits(extracted)
         }
@@ -994,13 +1066,7 @@ export default function QuantLabPage() {
 
         {/* ── TOP BAR ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.4rem .75rem', borderBottom: `1px solid ${C.border}`, background: C.bg2, flexShrink: 0, height: 42 }}>
-          {/* CODE toggle — show/hide the editor panel */}
-          <button onClick={() => setSideOpen(v => !v)}
-            style={{ display: 'flex', alignItems: 'center', gap: '.28rem', padding: '.28rem .62rem', borderRadius: 6, border: `1px solid ${sideOpen ? C.mint + '55' : C.border}`, background: sideOpen ? `${C.mint}12` : 'transparent', color: sideOpen ? C.mint : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '.05em' }}>
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-            CODE
-          </button>
-          <div style={{ width: 1, height: 16, background: C.border }} />
+          {/* CODE toggle removed — code panel is always open. */}
           <button onClick={() => setAgentIconIdx(i => (i + 1) % AGENT_ICONS.length)} title="Change agent icon" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.blue2, display: 'flex', alignItems: 'center', fontSize: '1.1rem', padding: '0 .15rem' }}>
             {AGENT_ICONS[agentIconIdx]}
           </button>
@@ -1183,9 +1249,26 @@ export default function QuantLabPage() {
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: autoApply ? C.mint : C.faint, boxShadow: autoApply ? `0 0 5px ${C.mint}` : 'none' }} />
                 {autoApply ? 'AUTO-APPLY ON' : 'AUTO-APPLY OFF'}
               </button>
+              <button
+                onClick={() => { setAutoIterate(v => !v); iterCountRef.current = 0 }}
+                title="After AI edits, run a backtest and feed results back so the AI keeps refining (max 3 rounds, stops at B+)."
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '.35rem',
+                  padding: '.18rem .55rem', marginLeft: '.4rem',
+                  borderRadius: 5,
+                  background: autoIterate ? `${C.blue}18` : 'transparent',
+                  border: `1px solid ${autoIterate ? C.blue + '55' : C.border}`,
+                  color: autoIterate ? C.blue2 : C.muted,
+                  fontFamily: 'var(--font-mono)', fontSize: '.56rem', fontWeight: 700,
+                  cursor: 'pointer', letterSpacing: '.06em',
+                }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: autoIterate ? C.blue : C.faint, boxShadow: autoIterate ? `0 0 5px ${C.blue}` : 'none' }} />
+                {autoIterate ? 'AUTO-ITERATE ON' : 'AUTO-ITERATE OFF'}
+              </button>
               <span style={{ flex: 1 }} />
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint }}>
-                {autoApply ? 'AI edits apply instantly' : 'Review before apply'}
+                {autoIterate ? 'AI runs backtest + refines' : autoApply ? 'AI edits apply instantly' : 'Review before apply'}
               </span>
             </div>
             {/* Apply Changes Banner */}
@@ -1227,12 +1310,12 @@ export default function QuantLabPage() {
           </div>
           )}
 
-          {/* RIGHT PANEL — Backtest. Expands to fill when code is hidden. */}
+          {/* RIGHT PANEL — Backtest. Fixed 380px; never goes full-screen. */}
           <div style={{
-            width: sideOpen ? 380 : '100%', flexShrink: 0, flex: sideOpen ? '0 0 auto' : '1 1 auto',
-            borderLeft: sideOpen ? `1px solid ${C.border}` : 'none',
+            width: 380, flexShrink: 0, flex: '0 0 auto',
+            borderLeft: `1px solid ${C.border}`,
             display: 'flex', flexDirection: 'column', overflow: 'hidden',
-            background: C.bg2, transition: 'width .25s ease',
+            background: C.bg2,
           }}>
             <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, flexShrink: 0, alignItems: 'center', background: `${C.bg2}cc`, backdropFilter: 'blur(8px)' }}>
               <div style={{ width: 7, height: 7, borderRadius: '50%', background: btLoading ? C.orange : btResult ? C.mint : C.faint, animation: btLoading ? 'blink .6s infinite' : 'none', marginLeft: '.85rem', flexShrink: 0 }} />
@@ -1787,9 +1870,9 @@ export default function QuantLabPage() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '.5rem', width: '100%' }}>
-                  <a href="/agents" style={{ flex: 1, padding: '.45rem 0', borderRadius: 7, border: 'none', background: C.mint, color: '#000', fontFamily: 'var(--font-mono)', fontSize: '.62rem', fontWeight: 700, cursor: 'pointer', textAlign: 'center', textDecoration: 'none' }}>
+                  <Link href="/agents" style={{ flex: 1, padding: '.45rem 0', borderRadius: 7, border: 'none', background: C.mint, color: '#000', fontFamily: 'var(--font-mono)', fontSize: '.62rem', fontWeight: 700, cursor: 'pointer', textAlign: 'center', textDecoration: 'none' }}>
                     View on Exchange →
-                  </a>
+                  </Link>
                   <button onClick={() => setPublishStep(0)} style={{ flex: 1, padding: '.45rem 0', borderRadius: 7, border: `1px solid ${C.border}`, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.62rem', cursor: 'pointer' }}>
                     Back to Code
                   </button>
