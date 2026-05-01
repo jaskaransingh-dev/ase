@@ -104,14 +104,30 @@ export default function CanvasAssembly({ blocks, phase, height, onBlockClick }: 
         @keyframes ca-pulse   { 0%,100% { opacity: .35 } 50% { opacity: .85 } }
       `}</style>
 
-      {/* Title row — hidden in idle phase (build page shows its own header) */}
+      {/* Title row — centered, with a live loading animation while building */}
       {phase !== 'idle' && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.85rem', position: 'relative', zIndex: 2 }}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: '#16c784', letterSpacing: '0.1em', fontWeight: 700 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          gap: '.6rem', padding: '0.45rem 0.85rem', position: 'relative', zIndex: 2,
+        }}>
+          {phase === 'building' && (
+            <span style={{ display: 'inline-flex', gap: 3 }}>
+              {[0, 1, 2].map(i => (
+                <span key={i} style={{
+                  width: 4, height: 4, borderRadius: '50%', background: '#16c784',
+                  animation: `ca-pulse 1s ease-in-out infinite ${i * 0.18}s`,
+                }} />
+              ))}
+            </span>
+          )}
+          {phase !== 'building' && (
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16c784', boxShadow: '0 0 8px #16c784' }} />
+          )}
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: '#16c784', letterSpacing: '0.12em', fontWeight: 700 }}>
             {phase === 'building' ? 'ASSEMBLING PIPELINE' : 'PIPELINE READY'}
           </span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: '#94a3b8' }}>
-            {layout.positioned.length} nodes · {layout.edges.length} connections
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: '#94a3b8' }}>
+            · {layout.positioned.length} nodes · {layout.edges.length} connections
           </span>
         </div>
       )}
