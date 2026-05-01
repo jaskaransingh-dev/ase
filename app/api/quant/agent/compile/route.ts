@@ -277,17 +277,18 @@ Schema (every field required):
 }
 
 PARAMETER GRID — pick the row matching the user's intent (these guarantee non-zero positions AND high trade flow):
-  aggressive/active:   risk_aversion=3,  max_weight=0.40, signal_scale_bps=400, rebalance_freq=daily, cadence=15m
-  balanced/default:    risk_aversion=5,  max_weight=0.30, signal_scale_bps=250, rebalance_freq=daily, cadence=1h
-  conservative/safe:   risk_aversion=8,  max_weight=0.20, signal_scale_bps=180, rebalance_freq=daily, cadence=2h
-  weekly/slow:         risk_aversion=7,  max_weight=0.25, signal_scale_bps=180, rebalance_freq=weekly, cadence=4h
-  risk-parity:         risk_aversion=4,  max_weight=0.40, signal_scale_bps=200, rebalance_freq=daily, cadence=1h, template=risk_parity
+  aggressive/active:   risk_aversion=3,  max_weight=0.40, signal_scale_bps=400, rebalance_freq=daily, cadence=5m
+  balanced/default:    risk_aversion=5,  max_weight=0.30, signal_scale_bps=250, rebalance_freq=daily, cadence=5m
+  conservative/safe:   risk_aversion=8,  max_weight=0.20, signal_scale_bps=180, rebalance_freq=daily, cadence=5m
+  weekly/slow:         risk_aversion=7,  max_weight=0.25, signal_scale_bps=180, rebalance_freq=weekly, cadence=15m
+  risk-parity:         risk_aversion=4,  max_weight=0.40, signal_scale_bps=200, rebalance_freq=daily, cadence=5m, template=risk_parity
 
 TRADE FLOW REQUIREMENT (non-negotiable):
-- The agent MUST trade often. Default to rebalance_freq=daily over 2 years (~504 bars × 3-5 symbols → 1500-2500 fills target).
-- Live cadence (post-publish) MUST be 15m, 1h, or 2h — NEVER pick "weekly" or "daily" cadence unless the user EXPLICITLY says "swing" or "long-term".
+- The agent MUST trade every 5 minutes. Default cadence is "5m" — the agent posts a fresh trade decision to the ledger every 5 minutes.
+- rebalance_freq=daily over 2 years (~504 bars × 3-5 symbols → 1500-2500 fills target in backtest).
+- Live cadence (post-publish) MUST be "5m" unless the user EXPLICITLY says "swing" or "long-term".
 - Always pick 3-5 symbols. Single-symbol agents are forbidden (kills diversification + trade count).
-- thesis MUST mention: "continuously scans" or "evaluates every {cadence}" — the agent is always-on, never idle.
+- thesis MUST mention: "scans every 5 minutes" or "evaluates every 5m" — the agent is always-on, never idle.
 
 Template guide: composite_balanced (default multi-signal); momentum_conservative (trend); mean_reversion_active (RSI bounce); ml_aggressive (pattern-based); risk_parity (vol-targeted).
 
@@ -365,8 +366,9 @@ async function compileSpec(prompt: string, prior: Partial<AgentSpec> | undefined
     if (!raw.start_date) raw.start_date = twoYearsAgo
     if (!raw.end_date) raw.end_date = today
     // Force fast live cadence — agents must always be scanning.
-    const slowCadence = new Set(['daily', 'weekly'])
-    if (typeof raw.cadence !== 'string' || slowCadence.has(raw.cadence as string)) raw.cadence = '1h'
+    // Default to 5m so the agent posts trades to the ledger every 5 minutes.
+    const slowCadence = new Set(['1h', '2h', '4h', 'daily', 'weekly'])
+    if (typeof raw.cadence !== 'string' || slowCadence.has(raw.cadence as string)) raw.cadence = '5m'
     // Force daily rebalance unless the user explicitly chose weekly/monthly via the prompt.
     const wantsSlow = /\b(weekly|monthly|swing|long.?term)\b/i.test(prompt)
     if (!wantsSlow) raw.rebalance_freq = 'daily'

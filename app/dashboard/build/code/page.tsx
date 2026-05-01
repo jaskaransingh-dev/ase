@@ -1611,24 +1611,6 @@ export default function QuantLabPage() {
           borderTop: `1px solid ${C.border}`, background: C.bg2,
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
         }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '.45rem',
-            padding: '.32rem .75rem', borderBottom: `1px solid ${C.border}`,
-            background: C.bg2, flexShrink: 0,
-          }}>
-            <div style={{ width: 7, height: 7, borderRadius: '50%', background: C.mint, animation: chatLoading ? 'pulse .6s ease-in-out infinite' : 'none' }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', fontWeight: 700, color: C.white, letterSpacing: '.06em' }}>
-              ASE AI {chatLoading ? '· thinking…' : '· ready'}
-            </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint }}>
-              {chatMsgs.length} message{chatMsgs.length !== 1 ? 's' : ''}
-            </span>
-            <div style={{ flex: 1 }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: autoApply ? C.mint : C.faint }}>
-              {autoApply ? '⚡ auto-apply ON' : 'auto-apply OFF'}
-            </span>
-          </div>
-
           {/* Messages — scroll-locked so streaming tokens don't yank the user */}
           <div ref={chatScrollRef} style={{
             flex: 1, overflowY: 'auto', padding: '.65rem .85rem',

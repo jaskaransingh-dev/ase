@@ -272,6 +272,8 @@ export async function POST(req: Request) {
   return NextResponse.json({ ticked, ts: new Date().toISOString() })
 }
 
-export async function GET() {
-  return NextResponse.json({ status: 'ok', cadences: Object.keys(CADENCE_MS) })
+// Vercel cron fires GET — re-route it through the same tick logic so every
+// scheduled invocation walks all due published agents.
+export async function GET(req: Request) {
+  return POST(new Request(req.url, { method: 'POST', headers: req.headers, body: '{}' }))
 }

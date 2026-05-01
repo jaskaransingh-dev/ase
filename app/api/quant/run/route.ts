@@ -78,7 +78,8 @@ export async function POST(req: Request) {
     max_weight?:     number
     walk_forward?:   boolean
     save?:           boolean
-    quick?:          boolean       // 5s mode — synthetic data, skip MC, sample 180 bars
+    quick?:          boolean       // legacy — kept for compat, default mode is now quick
+    full?:           boolean       // opt-in: Monte Carlo + walk-forward (slow, ~minute)
     forecast_horizon?: number
     signal_scale_bps?: number
     benchmark?:      string
@@ -253,10 +254,12 @@ export async function POST(req: Request) {
       // Walk-forward
       walk_forward:       walkForwardResult,
 
-      // Monte Carlo robustness (skip in quick mode for speed)
-      monte_carlo:        body.quick ? null : runMonteCarloSimple(result.equityCurve, 200, 126),
-      mode:               body.quick ? 'quick' : 'full',
-      data_source:        body.quick ? 'synthetic' : 'live',
+      // Monte Carlo robustness — opt-in only via body.full=true. The default
+      // is "quick" mode (no MC, no walk-forward) so the backtest returns in
+      // seconds instead of minutes.
+      monte_carlo:        body.full ? runMonteCarloSimple(result.equityCurve, 80, 90) : null,
+      mode:               body.full ? 'full' : 'quick',
+      data_source:        body.full ? 'live' : 'synthetic',
 
       // VaR (95th and 99th percentile daily losses)
       var_95:             percentile(result.equityCurve.map(e => e.dailyReturn).filter(isFinite), 0.05),
