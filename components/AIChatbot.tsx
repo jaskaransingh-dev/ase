@@ -330,7 +330,7 @@ export default function AIChatbot() {
         }
       }
     } catch {
-      setError('Connection error — is Ollama running? (ollama serve)')
+      setError('Connection error — check API configuration')
     } finally {
       setLoading(false)
     }
@@ -446,7 +446,7 @@ export default function AIChatbot() {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <span style={{ fontSize: '0.65rem', color: '#2A3A50', fontFamily: 'var(--font-mono)' }}>
-                llama-3.3-70b • {sessionTime}
+                workers-ai • {sessionTime}
               </span>
               <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#22F0B5', boxShadow: '0 0 6px #22F0B5' }} />
             </div>

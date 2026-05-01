@@ -1,0 +1,11 @@
+name = "ase-ai"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[ai]
+binding = "AI"
+
+[[handlers]]
+[handlers.fetch]
+method = "POST"
+url = "/v1/chat/completions"

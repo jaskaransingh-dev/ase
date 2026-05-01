@@ -1,10 +1,21 @@
-import OpenAI from "openai";
 import { DATA_SOURCES, INDICATORS, RISK_METRICS, STRATEGY_API_CODE, PORTFOLIO_CONTEXT_CODE, LEDGER_SCHEMA_CODE, STRATEGY_EXAMPLES, DECISION_FLOW, BACKTEST_GUIDE } from "@/lib/quant-docs";
 
-const client = new OpenAI({
-  baseURL: "http://127.0.0.1:11434/v1",
-  apiKey: "ollama",
-});
+const CF_WORKER_URL = process.env.CF_AI_WORKER_URL || "https://ase-ai.jazing14.workers.dev";
+
+async function callAIWorker(messages: Array<{role: string; content: string}>) {
+  const response = await fetch(CF_WORKER_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`AI Worker error: ${response.status} - ${error.slice(0, 200)}`);
+  }
+  
+  return response.json();
+}
 
 function buildSystemPrompt(codebase: string, activeFile: string, btContext: string, apiIds: string): string {
   const dataSourcesList = DATA_SOURCES.map(s =>
@@ -201,52 +212,32 @@ Signal: Composite Blend, AI Consensus, Majority Vote, Weighted Ensemble
 - After build → user runs backtest → publishes to exchange for copy-trading
 
 ## ALWAYS-TRADE CONTRACT (REQUIRED — do not violate)
-A published agent must post a fill to the ledger on EVERY tick. Listings stop
-trading silently when strategies skip ticks; the marketplace auto-delists them.
+A published agent must post a fill to the ledger on EVERY tick. Listings stop trading silently when strategies skip ticks; the marketplace auto-delists them.
 
 In strategy.ts:
 - The \`evaluate(ctx)\` function MUST return a non-null trading decision every call.
-- Acceptable directions: BUY, SELL, REBALANCE. The conviction may be small but
-  must never be exactly 0; clamp to a floor of 0.05 if your raw signal is below.
-- The function MUST emit a \`thinking\` string (3–8 words) summarizing the
-  rationale on every tick, even on hold/rebalance ticks.
-- Use \`postLedger({ symbol, side, qty, price, thinking })\` (or write a row to
-  \`agent_paper_ledger\`) for every executed fill. NEVER guard the ledger write
-  behind "if signal > threshold" — always post, even tiny rebalances.
-- If you have a hard de-risk condition (e.g. circuit breaker tripped), still
-  post a SELL of 0.001× notional with thinking="circuit_breaker_check" so the
-  ledger reflects an active heartbeat.
-
-### TRADE-FREQUENCY TARGET (REQUIRED)
-- Pick a numeric \`trades_per_day\` for the agent and put it in BOTH config.json
-  and backtest.config.json. Default to 24 (≈ once an hour). Lower if the
-  thesis is clearly slow (e.g. weekly rebalance → 1).
-- The runtime + backtest replay use this number to enforce continuous
-  trading. If the agent ticks but produces no fill, a heartbeat trade is
-  posted automatically — never let the ledger go silent.
-- Strategies that go DAYS without a fill get auto-delisted from the
-  marketplace. Density matters more than per-trade alpha.
+- Acceptable directions: BUY, SELL, REBALANCE. The conviction may be small but must never be exactly 0; clamp to a floor of 0.05 if your raw signal is below.
+- The function MUST emit a \`thinking\` string (3–8 words) summarizing the rationale on every tick, even on hold/rebalance ticks.
+- Use \`postLedger({ symbol, side, qty, price, thinking })\` (or write a row to \`agent_paper_ledger\`) for every executed fill. NEVER guard the ledger write behind "if signal > threshold" — always post, even tiny rebalances.
 
 ### REQUIRED PATTERN — copy this skeleton, adapt the signal logic:
 \`\`\`typescript
 export async function evaluate(ctx) {
-  const bars = ctx.bars                          // already loaded by runtime
-  const reason = thinkOneLine(bars)              // your 3-8 word rationale
-  const raw    = computeSignal(bars)             // your strategy alpha
-  const conviction = Math.max(0.05, Math.abs(raw))   // floor at 0.05 — NEVER 0
+  const bars = ctx.bars
+  const reason = thinkOneLine(bars)
+  const raw    = computeSignal(bars)
+  const conviction = Math.max(0.05, Math.abs(raw))
   const side  = raw >= 0 ? 'BUY' : 'SELL'
   const qty   = sizeFromConviction(conviction, ctx.nav)
   const fill  = await ctx.exec.kraken({ symbol: ctx.primary, side, qty })
-  await ctx.postLedger({ ...fill, thinking: reason })   // ALWAYS posts
+  await ctx.postLedger({ ...fill, thinking: reason })
   return { side, qty, conviction, thinking: reason }
 }
 \`\`\`
-DO NOT write \`if (Math.abs(signal) < threshold) return null\` — that is the
-exact bug we're trying to prevent. Floor the conviction, then trade tiny.
+DO NOT write \`if (Math.abs(signal) < threshold) return null\` — floor the conviction, then trade tiny.
 
 ## RESPONSE FORMAT
 - Be direct, confident, alive — no filler
-- Show your thinking before code (brief but genuine)
 - Use FILE: directives for ALL code so user can open directly in Code editor
 - Include complete files — never partial
 - End with: "→ Agent ready. Loading codebase…"
@@ -256,73 +247,34 @@ Use markdown: **bold**, \`code\`, ## headers`
     const userMsg = messages[messages.length - 1]?.content ?? ''
     const enhancedUserMsg = userMsg + `\n\nBuild this strategy completely. Show your thinking, then output all files with FILE: directives.`
 
-    const chatMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: enhancedUserMsg },
-    ]
-
-    const encoder = new TextEncoder()
-    const readable = new ReadableStream({
-      async start(controller) {
-        try {
-          const completion = await client.chat.completions.create({
-            model: "qwen2.5-coder:7b",
-            messages: chatMessages,
-            temperature: 0.4,
-            max_tokens: 3000,
-            stream: true,
-          })
-          for await (const chunk of completion) {
-            const content = chunk.choices[0]?.delta?.content
-            if (content) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`))
-            }
-          }
-          controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
-          controller.close()
-        } catch (err) {
-          const fallback = `**Initializing local AI...**\n\nStart Ollama: \`ollama serve\` then \`ollama pull qwen2.5-coder:7b\`\n\nError: ${String(err).slice(0, 120)}`
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: fallback })}\n\n`))
-          controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
-          controller.close()
-        }
-      },
-    })
-    return new Response(readable, {
-      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' },
-    })
+    return handleChat(systemPrompt, [{ role: "user", content: enhancedUserMsg }], stream ?? false);
   }
 
-  const chatMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: "system", content: systemPrompt },
-    ...messages.filter((m: { role: string }) => m.role !== 'system').map((m: { role: string; content: string }) => ({
-      role: m.role === 'user' ? 'user' as const : 'assistant' as const,
-      content: m.content ?? '',
-    })),
-  ];
+  const userMsg = messages[messages.length - 1]?.content ?? ''
+  
+  const chatHistory = messages.slice(0, -1).map(m => ({ role: m.role, content: m.content ?? '' }));
+  chatHistory.push({ role: "user", content: userMsg });
 
+  return handleChat(systemPrompt, chatHistory, stream ?? false);
+}
+
+async function handleChat(systemPrompt: string, messages: Array<{role: string; content: string}>, stream: boolean) {
+  const allMessages = [{ role: "system", content: systemPrompt }, ...messages];
+  
   if (stream) {
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
         try {
-          const completion = await client.chat.completions.create({
-            model: "qwen2.5-coder:7b",
-            messages: chatMessages,
-            stream: true,
-          });
-          for await (const chunk of completion) {
-            const content = chunk.choices[0]?.delta?.content;
-            if (content) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`));
-            }
+          const result = await callAIWorker(allMessages);
+          
+          if (result.content) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: result.content })}\n\n`));
           }
           controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
           controller.close();
         } catch (err) {
-          // Ollama unreachable or any other LLM failure — emit a graceful message
-          // instead of dropping the connection silently.
-          const fallback = `**The local AI engine is not reachable.**\n\nStart Ollama with \`ollama serve\` and pull the model with \`ollama pull qwen2.5-coder:7b\`, then retry.\n\n_Original error: ${String(err).slice(0, 200)}_`;
+          const fallback = `**AI service unavailable.**\n\n${String(err).slice(0, 120)}`;
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: fallback })}\n\n`));
           controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
           controller.close();
@@ -331,26 +283,18 @@ Use markdown: **bold**, \`code\`, ## headers`
     });
 
     return new Response(readable, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      },
+      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' },
     });
   }
 
   try {
-    const completion = await client.chat.completions.create({
-      model: "qwen2.5-coder:7b",
-      messages: chatMessages,
-    });
+    const result = await callAIWorker(allMessages);
     return Response.json({
-      content: completion.choices[0]?.message?.content ?? "",
+      content: result.content ?? "",
     });
   } catch (err) {
     return Response.json({
-      content: `The local AI engine is not reachable. Start Ollama (\`ollama serve\` + \`ollama pull qwen2.5-coder:7b\`) and retry.\n\nOriginal error: ${String(err).slice(0, 200)}`,
-      offline: true,
-    });
+      content: `Error: ${err instanceof Error ? err.message : String(err)}`,
+    }, { status: 500 });
   }
 }
