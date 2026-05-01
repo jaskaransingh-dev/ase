@@ -2,11 +2,5 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "framework": "nextjs",
-  "outputDirectory": ".next",
-  "crons": [
-    {
-      "path": "/api/quant/agent/tick",
-      "schedule": "*/5 * * * *"
-    }
-  ]
+  "outputDirectory": ".next"
 }
