@@ -4,11 +4,76 @@ import { useState, useRef, useEffect, useCallback, useMemo, use } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import {
-  C, TEMPLATES, UNIVERSES, CONFIG_FIELD_META, DATA_APIS, ML_TOOLS,
+  C, UNIVERSES, CONFIG_FIELD_META, DATA_APIS, ML_TOOLS,
   AGENT_ICONS, GRADE_CLR, DEFAULT_FILES,
 } from '@/lib/backtest-config'
 import { STRATEGIES } from '@/lib/backtest'
 import { ALL_BLOCKS, BLOCKS_BY_CATEGORY, CATEGORY_META, type BlockCategory } from '@/lib/llm-blocks'
+import { BLOCKS as PIPELINE_BLOCKS } from '@/lib/quant/blocks'
+import CanvasAssembly from '@/components/dashboard/CanvasAssembly'
+
+// Compact pipeline strip rendered at the top of the Code page so the user
+// always sees the same canvas state as Build. Re-derives the block list
+// from the file contents AND any blocks the user has pinned so it stays
+// in sync as AI applies edits or the user toggles blocks in the sidebar.
+function CodeCanvasStrip({ files, pinned }: { files: Record<string, string>; pinned: string[] }) {
+  const corpus = Object.values(files).join('\n')
+  // Mine for any block id or label mention so the visual reflects what the
+  // generated code actually wires up.
+  const mentioned = PIPELINE_BLOCKS.filter(b =>
+    pinned.includes(b.id) ||
+    corpus.includes(b.id) ||
+    new RegExp(`\\b${b.label.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\b`, 'i').test(corpus)
+  )
+
+  const ORDER: Record<string, number> = { data: 0, indicator: 1, ml: 2, api: 3, signal: 4, risk: 5, execution: 6 }
+  const KCLR: Record<string, string> = {
+    data: '#3b82f6', indicator: '#a855f7', ml: '#ec4899',
+    api: '#06b6d4', risk: '#ef4444', execution: '#f59e0b', signal: '#16c784',
+  }
+  const sorted = [...mentioned].sort((a, b) => (ORDER[a.kind] ?? 9) - (ORDER[b.kind] ?? 9))
+  const sinks = [
+    { id: 'connector.backtest', label: 'Backtest', color: '#16c784' },
+    { id: 'connector.kraken',   label: 'Kraken',   color: '#f59e0b' },
+  ]
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.4rem 0.75rem',
+      borderBottom: `1px solid ${C.border}`, background: `${C.bg2}`,
+      flexShrink: 0, overflowX: 'auto',
+    }}>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.46rem', color: C.faint, letterSpacing: '0.1em', flexShrink: 0 }}>PIPELINE</span>
+      {sorted.length === 0 && (
+        <span style={{ fontSize: '0.55rem', color: C.faint, fontFamily: 'var(--font-mono)' }}>
+          No blocks detected — AI will populate as it edits files
+        </span>
+      )}
+      {sorted.map((b, i) => (
+        <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }}>
+          {i > 0 && <span style={{ color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}>→</span>}
+          <span style={{
+            padding: '0.18rem 0.45rem', borderRadius: 4,
+            fontFamily: 'var(--font-mono)', fontSize: '0.5rem', fontWeight: 600,
+            color: KCLR[b.kind] ?? C.text,
+            background: `${KCLR[b.kind] ?? C.text}15`,
+            border: `1px solid ${KCLR[b.kind] ?? C.text}30`,
+          }}>{b.label}</span>
+        </div>
+      ))}
+      {sorted.length > 0 && sinks.map((s) => (
+        <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }}>
+          <span style={{ color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}>→</span>
+          <span style={{
+            padding: '0.18rem 0.45rem', borderRadius: 4,
+            fontFamily: 'var(--font-mono)', fontSize: '0.5rem', fontWeight: 700,
+            color: s.color, background: `${s.color}10`, border: `1px dashed ${s.color}55`,
+          }}>{s.label}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ChatMsg { role: 'user' | 'ai'; text: string; edits?: FileEdit[] }
@@ -282,15 +347,37 @@ export default function QuantLabPage() {
   })
   const [saved, setSaved] = useState(true)
 
-  // Layout
-  const [sideOpen, setSideOpen] = useState(true)
+  // Layout — defaults match the Build page (chat-dominant, sidebar hidden).
+  // The user explicitly "brings up the codebase" with the BRING CODEBASE
+  // UP button in the top bar.
+  const [sideOpen, setSideOpen] = useState(false)
   // Codebase tree condense mode: collapse the explorer to just the active file
   // (plus an "+N more" affordance) when the AI is streaming or a backtest is
   // running, but never collapse below one visible file. Manual override via
   // the chevron in the explorer header.
   const [treeCondensed, setTreeCondensed] = useState(false)
-  const [rightTab, setRightTab] = useState<'backtest'|'data'|'docs'|'chat'>('backtest')
-  const [bottomMode, setBottomMode] = useState<'terminal'|'chat'>('chat')
+  // Block panel — same data + behavior as Build page. Hydrated from the
+  // same localStorage key Build writes to so the two surfaces share state.
+  const [pinnedBlocks, setPinnedBlocks] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return []
+    try { return JSON.parse(localStorage.getItem('ase_build_blocks') ?? '[]') } catch { return [] }
+  })
+  const [blockSearch, setBlockSearch] = useState('')
+  const [blocksPanelOpen, setBlocksPanelOpen] = useState(true)
+  // Persist pinned blocks back so the Build canvas reflects what the user
+  // toggles here (and vice versa).
+  useEffect(() => {
+    try { localStorage.setItem('ase_build_blocks', JSON.stringify(pinnedBlocks)) } catch {}
+  }, [pinnedBlocks])
+  const togglePinnedBlock = useCallback((id: string) => {
+    setPinnedBlocks(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
+  }, [])
+  // Default to 'chat' so arriving from /dashboard/build feels continuous —
+  // same dominant chat surface, just with the codebase available a click away.
+  const [rightTab, setRightTab] = useState<'backtest'|'data'|'docs'|'chat'>('chat')
+  // Bottom panel defaults to terminal — the right panel chat is dominant
+  // now (mirroring Build page), so we don't duplicate the chat at the bottom.
+  const [bottomMode, setBottomMode] = useState<'terminal'|'chat'>('terminal')
   const [bottomChatRef] = useState(() => ({ current: null as HTMLTextAreaElement | null }))
 
   // Cmd+K to toggle chat + auto-collapse sidebar
@@ -305,7 +392,8 @@ export default function QuantLabPage() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  // Auto-collapse sidebar when chat is open
+  // Auto-collapse sidebar when chat is open. We don't keep it forced —
+  // user can re-open via BRING UP CODEBASE in the top bar at any time.
   useEffect(() => {
     if (rightTab === 'chat') {
       setSideOpen(false)
@@ -373,9 +461,13 @@ export default function QuantLabPage() {
 
   // Bind tree auto-condense to the active workloads. When idle the user
   // gets the full tree back. We never go to zero rows — the active file is
-  // always rendered.
+  // always rendered. The blocks panel also auto-collapses so chat owns
+  // the screen while the AI streams.
   useEffect(() => {
-    if (chatLoading || btLoading) setTreeCondensed(true)
+    if (chatLoading || btLoading) {
+      setTreeCondensed(true)
+      setBlocksPanelOpen(false)
+    }
   }, [chatLoading, btLoading])
 
   // Strategy name / publish — hydrate from build handoff if present
@@ -623,10 +715,36 @@ export default function QuantLabPage() {
   }, [fileContents['backtest.config.json']])
 
   // ── Publish ───────────────────────────────────────────────────────────────────
+  // Required for publish:
+  //   1. strategy.ts must export a `thinking()` reasoning trace (or include
+  //      a `// thinking:` block) so each tick can post the agent's rationale.
+  //   2. strategy.ts must reference `agent_paper_ledger` / `postLedger` so
+  //      every fill writes to the trade ledger.
+  // These are *required* — there are no templates anymore, so the user-supplied
+  // strategy is the source of truth.
+  function publishReadiness(): { ok: boolean; missing: string[] } {
+    const missing: string[] = []
+    const corpus = Object.values(fileContents).join('\n').toLowerCase()
+    if (!/thinking|reasoning|rationale/.test(corpus)) {
+      missing.push('Add a `thinking()` reasoning trace — published agents must explain their decisions on every tick.')
+    }
+    if (!/ledger|postledger|agent_paper_ledger/.test(corpus)) {
+      missing.push('Wire trades into the paper ledger — call `postLedger({ symbol, side, qty, price })` (or `agent_paper_ledger`) on every fill.')
+    }
+    return { ok: missing.length === 0, missing }
+  }
+
   function handlePublish() {
+    const readiness = publishReadiness()
+    if (!readiness.ok) {
+      addTerm('[BLOCK] Publish rejected. Missing requirements:')
+      readiness.missing.forEach(m => addTerm(`  · ${m}`))
+      addTerm('See /dashboard/build/docs for the publish contract.')
+      return
+    }
     if (btResult) {
       const ts = (btResult?.tear_sheet ?? {}) as Record<string, number>
-      setPublishDesc(`${template.replace(/_/g, ' ')} strategy — Grade ${btResult.grade} | Sharpe ${(ts.sharpeRatio??0).toFixed(2)} | CAGR ${(ts.cagr??0).toFixed(1)}% | MaxDD ${(ts.maxDrawdownPct??0).toFixed(1)}%`)
+      setPublishDesc(`Custom strategy — Grade ${btResult.grade} | Sharpe ${(ts.sharpeRatio??0).toFixed(2)} | CAGR ${(ts.cagr??0).toFixed(1)}% | MaxDD ${(ts.maxDrawdownPct??0).toFixed(1)}%`)
     }
     setPublishStep(1)
   }
@@ -640,9 +758,9 @@ export default function QuantLabPage() {
         body: JSON.stringify({
           name: agentName,
           description: publishDesc,
-          strategy_type: STRATEGY_MAP[template] ?? 'crypto_momentum',
+          strategy_type: 'custom',
           primary_symbol: 'BTC/USD',
-          backtest_strategy: template,
+          backtest_strategy: 'custom',
           asset_class: 'crypto',
           slug: agentName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
           ticker: agentName.slice(0, 4).toUpperCase(),
@@ -833,10 +951,29 @@ export default function QuantLabPage() {
     <div style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: C.bg, overflow: 'hidden' }}>
 
+        {/* ── LIVE PIPELINE CANVAS STRIP — mirrors Build.canvas, updates as AI edits files ── */}
+        <CodeCanvasStrip files={fileContents} pinned={pinnedBlocks} />
+
         {/* ── TOP BAR ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.4rem .75rem', borderBottom: `1px solid ${C.border}`, background: C.bg2, flexShrink: 0, height: 42 }}>
-          <button onClick={() => setSideOpen(v => !v)} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 6, padding: '.25rem .38rem', cursor: 'pointer', color: C.faint, display: 'flex', alignItems: 'center' }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+          {/* BRING UP CODEBASE — explicit affordance to reveal the file
+              tree + editor. Hidden by default so the page opens chat-first
+              like the Build canvas. */}
+          <button onClick={() => setSideOpen(v => !v)}
+            title={sideOpen ? 'Hide codebase' : 'Bring up codebase'}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '.3rem',
+              padding: '.25rem .55rem', borderRadius: 6,
+              background: sideOpen ? `${C.mint}14` : 'transparent',
+              border: `1px solid ${sideOpen ? C.mint + '45' : C.border}`,
+              color: sideOpen ? C.mint : C.faint,
+              fontFamily: 'var(--font-mono)', fontSize: '.55rem',
+              fontWeight: 700, cursor: 'pointer', letterSpacing: '.04em',
+            }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d={sideOpen ? 'M11 19l-7-7 7-7M19 12H4' : 'M13 5l7 7-7 7M5 12h14'} />
+            </svg>
+            {sideOpen ? 'HIDE CODE' : 'BRING UP CODEBASE'}
           </button>
           <button onClick={() => setAgentIconIdx(i => (i + 1) % AGENT_ICONS.length)} title="Change agent icon" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.blue2, display: 'flex', alignItems: 'center', fontSize: '1.1rem', padding: '0 .15rem' }}>
             {AGENT_ICONS[agentIconIdx]}
@@ -876,7 +1013,11 @@ export default function QuantLabPage() {
 
           {/* LEFT SIDEBAR */}
           {sideOpen && (
-            <div style={{ width: 210, flexShrink: 0, borderRight: `1px solid ${C.border}`, background: C.bg2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{
+              width: 210, flexShrink: 0, borderRight: `1px solid ${C.border}`,
+              background: C.bg2, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+              animation: 'slideInLeft .25s ease',
+            }}>
 
               {/* File explorer */}
               <div style={{ padding: '.4rem .65rem .3rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem' }}>
@@ -922,6 +1063,53 @@ export default function QuantLabPage() {
                     </>
                   )
                 })()}
+              </div>
+
+              {/* BLOCKS panel — same data as Build canvas, sync'd via localStorage */}
+              <div style={{ borderTop: `1px solid ${C.border}` }}>
+                <button onClick={() => setBlocksPanelOpen(v => !v)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '.4rem .65rem', background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, letterSpacing: '.1em' }}>
+                    BLOCKS {pinnedBlocks.length > 0 && <span style={{ color: C.mint, marginLeft: 4 }}>· {pinnedBlocks.length} pinned</span>}
+                  </span>
+                  <span style={{ color: C.faint, fontSize: '.65rem' }}>{blocksPanelOpen ? '▾' : '▸'}</span>
+                </button>
+                {blocksPanelOpen && (
+                  <div style={{ padding: '0 .5rem .35rem' }}>
+                    <input value={blockSearch} onChange={e => setBlockSearch(e.target.value)}
+                      placeholder="Search blocks..."
+                      style={{ width: '100%', background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 4, padding: '.22rem .35rem', color: C.white, fontSize: '.55rem', outline: 'none', marginBottom: '.3rem', boxSizing: 'border-box', fontFamily: 'var(--font-mono)' }} />
+                    <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '.12rem' }}>
+                      {PIPELINE_BLOCKS.filter(b => {
+                        if (!blockSearch) return true
+                        const q = blockSearch.toLowerCase()
+                        return b.label.toLowerCase().includes(q) || b.description.toLowerCase().includes(q) || b.kind.includes(q)
+                      }).map(b => {
+                        const KCLR: Record<string, string> = {
+                          data: '#3b82f6', indicator: '#a855f7', ml: '#ec4899',
+                          api: '#06b6d4', risk: '#ef4444', execution: '#f59e0b', signal: '#16c784',
+                        }
+                        const clr = KCLR[b.kind] ?? C.faint
+                        const pinned = pinnedBlocks.includes(b.id)
+                        return (
+                          <button key={b.id} onClick={() => togglePinnedBlock(b.id)}
+                            title={b.description}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: '.3rem',
+                              padding: '.22rem .38rem', borderRadius: 4,
+                              background: pinned ? `${clr}14` : 'transparent',
+                              border: `1px solid ${pinned ? clr + '38' : 'transparent'}`,
+                              borderLeft: `2px solid ${pinned ? clr : 'transparent'}`,
+                              cursor: 'pointer', textAlign: 'left',
+                            }}>
+                            <span style={{ fontSize: '.5rem', color: clr, width: 12, flexShrink: 0 }}>●</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.56rem', color: pinned ? C.white : C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{b.label}</span>
+                            {pinned && <span style={{ fontSize: '.42rem', color: clr }}>✓</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* ASE Pages navigator */}
@@ -1041,15 +1229,22 @@ export default function QuantLabPage() {
             </div>
           </div>
 
-          {/* RIGHT PANEL */}
-          <div style={{ width: rightTab === 'chat' ? 420 : 380, flexShrink: 0, borderLeft: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: C.bg2, transition: 'width 0.2s ease' }}>
+          {/* RIGHT PANEL — Chat is the dominant surface (mirrors Build).
+              Two simple tabs only: Chat (default) and Backtest. Old "data"
+              and "docs" right-tabs have been removed; their content lives
+              on dedicated pages (/dashboard/build/docs, /dashboard/build/manage). */}
+          <div style={{ width: rightTab === 'chat' ? 460 : 380, flexShrink: 0, borderLeft: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: C.bg2, transition: 'width 0.2s ease' }}>
             <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-              {(['backtest','data','docs','chat'] as const).map(t => (
-                <button key={t} onClick={() => setRightTab(t)} style={{ flex: 1, padding: '.38rem .1rem', border: 'none', borderBottom: `2px solid ${rightTab === t ? C.blue : 'transparent'}`, background: 'transparent', color: rightTab === t ? C.blue2 : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.52rem', fontWeight: 700, letterSpacing: '.06em', cursor: 'pointer', textTransform: 'uppercase', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.15rem' }}>
+              {(['chat','backtest'] as const).map(t => (
+                <button key={t} onClick={() => setRightTab(t)} style={{ flex: 1, padding: '.45rem .1rem', border: 'none', borderBottom: `2px solid ${rightTab === t ? C.blue : 'transparent'}`, background: 'transparent', color: rightTab === t ? C.blue2 : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.55rem', fontWeight: 700, letterSpacing: '.08em', cursor: 'pointer', textTransform: 'uppercase', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.25rem' }}>
                   {t === 'chat' && pendingEdits.length > 0 && <div style={{ width: 4, height: 4, borderRadius: '50%', background: C.blue, boxShadow: `0 0 4px ${C.blue}` }} />}
-                  {t === 'data' ? (rightTab === 'data' && dataView === 'blocks' ? '⊞' : '⊞') : t}
+                  {t === 'chat' ? 'AI Chat' : 'Backtest'}
                 </button>
               ))}
+              <a href="/dashboard/build/docs" title="Open docs page"
+                style={{ padding: '.45rem .55rem', borderLeft: `1px solid ${C.border}`, color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.5rem', textDecoration: 'none', display: 'flex', alignItems: 'center' }}>DOCS ↗</a>
+              <a href="/dashboard/build/manage" title="Open manage page"
+                style={{ padding: '.45rem .55rem', borderLeft: `1px solid ${C.border}`, color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.5rem', textDecoration: 'none', display: 'flex', alignItems: 'center' }}>MANAGE ↗</a>
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '.8rem' }}>
@@ -1067,14 +1262,11 @@ export default function QuantLabPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.42rem', marginBottom: '.65rem' }}>
                     {Object.keys(configFields).length === 0 && (
                       <>
-                        <div>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.45rem', color: C.faint, letterSpacing: '.08em', marginBottom: '.22rem' }}>TEMPLATE</div>
-                          <select value={String(configFields.template?.value ?? '')} onChange={e => {
-                            const newFields = { ...configFields, template: { value: e.target.value, type: 'string' } }
-                            updateFile('config.json', JSON.stringify(Object.fromEntries(Object.entries(newFields).map(([k, v]) => [k, v.value])), null, 2))
-                          }} style={{ width: '100%', background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 6, padding: '.32rem .45rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.6rem', outline: 'none' }}>
-                            {TEMPLATES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                          </select>
+                        <div style={{ gridColumn: 'span 2', padding: '.42rem .55rem', borderRadius: 7, background: `${C.mint}0a`, border: `1px dashed ${C.mint}40` }}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.mint, letterSpacing: '.08em', fontWeight: 700 }}>CUSTOM STRATEGY</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: C.text, marginTop: '.18rem', lineHeight: 1.4 }}>
+                            No templates. Backtest reads <code style={{ color: C.mint }}>strategy.ts</code> + your pinned blocks directly.
+                          </div>
                         </div>
                         <div>
                           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.45rem', color: C.faint, letterSpacing: '.08em', marginBottom: '.22rem' }}>START DATE</div>
@@ -1316,174 +1508,22 @@ export default function QuantLabPage() {
                 </div>
               )}
 
-              {/* ── DATA TAB ── */}
-              {rightTab === 'data' && (
-                <div>
-                  <div style={{ display: 'flex', gap: '.3rem', marginBottom: '.6rem' }}>
-                    {(['blocks','apis','ml'] as const).map(v => (
-                      <button key={v} onClick={() => setDataView(v)} style={{ flex: 1, padding: '.28rem', borderRadius: 6, border: `1px solid ${dataView === v ? C.blue + '40' : C.border}`, background: dataView === v ? `${C.blue}10` : 'transparent', color: dataView === v ? C.blue2 : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                        {v === 'blocks' ? '⊞ Blocks' : v === 'apis' ? 'Data APIs' : 'ML'}
-                      </button>
-                    ))}
-                  </div>
+              {/* DATA TAB removed — block insertion now lives in the
+                  BLOCKS panel in the left sidebar (single source of truth
+                  with the Build canvas). */}
 
-                  {/* ── BLOCKS VIEW ── */}
-                  {dataView === 'blocks' && (
-                    <div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint, marginBottom: '.45rem', lineHeight: 1.6 }}>
-                        Click or drag any block to insert it into your project.
-                      </div>
-
-                      {/* Category pills */}
-                      <div style={{ display: 'flex', gap: '.25rem', flexWrap: 'wrap', marginBottom: '.55rem' }}>
-                        {(Object.keys(CATEGORY_META) as BlockCategory[]).filter(cat => (BLOCKS_BY_CATEGORY[cat] ?? []).length > 0).map(cat => {
-                          const meta = CATEGORY_META[cat]
-                          const active = blockCat === cat
-                          return (
-                            <button key={cat} onClick={() => setBlockCat(cat)} style={{ display: 'flex', alignItems: 'center', gap: '.22rem', padding: '.18rem .45rem', borderRadius: 20, border: `1px solid ${active ? meta.color + '60' : C.border}`, background: active ? `${meta.color}18` : 'transparent', color: active ? meta.color : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.5rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '.04em', textTransform: 'uppercase' }}>
-                              <span>{meta.icon}</span>
-                              {meta.label}
-                            </button>
-                          )
-                        })}
-                      </div>
-
-                      {/* Blocks list */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '.32rem' }}>
-                        {(BLOCKS_BY_CATEGORY[blockCat] ?? []).map(block => {
-                          const catMeta = CATEGORY_META[block.category]
-                          const isInProject = Object.values(fileContents).join('\n').includes(block.id)
-                          return (
-                            <div
-                              key={block.id}
-                              draggable
-                              onDragEnd={() => {
-                                const existing = fileContents[block.filename] ?? ''
-                                const separator = `\n// ── ${block.name} ` + '─'.repeat(Math.max(0, 48 - block.name.length)) + '\n'
-                                updateFile(block.filename, existing + separator + block.code.trimStart())
-                                if (!openFiles.includes(block.filename)) setOpenFiles(p => [...p, block.filename])
-                                setActiveFile(block.filename)
-                                addTerm(`[OK] Inserted "${block.name}" into ${block.filename}`)
-                              }}
-                              onClick={() => {
-                                const existing = fileContents[block.filename] ?? ''
-                                const separator = `\n// ── ${block.name} ` + '─'.repeat(Math.max(0, 48 - block.name.length)) + '\n'
-                                updateFile(block.filename, existing + separator + block.code.trimStart())
-                                if (!openFiles.includes(block.filename)) setOpenFiles(p => [...p, block.filename])
-                                setActiveFile(block.filename)
-                                addTerm(`[OK] Inserted "${block.name}" into ${block.filename}`)
-                              }}
-                              style={{ display: 'flex', alignItems: 'center', gap: '.55rem', padding: '.5rem .65rem', background: isInProject ? `${catMeta.color}0D` : C.bg3, border: `1px solid ${isInProject ? catMeta.color + '35' : C.border}`, borderRadius: 8, cursor: 'grab', transition: 'all .12s' }}
-                            >
-                              <span style={{ fontSize: '1.05rem', flexShrink: 0 }}>{block.icon}</span>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', marginBottom: '.08rem' }}>
-                                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.63rem', fontWeight: 700, color: isInProject ? catMeta.color : C.white, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{block.name}</span>
-                                  {isInProject && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: catMeta.color, letterSpacing: '.06em', flexShrink: 0 }}>[OK] ADDED</span>}
-                                </div>
-                                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', color: C.muted, lineHeight: 1.45 }}>{block.desc}</div>
-                                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.46rem', color: C.faint, marginTop: '.1rem' }}>→ {block.filename}</div>
-                              </div>
-                              <div style={{ color: C.faint, fontSize: '.7rem', flexShrink: 0 }}>⋮⋮</div>
-                            </div>
-                          )
-                        })}
-                      </div>
-
-                      {/* Quick search across all blocks */}
-                      <div style={{ marginTop: '.65rem', paddingTop: '.55rem', borderTop: `1px solid ${C.border}` }}>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: C.faint, marginBottom: '.35rem', letterSpacing: '.06em' }}>ALL {ALL_BLOCKS.length} BLOCKS</div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.22rem' }}>
-                          {ALL_BLOCKS.map(b => (
-                            <button key={b.id} onClick={() => { setBlockCat(b.category) }}
-                              style={{ padding: '.12rem .35rem', borderRadius: 4, border: `1px solid ${CATEGORY_META[b.category].color}28`, background: `${CATEGORY_META[b.category].color}0A`, color: CATEGORY_META[b.category].color, fontFamily: 'var(--font-mono)', fontSize: '.48rem', cursor: 'pointer', letterSpacing: '.02em' }}>
-                              {b.icon} {b.name}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {dataView === 'apis' && (
-                    <>
-                      <input placeholder="Search data sources…" value={dataSearch} onChange={e => setDataSearch(e.target.value)} style={{ width: '100%', background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 7, padding: '.4rem .6rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.63rem', outline: 'none', marginBottom: '.6rem', boxSizing: 'border-box' }} />
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
-                        {filteredAPIs.map(api => {
-                          const isUsed = usedAPIIds.has(api.id)
-                          return (
-                            <div key={api.id} onClick={() => setSelAPI(selAPI?.id === api.id ? null : api)} style={{ background: selAPI?.id === api.id ? `${C.blue}10` : isUsed ? `${C.mint}07` : C.bg3, border: `1px solid ${selAPI?.id === api.id ? C.blue + '35' : isUsed ? C.mint + '30' : C.border}`, borderRadius: 9, padding: '.55rem .68rem', cursor: 'pointer', transition: 'all .12s' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.15rem' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
-                                  {isUsed && <div style={{ width: 5, height: 5, borderRadius: '50%', background: C.mint, animation: 'pulse 2s infinite', flexShrink: 0 }} />}
-                                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', fontWeight: 700, color: isUsed ? C.mint : C.white }}>{api.name}</span>
-                                </div>
-                                <div style={{ display: 'flex', gap: '.25rem' }}>
-                                  <Tag text={api.cat} color={C.blue} />
-                                  <Tag text={api.auth === 'none' ? 'FREE' : api.auth === 'optional' ? 'OPT' : 'KEY'} color={api.auth === 'none' ? C.mint : api.auth === 'optional' ? C.orange : C.muted} />
-                                </div>
-                              </div>
-                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: C.muted }}>{api.desc}</div>
-                              {selAPI?.id === api.id && (
-                                <div style={{ marginTop: '.5rem', paddingTop: '.5rem', borderTop: `1px solid ${C.border}` }}>
-                                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, marginBottom: '.28rem' }}>Rate limit: {api.limit}</div>
-                                  <div style={{ display: 'flex', gap: '.32rem' }}>
-                                    <button onClick={e => { e.stopPropagation(); const loader = `data_loaders.py`; updateFile(loader, (fileContents[loader] ?? '') + `\n# ── ${api.name} ──────────────────────────────────────────────\n# Added from Data panel\n`); openFile(loader); addTerm(`[OK] ${api.name} added to data_loaders.py`) }}
-                                      style={{ flex: 1, padding: '.28rem', borderRadius: 5, background: C.blue, color: '#fff', border: 'none', fontFamily: 'var(--font-mono)', fontSize: '.54rem', fontWeight: 700, cursor: 'pointer' }}>Add to project</button>
-                                    <button onClick={e => { e.stopPropagation(); setChatInput(`How do I use ${api.name} data for crypto alpha generation?`); setBottomMode('chat'); setTimeout(() => chatInputRef.current?.focus(), 50) }}
-                                      style={{ flex: 1, padding: '.28rem', borderRadius: 5, background: 'transparent', color: C.muted, border: `1px solid ${C.border}`, fontFamily: 'var(--font-mono)', fontSize: '.54rem', cursor: 'pointer' }}>Ask AI</button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </>
-                  )}
-
-                  {dataView === 'ml' && (
-                    <div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint, marginBottom: '.5rem', lineHeight: 1.65 }}>
-                        Drag tools to the explorer or click to add a starter file to your project.
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
-                        {ML_TOOLS.map(tool => (
-                          <div key={tool.id}
-                            draggable
-                            onDragEnd={() => { updateFile(`${tool.id}_signals.py`, `"""${tool.name} signal generator\n${tool.desc}\n"""\n# TODO: implement\n`); openFile(`${tool.id}_signals.py`); addTerm(`[OK] Created ${tool.id}_signals.py`) }}
-                            onClick={() => { const fname = `${tool.id}_signals.py`; updateFile(fname, `"""${tool.name} signal generator\n${tool.desc}\n"""\n\n# pip install ${tool.id}\n# import ${tool.id === 'sklearn' ? 'sklearn' : tool.id}\n\ndef generate_ml_signals(features):\n    \"\"\"TODO: implement ${tool.name} signal logic\"\"\"\n    pass\n`); openFile(fname); addTerm(`[OK] Added ${fname}`) }}
-                            style={{ display: 'flex', alignItems: 'center', gap: '.55rem', padding: '.5rem .65rem', background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 8, cursor: 'grab' }}>
-                            <span style={{ fontSize: '1.1rem' }}>{tool.icon}</span>
-                            <div>
-                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.63rem', fontWeight: 700, color: C.white, marginBottom: '.1rem' }}>{tool.name}</div>
-                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.54rem', color: C.muted }}>{tool.desc}</div>
-                            </div>
-                            <div style={{ marginLeft: 'auto', color: C.faint, fontSize: '.7rem' }}>⋮⋮</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ── DOCS TAB ── */}
-              {rightTab === 'docs' && (
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.55rem' }}>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint, letterSpacing: '.06em' }}>ENGINE DOCUMENTATION</span>
-                    <button onClick={() => { openFile('DOCS.md') }} style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.blue2, background: 'transparent', border: 'none', cursor: 'pointer' }}>Open in editor</button>
-                  </div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: C.text, lineHeight: 1.75, whiteSpace: 'pre-wrap' }}>
-                    <MdText text={fileContents['DOCS.md'] ?? DEFAULT_FILES['DOCS.md']} />
-                  </div>
-                </div>
-              )}
+              {/* DOCS / DATA tabs removed — see /dashboard/build/docs and the
+                  BLOCKS panel in the left sidebar. */}
 
               {/* ── CHAT TAB ── */}
               {rightTab === 'chat' && (
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: C.bg, margin: '-.8rem', padding: '.8rem' }}>
+                  {/* Canvas-assembly animation — same component as Build page,
+                      so the user's pipeline animates above the chat as the AI
+                      streams edits into the file tree. */}
+                  {chatLoading && (
+                    <CanvasAssembly blocks={pinnedBlocks} phase="building" height={180} />
+                  )}
                   {/* Messages — scroll-locked: never yanks while user reads above */}
                   <div ref={chatScrollRef} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '.35rem', overscrollBehavior: 'contain' }}>
                     {chatMsgs.map((m, i) => (
@@ -1824,7 +1864,8 @@ export default function QuantLabPage() {
         @keyframes spin   { to { transform: rotate(360deg) } }
         @keyframes bounce { 0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)} }
         @keyframes pulse  { 0%,100%{opacity:1}50%{opacity:.3} }
-        @keyframes slideInUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes slideInUp   { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes slideInLeft { from{opacity:0;transform:translateX(-12px)} to{opacity:1;transform:translateX(0)} }
         @keyframes glow { 0%,100%{box-shadow:0 0 4px rgba(22,199,132,.3)} 50%{box-shadow:0 0 12px rgba(22,199,132,.6)} }
       `}</style>
     </div>

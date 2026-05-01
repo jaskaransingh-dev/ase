@@ -4,6 +4,8 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { BLOCKS, getBlockById } from '@/lib/quant/blocks'
 import type { BlockKind } from '@/lib/quant/blocks'
+import { runBuild as runBuildBg, subscribe as subscribeBg, getState as getBgState, abortBuild as abortBuildBg } from '@/lib/build-bg'
+import CanvasAssembly from '@/components/dashboard/CanvasAssembly'
 
 const C = {
   bg: '#030608', bg2: '#060d17', bg3: '#0a1525', bg4: '#0e1c30',
@@ -33,6 +35,59 @@ const CATEGORIES: Array<{ id: BlockKind; label: string; sublabel: string; color:
 ]
 
 const SYNE_BLOCK = BLOCKS.find(b => b.id === 'api.syne')
+
+// ── Built-in connectors that always close the pipeline ─────────────────────
+//
+// Every strategy ends with two virtual blocks: a "Backtest" sink the agent
+// runs against, and the "Kraken" execution venue. They aren't user-pickable
+// like real BLOCKS — they're always on the canvas and always connected.
+const SINK_NODES: { id: string; label: string; kind: string; color: string }[] = [
+  { id: 'connector.backtest', label: 'Backtest', kind: 'execution', color: '#16c784' },
+  { id: 'connector.kraken',   label: 'Kraken',   kind: 'execution', color: '#f59e0b' },
+]
+
+// Pipeline-order layout helper — lays user/AI-picked blocks left → right in
+// the actual order they execute (data → indicator → ml → api → signal →
+// risk → execution → backtest/kraken connectors).
+const PIPELINE_KIND_ORDER: Record<string, number> = {
+  data: 0, indicator: 1, ml: 2, api: 3, signal: 4, risk: 5, execution: 6,
+}
+const COL_WIDTH = 180
+const ROW_HEIGHT = 72
+const COL_OFFSET_X = 60
+const COL_OFFSET_Y = 110
+
+function layoutPipeline(blockIds: string[]): { id: string; x: number; y: number; label: string; kind: string; color: string }[] {
+  const colCounts: Record<number, number> = {}
+  const positioned: { id: string; x: number; y: number; label: string; kind: string; color: string }[] = []
+
+  // Real blocks
+  for (const id of blockIds) {
+    const b = getBlockById(id)
+    if (!b) continue
+    const col = PIPELINE_KIND_ORDER[b.kind] ?? 4
+    const row = (colCounts[col] ?? 0)
+    colCounts[col] = row + 1
+    positioned.push({
+      id, label: b.label, kind: b.kind,
+      color: KIND_COLORS[b.kind] || C.blue,
+      x: COL_OFFSET_X + col * COL_WIDTH,
+      y: COL_OFFSET_Y + row * ROW_HEIGHT,
+    })
+  }
+
+  // Always-on sinks at the rightmost column
+  const sinkCol = Math.max(7, ...positioned.map(n => Math.floor((n.x - COL_OFFSET_X) / COL_WIDTH)) ) + 1
+  SINK_NODES.forEach((s, i) => {
+    positioned.push({
+      ...s,
+      x: COL_OFFSET_X + sinkCol * COL_WIDTH,
+      y: COL_OFFSET_Y + i * ROW_HEIGHT,
+    })
+  })
+
+  return positioned
+}
 
 const THINKING_STEPS = [
   'Parsing strategy intent',
@@ -209,83 +264,9 @@ function BtStrip({ result, loading, error }: { result: BtResult | null; loading:
   )
 }
 
-// ── Animated background: flowing connections + low-opacity live canvas mirror
-//   + particles streaming along block-connection paths.  Driven by the
-//   same `nodes` array as the foreground canvas so it always reflects the
-//   current pipeline.
-function AnimatedBlockBg({ nodes, dim = 0.55 }: { nodes: CanvasNode[]; dim?: number }) {
-  const reduced = useRef(false)
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      reduced.current = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
-    }
-  }, [])
-  const ghostNodes = useMemo(() => {
-    if (nodes.length) return nodes
-    // Synthetic blocks when the canvas is empty so the background still
-    // shows a generic "data → indicator → signal → risk → execution" pipeline.
-    return [
-      { id: 'g1', x:  60, y:  60, label: 'Data',      kind: 'data',      color: '#3b82f6' },
-      { id: 'g2', x: 240, y: 110, label: 'Indicator', kind: 'indicator', color: '#a855f7' },
-      { id: 'g3', x: 420, y:  70, label: 'Signal',    kind: 'signal',    color: '#16c784' },
-      { id: 'g4', x: 600, y: 130, label: 'Risk',      kind: 'risk',      color: '#ef4444' },
-      { id: 'g5', x: 780, y:  90, label: 'Execution', kind: 'execution', color: '#f59e0b' },
-    ] as CanvasNode[]
-  }, [nodes])
-
-  return (
-    <div aria-hidden style={{
-      position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-      opacity: dim, mixBlendMode: 'screen',
-    }}>
-      <style>{`
-        @keyframes bg-particle { from { offset-distance: 0% } to { offset-distance: 100% } }
-        @keyframes bg-pulse    { 0%,100% { opacity:.18 } 50% { opacity:.55 } }
-        @keyframes bg-drift    { from { transform: translate3d(0,0,0) } 50% { transform: translate3d(8px,-6px,0) } to { transform: translate3d(0,0,0) } }
-        .bgblk { animation: bg-drift 9s ease-in-out infinite; will-change: transform; }
-      `}</style>
-
-      {/* Flowing connection SVG between every pair of placed blocks */}
-      <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
-        {ghostNodes.map((n, i) => {
-          const next = ghostNodes[i + 1]
-          if (!next) return null
-          const x1 = n.x + 70, y1 = n.y + 18
-          const x2 = next.x,    y2 = next.y + 18
-          const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2 - 32
-          const path = `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`
-          return (
-            <g key={`${n.id}-${next.id}`}>
-              <path d={path} fill="none" stroke={n.color} strokeOpacity={0.35} strokeWidth={1.2}
-                strokeDasharray="6 6"
-                style={reduced.current ? undefined : { animation: 'bg-pulse 4s ease-in-out infinite' }} />
-              {/* Particle streaming along the same path */}
-              {!reduced.current && (
-                <circle r="2" fill={next.color}
-                  style={{
-                    offsetPath: `path('${path}')`,
-                    animation: `bg-particle ${5 + (i % 3)}s linear infinite`,
-                  } as React.CSSProperties} />
-              )}
-            </g>
-          )
-        })}
-      </svg>
-
-      {/* Live mirror of canvas state — softly tinted block ghosts */}
-      {ghostNodes.map(n => (
-        <div key={n.id} className="bgblk" style={{
-          position: 'absolute', left: n.x, top: n.y,
-          width: 138, height: 36, borderRadius: 9,
-          background: `linear-gradient(135deg, ${n.color}10 0%, transparent 100%)`,
-          border: `1px solid ${n.color}28`,
-          borderLeft: `2px solid ${n.color}`,
-          boxShadow: `0 0 22px ${n.color}10`,
-        }} />
-      ))}
-    </div>
-  )
-}
+// AnimatedBlockBg removed — the foreground CanvasAssembly above the chat
+// already shows the pipeline coming together; the always-on background
+// version was redundant + visually noisy.
 
 export default function BuildPage() {
   const router = useRouter()
@@ -307,7 +288,9 @@ export default function BuildPage() {
   // Canvas
   const canvasRef = useRef<HTMLDivElement>(null)
   const [pinnedIds, setPinnedIds] = useState<string[]>([])
-  const [nodes, setNodes] = useState<CanvasNode[]>([])
+  // Start with the always-on Backtest + Kraken sinks so the canvas is
+  // never empty — even before the user picks any block.
+  const [nodes, setNodes] = useState<CanvasNode[]>(() => layoutPipeline([]))
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 })
   const [canvasDrag, setCanvasDrag] = useState<{ startX: number; startY: number } | null>(null)
   const [nodeDrag, setNodeDrag] = useState<{ id: string; startMx: number; startMy: number; startNx: number; startNy: number } | null>(null)
@@ -357,17 +340,14 @@ export default function BuildPage() {
     return () => clearInterval(id)
   }, [phase])
 
-  // When AI finishes, auto-load the codebase view (with agent + history) and let
-  // the code page run the backtest using the AI-emitted backtest.config.json.
-  // Templates are picked by the AI silently; the user never sees them here.
+  // When AI finishes, just queue the auto-backtest flag for the code page.
+  // We *don't* push the route automatically anymore — the canvas state
+  // persists across navigation, and the user might want to keep iterating
+  // here. They jump to /code via the explicit button in the header.
   useEffect(() => {
     if (phase !== 'done') return
-    const t = setTimeout(() => {
-      try { localStorage.setItem('ase_build_autobacktest', '1') } catch {}
-      router.push('/dashboard/build/code')
-    }, 600)
-    return () => clearTimeout(t)
-  }, [phase, router])
+    try { localStorage.setItem('ase_build_autobacktest', '1') } catch {}
+  }, [phase])
 
   const displayBlocks = BLOCKS.filter(b => {
     if (activeCat !== 'all' && b.kind !== activeCat) return false
@@ -378,116 +358,97 @@ export default function BuildPage() {
     return true
   })
 
+  // Re-flow the canvas every time the user pins/unpins a block so the
+  // pipeline always reads left → right in execution order with the
+  // built-in Backtest + Kraken connectors anchoring the right edge.
+  const reflowCanvas = useCallback((ids: string[]) => {
+    setNodes(layoutPipeline(ids))
+  }, [])
+
   const togglePin = useCallback((id: string) => {
     const block = getBlockById(id)
     if (!block) return
-    if (pinnedIds.includes(id)) {
-      setPinnedIds(p => p.filter(x => x !== id))
-      setNodes(p => p.filter(n => n.id !== id))
-    } else {
-      setPinnedIds(p => [...p, id])
-      setNodes(p => [...p, {
-        id, label: block.label, kind: block.kind,
-        color: KIND_COLORS[block.kind] || C.blue,
-        x: 240 + p.length * 170, y: 140 + (p.length % 4) * 80,
-      }])
+    setPinnedIds(prev => {
+      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+      reflowCanvas(next)
+      return next
+    })
+  }, [reflowCanvas])
+
+  // Re-layout when the AI finishes a build and we know the final block list.
+  useEffect(() => {
+    if (phase === 'done' || phase === 'building') {
+      reflowCanvas(pinnedIds)
     }
-  }, [pinnedIds])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase])
+
+  // Hydrate from the global background runner — this lets the AI keep
+  // streaming after the user clicks away to another page and comes back.
+  useEffect(() => {
+    const initial = getBgState()
+    if (initial.phase === 'building' || initial.phase === 'done') {
+      setPhase(initial.phase)
+      setChat(initial.chat as ChatMessage[])
+      setExtractedFiles(initial.files)
+      setCurrentDraftId(initial.draftId)
+      // Restore picked blocks visually without re-broadcasting drag events
+      if (initial.blocks.length && !pinnedIds.length) {
+        initial.blocks.forEach(id => {
+          const block = getBlockById(id)
+          if (block) {
+            setPinnedIds(p => p.includes(id) ? p : [...p, id])
+            setNodes(p => p.find(n => n.id === id) ? p : [...p, {
+              id, label: block.label, kind: block.kind,
+              color: KIND_COLORS[block.kind] || C.blue,
+              x: 240 + p.length * 170, y: 140 + (p.length % 4) * 80,
+            }])
+          }
+        })
+      }
+    }
+    const unsub = subscribeBg(s => {
+      setPhase(s.phase === 'error' ? 'idle' : (s.phase as 'idle' | 'building' | 'done'))
+      setChat(s.chat as ChatMessage[])
+      setExtractedFiles(s.files)
+      if (s.draftId) setCurrentDraftId(s.draftId)
+
+      // Mine the streaming response for block references so blocks the
+      // AI mentions get auto-pinned and laid out on the canvas in real time.
+      const corpus = (s.chat as ChatMessage[]).map(m => m.content).join('\n') +
+                     '\n' + s.files.map(f => f.content).join('\n')
+      const matched: string[] = []
+      for (const b of BLOCKS) {
+        const idHit = corpus.includes(b.id)
+        const labelHit = new RegExp(`\\b${b.label.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\b`, 'i').test(corpus)
+        if (idHit || labelHit) matched.push(b.id)
+      }
+      if (matched.length) {
+        setPinnedIds(prev => {
+          const merged = Array.from(new Set([...prev, ...matched]))
+          if (merged.length !== prev.length) reflowCanvas(merged)
+          return merged
+        })
+      }
+    })
+    return unsub
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const runBuild = useCallback(async (text: string) => {
     setPhase('building')
-    const blockCtx = pinnedIds.length
-      ? '\n\nBlocks selected:\n' + pinnedIds.map(id => { const b = getBlockById(id); return `- ${b?.label}: ${b?.agentHint}` }).join('\n')
-      : ''
-
-    const uid = () => crypto.randomUUID()
-    const uMsg: ChatMessage = { id: uid(), role: 'user', content: text }
-    const aMsg: ChatMessage = { id: uid(), role: 'assistant', content: '', pending: true }
-    setChat([uMsg, aMsg])
+    const hints = pinnedIds.map(id => {
+      const b = getBlockById(id)
+      return { id, label: b?.label ?? id, agentHint: b?.agentHint }
+    })
 
     try {
       localStorage.setItem('ase_build_prompt', text)
       localStorage.setItem('ase_build_blocks', JSON.stringify(pinnedIds))
-
-      const res = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: text + blockCtx }],
-          apiIds: pinnedIds.join(','),
-          buildMode: true, stream: true,
-        }),
-      })
-      if (!res.ok || !res.body) throw new Error('AI unavailable')
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = '', acc = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        const lines = (buffer + decoder.decode(value, { stream: true })).split('\n')
-        buffer = lines.pop() || ''
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          const raw = line.slice(6).trim()
-          if (!raw || raw === '[DONE]') continue
-          try {
-            const p = JSON.parse(raw)
-            if (p.content) {
-              acc += p.content
-              setChat(prev => prev.map(m => m.id === aMsg.id ? { ...m, content: acc } : m))
-            }
-          } catch {}
-        }
-      }
-
-      setChat(prev => prev.map(m => m.id === aMsg.id ? { ...m, pending: false } : m))
-
-      // Extract files and save draft
-      const files = extractFiles(acc)
-      setExtractedFiles(files)
-
-      const fs: Record<string, string> = {}
-      if (files.length) {
-        files.forEach(f => { fs[f.name] = f.content })
-      } else {
-        // Fallback: pull any code blocks into strategy.ts even without FILE: directive
-        const codeBlocks = Array.from(acc.matchAll(/```(?:typescript|ts)\n([\s\S]*?)```/g)).map(m => m[1])
-        if (codeBlocks.length) fs['strategy.ts'] = codeBlocks[0]
-        const jsonBlocks = Array.from(acc.matchAll(/```(?:json)\n([\s\S]*?)```/g)).map(m => m[1])
-        if (jsonBlocks.length) fs['config.json'] = jsonBlocks[0]
-      }
-
-      const draft: AgentDraft = {
-        id: crypto.randomUUID(),
-        name: nameFromPrompt(text),
-        prompt: text,
-        files: fs,
-        blocks: pinnedIds,
-        createdAt: Date.now(),
-      }
-      saveDraft(draft)
-      setCurrentDraftId(draft.id)
-
-      // Hand off the agent's chat transcript to the code page so the user sees
-      // the same conversation when the codebase loads.
-      try {
-        const transcript = [
-          { role: 'user' as const, text },
-          { role: 'ai' as const, text: acc },
-        ]
-        localStorage.setItem('ase_build_chat', JSON.stringify(transcript))
-        localStorage.setItem('ase_build_agent_name', draft.name)
-      } catch {}
-
-      setPhase('done')
-      setPanelCollapsed(true)
-    } catch (e) {
-      setChat(prev => prev.map(m => m.id === aMsg.id ? { ...m, content: 'Build failed. Is Ollama running? `ollama serve`', pending: false } : m))
-      setPhase('idle')
-    }
+    } catch {}
+    // Hand the actual streaming work to the singleton runner.  This lets
+    // the AI keep generating across page navigations.
+    void runBuildBg({ prompt: text, blocks: pinnedIds, agentHints: hints })
+      .then(() => setPanelCollapsed(true))
   }, [pinnedIds])
 
   const handleBuild = useCallback(() => {
@@ -602,8 +563,9 @@ export default function BuildPage() {
         @keyframes slide-from-right { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
       `}</style>
 
-      {/* ══ ANIMATED PIPELINE BACKGROUND (always-on, ghost mirror) ══ */}
-      <AnimatedBlockBg nodes={nodes} dim={isDone ? 0.35 : phase === 'building' ? 0.55 : 0.65} />
+      {/* Background pipeline animation removed — the foreground CanvasAssembly
+          above the chat already shows the pipeline assembling, so the ghost
+          background was redundant + visually noisy. */}
 
       {/* ══ CANVAS BACKGROUND ════════════════════════════════════════════════════ */}
       <div
@@ -633,18 +595,43 @@ export default function BuildPage() {
 
         {/* Canvas nodes layer */}
         <div style={{ position: 'absolute', inset: 0, transform: `translate(${canvasOffset.x}px,${canvasOffset.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
-          {/* Connection lines */}
-          {nodes.length > 1 && (
-            <svg style={{ position: 'absolute', inset: 0, width: 9999, height: 9999, overflow: 'visible', pointerEvents: 'none' }}>
-              {nodes.map((n, i) => i < nodes.length - 1 && (
-                <g key={n.id}>
-                  <line x1={n.x + 72} y1={n.y + 20} x2={nodes[i+1].x} y2={nodes[i+1].y + 20}
-                    stroke={`${n.color}35`} strokeWidth="1.5" strokeDasharray="5,4"
-                    style={{ animation: 'line-in .7s ease forwards', strokeDashoffset: 200 }} />
-                </g>
-              ))}
-            </svg>
-          )}
+          {/* Connection lines — every block in column N feeds every block
+              in column N+1, plus the rightmost real column feeds both
+              built-in sinks (Backtest, Kraken). Mirrors how data actually
+              flows through the strategy. */}
+          {nodes.length > 1 && (() => {
+            // Group by column (x position) so we can wire column → column
+            const cols = new Map<number, typeof nodes>()
+            for (const n of nodes) {
+              const col = Math.round((n.x - COL_OFFSET_X) / COL_WIDTH)
+              const arr = cols.get(col) ?? []
+              arr.push(n); cols.set(col, arr)
+            }
+            const colKeys = Array.from(cols.keys()).sort((a, b) => a - b)
+            const edges: { from: typeof nodes[number]; to: typeof nodes[number] }[] = []
+            for (let ci = 0; ci < colKeys.length - 1; ci++) {
+              const a = cols.get(colKeys[ci]) ?? []
+              const b = cols.get(colKeys[ci + 1]) ?? []
+              for (const x of a) for (const y of b) edges.push({ from: x, to: y })
+            }
+            return (
+              <svg style={{ position: 'absolute', inset: 0, width: 9999, height: 9999, overflow: 'visible', pointerEvents: 'none' }}>
+                {edges.map((e, i) => {
+                  const x1 = e.from.x + 138, y1 = e.from.y + 18
+                  const x2 = e.to.x,         y2 = e.to.y + 18
+                  const cx = (x1 + x2) / 2
+                  return (
+                    <g key={`${e.from.id}-${e.to.id}-${i}`}>
+                      <path d={`M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`}
+                        fill="none" stroke={`${e.from.color}55`} strokeWidth="1.4"
+                        strokeDasharray="6,5"
+                        style={{ animation: 'line-in .7s ease forwards', strokeDashoffset: 200 }} />
+                    </g>
+                  )
+                })}
+              </svg>
+            )
+          })()}
 
           {/* Nodes */}
           {nodes.map(node => {
@@ -979,6 +966,10 @@ export default function BuildPage() {
         {/* ── BUILDING / DONE: workspace ── */}
         {phase !== 'idle' && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', animation: 'fade-up .35s ease' }}>
+
+            {/* Pipeline assembly graphic — sits ABOVE the building header
+                so the user sees the canvas come together before any text */}
+            <CanvasAssembly blocks={pinnedIds} phase={phase as 'idle' | 'building' | 'done' | 'error'} height={220} />
 
             {/* Header */}
             <div style={{ padding: '.5rem .85rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '.5rem', flexShrink: 0, background: `${C.bg2}cc`, backdropFilter: 'blur(8px)' }}>

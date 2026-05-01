@@ -12,20 +12,31 @@ export async function POST(req: Request) {
     }
 
     const admin = createAdminClient()
+    const target = email.toLowerCase()
 
-    // Check if user exists in auth.users
-    const { data: users, error } = await admin.auth.admin.listUsers()
-
-    if (error) {
-      console.error('Error checking email:', error)
-      return NextResponse.json({ error: 'Failed to check email' }, { status: 500 })
+    // listUsers paginates at 50 by default — if we only check page 1 we'll
+    // miss anyone past the first page and create a duplicate-key collision
+    // when Supabase tries to insert. Walk every page until we find the email
+    // or run out, capped at a sane page count to avoid infinite loops.
+    const PAGE_SIZE = 1000
+    for (let page = 1; page <= 25; page++) {
+      const { data, error } = await admin.auth.admin.listUsers({ page, perPage: PAGE_SIZE })
+      if (error) {
+        console.error('[check-email] listUsers error', error)
+        // Fail open: don't block signup over an admin-API hiccup. Supabase
+        // will still reject duplicates server-side.
+        return NextResponse.json({ exists: false, warning: 'lookup_unavailable' })
+      }
+      if (data.users.some(u => u.email?.toLowerCase() === target)) {
+        return NextResponse.json({ exists: true })
+      }
+      if (data.users.length < PAGE_SIZE) break
     }
-
-    const exists = users.users.some((user) => user.email?.toLowerCase() === email.toLowerCase())
-
-    return NextResponse.json({ exists })
+    return NextResponse.json({ exists: false })
   } catch (error) {
     console.error('Check email error:', error)
-    return NextResponse.json({ error: 'Failed to check email' }, { status: 500 })
+    // Fail open instead of fail closed so a malformed admin call can't lock
+    // every new user out of signup.
+    return NextResponse.json({ exists: false, warning: 'lookup_unavailable' })
   }
 }

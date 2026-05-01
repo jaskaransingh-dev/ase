@@ -18,7 +18,14 @@ interface Listing {
   strategy_type: string; asset_class: string; primary_symbol: string | null; status: string
   share_price_cents: number; subscriber_count: number
   return30d: number | null; sharpe: number | null; maxDD: number | null; winRate: number | null; isLive: boolean
+  last_trade_at?: string | null
+  trade_count?: number
 }
+
+// Auto-delist threshold: an agent must have posted a trade in the last
+// STALE_HOURS for it to remain in the public marketplace. This stops dead
+// strategies from cluttering the page.
+const STALE_HOURS = 72
 
 const SORT_OPTIONS = [
   { value: 'rank', label: 'Top Ranked', icon: TrendingUp },
@@ -63,16 +70,37 @@ export default function MarketplacePage() {
     setLoading(true)
     try {
       const res = await fetch('/api/agents')
-      if (res.ok) { const json = await res.json(); setListings(json.data ?? []) }
+      if (res.ok) {
+        const json = await res.json()
+        const raw: Listing[] = json.data ?? []
+        // Enrich with the latest paper-ledger trade for each agent in
+        // parallel so we can drop stale ones that aren't posting fills.
+        const enriched = await Promise.all(raw.map(async l => {
+          try {
+            const lr = await fetch(`/api/quant/agent/ledger?agent_id=${l.id}&limit=1`)
+            const lj = await lr.json()
+            const trades = lj.trades ?? []
+            return { ...l, trade_count: trades.length, last_trade_at: trades[0]?.executed_at ?? null }
+          } catch { return l }
+        }))
+        setListings(enriched)
+      }
     } catch (e) { console.error('Failed to fetch agents:', e) }
     setLoading(false)
+  }
+
+  // True if the agent has posted a trade within the staleness window.
+  function isFresh(l: Listing) {
+    if (!l.last_trade_at) return false
+    const ageHours = (Date.now() - new Date(l.last_trade_at).getTime()) / 3_600_000
+    return ageHours <= STALE_HOURS
   }
 
   function handleSubscribe(listing: Listing) {
     router.push(`/agents/${listing.slug}`)
   }
 
-  const displayed = listings.filter(l =>
+  const displayed = listings.filter(l => isFresh(l)).filter(l =>
     !search || l.name?.toLowerCase().includes(search.toLowerCase()) ||
     l.ticker?.toLowerCase().includes(search.toLowerCase()) ||
     l.description?.toLowerCase().includes(search.toLowerCase())

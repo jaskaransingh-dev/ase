@@ -247,6 +247,46 @@ export default function SyneTerminal() {
   // Data
   const [prices, setPrices] = useState<CommodityPrice[]>(COMMODITIES)
 
+  // ── Crypto trader intel — BTC/ETH/SOL spot + Fear & Greed ──────────────
+  // These power the new actionable strip rendered at the very top of the
+  // terminal so every visit shows real, decision-grade data.
+  const [crypto, setCrypto] = useState<{
+    btc: { price: number | null; change24h: number | null }
+    eth: { price: number | null; change24h: number | null }
+    sol: { price: number | null; change24h: number | null }
+  }>({ btc: { price: null, change24h: null }, eth: { price: null, change24h: null }, sol: { price: null, change24h: null } })
+  const [fearGreed, setFearGreed] = useState<{ value: number; classification: string } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const loadCrypto = async () => {
+      try {
+        // CoinGecko simple-price; works without auth and includes 24h change
+        const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true')
+        const j = await r.json()
+        if (cancelled) return
+        setCrypto({
+          btc: { price: j.bitcoin?.usd ?? null,  change24h: j.bitcoin?.usd_24h_change ?? null },
+          eth: { price: j.ethereum?.usd ?? null, change24h: j.ethereum?.usd_24h_change ?? null },
+          sol: { price: j.solana?.usd ?? null,   change24h: j.solana?.usd_24h_change ?? null },
+        })
+      } catch {}
+    }
+    const loadFG = async () => {
+      try {
+        const r = await fetch('https://api.alternative.me/fng/?limit=1')
+        const j = await r.json()
+        if (cancelled) return
+        const d = j?.data?.[0]
+        if (d) setFearGreed({ value: parseInt(d.value, 10), classification: d.value_classification })
+      } catch {}
+    }
+    loadCrypto(); loadFG()
+    const id1 = setInterval(loadCrypto, 60_000)
+    const id2 = setInterval(loadFG, 5 * 60_000)
+    return () => { cancelled = true; clearInterval(id1); clearInterval(id2) }
+  }, [])
+
   // Command bar
   const [cmd, setCmd] = useState('')
   const [cmdLog, setCmdLog] = useState<{ kind: 'in' | 'out' | 'err'; text: string }[]>([
@@ -538,6 +578,74 @@ export default function SyneTerminal() {
             border: `1px solid ${C.border2}`, background: '#000', color: C.amber,
             padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 9, fontWeight: 700, letterSpacing: '0.16em',
           }}>{railOpen ? 'RAIL ›' : '‹ RAIL'}</button>
+        </div>
+      </div>
+
+      {/* ── TRADER INTEL STRIP — actionable crypto data, refreshed every 60s ── */}
+      <div style={{
+        height: 32, flexShrink: 0, display: 'flex', alignItems: 'center',
+        borderBottom: `1px solid ${C.border}`, background: '#020202', fontSize: 10,
+        overflowX: 'auto',
+      }}>
+        {[
+          { key: 'BTC', symbol: '₿', data: crypto.btc, color: '#F7931A' },
+          { key: 'ETH', symbol: 'Ξ', data: crypto.eth, color: '#627EEA' },
+          { key: 'SOL', symbol: '◎', data: crypto.sol, color: '#19E6A7' },
+        ].map(c => {
+          const ch = c.data.change24h
+          const positive = (ch ?? 0) >= 0
+          return (
+            <div key={c.key} style={{ padding: '0 12px', borderRight: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8, height: '100%' }}>
+              <span style={{ color: c.color, fontWeight: 700, letterSpacing: '0.1em' }}>{c.symbol} {c.key}</span>
+              <span style={{ color: C.white, fontWeight: 700 }}>
+                {c.data.price != null ? `$${c.data.price.toLocaleString(undefined, { maximumFractionDigits: c.data.price > 100 ? 0 : 2 })}` : '—'}
+              </span>
+              <span style={{ color: positive ? C.green : C.red, fontSize: 9 }}>
+                {ch != null ? `${positive ? '+' : ''}${ch.toFixed(2)}%` : '—'}
+              </span>
+            </div>
+          )
+        })}
+
+        {/* Fear & Greed gauge */}
+        <div style={{ padding: '0 12px', borderRight: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8, height: '100%' }}>
+          <span style={{ color: C.amber, fontWeight: 700, letterSpacing: '0.1em', fontSize: 9 }}>FEAR/GREED</span>
+          {fearGreed ? (
+            <>
+              <span style={{
+                color: fearGreed.value < 25 ? C.red : fearGreed.value > 75 ? C.green : C.amber,
+                fontWeight: 700,
+              }}>{fearGreed.value}</span>
+              <span style={{ color: C.muted, fontSize: 9 }}>{fearGreed.classification.toUpperCase()}</span>
+              <div style={{ width: 80, height: 4, background: C.faint, borderRadius: 2, position: 'relative' }}>
+                <div style={{
+                  position: 'absolute', left: 0, top: 0, height: '100%',
+                  width: `${fearGreed.value}%`,
+                  background: `linear-gradient(90deg, ${C.red} 0%, ${C.amber} 50%, ${C.green} 100%)`,
+                  borderRadius: 2,
+                }} />
+              </div>
+            </>
+          ) : <span style={{ color: C.muted }}>loading…</span>}
+        </div>
+
+        {/* Quick-actions for traders */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', height: '100%' }}>
+          <a href="/dashboard/build" style={{
+            border: `1px solid ${C.amber}55`, color: C.amber, padding: '3px 10px',
+            textDecoration: 'none', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
+            background: '#000',
+          }}>+ AGENT</a>
+          <a href="/dashboard/build/backtest" style={{
+            border: `1px solid ${C.green}55`, color: C.green, padding: '3px 10px',
+            textDecoration: 'none', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
+            background: '#000',
+          }}>QUICK BT</a>
+          <a href="/dashboard/marketplace" style={{
+            border: `1px solid ${C.border2}`, color: C.muted, padding: '3px 10px',
+            textDecoration: 'none', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
+            background: '#000',
+          }}>MARKET</a>
         </div>
       </div>
 

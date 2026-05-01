@@ -66,11 +66,14 @@ export async function POST(req: Request) {
     name: aiAgent.name,
     ticker: tickerFromName(aiAgent.name),
     description: aiAgent.thesis,
-    strategy_type: spec?.alpha_type ?? 'composite',
+    strategy_type: spec?.alpha_type ?? 'custom',
     asset_class: 'crypto',
     status: 'active',
     primary_symbol: primarySymbol,
-    backtest_strategy: spec?.template ?? 'composite_balanced',
+    // Templates have been removed — every published agent is a "custom"
+    // strategy whose source-of-truth is the user's strategy.ts + pinned
+    // blocks. Backtests pull from the live ledger, not a template profile.
+    backtest_strategy: 'custom',
     backtest_stats: {
       grade: aiAgent.last_grade,
       score: aiAgent.last_score,

@@ -2,11 +2,14 @@ import { Resend } from 'resend'
 
 const FROM = 'ASE <noreply@launchase.com>'
 
-function getResend() {
+// Returns null when RESEND_API_KEY is missing, so callers can skip the send
+// without crashing. Account creation must never fail just because email
+// sending isn't wired up (e.g. a local dev env with no secrets).
+function getResend(): Resend | null {
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) {
-    console.error('[Email] RESEND_API_KEY not set')
-    throw new Error('RESEND_API_KEY is not set')
+    console.warn('[Email] RESEND_API_KEY not set — email sends will be skipped')
+    return null
   }
   return new Resend(apiKey)
 }
@@ -156,6 +159,7 @@ const emailBase = (content: string) => `
 export async function sendWelcomeEmail(email: string, name: string) {
   const resend = getResend()
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  if (!resend) return // skip silently when email isn't configured
 
   try {
     console.log('[Email] Sending welcome to:', email)
@@ -201,6 +205,7 @@ export async function sendWelcomeEmail(email: string, name: string) {
 
 export async function sendVerificationEmail(email: string, name: string, verificationLink: string) {
   const resend = getResend()
+  if (!resend) return
 
   try {
     console.log('[Email] Sending verification to:', email)
@@ -240,6 +245,7 @@ export async function sendVerificationEmail(email: string, name: string, verific
 
 export async function sendPasswordResetEmail(email: string, name: string, resetLink: string) {
   const resend = getResend()
+  if (!resend) return
 
   try {
     console.log('[Email] Sending password reset to:', email)
@@ -280,6 +286,7 @@ export async function sendPasswordResetEmail(email: string, name: string, resetL
 export async function sendDepositConfirmation(email: string, amountCents: number) {
   const amount = (amountCents / 100).toFixed(2)
   const resend = getResend()
+  if (!resend) return
   try {
     console.log('[Email] Sending deposit confirmation to:', email)
     await resend.emails.send({
@@ -315,6 +322,7 @@ export async function sendSellConfirmation(email: string, agentName: string, ret
   const amount = (returnCents / 100).toFixed(2)
   const positive = returnCents >= 0
   const resend = getResend()
+  if (!resend) return
   try {
     console.log('[Email] Sending sell confirmation to:', email)
     await resend.emails.send({

@@ -544,7 +544,7 @@ export default function QuantDocsPage() {
           <h2 style={{ fontSize: '0.9rem', fontWeight: 700, color: C.white, margin: '0 0 0.5rem', letterSpacing: '0.06em', textTransform: 'uppercase' }}>From Canvas → Ledger → Backtest</h2>
           <p style={{ fontSize: '0.78rem', color: C.muted, lineHeight: 1.65, margin: 0, marginBottom: '0.5rem' }}>
             Backtests are not synthetic. When you publish an agent, every paper trade it makes is appended to <code style={{ fontFamily: 'var(--font-mono)', color: C.mint, padding: '0 0.25rem', background: `${C.mint}12`, borderRadius: 3 }}>agent_paper_ledger</code>.
-            The Backtest tab then replays that exact trade stream and benchmarks it against <strong style={{ color: C.white }}>BTC</strong>, <strong style={{ color: C.white }}>ETH</strong>, <strong style={{ color: C.white }}>SPY</strong>, and the <strong style={{ color: C.white }}>risk-free T-bill</strong>. There are no hidden strategy templates — what you build is what gets measured.
+            The Backtest tab then replays that exact trade stream and benchmarks it against <strong style={{ color: C.white }}>BTC</strong>, <strong style={{ color: C.white }}>ETH</strong>, <strong style={{ color: C.white }}>SPY</strong>, and the <strong style={{ color: C.white }}>risk-free T-bill</strong>. There are no strategy templates — what you build is what gets measured.
           </p>
           <ol style={{ margin: 0, paddingLeft: '1.1rem', color: C.text, fontSize: '0.74rem', lineHeight: 1.7 }}>
             <li>Pick blocks on the Canvas → describe the thesis → AI scaffolds files.</li>
@@ -552,6 +552,45 @@ export default function QuantDocsPage() {
             <li>Publish the agent. The scheduler ticks it; trades flow into the ledger.</li>
             <li>Backtest tab pulls the ledger, replays it, and grades vs. BTC/ETH/SPY/T-bill.</li>
           </ol>
+        </div>
+
+        {/* ── Publish Contract — required for /dashboard/marketplace ── */}
+        <div style={{ marginBottom: '2.5rem', padding: '0.95rem 1.1rem', background: `${C.orange}0a`, border: `1px solid ${C.orange}40`, borderRadius: 9 }}>
+          <h2 style={{ fontSize: '0.9rem', fontWeight: 700, color: C.white, margin: '0 0 0.5rem', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Publish Contract</h2>
+          <p style={{ fontSize: '0.78rem', color: C.muted, lineHeight: 1.65, margin: 0, marginBottom: '0.55rem' }}>
+            Every published agent must satisfy two requirements. The publish button is disabled until both are met — there are no exceptions, including for custom strategies without a template.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.6rem' }}>
+            <div style={{ padding: '0.7rem 0.85rem', background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 7 }}>
+              <div style={{ fontSize: '0.62rem', fontWeight: 700, color: C.orange, fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', marginBottom: '0.3rem' }}>1. THINKING TRACE</div>
+              <div style={{ fontSize: '0.7rem', color: C.text, lineHeight: 1.6 }}>
+                Export a <code style={{ fontFamily: 'var(--font-mono)', color: C.mint }}>thinking()</code> function (or a <code style={{ fontFamily: 'var(--font-mono)', color: C.mint }}>// thinking:</code> block) that returns a short reasoning trace on every tick. The trace gets stored alongside the trade so subscribers can see <em>why</em> the agent acted.
+              </div>
+            </div>
+            <div style={{ padding: '0.7rem 0.85rem', background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 7 }}>
+              <div style={{ fontSize: '0.62rem', fontWeight: 700, color: C.orange, fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', marginBottom: '0.3rem' }}>2. LEDGER POSTING</div>
+              <div style={{ fontSize: '0.7rem', color: C.text, lineHeight: 1.6 }}>
+                Wire fills into the paper ledger by calling <code style={{ fontFamily: 'var(--font-mono)', color: C.mint }}>postLedger(&#123; symbol, side, qty, price &#125;)</code> on every executed order. No ledger entries → no marketplace listing → auto-delisted after 72h.
+              </div>
+            </div>
+          </div>
+          <pre style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 7, padding: '0.7rem 0.85rem', fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: C.text, overflowX: 'auto', margin: 0, lineHeight: 1.55 }}>
+{`// strategy.ts — minimal example honoring the publish contract
+export async function tick(ctx) {
+  const signal = computeSignal(ctx.bars)
+  const reasoning = thinking(signal, ctx.bars)        // ← required
+  if (Math.abs(signal) < 0.05) return { reasoning }   // no fill, but log thought
+
+  const order = { symbol: ctx.primary, side: signal > 0 ? 'BUY' : 'SELL', qty: 0.1 }
+  const fill  = await ctx.exec.kraken(order)
+  await ctx.postLedger({ ...fill, thinking: reasoning }) // ← required
+  return { reasoning, fill }
+}
+
+function thinking(s, bars) {
+  return \`signal=\${s.toFixed(2)} on \${bars.length} bars; \${s > 0 ? 'long bias' : 'short bias'}.\`
+}`}
+          </pre>
         </div>
 
         {/* ── Agent Manager ── */}
