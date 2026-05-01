@@ -113,6 +113,10 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [fetching, setFetching] = useState(true)
+  // Paper-mode unblock — when Kraken USD cash is $0 the user can still
+  // allocate virtual funds (10k simulated) and the agent runs in paper mode.
+  const [paperMode, setPaperMode] = useState(false)
+  const PAPER_BALANCE_CENTS = 10_000_00
 
   useEffect(() => {
     fetch('/api/account/balance', { cache: 'no-store' })
@@ -129,12 +133,14 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
       .finally(() => setFetching(false))
   }, [])
 
-  const notConnected = accountStatus === 'not_connected' && (balance ?? 0) === 0
+  const notConnected = accountStatus === 'not_connected' && (balance ?? 0) === 0 && !paperMode
   // Connected to Kraken but the USD cash balance is $0 — the user's funds
   // are likely sitting in positions, stakes, or non-USD currencies that
-  // ASE can't draw from. Surface this state with its own copy.
-  const connectedNoCash = accountStatus === 'connected' && (balance ?? 0) === 0
-  const maxAmount = balance !== null ? Math.floor(balance / 100) : 0
+  // ASE can't draw from. Surface this state with its own copy unless the
+  // user has flipped over to paper-mode.
+  const connectedNoCash = accountStatus === 'connected' && (balance ?? 0) === 0 && !paperMode
+  const effectiveBalanceCents = paperMode ? PAPER_BALANCE_CENTS : (balance ?? 0)
+  const maxAmount = Math.floor(effectiveBalanceCents / 100)
   const cappedAmount = Math.min(Math.max(amount, 0), maxAmount)
   const projectedShares = navCents > 0 ? (cappedAmount * 100) / navCents : 0
   const sharePriceUsd = (navCents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -143,7 +149,7 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
     if (cappedAmount < 1) { setMsg('Minimum $1'); return }
     setLoading(true); setMsg('')
     try {
-      const res = await fetch('/api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: agentId, amount_cents: Math.round(cappedAmount * 100) }) })
+      const res = await fetch('/api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: agentId, amount_cents: Math.round(cappedAmount * 100), paper: paperMode }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Purchase failed')
       onSuccess({ shares: data.shares, amount: cappedAmount })
@@ -173,10 +179,10 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.28rem' }}>SHARE PRICE (NAV)</div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color: 'var(--blue2)', letterSpacing: '-.01em' }}>${sharePriceUsd}</div>
             </div>
-            <div style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10, padding: '.65rem .85rem' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.28rem' }}>AVAILABLE CASH</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color: fetching ? 'var(--faint)' : notConnected ? 'var(--red)' : 'var(--white)', letterSpacing: '-.01em' }}>
-                {fetching ? '—' : notConnected ? 'Not Connected' : fmt$(balance ?? 0)}
+            <div style={{ background: paperMode ? 'rgba(22,199,132,.07)' : 'rgba(255,255,255,.03)', border: `1px solid ${paperMode ? 'rgba(22,199,132,.22)' : 'rgba(255,255,255,.07)'}`, borderRadius: 10, padding: '.65rem .85rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: paperMode ? '#16c784' : 'var(--faint)', letterSpacing: '.1em', marginBottom: '.28rem' }}>{paperMode ? 'PAPER BALANCE' : 'AVAILABLE CASH'}</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color: fetching ? 'var(--faint)' : notConnected ? 'var(--red)' : paperMode ? '#16c784' : 'var(--white)', letterSpacing: '-.01em' }}>
+                {fetching ? '—' : notConnected ? 'Not Connected' : fmt$(effectiveBalanceCents)}
               </div>
             </div>
           </div>
@@ -211,7 +217,7 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
                   funds into spot USD on Kraken, then come back and try again.
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem', marginBottom: '.5rem' }}>
                 <a href="https://www.kraken.com/u/funding" target="_blank" rel="noreferrer"
                   style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem', padding: '.7rem', borderRadius: 9, background: 'rgba(94,65,217,.12)', border: '1px solid rgba(94,65,217,.3)', color: '#a78bfa', fontFamily: 'var(--font-mono)', fontSize: '.66rem', fontWeight: 700, textDecoration: 'none', letterSpacing: '.04em' }}>
                   Open Kraken →
@@ -233,6 +239,15 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
                 >
                   {fetching ? 'Syncing…' : 'Re-sync Balance'}
                 </button>
+              </div>
+              <button
+                onClick={() => { setPaperMode(true); setMsg('') }}
+                style={{ width: '100%', padding: '.78rem', borderRadius: 10, border: '1px solid rgba(22,199,132,.35)', background: 'linear-gradient(135deg, rgba(22,199,132,.18), rgba(22,199,132,.08))', color: '#16c784', fontFamily: 'var(--font-head)', fontSize: '.84rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '-.005em' }}
+              >
+                Trade in Paper Mode · $10,000 virtual
+              </button>
+              <div style={{ marginTop: '.5rem', fontFamily: 'var(--font-mono)', fontSize: '.46rem', color: 'var(--faint)', lineHeight: 1.7, textAlign: 'center' }}>
+                No live Kraken trade. Position is tracked virtually so you can test the agent risk-free.
               </div>
             </div>
           ) : (
@@ -260,6 +275,16 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
                 </div>
               </div>
 
+              {paperMode && (
+                <div style={{ marginBottom: '.85rem', padding: '.55rem .8rem', borderRadius: 9, background: 'rgba(22,199,132,.08)', border: '1px solid rgba(22,199,132,.22)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.6rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '.45rem' }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#16c784', boxShadow: '0 0 8px #16c784' }} />
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: '#16c784', fontWeight: 700, letterSpacing: '.08em' }}>PAPER MODE · NO LIVE TRADE</span>
+                  </div>
+                  <button onClick={() => setPaperMode(false)} style={{ background: 'transparent', border: 'none', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.5rem', cursor: 'pointer', textDecoration: 'underline' }}>switch to live</button>
+                </div>
+              )}
+
               {/* Order summary */}
               <div style={{ background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10, padding: '.75rem .9rem', marginBottom: '1rem' }}>
                 {[
@@ -278,10 +303,10 @@ function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
               {msg && <div style={{ marginBottom: '.8rem', padding: '.6rem .85rem', background: 'rgba(242,54,69,.08)', border: '1px solid rgba(242,54,69,.2)', borderRadius: 8, fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--red)' }}>{msg}</div>}
 
               <button onClick={handleInvest} disabled={loading || fetching || cappedAmount < 1} style={{ width: '100%', padding: '.8rem', borderRadius: 10, border: 0, background: cappedAmount >= 1 ? 'linear-gradient(135deg, var(--blue), #5741D9)' : 'rgba(255,255,255,.05)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, cursor: loading || fetching || cappedAmount < 1 ? 'not-allowed' : 'pointer', opacity: loading || fetching || cappedAmount < 1 ? .45 : 1, letterSpacing: '-.01em', transition: 'opacity .15s' }}>
-                {loading ? 'Placing order...' : `Buy ${projectedShares.toFixed(4)} shares · $${cappedAmount}`}
+                {loading ? 'Placing order...' : paperMode ? `Allocate ${projectedShares.toFixed(4)} virtual shares · $${cappedAmount}` : `Buy ${projectedShares.toFixed(4)} shares · $${cappedAmount}`}
               </button>
               <div style={{ marginTop: '.75rem', fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', lineHeight: 1.7, textAlign: 'center' }}>
-                Market order · executes immediately on Kraken · algorithmic trading involves risk of loss
+                {paperMode ? 'Paper trade · simulated execution · tracked virtually for testing' : 'Market order · executes immediately on Kraken · algorithmic trading involves risk of loss'}
               </div>
             </>
           )}

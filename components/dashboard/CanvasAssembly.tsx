@@ -33,7 +33,7 @@ interface Props {
   onBlockClick?: (id: string) => void
 }
 
-export default function CanvasAssembly({ blocks, phase, height = 220, onBlockClick }: Props) {
+export default function CanvasAssembly({ blocks, phase, height, onBlockClick }: Props) {
   const layout = useMemo(() => {
     // Group by pipeline column
     const cols: Map<number, { id: string; label: string; color: string }[]> = new Map()
@@ -50,7 +50,7 @@ export default function CanvasAssembly({ blocks, phase, height = 220, onBlockCli
     cols.set(sinkCol, SINKS.map(s => ({ id: s.id, label: s.label, color: s.color })))
 
     const sortedKeys = Array.from(cols.keys()).sort((a, b) => a - b)
-    const COL_W = 150, COL_GAP = 30, ROW_H = 40, ROW_GAP = 14
+    const COL_W = 150, COL_GAP = 36, ROW_H = 44, ROW_GAP = 14
     const positioned: { id: string; label: string; color: string; x: number; y: number; col: number }[] = []
     sortedKeys.forEach((k, ci) => {
       const arr = cols.get(k) ?? []
@@ -70,23 +70,30 @@ export default function CanvasAssembly({ blocks, phase, height = 220, onBlockCli
       const b = positioned.filter(p => p.col === ci + 1)
       for (const x of a) for (const y of b) {
         edges.push({
-          fromX: x.x + 130, fromY: x.y + 18,
-          toX: y.x + 4, toY: y.y + 18,
+          fromX: x.x + 134, fromY: x.y + 20,
+          toX: y.x + 4, toY: y.y + 20,
           color: x.color,
         })
       }
     }
-    const totalW = 24 + sortedKeys.length * (COL_W + COL_GAP)
-    return { positioned, edges, totalW, COL_W, ROW_H }
+    const totalW = 24 + sortedKeys.length * (COL_W + COL_GAP) + 24
+    // Height grows to contain the tallest column
+    const maxRows = Math.max(1, ...Array.from(cols.values()).map(c => c.length))
+    const contentH = 24 + maxRows * (ROW_H + ROW_GAP) + 24
+    return { positioned, edges, totalW, contentH }
   }, [blocks])
 
-  if (phase === 'idle') return null
-
+  // Allow idle phase so the always-on pipeline header on the build page works
   const intensity = phase === 'building' ? 1 : 0.7
+
+  // Explicit height prop overrides — otherwise grow to fit content
+  const wrapH = height ?? (layout.contentH + 40)
 
   return (
     <div style={{
-      position: 'relative', width: '100%', height, overflow: 'hidden',
+      position: 'relative', width: '100%',
+      height: wrapH,
+      // No overflow:hidden — box grows instead of scrolling
       background: 'radial-gradient(ellipse 80% 60% at 50% 40%, rgba(22,199,132,0.05) 0%, transparent 65%), linear-gradient(180deg, rgba(11,23,40,0.6), rgba(6,17,31,0.9))',
       borderBottom: '1px solid rgba(30,42,61,0.6)',
     }}>
@@ -97,19 +104,26 @@ export default function CanvasAssembly({ blocks, phase, height = 220, onBlockCli
         @keyframes ca-pulse   { 0%,100% { opacity: .35 } 50% { opacity: .85 } }
       `}</style>
 
-      {/* Title row */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.85rem', position: 'relative', zIndex: 2 }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: '#16c784', letterSpacing: '0.1em', fontWeight: 700 }}>
-          {phase === 'building' ? 'ASSEMBLING PIPELINE' : 'PIPELINE READY'}
-        </span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: '#94a3b8' }}>
-          {layout.positioned.length} nodes · {layout.edges.length} connections
-        </span>
-      </div>
+      {/* Title row — hidden in idle phase (build page shows its own header) */}
+      {phase !== 'idle' && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.85rem', position: 'relative', zIndex: 2 }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: '#16c784', letterSpacing: '0.1em', fontWeight: 700 }}>
+            {phase === 'building' ? 'ASSEMBLING PIPELINE' : 'PIPELINE READY'}
+          </span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: '#94a3b8' }}>
+            {layout.positioned.length} nodes · {layout.edges.length} connections
+          </span>
+        </div>
+      )}
 
-      {/* Centered scrollable canvas */}
-      <div style={{ position: 'absolute', inset: '32px 0 0 0', display: 'flex', justifyContent: 'center', overflowX: 'auto' }}>
-        <div style={{ position: 'relative', width: layout.totalW, height: height - 32 }}>
+      {/* Canvas — centered, expands horizontally to fit all blocks */}
+      <div style={{
+        position: 'absolute',
+        inset: phase !== 'idle' ? '32px 0 0 0' : '0 0 0 0',
+        display: 'flex', justifyContent: 'center', alignItems: 'center',
+        // no overflow clipping — parent box already sized to content
+      }}>
+        <div style={{ position: 'relative', width: layout.totalW, height: layout.contentH }}>
           {/* Edges */}
           <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
             {layout.edges.map((e, i) => {

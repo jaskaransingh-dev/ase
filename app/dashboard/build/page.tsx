@@ -228,6 +228,62 @@ function inlineFormat(text: string): React.ReactNode {
   })
 }
 
+// ── Suggestion chips with refresh — pulls from a pool the AI can refresh
+// to keep things alive feeling. Each "refresh" rotates to a new triplet.
+const SUGGESTION_POOL = [
+  'BTC/ETH momentum + EMA cross with 8% trailing stop',
+  'Mean-reversion on SOL RSI under 30, exit at 55',
+  'Fear & Greed composite — buy at extreme fear, sell at greed',
+  'Funding-rate arb on perps when funding flips negative',
+  'On-chain whale wallet tracker for ETH accumulation',
+  'BTC dominance regime filter + altcoin rotation',
+  'Breakout strategy on Donchian 20-day with ATR sizing',
+  'Volatility-targeted BTC with 15% annualized vol cap',
+  'MACD + Bollinger Band crossover on ETH 4h',
+  'Z-score mean reversion on BTC/ETH ratio',
+  'Multi-timeframe trend: weekly macro + daily entry',
+  'News + sentiment composite on top-10 coins',
+  'Kelly-sized momentum portfolio rebalanced weekly',
+  'Risk-parity allocator across BTC/ETH/SOL/AVAX',
+  'Supertrend signal with 2x ATR stops on SOL',
+  'Ichimoku cloud breakout on weekly BTC',
+  'Pairs trade BTC vs ETH using cointegration',
+  'CPI-print volatility buyer with 2-day exit',
+  'DXY-inverse rotation: long BTC when dollar weakens',
+  'Open-interest spike fader with mean-reversion confirm',
+]
+
+function SuggestionChips({ onPick }: { onPick: (s: string) => void }) {
+  const [seed, setSeed] = useState(() => Math.floor(Date.now() / 60000))
+  const triplet = useMemo(() => {
+    const out: string[] = []
+    const taken = new Set<number>()
+    let s = seed
+    while (out.length < 3) {
+      s = (s * 9301 + 49297) % 233280
+      const idx = s % SUGGESTION_POOL.length
+      if (taken.has(idx)) continue
+      taken.add(idx); out.push(SUGGESTION_POOL[idx])
+    }
+    return out
+  }, [seed])
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
+      <span style={{ fontSize: '.42rem', color: '#475569', fontFamily: 'var(--font-mono)', letterSpacing: '.08em', marginRight: '.15rem' }}>TRY</span>
+      {triplet.map(s => (
+        <button key={s} onClick={() => onPick(s)}
+          style={{ padding: '.22rem .5rem', borderRadius: 4, background: 'rgba(10,21,37,.5)', border: `1px solid #1a2535`, color: '#94a3b8', fontSize: '.48rem', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>{s}</button>
+      ))}
+      <button
+        onClick={() => setSeed(Date.now())}
+        title="Refresh suggestions"
+        style={{ padding: '.22rem .42rem', borderRadius: 4, background: 'transparent', border: `1px solid #243347`, color: '#16c784', fontSize: '.5rem', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}
+      >↻</button>
+    </div>
+  )
+}
+
 // ── Compact backtest result strip ─────────────────────────────────────────────
 const GRADE_CLR: Record<string, string> = { 'A+': '#16c784', A: '#16c784', 'B+': '#3b82f6', B: '#3b82f6', 'C+': '#f59e0b', C: '#f59e0b', D: '#ef4444', F: '#ef4444' }
 
@@ -990,6 +1046,9 @@ export default function BuildPage() {
       {/* ══ MAIN AREA ════════════════════════════════════════════════════════════ */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', zIndex: 10, overflow: 'hidden' }}>
 
+
+
+
         {/* Top utility bar removed. Floating Manage+Docs cluster lives in
             the top-right of the canvas (rendered below). Drafts is folded
             into the Manage page so there's a single agents-management
@@ -1022,20 +1081,19 @@ export default function BuildPage() {
         {phase === 'idle' && (
           <div style={{
             flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: pinnedIds.length > 0 ? 'flex-end' : 'center',
-            padding: pinnedIds.length > 0 ? '2rem 2rem 2.5rem' : '2rem',
+            justifyContent: 'flex-end',
+            padding: '1rem 2rem 1.5rem',
             animation: 'fade-up .4s ease', overflow: 'auto', pointerEvents: 'none',
-            transition: 'justify-content .35s ease, padding .35s ease',
+            transition: 'padding .25s ease',
           }}>
             <div style={{
-              animation: pinnedIds.length === 0 ? 'float 4s ease-in-out infinite' : 'none',
-              marginBottom: pinnedIds.length > 0 ? '.6rem' : '1.25rem',
+              marginBottom: '.6rem',
               textAlign: 'center', pointerEvents: 'auto',
               opacity: pinnedIds.length > 0 ? 0 : 1, height: pinnedIds.length > 0 ? 0 : 'auto', overflow: 'hidden',
               transition: 'opacity .25s ease, margin .25s ease',
             }}>
-              <div style={{ fontSize: '1.65rem', fontWeight: 800, color: C.white, letterSpacing: '-.02em', lineHeight: 1.15, marginBottom: '.4rem' }}>What should your agent trade?</div>
-              <div style={{ fontSize: '.72rem', color: C.faint }}>Describe it in plain English — pick blocks if you want, or skip them. We&apos;ll handle the rest.</div>
+              <div style={{ fontSize: '1.05rem', fontWeight: 800, color: C.white, letterSpacing: '-.02em', lineHeight: 1.15, marginBottom: '.25rem' }}>What should your agent trade?</div>
+              <div style={{ fontSize: '.6rem', color: C.faint }}>Describe it in plain English — pick blocks if you want, or skip them.</div>
             </div>
 
             <div style={{ width: '100%', maxWidth: 540, background: `${C.bg2}ee`, borderRadius: 14, border: `1px solid ${C.border2}`, boxShadow: '0 20px 60px rgba(0,0,0,.5)', backdropFilter: 'blur(12px)', overflow: 'hidden', pointerEvents: 'auto' }}>
@@ -1053,12 +1111,8 @@ export default function BuildPage() {
                   outline: 'none', resize: 'none', minHeight: 80, boxSizing: 'border-box',
                 }}
               />
-              <div style={{ display: 'flex', gap: '.35rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
-                {['BTC/ETH momentum + EMA cross', 'Mean-reversion on SOL RSI', 'Fear & Greed composite signal'].map(s => (
-                  <button key={s} onClick={() => setPrompt(s)}
-                    style={{ padding: '.18rem .45rem', borderRadius: 4, background: 'rgba(10,21,37,.5)', border: `1px solid ${C.border}`, color: C.faint, fontSize: '.46rem', cursor: 'pointer' }}>{s}</button>
-                ))}
-              </div>
+              <SuggestionChips onPick={setPrompt} />
+
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '.65rem' }}>
                 <span style={{ fontSize: '.44rem', color: C.faint, fontFamily: 'var(--font-mono)' }}>⌘↵ build</span>
                 <button onClick={handleBuild} disabled={!prompt.trim() && pinnedIds.length === 0}
@@ -1085,26 +1139,13 @@ export default function BuildPage() {
         {phase !== 'idle' && (
           <div style={{
             flex: 1, display: 'flex', flexDirection: 'column',
-            justifyContent: 'flex-end',
             overflow: 'hidden', animation: 'fade-up .35s ease',
-            pointerEvents: 'none', // children re-enable as needed
-            background: 'transparent',
+            background: `${C.bg}`,
           }}>
 
-            <div style={{
-              display: 'flex', flexDirection: 'column',
-              maxHeight: '60vh', minHeight: 280,
-              borderTop: `1px solid ${C.border}`,
-              background: `${C.bg}d9`,
-              backdropFilter: 'blur(14px)',
-              boxShadow: '0 -10px 40px rgba(0,0,0,.45)',
-              pointerEvents: 'auto',
-              overflow: 'hidden',
-            }}>
-
-            {/* Pipeline strip — lives inside the "Building strategy" panel */}
-            <div style={{ flexShrink: 0, borderBottom: `1px solid ${C.border}`, overflow: 'hidden' }}>
-              <CanvasAssembly blocks={nodes.map(n => n.id)} phase={phase} height={90} />
+            {/* Pipeline strip — top of the workspace, auto-height */}
+            <div style={{ flexShrink: 0, borderBottom: `1px solid ${C.border}` }}>
+              <CanvasAssembly blocks={nodes.map(n => n.id)} phase={phase} />
             </div>
 
             {/* Header */}
@@ -1227,13 +1268,33 @@ export default function BuildPage() {
                 ))}
               </div>
 
+              {/* Quick action chips — feel-alive: lets the user nudge
+                  the AI without typing. Each chip is a pre-filled prompt
+                  that streams a contextual follow-up. */}
+              {isDone && !chatStreaming && (
+                <div style={{ padding: '.45rem .85rem 0', display: 'flex', gap: '.3rem', flexWrap: 'wrap', flexShrink: 0 }}>
+                  {[
+                    { label: '↻ Run backtest', q: 'Run a fresh backtest on this strategy and tell me what changed in the metrics.' },
+                    { label: '+ Tighten risk', q: 'Tighten the risk controls — lower the max drawdown threshold and add a volatility-targeted sizing layer. Output the updated files.' },
+                    { label: '⚡ Boost edge', q: 'Suggest one concrete signal addition that would raise the Sharpe without inflating drawdown, and write the updated strategy.ts.' },
+                    { label: '? Explain trades', q: 'Walk me through the last 5 trades — why each one fired, what it reflects about the regime.' },
+                  ].map(c => (
+                    <button key={c.label}
+                      onClick={() => { setChatInput(c.q); setTimeout(sendChat, 30) }}
+                      style={{ padding: '.22rem .55rem', borderRadius: 5, background: 'rgba(22,199,132,.06)', border: `1px solid ${C.mint}30`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.5rem', cursor: 'pointer', fontWeight: 600 }}>
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {/* Input */}
               <div style={{ padding: '.6rem .85rem', borderTop: `1px solid ${C.border}`, display: 'flex', gap: '.45rem', flexShrink: 0, background: `${C.bg2}cc`, backdropFilter: 'blur(8px)' }}>
                 <input
                   value={chatInput}
                   onChange={e => setChatInput(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat() } }}
-                  placeholder={isDone ? 'Ask AI to refine the strategy, explain results, or add signals...' : 'Ask anything...'}
+                  placeholder={chatStreaming ? 'AI is thinking...' : isDone ? 'Ask AI to refine the strategy, explain results, or add signals...' : 'Ask anything...'}
                   disabled={chatStreaming}
                   style={{ flex: 1, background: 'rgba(10,21,37,.5)', border: `1px solid ${C.border2}`, borderRadius: 8, padding: '.42rem .65rem', color: C.white, fontSize: '.6rem', outline: 'none', fontFamily: 'var(--font-mono)' }}
                 />
@@ -1245,7 +1306,6 @@ export default function BuildPage() {
                     style={{ padding: '.42rem .75rem', borderRadius: 8, background: C.mint, color: '#000', fontWeight: 700, fontSize: '.56rem', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all .15s' }}>Code →</button>
                 )}
               </div>
-            </div>
             </div>
           </div>
         )}

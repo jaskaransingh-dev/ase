@@ -29,52 +29,54 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { agent_id, amount_cents } = await req.json()
+    const { agent_id, amount_cents, paper } = await req.json()
     if (!agent_id || !amount_cents || amount_cents < 100) {
       return NextResponse.json({ error: 'Minimum investment is $1' }, { status: 400 })
     }
+    const isPaper = !!paper
 
     const admin = createAdminClient()
 
-    // ── 1. Verify user has active Kraken keys ─────────────────────────────
+    // ── 1. Verify user has active Kraken keys (skipped in paper mode) ─────
     const { data: krakenRow } = await admin
       .from('user_kraken_keys')
       .select('status, last_balance_usd')
       .eq('user_id', user.id)
       .maybeSingle()
 
-    if (!krakenRow || krakenRow.status !== 'active') {
+    if (!isPaper && (!krakenRow || krakenRow.status !== 'active')) {
       return NextResponse.json({
         error: 'No Kraken API keys connected. Connect your Kraken account before investing.',
         redirect: '/dashboard/connect/kraken',
       }, { status: 400 })
     }
 
-    // ── 2. Check Kraken balance ───────────────────────────────────────────
+    // ── 2. Check Kraken balance (paper mode skips both balance + live fetch) ──
     let krakenFreeUsd = 0
-    const client = await krakenClientForUser(user.id)
-    if (client) {
-      try {
-        const balance = await client.getBalance()
-        krakenFreeUsd = balance.freeUsd
-        // Update cached balance
-        await admin.from('user_kraken_keys').update({
-          last_balance_usd: balance.cashUsd,
-          updated_at: new Date().toISOString(),
-        }).eq('user_id', user.id)
-      } catch (e) {
-        console.warn('[Subscribe] Could not fetch live Kraken balance, using cached:', e)
-        krakenFreeUsd = Number(krakenRow.last_balance_usd ?? 0)
+    if (!isPaper) {
+      const client = await krakenClientForUser(user.id)
+      if (client) {
+        try {
+          const balance = await client.getBalance()
+          krakenFreeUsd = balance.freeUsd
+          await admin.from('user_kraken_keys').update({
+            last_balance_usd: balance.cashUsd,
+            updated_at: new Date().toISOString(),
+          }).eq('user_id', user.id)
+        } catch (e) {
+          console.warn('[Subscribe] Could not fetch live Kraken balance, using cached:', e)
+          krakenFreeUsd = Number(krakenRow?.last_balance_usd ?? 0)
+        }
       }
-    }
 
-    const requiredUsd = amount_cents / 100
-    if (krakenFreeUsd > 0 && krakenFreeUsd < requiredUsd) {
-      return NextResponse.json({
-        error: `Insufficient Kraken balance. You have $${krakenFreeUsd.toFixed(2)} but need $${requiredUsd.toFixed(2)}. Add funds to your Kraken account.`,
-        kraken_balance_cents: Math.round(krakenFreeUsd * 100),
-        required_cents: amount_cents,
-      }, { status: 400 })
+      const requiredUsd = amount_cents / 100
+      if (krakenFreeUsd > 0 && krakenFreeUsd < requiredUsd) {
+        return NextResponse.json({
+          error: `Insufficient Kraken balance. You have $${krakenFreeUsd.toFixed(2)} but need $${requiredUsd.toFixed(2)}. Add funds to your Kraken account.`,
+          kraken_balance_cents: Math.round(krakenFreeUsd * 100),
+          required_cents: amount_cents,
+        }, { status: 400 })
+      }
     }
 
     // ── 3. Get agent ──────────────────────────────────────────────────────
@@ -140,7 +142,7 @@ export async function POST(req: NextRequest) {
       type: 'invest',
       amount_cents: -amount_cents,
       reference_id: holdingUpdate.holdingId,
-      note: `Subscribed to ${agent.name}${holdingUpdate.merged ? ' (added to position)' : ''} via Kraken`,
+      note: `Subscribed to ${agent.name}${holdingUpdate.merged ? ' (added to position)' : ''} via ${isPaper ? 'Paper Mode' : 'Kraken'}`,
     })
 
     // ── 8. Reprice agent ──────────────────────────────────────────────────
@@ -151,9 +153,9 @@ export async function POST(req: NextRequest) {
       volumeShares: newShares,
     })
 
-    // ── 9. Execute immediate buy trade on Kraken ──────────────────────────
+    // ── 9. Execute immediate buy trade on Kraken (skipped in paper mode) ──
     let tradeResult: { orderId?: string; filledQty?: number; fillPrice?: number } = {}
-    if (agent.primary_symbol && amount_cents >= 100) {
+    if (!isPaper && agent.primary_symbol && amount_cents >= 100) {
       try {
         const users = await getUsersWithHoldings(admin, agent_id)
         const isSubscribed = users.find(u => u.user_id === user.id)
@@ -177,7 +179,7 @@ export async function POST(req: NextRequest) {
     // ── 10. Trigger cron agent run ────────────────────────────────────────
     void triggerImmediateAgentRun(req, agent_id)
 
-    console.log(`[Subscribe] ${user.id} → ${agent.slug}: $${requiredUsd.toFixed(2)} invested, ${newShares.toFixed(6)} shares @ $${(askCents / 100).toFixed(4)}`)
+    console.log(`[Subscribe] ${user.id} → ${agent.slug}: $${(amount_cents / 100).toFixed(2)} invested${isPaper ? ' [PAPER]' : ''}, ${newShares.toFixed(6)} shares @ $${(askCents / 100).toFixed(4)}`)
 
     return NextResponse.json({
       ok: true,
