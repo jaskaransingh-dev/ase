@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Logo } from '@/components/ui/Logo'
-import AIChatbot from '@/components/AIChatbot'
 import { NAV_CONFIG } from '@/lib/nav-config'
 
 export default function DashboardShell({ user, children }: { user: { id: string; email: string; name: string }; children: React.ReactNode }) {
@@ -73,7 +72,15 @@ export default function DashboardShell({ user, children }: { user: { id: string;
 
   const initials = (user.name || user.email || 'U').slice(0, 2).toUpperCase()
 
-  const isFullscreenContent = (pathname ?? '') === '/dashboard/backtest' || (pathname ?? '').startsWith('/dashboard/build') || (pathname ?? '').startsWith('/dashboard/lab')
+  const isFullscreenContent = (pathname ?? '') === '/dashboard/backtest' || (pathname ?? '').startsWith('/dashboard/build')
+
+  // Auto-collapse the sidebar whenever the user enters a workspace page
+  // (build canvas, code editor, backtest results). Re-open it on regular pages.
+  useEffect(() => {
+    if (isFullscreenContent) setSidebarOpen(false)
+    else setSidebarOpen(true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname])
 
   return (
     <div className="quant-terminal">
@@ -581,10 +588,11 @@ function CommandPalette() {
   const [idx, setIdx] = useState(0)
 
   const items = [
-    { label: 'Quant Lab · Build Agent',  href: '/dashboard/lab',           hint: 'AI builder' },
-    { label: 'Studio (manual editor)',   href: '/dashboard/lab/studio',    hint: 'Edit spec' },
-    { label: 'Backtest Engine',          href: '/dashboard/lab/backtest',  hint: 'Run scenarios' },
-    { label: 'My Agents',                href: '/dashboard/lab/agents',    hint: 'Drafts & published' },
+    { label: 'Build · Canvas',           href: '/dashboard/build',           hint: 'Drag-and-drop blocks → AI scaffold' },
+    { label: 'Build · Code editor',      href: '/dashboard/build/code',      hint: 'Tune the agent files' },
+    { label: 'Build · Quick Backtest',   href: '/dashboard/build/backtest',  hint: 'Sub-5s run vs. BTC/ETH/SPY/T-bill' },
+    { label: 'Build · Manage Agents',    href: '/dashboard/build/manage',    hint: 'Drafts, published, ledger' },
+    { label: 'Build · Docs',             href: '/dashboard/build/docs',      hint: 'How blocks → trades → ledger' },
     { label: 'Exchange',                 href: '/dashboard/marketplace',   hint: 'Allocate funds' },
     { label: 'SYNE Terminal · News',     href: '/dashboard/geo',           hint: 'Market intel' },
     { label: 'Kraken Keys',              href: '/dashboard/connect/kraken',hint: 'API keys' },

@@ -284,6 +284,11 @@ export default function QuantLabPage() {
 
   // Layout
   const [sideOpen, setSideOpen] = useState(true)
+  // Codebase tree condense mode: collapse the explorer to just the active file
+  // (plus an "+N more" affordance) when the AI is streaming or a backtest is
+  // running, but never collapse below one visible file. Manual override via
+  // the chevron in the explorer header.
+  const [treeCondensed, setTreeCondensed] = useState(false)
   const [rightTab, setRightTab] = useState<'backtest'|'data'|'docs'|'chat'>('backtest')
   const [bottomMode, setBottomMode] = useState<'terminal'|'chat'>('chat')
   const [bottomChatRef] = useState(() => ({ current: null as HTMLTextAreaElement | null }))
@@ -306,6 +311,11 @@ export default function QuantLabPage() {
       setSideOpen(false)
     }
   }, [rightTab])
+
+  // Auto-condense the codebase tree when work is happening; the explorer
+  // still shows one file (the active one) so the user is never lost.
+  // We bind this to chatLoading and btLoading below — defined later in the
+  // component, so the effect uses the values via the closure.
 
   // Terminal
   const [termLines, setTermLines]     = useState(['> ASE Quant Lab ready', '> Cmd+Enter run  |  Cmd+S save  |  Cmd+K focus AI', ''])
@@ -334,18 +344,48 @@ export default function QuantLabPage() {
   const [dataView, setDataView]       = useState<'apis'|'ml'|'blocks'>('blocks')
   const [blockCat, setBlockCat]       = useState<BlockCategory>('data')
 
-  // AI chat
-  const [chatMsgs, setChatMsgs]       = useState<ChatMsg[]>([
-    { role: 'ai', text: "I'm your quant AI assistant. I can **design alpha models**, **analyze backtest results**, **suggest optimizations**, and **write code** directly to your files.\n\nTry asking:\n- *Improve my Sharpe ratio*\n- *Add on-chain signals (NUPL, SOPR)*\n- *Explain my backtest results*\n- *Optimize the risk aversion parameter*" },
-  ])
+  // AI chat — hydrate from build-page transcript if the user just came from /dashboard/build
+  const [chatMsgs, setChatMsgs]       = useState<ChatMsg[]>(() => {
+    try {
+      const raw = localStorage.getItem('ase_build_chat')
+      if (raw) {
+        const parsed = JSON.parse(raw) as ChatMsg[]
+        if (Array.isArray(parsed) && parsed.length) return parsed
+      }
+    } catch {}
+    return [
+      { role: 'ai', text: "I'm your quant AI assistant. I can **design alpha models**, **analyze backtest results**, **suggest optimizations**, and **write code** directly to your files.\n\nTry asking:\n- *Improve my Sharpe ratio*\n- *Add on-chain signals (NUPL, SOPR)*\n- *Explain my backtest results*\n- *Optimize the risk aversion parameter*" },
+    ]
+  })
   const [chatInput, setChatInput]     = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const chatInputRef = useRef<HTMLTextAreaElement>(null)
   const chatEndRef   = useRef<HTMLDivElement>(null)
-  useEffect(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), [chatMsgs])
+  const chatScrollRef = useRef<HTMLDivElement>(null)
+  // Scroll chat to bottom *only when the user is already pinned*. Streaming
+  // tokens never yank a user away from a message they're reading.
+  useEffect(() => {
+    const el = chatScrollRef.current
+    if (!el) return
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distance < 80) el.scrollTop = el.scrollHeight
+  }, [chatMsgs])
 
-  // Strategy name / publish
-  const [agentName, setAgentName]     = useState('Crypto Momentum')
+  // Bind tree auto-condense to the active workloads. When idle the user
+  // gets the full tree back. We never go to zero rows — the active file is
+  // always rendered.
+  useEffect(() => {
+    if (chatLoading || btLoading) setTreeCondensed(true)
+  }, [chatLoading, btLoading])
+
+  // Strategy name / publish — hydrate from build handoff if present
+  const [agentName, setAgentName]     = useState(() => {
+    try {
+      const n = localStorage.getItem('ase_build_agent_name')
+      if (n && n.trim()) return n
+    } catch {}
+    return 'Crypto Momentum'
+  })
   const [publishing, setPublishing]   = useState(false)
   const [published, setPublished]     = useState(false)
   const [publishStep, setPublishStep] = useState<0|1|2|3>(0) // 0=closed 1=review 2=legal 3=done
@@ -536,6 +576,51 @@ export default function QuantLabPage() {
       setBtError(msg); addTerm(`[ERR] ${msg}`)
     } finally { setBtLoading(false); setBtStartTime(null) }
   }
+
+  // Run backtest using the EXACT payload the AI emitted in backtest.config.json.
+  // This is how the agent gets backtested at the end of the build prompt run —
+  // template selection happens internally in the AI's spec, never shown to the user.
+  async function runAgentBacktest(payload: Record<string, unknown>) {
+    setBtLoading(true); setBtError(''); setBtResult(null)
+    setBtStartTime(Date.now()); setBtElapsed(0)
+    addTerm('[RUN] Backtesting agent…')
+    try {
+      const res = await fetch('/api/quant/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, save: false }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Backtest failed')
+      setBtResult(data)
+      const ts = data.tear_sheet as Record<string, number>
+      addTerm(`[OK] Grade: ${data.grade}  CAGR: ${(ts?.cagr ?? 0).toFixed(1)}%  Sharpe: ${ts?.sharpeRatio?.toFixed(2)}  MaxDD: ${ts?.maxDrawdownPct?.toFixed(1)}%`)
+      setRightTab('backtest')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error'
+      setBtError(msg); addTerm(`[ERR] ${msg}`)
+    } finally { setBtLoading(false); setBtStartTime(null) }
+  }
+
+  // Auto-backtest on arrival from /dashboard/build: parse the AI's
+  // backtest.config.json and run it once, then clear the handoff flag.
+  useEffect(() => {
+    let triggered = false
+    try {
+      if (localStorage.getItem('ase_build_autobacktest') !== '1') return
+      const raw = fileContents['backtest.config.json']
+      if (!raw) return
+      const payload = JSON.parse(raw)
+      localStorage.removeItem('ase_build_autobacktest')
+      triggered = true
+      // Show chat panel so the user sees the agent's reasoning while it backtests
+      setRightTab('chat')
+      void runAgentBacktest(payload)
+    } catch {
+      if (triggered) return
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileContents['backtest.config.json']])
 
   // ── Publish ───────────────────────────────────────────────────────────────────
   function handlePublish() {
@@ -794,24 +879,49 @@ export default function QuantLabPage() {
             <div style={{ width: 210, flexShrink: 0, borderRight: `1px solid ${C.border}`, background: C.bg2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
               {/* File explorer */}
-              <div style={{ padding: '.4rem .65rem .3rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ padding: '.4rem .65rem .3rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem' }}>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, letterSpacing: '.1em' }}>EXPLORER</span>
-                <button onClick={() => { const n = prompt('New file name (e.g. signals.ts):'); if (n) { updateFile(n, ''); openFile(n) } }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontSize: '.85rem', lineHeight: 1 }}>+</button>
+                <div style={{ display: 'flex', gap: '.2rem' }}>
+                  <button title={treeCondensed ? 'Expand tree' : 'Collapse tree (keep active file)'}
+                    onClick={() => setTreeCondensed(v => !v)}
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontSize: '.65rem', lineHeight: 1, padding: 0 }}>
+                    {treeCondensed ? '▸' : '▾'}
+                  </button>
+                  <button onClick={() => { const n = prompt('New file name (e.g. signals.ts):'); if (n) { updateFile(n, ''); openFile(n) } }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontSize: '.85rem', lineHeight: 1 }}>+</button>
+                </div>
               </div>
               <div style={{ flex: 1, overflowY: 'auto', padding: '.25rem .3rem' }}>
-                {Object.keys(fileContents).map(name => {
-                  const ext = name.split('.').pop() ?? ''
-                  const clr = { ts: C.blue, py: C.mint, json: C.orange, md: C.muted }[ext] ?? C.faint
-                  const isActive = activeFile === name
-                  const hasPending = pendingEdits.some(e => e.filename === name)
+                {(() => {
+                  const fileNames = Object.keys(fileContents)
+                  // Condensed mode: show only the active file (always at least 1)
+                  // and a "+N more" expander.
+                  const visible = treeCondensed && fileNames.length > 1
+                    ? [activeFile && fileNames.includes(activeFile) ? activeFile : fileNames[0]]
+                    : fileNames
                   return (
-                    <button key={name} onClick={() => openFile(name)} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', width: '100%', padding: '.25rem .45rem', borderRadius: 5, background: isActive ? `${C.blue}12` : hasPending ? `${C.blue}07` : 'transparent', border: `1px solid ${hasPending ? C.blue + '30' : 'transparent'}`, cursor: 'pointer', textAlign: 'left', marginBottom: '.03rem' }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: clr, fontWeight: 700, flexShrink: 0, width: 16 }}>{ext.toUpperCase().slice(0,2)}</span>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.63rem', color: isActive ? C.white : C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{name}</span>
-                      {hasPending && <div style={{ width: 5, height: 5, borderRadius: '50%', background: C.blue, flexShrink: 0, boxShadow: `0 0 4px ${C.blue}` }} />}
-                    </button>
+                    <>
+                      {visible.map(name => {
+                        const ext = name.split('.').pop() ?? ''
+                        const clr = { ts: C.blue, py: C.mint, json: C.orange, md: C.muted }[ext] ?? C.faint
+                        const isActive = activeFile === name
+                        const hasPending = pendingEdits.some(e => e.filename === name)
+                        return (
+                          <button key={name} onClick={() => openFile(name)} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', width: '100%', padding: '.25rem .45rem', borderRadius: 5, background: isActive ? `${C.blue}12` : hasPending ? `${C.blue}07` : 'transparent', border: `1px solid ${hasPending ? C.blue + '30' : 'transparent'}`, cursor: 'pointer', textAlign: 'left', marginBottom: '.03rem' }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: clr, fontWeight: 700, flexShrink: 0, width: 16 }}>{ext.toUpperCase().slice(0,2)}</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.63rem', color: isActive ? C.white : C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{name}</span>
+                            {hasPending && <div style={{ width: 5, height: 5, borderRadius: '50%', background: C.blue, flexShrink: 0, boxShadow: `0 0 4px ${C.blue}` }} />}
+                          </button>
+                        )
+                      })}
+                      {treeCondensed && fileNames.length > visible.length && (
+                        <button onClick={() => setTreeCondensed(false)}
+                          style={{ display: 'flex', alignItems: 'center', gap: '.35rem', width: '100%', padding: '.25rem .45rem', borderRadius: 5, background: 'transparent', border: `1px dashed ${C.border}`, cursor: 'pointer', color: C.faint, fontSize: '.55rem', fontFamily: 'var(--font-mono)', marginTop: '.15rem' }}>
+                          + {fileNames.length - visible.length} more
+                        </button>
+                      )}
+                    </>
                   )
-                })}
+                })()}
               </div>
 
               {/* ASE Pages navigator */}
@@ -819,10 +929,10 @@ export default function QuantLabPage() {
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, letterSpacing: '.1em', marginBottom: '.3rem' }}>ASE PAGES</div>
                 {[
                   { label: 'dashboard', href: '/dashboard', icon: '◈' },
-                  { label: 'lab', href: '/dashboard/lab', icon: '⚗' },
+                  { label: 'build', href: '/dashboard/build', icon: '◇' },
                   { label: 'backtest', href: '/dashboard/build/backtest', icon: '▶' },
                   { label: 'docs', href: '/dashboard/build/docs', icon: '◉' },
-                  { label: 'agents', href: '/agents', icon: '★' },
+                  { label: 'manage', href: '/dashboard/build/manage', icon: '★' },
                   { label: 'settings', href: '/dashboard/settings', icon: '◆' },
                 ].map(p => (
                   <a key={p.label} href={p.href}
@@ -1374,8 +1484,8 @@ export default function QuantLabPage() {
               {/* ── CHAT TAB ── */}
               {rightTab === 'chat' && (
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: C.bg, margin: '-.8rem', padding: '.8rem' }}>
-                  {/* Messages */}
-                  <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+                  {/* Messages — scroll-locked: never yanks while user reads above */}
+                  <div ref={chatScrollRef} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '.35rem', overscrollBehavior: 'contain' }}>
                     {chatMsgs.map((m, i) => (
                       <div key={i} style={{ display: 'flex', gap: '.3rem', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
                         {m.role === 'ai' && (
@@ -1461,8 +1571,8 @@ export default function QuantLabPage() {
           {/* Chat panel */}
           {bottomMode === 'chat' && (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              {/* Messages */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: '.5rem .75rem', display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+              {/* Messages — scroll-locked (won't yank while user reads above) */}
+              <div ref={chatScrollRef} style={{ flex: 1, overflowY: 'auto', padding: '.5rem .75rem', display: 'flex', flexDirection: 'column', gap: '.4rem', overscrollBehavior: 'contain' }}>
                 {chatMsgs.map((m, i) => (
                   <div key={i} style={{ display: 'flex', gap: '.35rem', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', animation: 'slideInUp .2s ease' }}>
                     {m.role === 'ai' && (

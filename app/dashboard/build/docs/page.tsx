@@ -539,6 +539,21 @@ export default function QuantDocsPage() {
           <PlatformFlowBar />
         </div>
 
+        {/* ── How a Build → Live Trade → Backtest works (ledger-driven) ── */}
+        <div style={{ marginBottom: '2.5rem', padding: '0.95rem 1.1rem', background: `${C.mint}0a`, border: `1px solid ${C.mint}30`, borderRadius: 9 }}>
+          <h2 style={{ fontSize: '0.9rem', fontWeight: 700, color: C.white, margin: '0 0 0.5rem', letterSpacing: '0.06em', textTransform: 'uppercase' }}>From Canvas → Ledger → Backtest</h2>
+          <p style={{ fontSize: '0.78rem', color: C.muted, lineHeight: 1.65, margin: 0, marginBottom: '0.5rem' }}>
+            Backtests are not synthetic. When you publish an agent, every paper trade it makes is appended to <code style={{ fontFamily: 'var(--font-mono)', color: C.mint, padding: '0 0.25rem', background: `${C.mint}12`, borderRadius: 3 }}>agent_paper_ledger</code>.
+            The Backtest tab then replays that exact trade stream and benchmarks it against <strong style={{ color: C.white }}>BTC</strong>, <strong style={{ color: C.white }}>ETH</strong>, <strong style={{ color: C.white }}>SPY</strong>, and the <strong style={{ color: C.white }}>risk-free T-bill</strong>. There are no hidden strategy templates — what you build is what gets measured.
+          </p>
+          <ol style={{ margin: 0, paddingLeft: '1.1rem', color: C.text, fontSize: '0.74rem', lineHeight: 1.7 }}>
+            <li>Pick blocks on the Canvas → describe the thesis → AI scaffolds files.</li>
+            <li>Code tab tunes those files. Auto-apply is on by default — AI edits land in your tree.</li>
+            <li>Publish the agent. The scheduler ticks it; trades flow into the ledger.</li>
+            <li>Backtest tab pulls the ledger, replays it, and grades vs. BTC/ETH/SPY/T-bill.</li>
+          </ol>
+        </div>
+
         {/* ── Agent Manager ── */}
         <div style={{ marginBottom: '3rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>

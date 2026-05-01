@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { BLOCKS, getBlockById } from '@/lib/quant/blocks'
 import type { BlockKind } from '@/lib/quant/blocks'
@@ -209,6 +209,84 @@ function BtStrip({ result, loading, error }: { result: BtResult | null; loading:
   )
 }
 
+// ── Animated background: flowing connections + low-opacity live canvas mirror
+//   + particles streaming along block-connection paths.  Driven by the
+//   same `nodes` array as the foreground canvas so it always reflects the
+//   current pipeline.
+function AnimatedBlockBg({ nodes, dim = 0.55 }: { nodes: CanvasNode[]; dim?: number }) {
+  const reduced = useRef(false)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      reduced.current = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    }
+  }, [])
+  const ghostNodes = useMemo(() => {
+    if (nodes.length) return nodes
+    // Synthetic blocks when the canvas is empty so the background still
+    // shows a generic "data → indicator → signal → risk → execution" pipeline.
+    return [
+      { id: 'g1', x:  60, y:  60, label: 'Data',      kind: 'data',      color: '#3b82f6' },
+      { id: 'g2', x: 240, y: 110, label: 'Indicator', kind: 'indicator', color: '#a855f7' },
+      { id: 'g3', x: 420, y:  70, label: 'Signal',    kind: 'signal',    color: '#16c784' },
+      { id: 'g4', x: 600, y: 130, label: 'Risk',      kind: 'risk',      color: '#ef4444' },
+      { id: 'g5', x: 780, y:  90, label: 'Execution', kind: 'execution', color: '#f59e0b' },
+    ] as CanvasNode[]
+  }, [nodes])
+
+  return (
+    <div aria-hidden style={{
+      position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
+      opacity: dim, mixBlendMode: 'screen',
+    }}>
+      <style>{`
+        @keyframes bg-particle { from { offset-distance: 0% } to { offset-distance: 100% } }
+        @keyframes bg-pulse    { 0%,100% { opacity:.18 } 50% { opacity:.55 } }
+        @keyframes bg-drift    { from { transform: translate3d(0,0,0) } 50% { transform: translate3d(8px,-6px,0) } to { transform: translate3d(0,0,0) } }
+        .bgblk { animation: bg-drift 9s ease-in-out infinite; will-change: transform; }
+      `}</style>
+
+      {/* Flowing connection SVG between every pair of placed blocks */}
+      <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
+        {ghostNodes.map((n, i) => {
+          const next = ghostNodes[i + 1]
+          if (!next) return null
+          const x1 = n.x + 70, y1 = n.y + 18
+          const x2 = next.x,    y2 = next.y + 18
+          const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2 - 32
+          const path = `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`
+          return (
+            <g key={`${n.id}-${next.id}`}>
+              <path d={path} fill="none" stroke={n.color} strokeOpacity={0.35} strokeWidth={1.2}
+                strokeDasharray="6 6"
+                style={reduced.current ? undefined : { animation: 'bg-pulse 4s ease-in-out infinite' }} />
+              {/* Particle streaming along the same path */}
+              {!reduced.current && (
+                <circle r="2" fill={next.color}
+                  style={{
+                    offsetPath: `path('${path}')`,
+                    animation: `bg-particle ${5 + (i % 3)}s linear infinite`,
+                  } as React.CSSProperties} />
+              )}
+            </g>
+          )
+        })}
+      </svg>
+
+      {/* Live mirror of canvas state — softly tinted block ghosts */}
+      {ghostNodes.map(n => (
+        <div key={n.id} className="bgblk" style={{
+          position: 'absolute', left: n.x, top: n.y,
+          width: 138, height: 36, borderRadius: 9,
+          background: `linear-gradient(135deg, ${n.color}10 0%, transparent 100%)`,
+          border: `1px solid ${n.color}28`,
+          borderLeft: `2px solid ${n.color}`,
+          boxShadow: `0 0 22px ${n.color}10`,
+        }} />
+      ))}
+    </div>
+  )
+}
+
 export default function BuildPage() {
   const router = useRouter()
 
@@ -257,8 +335,14 @@ export default function BuildPage() {
     if (agentsOpen) setDrafts(loadDrafts())
   }, [agentsOpen])
 
+  // Scroll the chat panel to the bottom only when the user is already
+  // pinned to the bottom — so streaming tokens don't yank a user who
+  // scrolled up to read an earlier message.
   useEffect(() => {
-    if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight
+    const el = chatScrollRef.current
+    if (!el) return
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distance < 80) el.scrollTop = el.scrollHeight
   }, [chat])
 
   // Thinking animation
@@ -273,35 +357,17 @@ export default function BuildPage() {
     return () => clearInterval(id)
   }, [phase])
 
-  // Auto-run backtest when done
+  // When AI finishes, auto-load the codebase view (with agent + history) and let
+  // the code page run the backtest using the AI-emitted backtest.config.json.
+  // Templates are picked by the AI silently; the user never sees them here.
   useEffect(() => {
     if (phase !== 'done') return
-    const t = setTimeout(async () => {
-      setBtLoading(true); setBtError('')
-      try {
-        const res = await fetch('/api/quant/run', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            template: 'composite_balanced',
-            symbols: ['BTC-USD', 'ETH-USD', 'SOL-USD'],
-            start_date: new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString().slice(0, 10),
-            rebalance_freq: 'weekly',
-            risk_aversion: 4,
-            max_weight: 0.4,
-            walk_forward: false,
-          }),
-        })
-        if (!res.ok) throw new Error(res.statusText)
-        const data = await res.json()
-        setBtResult({ grade: data.grade ?? '—', tear_sheet: data.tear_sheet ?? data.metrics ?? {} })
-      } catch (e) {
-        setBtError(e instanceof Error ? e.message : 'Failed')
-      }
-      setBtLoading(false)
-    }, 800)
+    const t = setTimeout(() => {
+      try { localStorage.setItem('ase_build_autobacktest', '1') } catch {}
+      router.push('/dashboard/build/code')
+    }, 600)
     return () => clearTimeout(t)
-  }, [phase])
+  }, [phase, router])
 
   const displayBlocks = BLOCKS.filter(b => {
     if (activeCat !== 'all' && b.kind !== activeCat) return false
@@ -404,6 +470,17 @@ export default function BuildPage() {
       }
       saveDraft(draft)
       setCurrentDraftId(draft.id)
+
+      // Hand off the agent's chat transcript to the code page so the user sees
+      // the same conversation when the codebase loads.
+      try {
+        const transcript = [
+          { role: 'user' as const, text },
+          { role: 'ai' as const, text: acc },
+        ]
+        localStorage.setItem('ase_build_chat', JSON.stringify(transcript))
+        localStorage.setItem('ase_build_agent_name', draft.name)
+      } catch {}
 
       setPhase('done')
       setPanelCollapsed(true)
@@ -524,6 +601,9 @@ export default function BuildPage() {
         .open-btn:hover { background:rgba(22,199,132,.85)!important; transform:translateY(-1px); }
         @keyframes slide-from-right { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
       `}</style>
+
+      {/* ══ ANIMATED PIPELINE BACKGROUND (always-on, ghost mirror) ══ */}
+      <AnimatedBlockBg nodes={nodes} dim={isDone ? 0.35 : phase === 'building' ? 0.55 : 0.65} />
 
       {/* ══ CANVAS BACKGROUND ════════════════════════════════════════════════════ */}
       <div
@@ -742,10 +822,14 @@ export default function BuildPage() {
 
         {/* Top utility bar */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '.4rem', padding: '.4rem .75rem', borderBottom: `1px solid ${C.border}`, flexShrink: 0, background: `${C.bg2}cc`, backdropFilter: 'blur(8px)' }}>
+          <button onClick={() => router.push('/dashboard/build/manage')}
+            style={{ display: 'flex', alignItems: 'center', gap: '.3rem', padding: '.24rem .55rem', borderRadius: 6, background: 'transparent', border: `1px solid ${C.border}`, color: C.faint, fontSize: '.52rem', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>
+            <span style={{ fontSize: '.6rem' }}>◈</span> Manage
+            {loadDrafts().length > 0 && <span style={{ background: C.mint, color: '#000', borderRadius: 3, padding: '0 .3rem', fontSize: '.42rem', fontWeight: 700 }}>{loadDrafts().length}</span>}
+          </button>
           <button onClick={() => { setDrafts(loadDrafts()); setAgentsOpen(true) }}
             style={{ display: 'flex', alignItems: 'center', gap: '.3rem', padding: '.24rem .55rem', borderRadius: 6, background: 'transparent', border: `1px solid ${C.border}`, color: C.faint, fontSize: '.52rem', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>
-            <span style={{ fontSize: '.6rem' }}>◈</span> Agents
-            {loadDrafts().length > 0 && <span style={{ background: C.mint, color: '#000', borderRadius: 3, padding: '0 .3rem', fontSize: '.42rem', fontWeight: 700 }}>{loadDrafts().length}</span>}
+            <span style={{ fontSize: '.6rem' }}>★</span> Drafts
           </button>
           <a href="/dashboard/build/docs"
             style={{ display: 'flex', alignItems: 'center', gap: '.28rem', padding: '.24rem .55rem', borderRadius: 6, background: 'transparent', border: `1px solid ${C.border}`, color: C.faint, fontSize: '.52rem', cursor: 'pointer', fontFamily: 'var(--font-mono)', textDecoration: 'none' }}>

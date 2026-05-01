@@ -1,2 +1,2 @@
-import MyAgents from '@/app/dashboard/lab/agents/page'
-export default MyAgents
+import { redirect } from 'next/navigation'
+export default function LabStudioRedirect() { redirect('/dashboard/build/code') }

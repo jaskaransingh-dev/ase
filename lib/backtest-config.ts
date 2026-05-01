@@ -105,10 +105,10 @@ export const PERIODS = [
 ]
 
 export const BENCHMARKS: Record<string, { label: string; color: string }> = {
-  'BTC-USD': { label: 'Bitcoin', color: '#f7931a' },
-  'ETH-USD': { label: 'Ethereum', color: '#627eea' },
-  'SOL-USD': { label: 'Solana', color: '#19E6A7' },
-  'buy_hold': { label: 'Buy $100k Buy & Hold', color: '#f59e0b' },
+  'BTC-USD': { label: 'Bitcoin (BTC)', color: '#f7931a' },
+  'ETH-USD': { label: 'Ethereum (ETH)', color: '#627eea' },
+  'SPY':     { label: 'S&P 500 (SPY)', color: '#34d399' },
+  'TBILL':   { label: 'Risk-free T-Bill (3M)', color: '#94a3b8' },
 }
 
 // Only expose the standardized Active Swing engine. Other internal strategies
