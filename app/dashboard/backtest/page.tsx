@@ -31,6 +31,57 @@ interface SavedTab {
   timestamp: string
 }
 
+// 5-row priority metrics with collapsible details — replaces the original
+// 16-row dump where everything was visually equal-weighted. The user sees
+// the 5 metrics that actually decide whether the strategy is good; the
+// rest stay one click away under "Details".
+function CompactStatBlock({ stats, feeBps, slippageBps, colors, fmtPct, fmtNum }: {
+  stats: any
+  feeBps: number
+  slippageBps: number
+  colors: Record<string, string>
+  fmtPct: (v: number) => string
+  fmtNum: (v: number, d?: number) => string
+}) {
+  const [open, setOpen] = useState(false)
+  const primary: Array<[string, string, string]> = [
+    ['Total Return', fmtPct(stats.totalReturnPct), (stats.totalReturnPct ?? 0) >= 0 ? colors.mint : colors.red],
+    ['Sharpe',       fmtNum(stats.sharpeRatio, 2),  (stats.sharpeRatio ?? 0)   >= 1   ? colors.mint : (stats.sharpeRatio ?? 0) >= 0.5 ? colors.orange : colors.red],
+    ['Max DD',       fmtPct(-Math.abs(stats.maxDrawdownPct ?? 0)), colors.red],
+    ['Trades',       String(stats.totalTrades ?? 0), (stats.totalTrades ?? 0) >= 100 ? colors.text : colors.orange],
+    ['Win Rate',     `${(stats.winRate ?? 0).toFixed(1)}%`, colors.text],
+  ]
+  const secondary: Array<[string, string, string]> = [
+    ['CAGR',          fmtPct(stats.annualizedReturnPct), (stats.annualizedReturnPct ?? 0) >= 0 ? colors.mint : colors.red],
+    ['Sortino',       fmtNum(stats.sortinoRatio, 2),  colors.blue2],
+    ['Calmar',        fmtNum(stats.calmarRatio, 2),   colors.blue2],
+    ['Avg DD',        fmtPct(-Math.abs(stats.averageDrawdownPct ?? 0)), colors.orange],
+    ['Downside Vol',  `${((stats.downsideVolatility ?? 0) * 100).toFixed(2)}%`, colors.text],
+    ['Profit Factor', fmtNum(stats.profitFactor, 2),  colors.text],
+    ['Exposure',      `${(stats.exposureTime ?? 0).toFixed(1)}%`, colors.text],
+    ['Turnover',      `${(stats.turnover ?? 0).toFixed(2)}x`,     colors.text],
+    ['Pos. Months',   `${(stats.positiveMonthRatio ?? 0).toFixed(1)}%`, colors.text],
+    ['Roll Sharpe',   `${(stats.rolling63dSharpeMean ?? 0).toFixed(2)} ± ${(stats.rolling63dSharpeStd ?? 0).toFixed(2)}`, colors.text],
+    ['Fee Impact',    `${feeBps}bps + ${slippageBps}bps`, colors.faint],
+  ]
+  const Row = ([label, val, color]: [string, string, string]) => (
+    <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '.2rem 0', borderBottom: `1px solid ${colors.border}25` }}>
+      <span style={{ fontSize: '.5rem', color: colors.muted }}>{label}</span>
+      <span style={{ fontSize: '.55rem', color, fontWeight: 600 }}>{val ?? '—'}</span>
+    </div>
+  )
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+      {primary.map(Row)}
+      <button onClick={() => setOpen(o => !o)}
+        style={{ marginTop: '.35rem', padding: '.28rem .5rem', borderRadius: 5, background: 'transparent', border: `1px dashed ${colors.border}`, color: colors.faint, fontFamily: 'var(--font-mono)', fontSize: '.5rem', letterSpacing: '.06em', cursor: 'pointer', textAlign: 'center' }}>
+        {open ? '− HIDE DETAILS' : `+ DETAILS (${secondary.length} more)`}
+      </button>
+      {open && <div style={{ marginTop: '.2rem' }}>{secondary.map(Row)}</div>}
+    </div>
+  )
+}
+
 export default function BacktestComparePage() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -634,6 +685,84 @@ export default function BacktestComparePage() {
         {activeTab === 'overview' && (
           <>
             <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: '.75rem' }}>
+
+              {/* ── HEADLINE VERDICT CARD ── one number, one verdict line.
+                  Replaces the wall-of-metrics-with-no-priority that the user
+                  pasted in chat. The full metric grid is still available in
+                  the per-agent card on the right under "Details". */}
+              {(() => {
+                const slug = selectedAgents[0]
+                const stats = results[slug]?.stats
+                if (!stats || !slug) return null
+                const sharpe = stats.sharpeRatio ?? 0
+                const trades = stats.totalTrades ?? 0
+                const totalRet = stats.totalReturnPct ?? 0
+                const maxDD = stats.maxDrawdownPct ?? 0
+                // Pick the asset-class buy-and-hold benchmark already loaded
+                // and compare Sharpe / total return against it.
+                const benchKeys = Object.keys(benchmarks)
+                const primaryBench = benchKeys.find(k => k === symbol) ?? benchKeys[0]
+                const bStats = primaryBench ? benchmarks[primaryBench]?.stats : null
+                const bSharpe = bStats?.sharpeRatio ?? null
+                const bRet = bStats?.totalReturnPct ?? null
+                const beatsSharpe = bSharpe != null && sharpe > bSharpe
+                const beatsReturn = bRet != null && totalRet > bRet
+                const TRADE_FLOOR = 100
+                const lowSample = trades < TRADE_FLOOR
+
+                let verdict: string; let verdictColor: string
+                if (lowSample) {
+                  verdict = `Only ${trades} trades — sample too small to trust. Need ≥${TRADE_FLOOR} before any metric below is meaningful.`
+                  verdictColor = colors.orange
+                } else if (beatsSharpe && beatsReturn) {
+                  verdict = `Beats ${BENCHMARKS[primaryBench as keyof typeof BENCHMARKS]?.label ?? primaryBench} on Sharpe AND return. Promising.`
+                  verdictColor = colors.mint
+                } else if (beatsSharpe) {
+                  verdict = `Beats benchmark on Sharpe (${sharpe.toFixed(2)} vs ${bSharpe?.toFixed(2)}) but lags on return.`
+                  verdictColor = colors.blue
+                } else if (bSharpe != null) {
+                  verdict = `Loses to ${primaryBench} buy-and-hold on Sharpe (${sharpe.toFixed(2)} vs ${bSharpe.toFixed(2)}). Strategy is not adding alpha.`
+                  verdictColor = colors.red
+                } else {
+                  verdict = 'No benchmark loaded — add a buy-and-hold comparison to evaluate.'
+                  verdictColor = colors.faint
+                }
+
+                return (
+                  <div style={{ background: colors.bg2, border: `1px solid ${verdictColor}40`, borderLeft: `3px solid ${verdictColor}`, borderRadius: 12, padding: '.85rem 1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+                      <div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: colors.faint, letterSpacing: '.1em' }}>SHARPE</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.85rem', fontWeight: 800, color: verdictColor, lineHeight: 1, letterSpacing: '-.02em' }}>{sharpe.toFixed(2)}</div>
+                        {bSharpe != null && (
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: colors.faint, marginTop: '.18rem' }}>
+                            vs {primaryBench} {bSharpe.toFixed(2)}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ width: 1, alignSelf: 'stretch', background: colors.border }} />
+                      <div style={{ display: 'flex', gap: '1rem', flex: 1, flexWrap: 'wrap' }}>
+                        <div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: colors.faint, letterSpacing: '.1em' }}>RETURN</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.95rem', fontWeight: 700, color: totalRet >= 0 ? colors.mint : colors.red }}>{totalRet >= 0 ? '+' : ''}{totalRet.toFixed(1)}%</div>
+                        </div>
+                        <div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: colors.faint, letterSpacing: '.1em' }}>MAX DD</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.95rem', fontWeight: 700, color: colors.red }}>{(-Math.abs(maxDD)).toFixed(1)}%</div>
+                        </div>
+                        <div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: colors.faint, letterSpacing: '.1em' }}>TRADES</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.95rem', fontWeight: 700, color: lowSample ? colors.orange : colors.text }}>{trades}</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ marginTop: '.55rem', paddingTop: '.55rem', borderTop: `1px solid ${colors.border}`, fontSize: '.66rem', color: verdictColor, fontWeight: 600, lineHeight: 1.45 }}>
+                      {verdict}
+                    </div>
+                  </div>
+                )
+              })()}
+
               <div style={{ background: colors.bg2, border: `1px solid ${colors.border}`, borderRadius: 12, padding: '1rem', minHeight: 280 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
                   <div style={{ fontWeight: 600, fontSize: '.82rem', color: colors.white }}>Performance</div>
@@ -666,7 +795,7 @@ export default function BacktestComparePage() {
                 ) : chartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height={260}>
                     <LineChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
-                      <XAxis dataKey="date" tick={{ fill: colors.faint, fontSize: 9 }} tickFormatter={v => v.slice(0, 5)} interval="preserveStartEnd" />
+                      <XAxis dataKey="date" tick={{ fill: colors.faint, fontSize: 9 }} tickFormatter={v => v.slice(0, 5)} interval={Math.max(0, Math.floor(chartData.length / 8))} minTickGap={28} />
                       <YAxis tick={{ fill: colors.faint, fontSize: 9 }} tickFormatter={v => `${v.toFixed(0)}%`} domain={['auto', 'auto']} />
                       <Tooltip contentStyle={{ background: colors.bg3, border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: '.62rem' }} />
                       {selectedAgents.map((slug, idx) => (
@@ -836,31 +965,14 @@ export default function BacktestComparePage() {
                       )}
                     </div>
                     {stats ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-                        {[
-                          ['Total Return', fmtPct(stats.totalReturnPct), (stats.totalReturnPct ?? 0) >= 0 ? colors.mint : colors.red],
-                          ['CAGR', fmtPct(stats.annualizedReturnPct), (stats.annualizedReturnPct ?? 0) >= 0 ? colors.mint : colors.red],
-                          ['Sharpe', fmtNum(stats.sharpeRatio, 3), colors.blue2],
-                          ['Sortino', fmtNum(stats.sortinoRatio, 3), colors.blue2],
-                          ['Calmar', fmtNum(stats.calmarRatio, 3), colors.blue2],
-                          ['Max DD', fmtPct(-stats.maxDrawdownPct), colors.red],
-                          ['Avg DD', fmtPct(-stats.averageDrawdownPct), colors.orange],
-                          ['Downside Vol', `${((stats.downsideVolatility ?? 0) * 100).toFixed(2)}%`, colors.text],
-                          ['Win Rate', `${stats.winRate?.toFixed(1)}%`, colors.text],
-                          ['Profit Factor', fmtNum(stats.profitFactor, 3), colors.text],
-                          ['Trades', String(stats.totalTrades), colors.text],
-                          ['Exposure', `${stats.exposureTime?.toFixed(1)}%`, colors.text],
-                          ['Turnover', `${stats.turnover?.toFixed(2)}x`, colors.text],
-                          ['Pos. Months', `${stats.positiveMonthRatio?.toFixed(1)}%`, colors.text],
-                          ['Roll Sharpe', `${stats.rolling63dSharpeMean?.toFixed(3)} \u00b1 ${stats.rolling63dSharpeStd?.toFixed(3)}`, colors.text],
-                          ['Fee Impact', `${feeBps}bps + ${slippageBps}bps`, colors.faint],
-                        ].map(([label, val, color]) => (
-                          <div key={label as string} style={{ display: 'flex', justifyContent: 'space-between', padding: '.18rem 0', borderBottom: `1px solid ${colors.border}25` }}>
-                            <span style={{ fontSize: '.48rem', color: colors.muted }}>{label as string}</span>
-                            <span style={{ fontSize: '.5rem', color: color as string, fontWeight: 600 }}>{val ?? '\u2014'}</span>
-                          </div>
-                        ))}
-                      </div>
+                      <CompactStatBlock
+                        stats={stats}
+                        feeBps={feeBps}
+                        slippageBps={slippageBps}
+                        colors={colors}
+                        fmtPct={fmtPct}
+                        fmtNum={fmtNum}
+                      />
                     ) : (
                       <div style={{ fontSize: '.6rem', color: colors.faint }}>No data yet</div>
                     )}

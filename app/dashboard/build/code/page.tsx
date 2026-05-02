@@ -11,7 +11,6 @@ import {
 import { STRATEGIES } from '@/lib/backtest'
 import { ALL_BLOCKS, BLOCKS_BY_CATEGORY, CATEGORY_META, type BlockCategory } from '@/lib/llm-blocks'
 import { BLOCKS as PIPELINE_BLOCKS } from '@/lib/quant/blocks'
-import CanvasAssembly from '@/components/dashboard/CanvasAssembly'
 
 // Compact pipeline strip rendered at the top of the Code page so the user
 // always sees the same canvas state as Build. Re-derives the block list
@@ -527,14 +526,21 @@ export default function QuantLabPage() {
   // feed the result back to the AI so it can refine. Stops at grade ≥ B+ or
   // after MAX_ITERATIONS rounds. The current iteration count + a guard flag
   // prevent runaway loops if the AI never converges.
+  // Default AUTO-ITERATE on — the user wants strategies to converge to a
+  // good grade unattended. Anyone who wants the old "review each step" mode
+  // can flip the toggle off. Bumped rounds to 5 so the loop has room to
+  // hit the trade-count floor before final tuning.
   const [autoIterate, setAutoIterate] = useState<boolean>(() => {
-    try { return localStorage.getItem('ase-auto-iter') === '1' } catch { return false }
+    try {
+      const v = localStorage.getItem('ase-auto-iter')
+      return v == null ? true : v === '1'
+    } catch { return true }
   })
   useEffect(() => {
     try { localStorage.setItem('ase-auto-iter', autoIterate ? '1' : '0') } catch {}
   }, [autoIterate])
   const iterCountRef = useRef(0)
-  const MAX_ITERATIONS = 3
+  const MAX_ITERATIONS = 5
 
   // Dynamic config fields (from codebase)
   const [configFields, setConfigFields] = useState<Record<string, { value: string | number | boolean; type: string }>>({})
@@ -978,7 +984,15 @@ export default function QuantLabPage() {
                 return
               }
               // Build a self-correction prompt and re-enter sendChat with it.
-              const summary = `Backtest round ${round} just ran. Grade=${grade} CAGR=${(ts.cagr ?? 0).toFixed(2)}% Sharpe=${(ts.sharpeRatio ?? 0).toFixed(2)} MaxDD=${(ts.maxDrawdownPct ?? 0).toFixed(2)}% Trades=${ts.totalTrades ?? 0} WinRate=${((ts.winRate ?? 0) * 100).toFixed(1)}%. Diagnose the WEAKEST metric and emit FILE blocks to fix it. Trade often — if Trades < 200 over 2y you must increase signal_scale_bps and lower risk_aversion. Don't repeat your previous fix.`
+              // We benchmark turnover hard: a 7-trade backtest is noise, not
+              // a strategy. Demand a step-change in trade count whenever it's
+              // under the floor, on each iteration, until we get a real sample.
+              const trades = ts.totalTrades ?? 0
+              const tradeFloor = 100
+              const tradeMandate = trades < tradeFloor
+                ? ` CRITICAL: only ${trades} trades — meaningless sample. Halve risk_aversion AND double signal_scale_bps AND tighten the entry threshold by 30% AND shorten holding-period. Target ≥${tradeFloor} trades over the period before tuning anything else. Until you hit the floor, ignore Sharpe / CAGR / MaxDD — they are not reliable on this trade count.`
+                : ''
+              const summary = `Backtest round ${round} just ran. Grade=${grade} CAGR=${(ts.cagr ?? 0).toFixed(2)}% Sharpe=${(ts.sharpeRatio ?? 0).toFixed(2)} MaxDD=${(ts.maxDrawdownPct ?? 0).toFixed(2)}% Trades=${trades} WinRate=${((ts.winRate ?? 0) * 100).toFixed(1)}%. Benchmarks for context: BTC buy-and-hold CAGR ~30% / Sharpe ~0.9; SPY ~10% / 0.6; a B+ strategy must beat its asset-class buy-and-hold on Sharpe AND have ≥${tradeFloor} trades.${tradeMandate} Diagnose the WEAKEST metric and emit FILE blocks to fix it. Don't repeat your previous fix.`
               setChatInput(summary)
               setTimeout(() => { void sendChat() }, 50)
             })()
@@ -1063,22 +1077,11 @@ export default function QuantLabPage() {
       `}</style>
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: C.bg, overflow: 'hidden' }}>
 
-        {/* ── PIPELINE STRIP — shows block graph; clicking a block opens the file */}
-        <div style={{ borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-          <CanvasAssembly
-            blocks={pinnedBlocks}
-            phase="done"
-            height={90}
-            onBlockClick={(blockId) => {
-              const target = Object.entries(fileContents).find(([, content]) =>
-                typeof content === 'string' && content.toLowerCase().includes(blockId.toLowerCase())
-              )?.[0]
-              const file = target ?? 'strategy.ts'
-              if (!openFiles.includes(file) && fileContents[file] !== undefined) setOpenFiles(p => [...p, file])
-              if (fileContents[file] !== undefined) { setActiveFile(file); setSideOpen(true) }
-            }}
-          />
-        </div>
+        {/* ── PIPELINE STRIP — single-row block graph; no overlapping title.
+            Replaces the CanvasAssembly which was double-stacking its
+            "PIPELINE READY · n nodes" banner over the node row when
+            the strip's height was clamped to 90px. */}
+        <CodeCanvasStrip files={fileContents} pinned={pinnedBlocks} />
 
         {/* ── TOP BAR ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.4rem .75rem', borderBottom: `1px solid ${C.border}`, background: C.bg2, flexShrink: 0, height: 42 }}>
@@ -1326,25 +1329,110 @@ export default function QuantLabPage() {
           </div>
           )}
 
-          {/* RIGHT PANEL — Backtest. Fixed 380px; never goes full-screen. */}
+          {/* RIGHT RAIL — Dominant AI chat on top, collapsible backtest config below.
+              The bottom-of-page chat panel was deleted; this rail is the only
+              AI surface on /code now. Chat hydrates from localStorage so a
+              prompt entered on /dashboard/build streams in here mid-flight. */}
           <div style={{
-            width: 380, flexShrink: 0, flex: '0 0 auto',
+            width: 460, flexShrink: 0, flex: '0 0 auto',
             borderLeft: `1px solid ${C.border}`,
             display: 'flex', flexDirection: 'column', overflow: 'hidden',
             background: C.bg2,
           }}>
-            <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, flexShrink: 0, alignItems: 'center', background: `${C.bg2}cc`, backdropFilter: 'blur(8px)' }}>
-              <div style={{ width: 7, height: 7, borderRadius: '50%', background: btLoading ? C.orange : btResult ? C.mint : C.faint, animation: btLoading ? 'blink .6s infinite' : 'none', marginLeft: '.85rem', flexShrink: 0 }} />
-              <span style={{ flex: 1, padding: '.45rem .5rem', color: C.white, fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, letterSpacing: '.06em' }}>
-                {btLoading ? `Running… ${btElapsed}s` : btResult ? `Backtest — Grade ${grade}` : 'Backtest'}
+
+            {/* ── CHAT (DOMINANT) ── */}
+            <div style={{ display: 'flex', flexDirection: 'column', flex: rightTab === 'backtest' ? '1 1 55%' : '1 1 100%', minHeight: 0, borderBottom: rightTab === 'backtest' ? `1px solid ${C.border}` : 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.4rem .85rem', borderBottom: `1px solid ${C.border}`, background: `${C.bg2}cc`, flexShrink: 0 }}>
+                <span style={{ display: 'inline-flex', gap: 3 }}>
+                  {chatLoading ? [0,1,2].map(i => <span key={i} style={{ width: 4, height: 4, borderRadius: '50%', background: C.mint, animation: `bounce ${0.5 + i * 0.12}s ease-in-out infinite` }} />) : <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.mint, boxShadow: `0 0 6px ${C.mint}` }} />}
+                </span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, color: C.mint, letterSpacing: '.1em' }}>ASE AI</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, marginLeft: 'auto' }}>{chatMsgs.length} msgs</span>
+              </div>
+
+              <div ref={chatScrollRef} style={{
+                flex: 1, overflowY: 'auto', padding: '.65rem .85rem',
+                display: 'flex', flexDirection: 'column', gap: '.5rem',
+                overscrollBehavior: 'contain', minHeight: 0,
+              }}>
+                {chatMsgs.length === 0 && (
+                  <div style={{ margin: 'auto', textAlign: 'center', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.6rem', padding: '1.5rem 1rem', lineHeight: 1.6 }}>
+                    Describe your strategy or ask the AI to refine the code.<br/>Edits apply directly to the files on the left.
+                  </div>
+                )}
+                {chatMsgs.map((m, i) => (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start', animation: 'slideInUp .2s ease' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.42rem', color: C.faint, letterSpacing: '.08em', marginBottom: '.18rem' }}>
+                      {m.role === 'user' ? 'YOU' : 'ASE AI'}
+                    </div>
+                    <div style={{
+                      maxWidth: m.role === 'user' ? '85%' : '94%',
+                      padding: '.55rem .75rem', borderRadius: 10,
+                      background: m.role === 'user' ? `${C.mint}10` : `${C.bg3}cc`,
+                      border: `1px solid ${m.role === 'user' ? C.mint + '28' : C.border}`,
+                      fontFamily: 'var(--font-mono)', fontSize: '.62rem',
+                      color: m.role === 'user' ? C.mint : C.text, lineHeight: 1.55,
+                      whiteSpace: m.role === 'user' ? 'pre-wrap' : undefined,
+                    }}>
+                      {m.role === 'ai' ? <MdText text={m.text} /> : m.text}
+                      {m.role === 'ai' && m.edits && m.edits.length > 0 && (
+                        <div style={{ marginTop: '.4rem', display: 'flex', gap: '.25rem', flexWrap: 'wrap' }}>
+                          {m.edits.map((e, ei) => (
+                            <span key={ei} style={{ padding: '.1rem .4rem', borderRadius: 4, background: `${C.mint}12`, border: `1px solid ${C.mint}30`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.48rem', fontWeight: 700 }}>
+                              ✓ {e.filename}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {chatLoading && chatMsgs[chatMsgs.length - 1]?.text === '' && (
+                  <div style={{ display: 'flex', gap: '.25rem', paddingLeft: '.4rem', alignItems: 'center' }}>
+                    {[0,1,2].map(j => <span key={j} style={{ width: 4, height: 4, borderRadius: '50%', background: C.mint, animation: `bounce ${0.5 + j * 0.12}s ease-in-out infinite` }} />)}
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              <div style={{ display: 'flex', gap: '.22rem', overflowX: 'auto', padding: '.25rem .85rem', flexShrink: 0, borderTop: `1px solid ${C.border}` }}>
+                {['Improve Sharpe', 'Trade more often', 'Reduce drawdown', 'Explain results', 'Beat BTC HODL'].map(s => (
+                  <button key={s} onClick={() => { setChatInput(s); chatInputRef.current?.focus() }}
+                    style={{ padding: '.16rem .45rem', borderRadius: 4, background: 'rgba(10,21,37,.5)', border: `1px solid ${C.border}`, color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.48rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>{s}</button>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: '.4rem', padding: '.45rem .85rem', borderTop: `1px solid ${C.border}`, flexShrink: 0, background: `${C.bg2}cc`, alignItems: 'flex-end' }}>
+                <textarea
+                  ref={chatInputRef}
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendChat() } }}
+                  placeholder="Ask AI to refine the strategy or describe a new one…"
+                  rows={2}
+                  disabled={chatLoading}
+                  style={{ flex: 1, background: 'rgba(10,21,37,.5)', border: `1px solid ${C.border}`, borderRadius: 7, padding: '.42rem .65rem', color: C.white, fontSize: '.62rem', outline: 'none', resize: 'none', lineHeight: 1.45, maxHeight: 120, fontFamily: 'var(--font-mono)' }}
+                />
+                <button onClick={() => void sendChat()} disabled={chatLoading || !chatInput.trim()}
+                  style={{ padding: '.42rem .85rem', borderRadius: 8, background: chatLoading || !chatInput.trim() ? C.border : C.mint, color: chatLoading || !chatInput.trim() ? C.faint : '#000', fontSize: '.7rem', fontWeight: 700, border: 'none', cursor: chatLoading ? 'not-allowed' : 'pointer', transition: 'all .15s' }}>→</button>
+              </div>
+            </div>
+
+            {/* ── BACKTEST CONFIG (collapsible) ── */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.35rem .85rem', borderBottom: rightTab === 'backtest' ? `1px solid ${C.border}` : 'none', background: `${C.bg2}cc`, flexShrink: 0, cursor: 'pointer' }}
+              onClick={() => setRightTab(rightTab === 'backtest' ? 'chat' : 'backtest')}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: btLoading ? C.orange : btResult ? C.mint : C.faint, animation: btLoading ? 'blink .6s infinite' : 'none', flexShrink: 0 }} />
+              <span style={{ flex: 1, color: C.white, fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, letterSpacing: '.06em' }}>
+                {btLoading ? `Running… ${btElapsed}s` : btResult ? `BACKTEST — GRADE ${grade}` : 'BACKTEST CONFIG'}
               </span>
-              <a href="/dashboard/build/docs" title="Open docs page"
-                style={{ padding: '.45rem .55rem', borderLeft: `1px solid ${C.border}`, color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.5rem', textDecoration: 'none', display: 'flex', alignItems: 'center' }}>DOCS ↗</a>
-              <a href="/dashboard/build/manage" title="Open manage page"
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: C.faint }}>{rightTab === 'backtest' ? '▾' : '▸'}</span>
+              <a href="/dashboard/build/docs" title="Open docs page" onClick={e => e.stopPropagation()}
+                style={{ padding: '.15rem .35rem', borderLeft: `1px solid ${C.border}`, color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.5rem', textDecoration: 'none' }}>DOCS ↗</a>
+              <a href="/dashboard/build/manage" title="Open manage page" onClick={e => e.stopPropagation()}
                 style={{ padding: '.45rem .55rem', borderLeft: `1px solid ${C.border}`, color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.5rem', textDecoration: 'none', display: 'flex', alignItems: 'center' }}>MANAGE ↗</a>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: '.8rem' }}>
+            <div style={{ flex: rightTab === 'backtest' ? '1 1 45%' : '0 0 0', overflowY: 'auto', padding: rightTab === 'backtest' ? '.8rem' : 0, minHeight: 0, display: rightTab === 'backtest' ? 'block' : 'none' }}>
 
               {/* ── BACKTEST TAB ── */}
               {rightTab === 'backtest' && (
@@ -1618,83 +1706,6 @@ export default function QuantLabPage() {
           </div>
         </div>
 
-        {/* ── BOTTOM CHAT — same UX as the Build page, dominant.
-            Pulls history straight from chatMsgs (which itself hydrates
-            from the Build handoff transcript on mount), renders full
-            markdown via MdText, and auto-applies AI edits. ── */}
-        <div style={{
-          height: 320, flexShrink: 0,
-          borderTop: `1px solid ${C.border}`, background: C.bg2,
-          display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        }}>
-          {/* Messages — scroll-locked so streaming tokens don't yank the user */}
-          <div ref={chatScrollRef} style={{
-            flex: 1, overflowY: 'auto', padding: '.65rem .85rem',
-            display: 'flex', flexDirection: 'column', gap: '.5rem',
-            overscrollBehavior: 'contain',
-          }}>
-            {chatMsgs.map((m, i) => (
-              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start', animation: 'slideInUp .2s ease' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.42rem', color: C.faint, letterSpacing: '.08em', marginBottom: '.18rem' }}>
-                  {m.role === 'user' ? 'YOU' : 'ASE AI'}
-                </div>
-                <div style={{
-                  maxWidth: m.role === 'user' ? '70%' : '92%',
-                  padding: '.55rem .75rem', borderRadius: 10,
-                  background: m.role === 'user' ? `${C.mint}10` : `${C.bg3}cc`,
-                  border: `1px solid ${m.role === 'user' ? C.mint + '28' : C.border}`,
-                  fontFamily: 'var(--font-mono)', fontSize: '.62rem',
-                  color: m.role === 'user' ? C.mint : C.text, lineHeight: 1.55,
-                  whiteSpace: m.role === 'user' ? 'pre-wrap' : undefined,
-                }}>
-                  {m.role === 'ai'
-                    ? <MdText text={m.text} />
-                    : m.text}
-                  {m.role === 'ai' && m.edits && m.edits.length > 0 && (
-                    <div style={{ marginTop: '.4rem', display: 'flex', gap: '.25rem', flexWrap: 'wrap' }}>
-                      {m.edits.map((e, ei) => (
-                        <span key={ei}
-                          style={{ padding: '.1rem .4rem', borderRadius: 4, background: `${C.mint}12`, border: `1px solid ${C.mint}30`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.48rem', fontWeight: 700 }}>
-                          ✓ {e.filename}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-            {chatLoading && chatMsgs[chatMsgs.length - 1]?.text === '' && (
-              <div style={{ display: 'flex', gap: '.25rem', paddingLeft: '.4rem', alignItems: 'center' }}>
-                {[0,1,2].map(j => <span key={j} style={{ width: 4, height: 4, borderRadius: '50%', background: C.mint, animation: `bounce ${0.5 + j * 0.12}s ease-in-out infinite` }} />)}
-              </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
-
-          {/* Quick prompts */}
-          <div style={{ display: 'flex', gap: '.22rem', overflowX: 'auto', padding: '.25rem .85rem', flexShrink: 0, borderTop: `1px solid ${C.border}` }}>
-            {['Improve Sharpe', 'Add NUPL', 'Reduce drawdown', 'Explain results', 'Write a new strategy'].map(s => (
-              <button key={s} onClick={() => { setChatInput(s); chatInputRef.current?.focus() }}
-                style={{ padding: '.16rem .45rem', borderRadius: 4, background: 'rgba(10,21,37,.5)', border: `1px solid ${C.border}`, color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.48rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>{s}</button>
-            ))}
-          </div>
-
-          {/* Input */}
-          <div style={{ display: 'flex', gap: '.4rem', padding: '.45rem .85rem', borderTop: `1px solid ${C.border}`, flexShrink: 0, background: `${C.bg2}cc`, alignItems: 'flex-end' }}>
-            <textarea
-              ref={chatInputRef}
-              value={chatInput}
-              onChange={e => setChatInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendChat() } }}
-              placeholder="Ask AI to refine the strategy, explain results, or add signals..."
-              rows={1}
-              disabled={chatLoading}
-              style={{ flex: 1, background: 'rgba(10,21,37,.5)', border: `1px solid ${C.border}`, borderRadius: 7, padding: '.42rem .65rem', color: C.white, fontSize: '.62rem', outline: 'none', resize: 'none', lineHeight: 1.45, maxHeight: 80, fontFamily: 'var(--font-mono)' }}
-            />
-            <button onClick={() => void sendChat()} disabled={chatLoading || !chatInput.trim()}
-              style={{ padding: '.42rem .85rem', borderRadius: 8, background: chatLoading || !chatInput.trim() ? C.border : C.mint, color: chatLoading || !chatInput.trim() ? C.faint : '#000', fontSize: '.6rem', fontWeight: 700, border: 'none', cursor: chatLoading ? 'not-allowed' : 'pointer', transition: 'all .15s' }}>→</button>
-          </div>
-        </div>
       </div>
 
       {/* ── PUBLISH WIZARD MODAL ── */}

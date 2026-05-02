@@ -5,9 +5,10 @@
  *   1. Flips ai_agents.status = 'published'
  *   2. Inserts a row in public.agents (the exchange marketplace table)
  *      so the agent appears on /dashboard/marketplace and /agents.
- *   3. Triggers an immediate paper-trade tick.
+ *   3. Triggers an immediate live tick.
  *
- * NO GATING (test mode). Body: { live?: boolean } — default paper.
+ * Always publishes in LIVE mode — the legacy `live` body flag and paper
+ * fallback have been removed. Every published agent trades real Kraken.
  */
 
 import { NextResponse } from 'next/server'
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
-  const body = await req.json().catch(() => ({})) as { live?: boolean; monthly_fee_cents?: number; skip_tick?: boolean }
+  const body = await req.json().catch(() => ({})) as { monthly_fee_cents?: number; skip_tick?: boolean }
 
   // Read AI agent
   const { data: aiAgent, error: readErr } = await supabase
@@ -49,10 +50,10 @@ export async function POST(req: Request) {
   const symbols: string[] = spec?.symbols ?? []
   const primarySymbol = symbols[0] ?? 'BTC-USD'
 
-  // 1) Flip ai_agents status
+  // 1) Flip ai_agents status — always live mode, no paper fallback
   const { error: flipErr } = await admin
     .from('ai_agents')
-    .update({ status: 'published', spec: { ...spec, live_mode: !!body.live } })
+    .update({ status: 'published', spec: { ...spec, live_mode: true } })
     .eq('id', id)
   if (flipErr) return NextResponse.json({ error: flipErr.message }, { status: 500 })
 
@@ -111,8 +112,7 @@ export async function POST(req: Request) {
     }, { status: 500 })
   }
 
-  // 3) Trigger immediate paper-trade tick to start trading
-  // Don't skip - we want the initial trades when publishing
+  // 3) Trigger immediate live tick to start trading
   fetch(new URL('/api/quant/agent/tick', req.url).toString(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -122,9 +122,7 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ai_agent_id: id,
     listing,
-    note: body.live
-      ? 'Published in LIVE mode + listed on the exchange. Paper trades will start on the next cadence tick.'
-      : 'Published in PAPER mode + listed on the exchange. First tick fired now.',
+    note: 'Published live + listed on the exchange. First tick fired now — trades execute on real Kraken.',
     marketplace_url: `/dashboard/marketplace`,
     agent_url: `/agents/${listing.slug}`,
   })

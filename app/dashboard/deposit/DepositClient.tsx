@@ -210,14 +210,14 @@ export default function DepositClient({ userEmail }: { userEmail: string }) {
         <div>
           <div className="eyebrow" style={{ marginBottom: '.35rem' }}>ADD CREDITS</div>
           <h1 style={{ fontFamily: 'var(--font-head)', fontSize: '1.8rem', fontWeight: 800, marginBottom: '.5rem' }}>
-            Deposit Paper Credits
+            Fund Your Kraken Wallet
           </h1>
           <p style={{ color: 'var(--muted)', fontSize: '.9rem', lineHeight: 1.7 }}>
-            Add funds to your ASE wallet and deploy capital into AI trading agents running on Alpaca.
+            All deposits go straight to your Kraken account. ASE only ever trades against your real Kraken USD balance — no paper, no sandbox, no virtual credits.
           </p>
         </div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--green)', background: 'rgba(50,211,162,.14)', border: '1px solid rgba(50,211,162,.3)', borderRadius: 999, padding: '.4rem .7rem', fontWeight: 700 }}>
-          LIVE CREDITS ENGINE
+          LIVE — REAL KRAKEN
         </div>
       </div>
 
@@ -225,7 +225,7 @@ export default function DepositClient({ userEmail }: { userEmail: string }) {
         {[
           { label: 'Min Deposit', value: '$10', color: 'var(--white)' },
           { label: 'Processing', value: 'Instant', color: 'var(--green)' },
-          { label: 'Mode', value: 'Paper', color: '#E8AC20' },
+          { label: 'Mode', value: 'Live', color: 'var(--green)' },
         ].map((tile) => (
           <div key={tile.label} style={{ borderRadius: 12, border: '1px solid rgba(148,163,184,.24)', background: 'rgba(9,14,28,.7)', padding: '.7rem .8rem' }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: '#8CA0C4', letterSpacing: '.08em', marginBottom: '.2rem' }}>{tile.label.toUpperCase()}</div>
@@ -237,7 +237,7 @@ export default function DepositClient({ userEmail }: { userEmail: string }) {
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 20, overflow: 'hidden', boxShadow: '0 32px 80px rgba(0,0,0,.5)' }}>
         <div className="win-bar">
           <span className="dot dot-r" /><span className="dot dot-y" /><span className="dot dot-g" />
-          <span className="win-title">Secure Deposit · Stripe Test Mode</span>
+          <span className="win-title">Secure Deposit · Real Kraken</span>
           <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--green)' }}>ENCRYPTED</span>
         </div>
         <div style={{ padding: '1.75rem' }}>

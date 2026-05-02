@@ -2,5 +2,10 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "framework": "nextjs",
-  "outputDirectory": ".next"
+  "outputDirectory": ".next",
+  "crons": [
+    { "path": "/api/cron/run-agents",  "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/heal-agents", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/update-nav",  "schedule": "*/10 * * * *" }
+  ]
 }

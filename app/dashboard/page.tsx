@@ -30,6 +30,28 @@ function getRelativeTime(dateStr: string) {
 function getGreeting() { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening' }
 function statusColor(s: AgentActivity['status']) { return s === 'BUYING' ? '#16C784' : s === 'SELLING' ? '#E45867' : s === 'SCANNING' ? '#7F8CA3' : '#425366' }
 
+function DashboardEquityChart({ data, positive }: { data: number[]; positive: boolean }) {
+  if (data.length < 2) return null
+  const min = Math.min(...data), max = Math.max(...data), range = max - min || 1
+  const w = 320, h = 90
+  const pts = data.map((v, i) => ({ x: (i / (data.length - 1)) * w, y: h - ((v - min) / range) * (h - 6) - 3 }))
+  const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+  const areaPath = `${path} L${w},${h} L0,${h} Z`
+  const color = positive ? '#16C784' : '#E45867'
+  return (
+    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ flex: 1 }}>
+      <defs>
+        <linearGradient id={`dec${positive}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.28} />
+          <stop offset="100%" stopColor={color} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill={`url(#dec${positive})`} />
+      <path d={path} fill="none" stroke={color} strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function Sparkline({ data, positive }: { data: number[]; positive: boolean }) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
@@ -75,6 +97,16 @@ export default function DashboardPage() {
   const [sellError, setSellError] = useState('')
   const [sellDone, setSellDone] = useState<{ pnl_cents: number; returned_cents: number } | null>(null)
   const [marketPrices, setMarketPrices] = useState<Record<string, { price: number; change: number }>>({})
+  // Orphaned-holdings reclaim — surfaces capital pledged to agents that the
+  // user is no longer subscribed to (or that have gone idle), which is
+  // otherwise invisible from the per-subscription holdings list.
+  const [allHoldings, setAllHoldings] = useState<Array<{
+    id: string; agent_id: string; agent_name: string; agent_slug: string | null
+    invested_cents: number; current_value_cents: number; pnl_cents: number
+    last_run_at: string | null; is_idle: boolean; is_orphaned: boolean
+  }>>([])
+  const [reclaiming, setReclaiming] = useState(false)
+  const [reclaimMsg, setReclaimMsg] = useState('')
 
   // Fetch market prices for top cryptos
   useEffect(() => {
@@ -108,6 +140,16 @@ export default function DashboardPage() {
     // Fetch balance from account/balance which accounts for invested amounts
     const balanceRes = await fetch('/api/account/balance')
     const balanceData = await balanceRes.json()
+
+    // Pull every active holding (including ones whose subscription was
+    // cancelled) so orphaned capital is reclaimable from the dashboard.
+    try {
+      const ahRes = await fetch('/api/holdings/active')
+      if (ahRes.ok) {
+        const ahData = await ahRes.json()
+        setAllHoldings(ahData.holdings ?? [])
+      }
+    } catch { /* silent */ }
     
     // Also get broker account for positions
     const brokerRes = await fetch('/api/broker/account')
@@ -180,7 +222,47 @@ export default function DashboardPage() {
     setSellDone(null)
   }
 
-  const subscribedAgentIds = new Set(subscriptions.map(s => s.agent_id))
+  // Holdings tied to cancelled subscriptions or idle agents — these are the
+  // ones the user complained about ("$9 in agents that are doing nothing").
+  const subscribedAgentIdsForFilter = new Set(subscriptions.map(s => s.agent_id))
+  const reclaimableHoldings = allHoldings.filter(h => h.is_orphaned || h.is_idle)
+  const reclaimableCents = reclaimableHoldings.reduce((sum, h) => sum + h.invested_cents, 0)
+
+  async function reclaimAll(onlyIdle: boolean) {
+    setReclaiming(true); setReclaimMsg('')
+    try {
+      const res = await fetch('/api/holdings/deallocate-all', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ only_idle: onlyIdle }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Reclaim failed')
+      setReclaimMsg(`Reclaimed ${data.sold} positions — $${(data.returned_cents / 100).toFixed(2)} returned to Kraken cash${data.failed > 0 ? ` (${data.failed} failed)` : ''}`)
+      void load()
+    } catch (e) {
+      setReclaimMsg(e instanceof Error ? e.message : 'Reclaim failed')
+    }
+    setReclaiming(false)
+  }
+
+  async function reclaimOne(holdingId: string) {
+    setReclaiming(true); setReclaimMsg('')
+    try {
+      const res = await fetch('/api/holdings/sell', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ holding_id: holdingId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Sell failed')
+      setReclaimMsg(`Reclaimed $${((data.returned_cents ?? 0) / 100).toFixed(2)} to Kraken cash`)
+      void load()
+    } catch (e) {
+      setReclaimMsg(e instanceof Error ? e.message : 'Reclaim failed')
+    }
+    setReclaiming(false)
+  }
+
+  const subscribedAgentIds = subscribedAgentIdsForFilter
   const subscribedActivity = agentActivity.filter(a => subscribedAgentIds.has(a.agent_id))
   const totalInvested = subscriptions.reduce((sum, s) => sum + (s.holding?.invested_cents || 0), 0)
   const totalValue = subscriptions.reduce((sum, s) => sum + (s.holding?.current_value_cents || 0), 0)
@@ -301,27 +383,120 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── ALLOCATIONS ── */}
-      {subscriptions.filter(s => s.has_investment).length > 0 && (
-        <div style={{ marginBottom: '1rem', padding: '0.85rem 1.25rem', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.65rem' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', color: 'var(--faint)', letterSpacing: '0.1em' }}>ALLOCATIONS</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', fontWeight: 700, color: 'var(--white)' }}>{fmtMoney(totalInvested / 100)}</div>
+      {/* ── RECLAIMABLE CAPITAL ── orphaned/idle holdings the user can sell
+          to free up Kraken cash. Surfaces capital that's pledged to agents
+          the user no longer subscribes to or that haven't run in 30+ min. */}
+      {reclaimableHoldings.length > 0 && (
+        <div style={{ marginBottom: '1rem', padding: '0.85rem 1.25rem', background: 'rgba(245,185,66,.05)', border: '1px solid rgba(245,185,66,.25)', borderRadius: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: '#f5b942', letterSpacing: '0.1em', fontWeight: 700, marginBottom: '0.18rem' }}>
+                IDLE / ORPHANED CAPITAL · {fmtMoney(reclaimableCents / 100)}
+              </div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+                {reclaimableHoldings.length} holding{reclaimableHoldings.length !== 1 ? 's' : ''} pledged to agents that aren&apos;t actively trading. Sell to return cash to your Kraken wallet.
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '.4rem' }}>
+              <button onClick={() => reclaimAll(true)} disabled={reclaiming}
+                style={{ padding: '.4rem .85rem', borderRadius: 7, border: '1px solid rgba(245,185,66,.4)', background: 'rgba(245,185,66,.12)', color: '#f5b942', fontFamily: 'var(--font-mono)', fontSize: '0.62rem', fontWeight: 700, cursor: reclaiming ? 'wait' : 'pointer', letterSpacing: '.04em' }}>
+                {reclaiming ? 'Reclaiming…' : 'Reclaim all idle'}
+              </button>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            {subscriptions.filter(s => s.has_investment).map(sub => {
-              const invested = sub.holding?.invested_cents ?? 0
-              const pct = totalInvested > 0 ? (invested / totalInvested) * 100 : 0
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+            {reclaimableHoldings.map(h => {
+              const tag = h.is_orphaned ? 'ORPHANED' : 'IDLE'
+              const tagColor = h.is_orphaned ? '#E45867' : '#f5b942'
+              const lastRun = h.last_run_at ? getRelativeTime(h.last_run_at) : 'never'
               return (
-                <div key={sub.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.3rem 0.6rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 6 }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', fontWeight: 600, color: 'var(--white)' }}>{sub.agents?.name?.split(' ')[0] ?? '—'}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: 'var(--faint)' }}>{pct.toFixed(0)}%</span>
+                <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.4rem .65rem', background: 'rgba(0,0,0,.18)', border: '1px solid var(--border)', borderRadius: 7 }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.46rem', color: tagColor, fontWeight: 700, letterSpacing: '.06em', padding: '.1rem .35rem', borderRadius: 3, background: `${tagColor}18`, border: `1px solid ${tagColor}40`, flexShrink: 0 }}>{tag}</span>
+                  {h.agent_slug ? (
+                    <Link href={`/agents/${h.agent_slug}`} style={{ fontFamily: 'var(--font-body)', fontSize: '0.74rem', color: 'var(--white)', fontWeight: 600, textDecoration: 'none' }}>{h.agent_name}</Link>
+                  ) : (
+                    <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.74rem', color: 'var(--white)', fontWeight: 600 }}>{h.agent_name}</span>
+                  )}
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)' }}>last run {lastRun}</span>
+                  <span style={{ flex: 1 }} />
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--white)', fontWeight: 700 }}>{fmtMoney(h.invested_cents / 100)}</span>
+                  <button onClick={() => reclaimOne(h.id)} disabled={reclaiming}
+                    style={{ padding: '.25rem .55rem', borderRadius: 6, border: '1px solid rgba(228,88,103,.3)', background: 'rgba(228,88,103,.08)', color: '#E45867', fontFamily: 'var(--font-mono)', fontSize: '0.55rem', fontWeight: 700, cursor: reclaiming ? 'wait' : 'pointer', letterSpacing: '.04em' }}>
+                    Sell
+                  </button>
                 </div>
               )
             })}
           </div>
+          {reclaimMsg && (
+            <div style={{ marginTop: '.5rem', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: reclaimMsg.startsWith('Reclaimed') ? 'var(--mint)' : 'var(--red)' }}>
+              {reclaimMsg}
+            </div>
+          )}
         </div>
       )}
+
+      {/* ── MONEY MAP ── one bar that shows where every dollar is.
+          Mirrors the no-double-allocate model: Kraken cash + sum of
+          per-agent invested = total funds you control. Each agent gets
+          its own colored slice; Kraken cash is the gray tail. Replaces
+          the old "Allocations" pill strip which didn't show the cash
+          half of the picture. */}
+      {(() => {
+        const krakenCashCents = Math.round((krakenCash || 0) * 100)
+        const totalFundsCents = totalInvested + krakenCashCents
+        if (totalFundsCents <= 0) return null
+        const palette = ['#4F8CFF', '#16C784', '#F5B942', '#A78BFA', '#FF6B7A', '#38BDF8', '#F472B6']
+        const segments = subscriptions.filter(s => s.has_investment).map((sub, i) => ({
+          id: sub.id,
+          label: sub.agents?.name ?? 'Agent',
+          slug: sub.agents?.slug ?? '',
+          cents: sub.holding?.invested_cents ?? 0,
+          color: palette[i % palette.length],
+        }))
+        return (
+          <div style={{ marginBottom: '1rem', padding: '0.85rem 1.25rem', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.55rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', color: 'var(--faint)', letterSpacing: '0.1em' }}>MONEY MAP · WHERE YOUR FUNDS ARE</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', fontWeight: 700, color: 'var(--white)' }}>
+                {fmtMoney(totalFundsCents / 100)}
+              </div>
+            </div>
+            <div style={{ display: 'flex', height: 14, borderRadius: 4, overflow: 'hidden', background: 'var(--bg3)', border: '1px solid var(--border)' }}>
+              {segments.map(s => {
+                const w = totalFundsCents > 0 ? (s.cents / totalFundsCents) * 100 : 0
+                return (
+                  <div key={s.id} title={`${s.label} · ${fmtMoney(s.cents / 100)} (${w.toFixed(1)}%)`}
+                    style={{ width: `${w}%`, background: s.color, borderRight: '1px solid rgba(0,0,0,.4)' }} />
+                )
+              })}
+              {krakenCashCents > 0 && (() => {
+                const w = (krakenCashCents / totalFundsCents) * 100
+                return (
+                  <div title={`Free Kraken cash · ${fmtMoney(krakenCashCents / 100)} (${w.toFixed(1)}%)`}
+                    style={{ width: `${w}%`, background: 'repeating-linear-gradient(45deg, rgba(127,140,163,.45) 0 6px, rgba(127,140,163,.25) 6px 12px)' }} />
+                )
+              })()}
+            </div>
+            <div style={{ display: 'flex', gap: '.7rem', flexWrap: 'wrap', marginTop: '0.55rem', alignItems: 'center' }}>
+              {segments.map(s => (
+                <Link key={s.id} href={`/agents/${s.slug}`} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', textDecoration: 'none' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color }} />
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', color: 'var(--white)', fontWeight: 600 }}>{s.label.split(' ').slice(0,2).join(' ')}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: 'var(--faint)' }}>{fmtMoney(s.cents / 100)}</span>
+                </Link>
+              ))}
+              {krakenCashCents > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: 'repeating-linear-gradient(45deg, rgba(127,140,163,.45) 0 3px, rgba(127,140,163,.25) 3px 6px)' }} />
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', color: 'var(--white)', fontWeight: 600 }}>Free cash</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: 'var(--faint)' }}>{fmtMoney(krakenCashCents / 100)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── QUICK ACTIONS ── */}
       {subscriptions.length > 0 && (
@@ -371,10 +546,19 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Sparkline */}
-          <div style={{ flex: '0 0 160px', padding: '1.25rem', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', borderRight: '1px solid var(--border)' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)', letterSpacing: '0.1em', marginBottom: '0.5rem' }}>PERFORMANCE</div>
-            <Sparkline data={equityCurve.length > 1 ? equityCurve : [0, 1]} positive={portfolioReturnPct >= 0} />
+          {/* Equity curve — proper area chart, replaces the 64x32 sparkline */}
+          <div style={{ flex: '1 1 320px', padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)', minWidth: 280 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)', letterSpacing: '0.1em' }}>EQUITY CURVE</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)' }}>last {equityCurve.length} fills</div>
+            </div>
+            {equityCurve.length > 1 ? (
+              <DashboardEquityChart data={equityCurve} positive={portfolioReturnPct >= 0} />
+            ) : (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.55rem' }}>
+                No fills yet — chart populates as your agents trade
+              </div>
+            )}
           </div>
 
           {/* Quick stats */}
@@ -573,46 +757,10 @@ export default function DashboardPage() {
           </div>
 
           {/* Kraken open positions */}
-          {brokerAccount?.has_account && brokerAccount.positions && brokerAccount.positions.length > 0 && (
-            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-              <PanelHeader label="KRAKEN OPEN POSITIONS" action={
-                <a href="https://www.kraken.com/u/trade" target="_blank" rel="noopener noreferrer" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', color: 'var(--faint)', textDecoration: 'none' }}>View on Kraken ↗</a>
-              } />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
-                {brokerAccount.positions.map((pos, i) => (
-                  <div key={pos.symbol} style={{ padding: '0.85rem 1rem', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', fontWeight: 700, color: 'var(--blue2)', marginBottom: '0.2rem' }}>{pos.symbol}</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', fontWeight: 700, color: 'var(--white)', marginBottom: '0.1rem' }}>${parseFloat(pos.market_value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', color: 'var(--faint)' }}>qty: {Number(pos.qty).toFixed(6)}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Watchlist */}
-          {watchlist.length > 0 && (
-            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-              <PanelHeader label="WATCHLIST" action={
-                <Link href="/dashboard/marketplace" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', color: 'var(--faint)', textDecoration: 'none' }}>View all</Link>
-              } />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0', borderTop: 'none' }}>
-                {watchlist.map((w, i) => (
-                  <Link key={w.id} href={`/agents/${w.agents?.slug}`} style={{ padding: '0.85rem 1rem', borderRight: (i + 1) % 3 !== 0 ? '1px solid var(--border)' : 'none', borderBottom: '1px solid var(--border)', textDecoration: 'none', display: 'block', transition: 'background 0.12s' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(79,140,255,0.04)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    <div style={{ fontWeight: 600, fontSize: '0.8rem', color: 'var(--white)', marginBottom: '0.15rem' }}>{w.agents?.name ?? '—'}</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', color: 'var(--faint)' }}>{w.agents?.primary_symbol}</div>
-                  </Link>
-                ))}
-                <Link href="/dashboard/marketplace" style={{ padding: '0.85rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', borderBottom: '1px solid var(--border)', transition: 'all 0.12s' }}
-                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--blue2)'; e.currentTarget.style.background = 'rgba(79,140,255,0.04)' }}
-                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--faint)'; e.currentTarget.style.background = 'transparent' }}>
-                  + Browse
-                </Link>
-              </div>
-            </div>
-          )}
+          {/* Kraken open positions + Watchlist removed from above-the-fold per
+              the dashboard simplification — they pushed the holdings list
+              way down and didn't pay rent. Re-add as a "More" disclosure
+              if requested. */}
         </div>
 
         {/* RIGHT */}

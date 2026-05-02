@@ -33,30 +33,35 @@ export async function POST(req: NextRequest) {
     if (!agent_id || !amount_cents || amount_cents < 100) {
       return NextResponse.json({ error: 'Minimum investment is $1' }, { status: 400 })
     }
-    // Sandbox / paper mode removed — every subscription executes against the
-    // user's live Kraken account. The legacy `paper` flag on the request body
-    // is now ignored.
-    const isPaper = false
-
+    // No sandbox / paper mode anywhere. Every subscription executes against
+    // the user's real Kraken account.
     const admin = createAdminClient()
 
-    // ── 1. Verify user has active Kraken keys (skipped in paper mode) ─────
+    // ── 1. Verify user has active Kraken keys ────────────────────────────
     const { data: krakenRow } = await admin
       .from('user_kraken_keys')
       .select('status, last_balance_usd')
       .eq('user_id', user.id)
       .maybeSingle()
 
-    if (!isPaper && (!krakenRow || krakenRow.status !== 'active')) {
+    if (!krakenRow || krakenRow.status !== 'active') {
       return NextResponse.json({
         error: 'No Kraken API keys connected. Connect your Kraken account before investing.',
         redirect: '/dashboard/connect/kraken',
       }, { status: 400 })
     }
 
-    // ── 2. Check Kraken balance (paper mode skips both balance + live fetch) ──
+    // ── 2. Check Kraken balance + double-allocation guard ─────────────────
+    // Kraken's free USD reflects what's settled, but allocations to other
+    // ASE agents may not have hit Kraken yet (or may have been withdrawn
+    // back into USD on a sell). To prevent the same dollar from being
+    // earmarked for two agents, we treat:
+    //
+    //     spendable = krakenFreeUsd - (sum of invested_cents across active holdings)
+    //
+    // as the true buying power for *new* allocations.
     let krakenFreeUsd = 0
-    if (!isPaper) {
+    {
       const client = await krakenClientForUser(user.id)
       if (client) {
         try {
@@ -70,15 +75,34 @@ export async function POST(req: NextRequest) {
           console.warn('[Subscribe] Could not fetch live Kraken balance, using cached:', e)
           krakenFreeUsd = Number(krakenRow?.last_balance_usd ?? 0)
         }
+      } else {
+        krakenFreeUsd = Number(krakenRow?.last_balance_usd ?? 0)
       }
 
-      const requiredUsd = amount_cents / 100
-      if (krakenFreeUsd > 0 && krakenFreeUsd < requiredUsd) {
+      const krakenFreeCents = Math.round(krakenFreeUsd * 100)
+
+      const { data: existingHoldings } = await admin
+        .from('holdings')
+        .select('invested_cents')
+        .eq('user_id', user.id)
+        .eq('status', 'active')
+      const alreadyAllocatedCents = (existingHoldings ?? [])
+        .reduce((sum, h) => sum + (Number(h.invested_cents) || 0), 0)
+
+      const spendableCents = Math.max(0, krakenFreeCents - alreadyAllocatedCents)
+
+      if (krakenFreeCents > 0 && spendableCents < amount_cents) {
         return NextResponse.json({
-          error: `Insufficient Kraken balance. You have $${krakenFreeUsd.toFixed(2)} but need $${requiredUsd.toFixed(2)}. Add funds to your Kraken account.`,
-          kraken_balance_cents: Math.round(krakenFreeUsd * 100),
+          error:
+            `Insufficient unallocated Kraken cash. ` +
+            `Wallet has $${(krakenFreeCents / 100).toFixed(2)} but ` +
+            `$${(alreadyAllocatedCents / 100).toFixed(2)} is already pledged to other agents — ` +
+            `only $${(spendableCents / 100).toFixed(2)} is free to allocate.`,
+          kraken_balance_cents: krakenFreeCents,
+          already_allocated_cents: alreadyAllocatedCents,
+          available_cents: spendableCents,
           required_cents: amount_cents,
-        }, { status: 400 })
+        }, { status: 409 })
       }
     }
 
@@ -145,7 +169,7 @@ export async function POST(req: NextRequest) {
       type: 'invest',
       amount_cents: -amount_cents,
       reference_id: holdingUpdate.holdingId,
-      note: `Subscribed to ${agent.name}${holdingUpdate.merged ? ' (added to position)' : ''} via ${isPaper ? 'Paper Mode' : 'Kraken'}`,
+      note: `Subscribed to ${agent.name}${holdingUpdate.merged ? ' (added to position)' : ''} via Kraken`,
     })
 
     // ── 8. Reprice agent ──────────────────────────────────────────────────
@@ -156,9 +180,9 @@ export async function POST(req: NextRequest) {
       volumeShares: newShares,
     })
 
-    // ── 9. Execute immediate buy trade on Kraken (skipped in paper mode) ──
+    // ── 9. Execute immediate buy trade on Kraken ─────────────────────────
     let tradeResult: { orderId?: string; filledQty?: number; fillPrice?: number } = {}
-    if (!isPaper && agent.primary_symbol && amount_cents >= 100) {
+    if (agent.primary_symbol && amount_cents >= 100) {
       try {
         const users = await getUsersWithHoldings(admin, agent_id)
         const isSubscribed = users.find(u => u.user_id === user.id)
@@ -182,7 +206,7 @@ export async function POST(req: NextRequest) {
     // ── 10. Trigger cron agent run ────────────────────────────────────────
     void triggerImmediateAgentRun(req, agent_id)
 
-    console.log(`[Subscribe] ${user.id} → ${agent.slug}: $${(amount_cents / 100).toFixed(2)} invested${isPaper ? ' [PAPER]' : ''}, ${newShares.toFixed(6)} shares @ $${(askCents / 100).toFixed(4)}`)
+    console.log(`[Subscribe] ${user.id} → ${agent.slug}: $${(amount_cents / 100).toFixed(2)} invested (live Kraken), ${newShares.toFixed(6)} shares @ $${(askCents / 100).toFixed(4)}`)
 
     return NextResponse.json({
       ok: true,

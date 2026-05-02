@@ -254,7 +254,9 @@ export async function POST(req: Request) {
       qty:         (capital * d.weight) / d.price,
       price:       d.price,
       notional:    capital * d.weight,
-      mode:        (agent.spec as Record<string, unknown>)?.live_mode ? 'live' : 'paper',
+      // All published agents are live — no paper fallback. The historical
+      // `live_mode` flag is ignored; every fill is recorded as live.
+      mode:        'live',
       executed_at: ts,
       thinking:    d.thinking,  // stored for activity feed + agent cards
     }))

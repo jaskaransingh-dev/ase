@@ -101,216 +101,189 @@ function MiniStat({ label, value, color }: { label: string; value: string; color
   )
 }
 
-// ─── Invest Modal ─────────────────────────────────────────────────────────────
+// ─── Inline Buy Panel ─────────────────────────────────────────────────────────
+// Lives in the agent page's right rail. Single source of truth for balance,
+// allocation, and the no-double-allocate guard (server enforces; UI surfaces).
 
-function InvestModal({ agentId, agentName, navCents, onClose, onSuccess }: {
+function BuyPanel({ agentId, agentName, navCents, hasPosition, onSuccess }: {
   agentId: string; agentName: string; navCents: number
-  onClose: () => void; onSuccess: (result: { shares: number; amount: number }) => void
+  hasPosition: boolean
+  onSuccess: (result: { shares: number; amount: number }) => void
 }) {
-  const [balance, setBalance] = useState<number | null>(null)
+  const [krakenCashCents, setKrakenCashCents] = useState<number | null>(null)
+  const [availableCents, setAvailableCents] = useState<number | null>(null)
+  const [allocatedCents, setAllocatedCents] = useState<number>(0)
   const [accountStatus, setAccountStatus] = useState<string>('loading')
   const [amount, setAmount] = useState(50)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [fetching, setFetching] = useState(true)
-  // Paper-mode unblock — when Kraken USD cash is $0 the user can still
-  // allocate virtual funds (10k simulated) and the agent runs in paper mode.
-  const [paperMode, setPaperMode] = useState(false)
-  const PAPER_BALANCE_CENTS = 10_000_00
 
-  useEffect(() => {
-    fetch('/api/account/balance', { cache: 'no-store' })
+  const loadBalance = useCallback((opts?: { refresh?: boolean }) => {
+    setFetching(true)
+    fetch(`/api/account/balance${opts?.refresh ? '?refresh=1' : ''}`, { cache: 'no-store' })
       .then(r => r.json())
       .then(d => {
-        const cents = Number(d.available_cents ?? d.buying_power_cents ?? d.cash_cents ?? 0) || 0
-        setBalance(cents)
-        // Treat any non-zero balance as usable, even if Kraken isn't live-connected.
-        // We only block the user when there's truly nothing to spend.
-        if (cents > 0) setAccountStatus('connected')
+        const cash = Number(d.cash_cents ?? 0) || 0
+        const available = Number(d.available_cents ?? d.buying_power_cents ?? cash) || 0
+        const allocated = Number(d.invested_cents ?? 0) || 0
+        setKrakenCashCents(cash)
+        setAvailableCents(available)
+        setAllocatedCents(allocated)
+        if (cash > 0 || available > 0) setAccountStatus('connected')
         else setAccountStatus(d.status === 'connected' ? 'connected' : 'not_connected')
       })
-      .catch(() => { setBalance(0); setAccountStatus('error') })
+      .catch(() => { setKrakenCashCents(0); setAvailableCents(0); setAccountStatus('error') })
       .finally(() => setFetching(false))
   }, [])
 
-  const notConnected = accountStatus === 'not_connected' && (balance ?? 0) === 0 && !paperMode
-  // Connected to Kraken but the USD cash balance is $0 — the user's funds
-  // are likely sitting in positions, stakes, or non-USD currencies that
-  // ASE can't draw from. Surface this state with its own copy unless the
-  // user has flipped over to paper-mode.
-  const connectedNoCash = accountStatus === 'connected' && (balance ?? 0) === 0 && !paperMode
-  const effectiveBalanceCents = paperMode ? PAPER_BALANCE_CENTS : (balance ?? 0)
-  const maxAmount = Math.floor(effectiveBalanceCents / 100)
+  useEffect(() => { loadBalance() }, [loadBalance])
+
+  const notConnected = accountStatus === 'not_connected' && (krakenCashCents ?? 0) === 0
+  const fullyAllocated = !notConnected && (krakenCashCents ?? 0) > 0 && (availableCents ?? 0) === 0
+  const maxAmount = Math.floor((availableCents ?? 0) / 100)
   const cappedAmount = Math.min(Math.max(amount, 0), maxAmount)
   const projectedShares = navCents > 0 ? (cappedAmount * 100) / navCents : 0
-  const sharePriceUsd = (navCents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   async function handleInvest() {
     if (cappedAmount < 1) { setMsg('Minimum $1'); return }
     setLoading(true); setMsg('')
     try {
-      const res = await fetch('/api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: agentId, amount_cents: Math.round(cappedAmount * 100), paper: paperMode }) })
+      const res = await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentId, amount_cents: Math.round(cappedAmount * 100) }),
+      })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Purchase failed')
       onSuccess({ shares: data.shares, amount: cappedAmount })
+      loadBalance({ refresh: true })
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Investment failed')
     }
     setLoading(false)
   }
 
+  if (notConnected) {
+    return (
+      <div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.5rem' }}>BUY · {agentName.toUpperCase()}</div>
+        <div style={{ background: 'rgba(94,65,217,.06)', border: '1px solid rgba(94,65,217,.18)', borderRadius: 10, padding: '.7rem .8rem', marginBottom: '.6rem' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: '#a78bfa', fontWeight: 700, letterSpacing: '.08em', marginBottom: '.3rem' }}>KRAKEN NOT CONNECTED</div>
+          <div style={{ color: 'var(--muted)', fontSize: '.66rem', lineHeight: 1.55 }}>
+            Connect your Kraken API keys to allocate funds to this agent.
+          </div>
+        </div>
+        <a href="/dashboard/connect/kraken"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem', padding: '.65rem', borderRadius: 9, border: 0, background: 'linear-gradient(135deg,#5741D9,#7B64FF)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.78rem', fontWeight: 700, textDecoration: 'none' }}>
+          Connect Kraken →
+        </a>
+      </div>
+    )
+  }
+
+  if (fullyAllocated) {
+    return (
+      <div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.5rem' }}>BUY · {agentName.toUpperCase()}</div>
+        <div style={{ background: 'rgba(245,185,66,.06)', border: '1px solid rgba(245,185,66,.22)', borderRadius: 10, padding: '.7rem .8rem', marginBottom: '.6rem' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: '#f5b942', fontWeight: 700, letterSpacing: '.08em', marginBottom: '.3rem' }}>FULLY ALLOCATED</div>
+          <div style={{ color: 'var(--muted)', fontSize: '.66rem', lineHeight: 1.55 }}>
+            Your Kraken cash ({fmt$(krakenCashCents ?? 0)}) is already pledged to other agents
+            ({fmt$(allocatedCents)}). Deallocate from another agent or fund Kraken to allocate more here.
+          </div>
+        </div>
+        <button
+          onClick={() => loadBalance({ refresh: true })}
+          disabled={fetching}
+          style={{ width: '100%', padding: '.55rem', borderRadius: 8, background: 'rgba(59,127,255,.08)', border: '1px solid rgba(59,127,255,.22)', color: 'var(--blue2)', fontFamily: 'var(--font-mono)', fontSize: '.62rem', fontWeight: 700, cursor: fetching ? 'wait' : 'pointer', letterSpacing: '.04em' }}
+        >
+          {fetching ? 'Syncing…' : 'Re-sync Balance'}
+        </button>
+      </div>
+    )
+  }
+
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(4,3,12,.92)', backdropFilter: 'blur(24px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#0d0d14', border: '1px solid rgba(59,127,255,.28)', borderRadius: 16, width: '100%', maxWidth: 420, boxShadow: '0 48px 96px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.04)' }}>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.5rem' }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)', letterSpacing: '.1em' }}>{hasPosition ? 'ADD MORE' : 'BUY'} · {agentName.toUpperCase()}</div>
+        <button onClick={() => loadBalance({ refresh: true })} disabled={fetching} title="Re-sync Kraken balance"
+          style={{ background: 'transparent', border: 'none', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.5rem', cursor: fetching ? 'wait' : 'pointer', letterSpacing: '.06em' }}>
+          {fetching ? '…' : '↻'}
+        </button>
+      </div>
 
-        {/* Header bar */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--blue)', boxShadow: '0 0 6px var(--blue)' }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--faint)', letterSpacing: '.12em', textTransform: 'uppercase' }}>Market Buy · {agentName}</span>
-          </div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 7, width: 28, height: 28, cursor: 'pointer', color: 'var(--faint)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '.75rem' }}>✕</button>
+      {/* Balance + share price */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.35rem', marginBottom: '.7rem' }}>
+        <div style={{ background: 'rgba(59,127,255,.06)', border: '1px solid rgba(59,127,255,.16)', borderRadius: 8, padding: '.42rem .55rem' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.42rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.18rem' }}>NAV / SHARE</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.78rem', fontWeight: 700, color: 'var(--blue2)' }}>{fmt$(navCents)}</div>
         </div>
-
-        <div style={{ padding: '1.25rem' }}>
-          {/* Share price ticker */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.6rem', marginBottom: '1.1rem' }}>
-            <div style={{ background: 'rgba(59,127,255,.06)', border: '1px solid rgba(59,127,255,.14)', borderRadius: 10, padding: '.65rem .85rem' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.28rem' }}>SHARE PRICE (NAV)</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color: 'var(--blue2)', letterSpacing: '-.01em' }}>${sharePriceUsd}</div>
-            </div>
-            <div style={{ background: paperMode ? 'rgba(22,199,132,.07)' : 'rgba(255,255,255,.03)', border: `1px solid ${paperMode ? 'rgba(22,199,132,.22)' : 'rgba(255,255,255,.07)'}`, borderRadius: 10, padding: '.65rem .85rem' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: paperMode ? '#16c784' : 'var(--faint)', letterSpacing: '.1em', marginBottom: '.28rem' }}>{paperMode ? 'PAPER BALANCE' : 'AVAILABLE CASH'}</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 700, color: fetching ? 'var(--faint)' : notConnected ? 'var(--red)' : paperMode ? '#16c784' : 'var(--white)', letterSpacing: '-.01em' }}>
-                {fetching ? '—' : notConnected ? 'Not Connected' : fmt$(effectiveBalanceCents)}
-              </div>
-            </div>
+        <div style={{ background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 8, padding: '.42rem .55rem' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.42rem', color: 'var(--faint)', letterSpacing: '.08em', marginBottom: '.18rem' }}>FREE TO ALLOCATE</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.78rem', fontWeight: 700, color: 'var(--white)' }}>
+            {fetching ? '—' : fmt$(availableCents ?? 0)}
           </div>
-
-          {notConnected ? (
-            <div style={{ padding: '.5rem 0' }}>
-              <p style={{ color: 'var(--muted)', fontSize: '.82rem', marginBottom: '1rem', lineHeight: 1.6, textAlign: 'center' }}>
-                Connect your Kraken API keys to invest. Trades execute live on your account.
-              </p>
-              <a href="/dashboard/connect/kraken" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', padding: '.75rem 1.5rem', borderRadius: 10, border: 0, background: 'linear-gradient(135deg,#5741D9,#7B64FF)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, textDecoration: 'none' }}>
-                Connect Kraken →
-              </a>
-            </div>
-          ) : connectedNoCash ? (
-            <div style={{ padding: '.5rem 0' }}>
-              <div style={{ background: 'rgba(245,185,66,.06)', border: '1px solid rgba(245,185,66,.22)', borderRadius: 10, padding: '.85rem 1rem', marginBottom: '1rem' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, color: '#f5b942', letterSpacing: '.08em', marginBottom: '.4rem' }}>
-                  KRAKEN CONNECTED · NO USD CASH
-                </div>
-                <div style={{ color: 'var(--muted)', fontSize: '.78rem', lineHeight: 1.65 }}>
-                  Your Kraken account is linked, but the USD cash balance ASE can pull from is $0.
-                  Your funds are likely in one of these places:
-                </div>
-                <ul style={{ color: 'var(--muted)', fontSize: '.74rem', lineHeight: 1.7, margin: '.6rem 0 0 0', paddingLeft: '1.1rem' }}>
-                  <li>Held as crypto positions (BTC, ETH, etc.)</li>
-                  <li>Earning yield in Kraken Earn / Staking</li>
-                  <li>Held in EUR, GBP, or another non-USD fiat</li>
-                  <li>On a Kraken Futures or Margin sub-account ASE doesn't read</li>
-                </ul>
-                <div style={{ color: 'var(--muted)', fontSize: '.74rem', lineHeight: 1.65, marginTop: '.65rem' }}>
-                  ASE only invests from your Kraken <strong>spot USD</strong> wallet. Convert or transfer
-                  funds into spot USD on Kraken, then come back and try again.
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem', marginBottom: '.5rem' }}>
-                <a href="https://www.kraken.com/u/funding" target="_blank" rel="noreferrer"
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem', padding: '.7rem', borderRadius: 9, background: 'rgba(94,65,217,.12)', border: '1px solid rgba(94,65,217,.3)', color: '#a78bfa', fontFamily: 'var(--font-mono)', fontSize: '.66rem', fontWeight: 700, textDecoration: 'none', letterSpacing: '.04em' }}>
-                  Open Kraken →
-                </a>
-                <button
-                  onClick={() => {
-                    setFetching(true)
-                    fetch('/api/account/balance?refresh=1', { cache: 'no-store' })
-                      .then(r => r.json())
-                      .then(d => {
-                        const cents = Number(d.available_cents ?? d.buying_power_cents ?? d.cash_cents ?? 0) || 0
-                        setBalance(cents)
-                        if (cents > 0) setAccountStatus('connected')
-                      })
-                      .catch(() => {})
-                      .finally(() => setFetching(false))
-                  }}
-                  style={{ padding: '.7rem', borderRadius: 9, background: 'rgba(59,127,255,.1)', border: '1px solid rgba(59,127,255,.25)', color: 'var(--blue2)', fontFamily: 'var(--font-mono)', fontSize: '.66rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '.04em' }}
-                >
-                  {fetching ? 'Syncing…' : 'Re-sync Balance'}
-                </button>
-              </div>
-              <button
-                onClick={() => { setPaperMode(true); setMsg('') }}
-                style={{ width: '100%', padding: '.78rem', borderRadius: 10, border: '1px solid rgba(22,199,132,.35)', background: 'linear-gradient(135deg, rgba(22,199,132,.18), rgba(22,199,132,.08))', color: '#16c784', fontFamily: 'var(--font-head)', fontSize: '.84rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '-.005em' }}
-              >
-                Trade in Paper Mode · $10,000 virtual
-              </button>
-              <div style={{ marginTop: '.5rem', fontFamily: 'var(--font-mono)', fontSize: '.46rem', color: 'var(--faint)', lineHeight: 1.7, textAlign: 'center' }}>
-                No live Kraken trade. Position is tracked virtually so you can test the agent risk-free.
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Amount input */}
-              <div style={{ marginBottom: '1rem' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.46rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.4rem' }}>ORDER SIZE (USD)</div>
-                <div style={{ position: 'relative' }}>
-                  <span style={{ position: 'absolute', left: '.9rem', top: '50%', transform: 'translateY(-50%)', fontFamily: 'var(--font-mono)', fontSize: '.88rem', color: 'rgba(255,255,255,.3)' }}>$</span>
-                  <input type="number" value={amount} min={1} max={maxAmount} onChange={e => setAmount(Number(e.target.value))} style={{ width: '100%', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, padding: '.72rem 1rem .72rem 1.65rem', color: 'var(--white)', fontFamily: 'var(--font-mono)', fontSize: '1rem', outline: 'none', boxSizing: 'border-box', letterSpacing: '-.01em' }} />
-                </div>
-                <div style={{ display: 'flex', gap: '.3rem', marginTop: '.4rem' }}>
-                  {[25, 50, 100, 'MAX'].map(v => {
-                    const val = v === 'MAX' ? maxAmount : v as number
-                    const active = amount === val
-                    return (
-                      <button key={v} onClick={() => setAmount(val)} disabled={val > maxAmount} style={{ flex: 1, padding: '.3rem', background: active ? 'rgba(59,127,255,.15)' : 'rgba(255,255,255,.03)', border: `1px solid ${active ? 'rgba(59,127,255,.35)' : 'rgba(255,255,255,.07)'}`, borderRadius: 7, color: active ? 'var(--blue2)' : 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.54rem', cursor: val > maxAmount ? 'not-allowed' : 'pointer', fontWeight: 600, opacity: val > maxAmount ? 0.35 : 1 }}>{v === 'MAX' ? 'MAX' : `$${v}`}</button>
-                    )
-                  })}
-                </div>
-                <div style={{ display: 'flex', gap: '.3rem', marginTop: '.3rem' }}>
-                  {[10, 25, 50].map(pct => (
-                    <button key={pct} onClick={() => setAmount(Math.floor(maxAmount * pct / 100))} disabled={maxAmount < 1} style={{ flex: 1, padding: '.24rem', background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.06)', borderRadius: 6, color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.5rem', cursor: maxAmount < 1 ? 'not-allowed' : 'pointer', opacity: maxAmount < 1 ? 0.35 : 1 }}>{pct}%</button>
-                  ))}
-                </div>
-              </div>
-
-              {paperMode && (
-                <div style={{ marginBottom: '.85rem', padding: '.55rem .8rem', borderRadius: 9, background: 'rgba(22,199,132,.08)', border: '1px solid rgba(22,199,132,.22)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.6rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '.45rem' }}>
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#16c784', boxShadow: '0 0 8px #16c784' }} />
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: '#16c784', fontWeight: 700, letterSpacing: '.08em' }}>PAPER MODE · NO LIVE TRADE</span>
-                  </div>
-                  <button onClick={() => setPaperMode(false)} style={{ background: 'transparent', border: 'none', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.5rem', cursor: 'pointer', textDecoration: 'underline' }}>switch to live</button>
-                </div>
-              )}
-
-              {/* Order summary */}
-              <div style={{ background: 'rgba(255,255,255,.025)', border: '1px solid rgba(255,255,255,.07)', borderRadius: 10, padding: '.75rem .9rem', marginBottom: '1rem' }}>
-                {[
-                  ['Order type', 'Market'],
-                  ['Share price', `$${sharePriceUsd}`],
-                  ['Shares to receive', projectedShares.toFixed(6)],
-                  ['Total cost', `$${cappedAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`],
-                ].map(([k, v], i, arr) => (
-                  <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: i < arr.length - 1 ? '.32rem' : 0, paddingBottom: i < arr.length - 1 ? '.32rem' : 0, borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,.05)' : 'none' }}>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)', letterSpacing: '.07em' }}>{k}</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', fontWeight: 700, color: k === 'Total cost' ? 'var(--white)' : 'var(--muted)' }}>{v}</span>
-                  </div>
-                ))}
-              </div>
-
-              {msg && <div style={{ marginBottom: '.8rem', padding: '.6rem .85rem', background: 'rgba(242,54,69,.08)', border: '1px solid rgba(242,54,69,.2)', borderRadius: 8, fontFamily: 'var(--font-mono)', fontSize: '.65rem', color: 'var(--red)' }}>{msg}</div>}
-
-              <button onClick={handleInvest} disabled={loading || fetching || cappedAmount < 1} style={{ width: '100%', padding: '.8rem', borderRadius: 10, border: 0, background: cappedAmount >= 1 ? 'linear-gradient(135deg, var(--blue), #5741D9)' : 'rgba(255,255,255,.05)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.88rem', fontWeight: 700, cursor: loading || fetching || cappedAmount < 1 ? 'not-allowed' : 'pointer', opacity: loading || fetching || cappedAmount < 1 ? .45 : 1, letterSpacing: '-.01em', transition: 'opacity .15s' }}>
-                {loading ? 'Placing order...' : paperMode ? `Allocate ${projectedShares.toFixed(4)} virtual shares · $${cappedAmount}` : `Buy ${projectedShares.toFixed(4)} shares · $${cappedAmount}`}
-              </button>
-              <div style={{ marginTop: '.75rem', fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', lineHeight: 1.7, textAlign: 'center' }}>
-                {paperMode ? 'Paper trade · simulated execution · tracked virtually for testing' : 'Market order · executes immediately on Kraken · algorithmic trading involves risk of loss'}
-              </div>
-            </>
-          )}
         </div>
+      </div>
+
+      {/* Allocation breakdown — makes the no-double-allocate rule visible */}
+      {(allocatedCents > 0 || (krakenCashCents ?? 0) > 0) && (
+        <div style={{ marginBottom: '.7rem', padding: '.45rem .55rem', background: 'rgba(255,255,255,.018)', border: '1px solid rgba(255,255,255,.05)', borderRadius: 7, fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)', letterSpacing: '.04em', lineHeight: 1.5 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Kraken cash</span><span style={{ color: 'var(--muted)' }}>{fmt$(krakenCashCents ?? 0)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Pledged to agents</span><span style={{ color: 'var(--muted)' }}>−{fmt$(allocatedCents)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,.06)', marginTop: '.22rem', paddingTop: '.22rem' }}>
+            <span style={{ color: 'var(--blue2)' }}>Available</span><span style={{ color: 'var(--blue2)', fontWeight: 700 }}>{fmt$(availableCents ?? 0)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Amount input */}
+      <div style={{ marginBottom: '.55rem' }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.42rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.28rem' }}>ORDER SIZE (USD)</div>
+        <div style={{ position: 'relative' }}>
+          <span style={{ position: 'absolute', left: '.7rem', top: '50%', transform: 'translateY(-50%)', fontFamily: 'var(--font-mono)', fontSize: '.78rem', color: 'rgba(255,255,255,.3)' }}>$</span>
+          <input type="number" value={amount} min={1} max={maxAmount} onChange={e => setAmount(Number(e.target.value))} disabled={maxAmount < 1}
+            style={{ width: '100%', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 9, padding: '.55rem .8rem .55rem 1.4rem', color: 'var(--white)', fontFamily: 'var(--font-mono)', fontSize: '.88rem', outline: 'none', boxSizing: 'border-box', letterSpacing: '-.01em' }} />
+        </div>
+        <div style={{ display: 'flex', gap: '.25rem', marginTop: '.3rem' }}>
+          {[25, 50, 100, 'MAX'].map(v => {
+            const val = v === 'MAX' ? maxAmount : v as number
+            const active = amount === val
+            const disabled = val > maxAmount || maxAmount < 1
+            return (
+              <button key={v} onClick={() => setAmount(val)} disabled={disabled}
+                style={{ flex: 1, padding: '.28rem', background: active ? 'rgba(59,127,255,.15)' : 'rgba(255,255,255,.03)', border: `1px solid ${active ? 'rgba(59,127,255,.35)' : 'rgba(255,255,255,.07)'}`, borderRadius: 6, color: active ? 'var(--blue2)' : 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.5rem', cursor: disabled ? 'not-allowed' : 'pointer', fontWeight: 600, opacity: disabled ? 0.35 : 1 }}>
+                {v === 'MAX' ? 'MAX' : `$${v}`}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Order summary */}
+      <div style={{ background: 'rgba(255,255,255,.022)', border: '1px solid rgba(255,255,255,.06)', borderRadius: 8, padding: '.5rem .65rem', marginBottom: '.55rem' }}>
+        {[
+          ['Order type', 'Market'],
+          ['Shares', projectedShares.toFixed(6)],
+          ['Total', `$${cappedAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`],
+        ].map(([k, v], i, arr) => (
+          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: i < arr.length - 1 ? '.22rem' : 0 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.46rem', color: 'var(--faint)', letterSpacing: '.06em' }}>{k}</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', fontWeight: 700, color: k === 'Total' ? 'var(--white)' : 'var(--muted)' }}>{v}</span>
+          </div>
+        ))}
+      </div>
+
+      {msg && <div style={{ marginBottom: '.5rem', padding: '.45rem .6rem', background: 'rgba(242,54,69,.08)', border: '1px solid rgba(242,54,69,.2)', borderRadius: 7, fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--red)', lineHeight: 1.4 }}>{msg}</div>}
+
+      <button onClick={handleInvest} disabled={loading || fetching || cappedAmount < 1}
+        style={{ width: '100%', padding: '.65rem', borderRadius: 9, border: 0, background: cappedAmount >= 1 ? 'linear-gradient(135deg, var(--blue), #5741D9)' : 'rgba(255,255,255,.05)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.8rem', fontWeight: 700, cursor: loading || fetching || cappedAmount < 1 ? 'not-allowed' : 'pointer', opacity: loading || fetching || cappedAmount < 1 ? .45 : 1, letterSpacing: '-.01em', transition: 'opacity .15s' }}>
+        {loading ? 'Placing order…' : `Buy ${projectedShares.toFixed(4)} sh · $${cappedAmount}`}
+      </button>
+      <div style={{ marginTop: '.4rem', fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: 'var(--faint)', lineHeight: 1.5, textAlign: 'center' }}>
+        Market order · executes on Kraken · trading involves risk
       </div>
     </div>
   )
@@ -453,7 +426,6 @@ export default function AgentDetailClient({
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
 
-  const [showInvestModal, setShowInvestModal]       = useState(false)
   const [showDeallocateModal, setShowDeallocateModal] = useState(false)
   const [holding, setHolding] = useState<UserHolding | null>(initialHolding ?? null)
   const [statusMsg, setStatusMsg] = useState('')
@@ -586,22 +558,6 @@ export default function AgentDetailClient({
     if (t === 'Monte Carlo' && !mcResult && !mcLoading) loadMonteCarlo()
   }
 
-  async function handleSubscribe() {
-    if (!isLoggedIn) { router.push(`/login?redirect=/agents/${agent.slug}`); return }
-    setShowInvestModal(true)
-  }
-
-  async function handleUnsubscribe() {
-    setLoading(true); setMsg('')
-    try {
-      const res = await fetch('/api/subscriptions', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: agent.id }) })
-      const d = await res.json()
-      if (!res.ok) throw new Error(d.error)
-      setIsSubscribed(false); router.refresh()
-    } catch (e: unknown) { setMsg(e instanceof Error ? e.message : 'Error') }
-    setLoading(false)
-  }
-
   // ── Derived values ─────────────────────────────────────────────────────────
 
   const bt = cachedBacktestStats?.stats
@@ -667,7 +623,7 @@ export default function AgentDetailClient({
       )}
 
       {/* ── 2-column layout: left=content, right=sticky card ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 296px', gap: '1.75rem', alignItems: 'start' }} className="detail-main-grid">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1.75rem', alignItems: 'start' }} className="detail-main-grid">
 
         {/* ── LEFT COLUMN ── */}
         <div>
@@ -1059,95 +1015,65 @@ export default function AgentDetailClient({
               <MiniStat label="Trades" value={totalTrades.toString()} />
             </div>
 
-            {/* Subscribe */}
-            {isSubscribed ? (
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '.45rem', background: holding ? 'rgba(22,199,132,.06)' : 'rgba(79,127,255,.06)', border: `1px solid ${holding ? 'rgba(22,199,132,.16)' : 'rgba(79,127,255,.16)'}`, borderRadius: 8, padding: '.45rem .7rem', marginBottom: '.55rem' }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: holding ? 'var(--green)' : 'var(--blue2)', display: 'inline-block', flexShrink: 0 }} />
-                  <span suppressHydrationWarning style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: holding ? 'var(--green)' : 'var(--blue2)', fontWeight: 700, letterSpacing: '.06em', flex: 1 }}>
-                    {holding ? 'INVESTED' : 'SUBSCRIBED'}
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)' }}>{subscribers} investors</span>
+            {/* Position summary (only when user holds shares) */}
+            {holding && (
+              <div style={{ marginBottom: '.85rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.45rem', background: 'rgba(22,199,132,.06)', border: '1px solid rgba(22,199,132,.16)', borderRadius: 8, padding: '.4rem .65rem', marginBottom: '.5rem' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', display: 'inline-block', flexShrink: 0 }} />
+                  <span suppressHydrationWarning style={{ fontFamily: 'var(--font-mono)', fontSize: '.55rem', color: 'var(--green)', fontWeight: 700, letterSpacing: '.06em', flex: 1 }}>YOUR POSITION</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)' }}>{subscribers} investors</span>
                 </div>
-                {holding && (
-                  <button suppressHydrationWarning onClick={() => setShowDeallocateModal(true)} disabled={loading} style={{ width: '100%', padding: '.45rem', borderRadius: 7, border: '1px solid rgba(242,54,69,.18)', background: 'transparent', color: 'rgba(242,54,69,.6)', fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: '.04em' }}>
-                    {loading ? 'Processing...' : 'Deallocate Position'}
-                  </button>
-                )}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.32rem', marginBottom: '.5rem' }}>
+                  {[
+                    { label: 'INVESTED', value: fmt$(holding.invested_cents), color: undefined },
+                    { label: 'VALUE', value: fmt$(holding.current_value_cents), color: undefined },
+                    { label: 'SHARES', value: holding.shares.toFixed(4), color: undefined },
+                    { label: 'P&L', value: `${holding.pnl_cents >= 0 ? '+' : ''}${fmt$(holding.pnl_cents)}`, color: holding.pnl_cents >= 0 ? 'var(--green)' : 'var(--red)' },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} style={{ background: label === 'P&L' ? (holding.pnl_cents >= 0 ? 'rgba(22,199,132,.05)' : 'rgba(242,54,69,.05)') : 'var(--bg3)', border: `1px solid ${label === 'P&L' ? (holding.pnl_cents >= 0 ? 'rgba(22,199,132,.16)' : 'rgba(242,54,69,.16)') : 'var(--border)'}`, borderRadius: 7, padding: '.36rem .5rem' }}>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.42rem', color: 'var(--faint)', marginBottom: '.08rem' }}>{label}</div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.72rem', fontWeight: 700, color: color ?? 'var(--white)' }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+                <button suppressHydrationWarning onClick={() => setShowDeallocateModal(true)} disabled={loading}
+                  style={{ width: '100%', padding: '.45rem', borderRadius: 7, border: '1px solid rgba(242,54,69,.22)', background: 'rgba(242,54,69,.05)', color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: '.04em' }}>
+                  {loading ? 'Processing…' : 'Sell / Deallocate'}
+                </button>
+              </div>
+            )}
+
+            {/* Inline buy panel — replaces the old "open modal" button */}
+            {isLoggedIn ? (
+              <div style={{ borderTop: holding ? '1px solid var(--border)' : 'none', paddingTop: holding ? '.85rem' : 0 }}>
+                <BuyPanel
+                  agentId={agent.id}
+                  agentName={agent.name}
+                  navCents={currentNavCents}
+                  hasPosition={!!holding}
+                  onSuccess={({ shares, amount }) => {
+                    setIsSubscribed(true)
+                    setStatusMsg(`Allocated $${amount} — ${shares.toFixed(4)} shares acquired`)
+                    refreshHolding()
+                    router.refresh()
+                  }}
+                />
               </div>
             ) : (
-              <div>
-                {!isLoggedIn && (
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.56rem', color: 'var(--faint)', textAlign: 'center', marginBottom: '.55rem' }}>
-                    <Link href={`/login?redirect=/agents/${agent.slug}`} style={{ color: 'var(--blue2)', textDecoration: 'none' }}>Sign in</Link> to allocate funds
-                  </div>
-                )}
-                <button onClick={handleSubscribe} disabled={loading} style={{ width: '100%', padding: '.72rem', borderRadius: 9, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.86rem', fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: '-.01em', transition: 'background .15s' }}
-                  onMouseEnter={e => { if (!loading) (e.currentTarget as HTMLButtonElement).style.background = 'var(--blue2)' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--blue)' }}
-                >
-                  {loading ? 'Processing...' : 'Allocate Funds'}
-                </button>
+              <div style={{ padding: '.7rem .85rem', borderRadius: 9, background: 'rgba(59,127,255,.05)', border: '1px solid rgba(59,127,255,.16)' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.56rem', color: 'var(--muted)', textAlign: 'center', lineHeight: 1.55 }}>
+                  <Link href={`/login?redirect=/agents/${agent.slug}`} style={{ color: 'var(--blue2)', textDecoration: 'none', fontWeight: 700 }}>Sign in</Link> to allocate funds and let this agent trade for you.
+                </div>
                 {subscribers > 0 && (
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: 'var(--faint)', textAlign: 'center', marginTop: '.4rem' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', textAlign: 'center', marginTop: '.45rem' }}>
                     {subscribers} investor{subscribers !== 1 ? 's' : ''}
                   </div>
                 )}
               </div>
             )}
 
-            {msg && <div style={{ marginTop: '.45rem', fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--red)', textAlign: 'center' }}>{msg}</div>}
-
-            {/* Investment section */}
-            {isSubscribed && (
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.85rem', marginTop: '.85rem' }}>
-                {holding ? (
-                  <div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.55rem' }}>YOUR POSITION</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.35rem', marginBottom: '.6rem' }}>
-                      {[
-                        { label: 'INVESTED', value: fmt$(holding.invested_cents), color: undefined },
-                        { label: 'VALUE', value: fmt$(holding.current_value_cents), color: undefined },
-                        { label: 'SHARES', value: holding.shares.toFixed(4), color: undefined },
-                        { label: 'P&L', value: `${holding.pnl_cents >= 0 ? '+' : ''}${fmt$(holding.pnl_cents)}`, color: holding.pnl_cents >= 0 ? 'var(--green)' : 'var(--red)' },
-                      ].map(({ label, value, color }) => (
-                        <div key={label} style={{ background: label === 'P&L' ? (holding.pnl_cents >= 0 ? 'rgba(22,199,132,.05)' : 'rgba(242,54,69,.05)') : 'var(--bg3)', border: `1px solid ${label === 'P&L' ? (holding.pnl_cents >= 0 ? 'rgba(22,199,132,.16)' : 'rgba(242,54,69,.16)') : 'var(--border)'}`, borderRadius: 7, padding: '.4rem .55rem' }}>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: 'var(--faint)', marginBottom: '.1rem' }}>{label}</div>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.76rem', fontWeight: 700, color: color ?? 'var(--white)' }}>{value}</div>
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.35rem' }}>
-                      <button onClick={() => setShowInvestModal(true)} style={{ padding: '.5rem', borderRadius: 7, border: '1px solid rgba(59,127,255,.24)', background: 'rgba(59,127,255,.06)', color: 'var(--blue2)', fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '.04em' }}>
-                        Add More
-                      </button>
-                      <button onClick={() => setShowDeallocateModal(true)} style={{ padding: '.5rem', borderRadius: 7, border: '1px solid rgba(242,54,69,.2)', background: 'rgba(242,54,69,.05)', color: 'var(--red)', fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '.04em' }}>
-                        Deallocate
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.48rem', color: 'var(--faint)', letterSpacing: '.1em', marginBottom: '.35rem' }}>NO ACTIVE POSITION</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', color: 'var(--muted)', lineHeight: 1.6, marginBottom: '.55rem' }}>
-                      You're subscribed but have no open position. Allocate funds to start trading.
-                    </div>
-                    <button
-                      onClick={() => setShowInvestModal(true)}
-                      style={{ width: '100%', padding: '.62rem', borderRadius: 8, border: 0, background: 'var(--blue)', color: '#fff', fontFamily: 'var(--font-head)', fontSize: '.84rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '-.01em' }}
-                    >
-                      Allocate Funds
-                    </button>
-                  </div>
-                )}
-
-                {statusMsg && (
-                  <div style={{ marginTop: '.5rem', fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--green)', textAlign: 'center' }}>
-                    {statusMsg}
-                  </div>
-                )}
-              </div>
-            )}
+            {msg && <div style={{ marginTop: '.45rem', fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: 'var(--red)', textAlign: 'center' }}>{msg}</div>}
+            {statusMsg && <div style={{ marginTop: '.45rem', fontFamily: 'var(--font-mono)', fontSize: '.56rem', color: 'var(--green)', textAlign: 'center' }}>{statusMsg}</div>}
 
             {/* Signal */}
             {agent.signal_summary && (
@@ -1161,22 +1087,6 @@ export default function AgentDetailClient({
       </div>
 
       {/* Modals */}
-      {showInvestModal && (
-        <InvestModal
-          agentId={agent.id}
-          agentName={agent.name}
-          navCents={currentNavCents}
-          onClose={() => setShowInvestModal(false)}
-          onSuccess={({ shares, amount }) => {
-            setShowInvestModal(false)
-            setIsSubscribed(true)
-            setStatusMsg(`Invested $${amount} — ${shares.toFixed(4)} shares acquired`)
-            refreshHolding()
-            router.refresh()
-          }}
-        />
-      )}
-
       {showDeallocateModal && holding && (
         <DeallocateModal
           holding={holding}

@@ -36,15 +36,10 @@ const CATEGORIES: Array<{ id: BlockKind; label: string; sublabel: string; color:
 
 const SYNE_BLOCK = BLOCKS.find(b => b.id === 'api.syne')
 
-// ── Built-in connectors that always close the pipeline ─────────────────────
-//
-// Every strategy ends with two virtual blocks: a "Backtest" sink the agent
-// runs against, and the "Kraken" execution venue. They aren't user-pickable
-// like real BLOCKS — they're always on the canvas and always connected.
-const SINK_NODES: { id: string; label: string; kind: string; color: string }[] = [
-  { id: 'connector.backtest', label: 'Backtest', kind: 'execution', color: '#16c784' },
-  { id: 'connector.kraken',   label: 'Kraken',   kind: 'execution', color: '#f59e0b' },
-]
+// Sink connectors removed — the floating "Backtest" and "Kraken" pills
+// were ghosting the canvas before the user had described any strategy,
+// and they aren't actionable. The pipeline now only renders blocks the
+// user (or AI) has actually pinned, so an empty canvas stays empty.
 
 // Pipeline-order layout helper — lays user/AI-picked blocks left → right in
 // the actual order they execute (data → indicator → ml → api → signal →
@@ -75,19 +70,6 @@ function layoutPipeline(blockIds: string[]): { id: string; x: number; y: number;
       y: COL_OFFSET_Y + row * ROW_HEIGHT,
     })
   }
-
-  // Always-on sinks placed one column to the right of whatever real
-  // blocks exist. When the canvas is empty, we put them at column 1 so
-  // they render in the visible viewport (instead of off-screen at col 8).
-  const realCols = positioned.map(n => Math.floor((n.x - COL_OFFSET_X) / COL_WIDTH))
-  const sinkCol = realCols.length ? Math.max(...realCols) + 1 : 1
-  SINK_NODES.forEach((s, i) => {
-    positioned.push({
-      ...s,
-      x: COL_OFFSET_X + sinkCol * COL_WIDTH,
-      y: COL_OFFSET_Y + i * ROW_HEIGHT,
-    })
-  })
 
   return positioned
 }
@@ -458,6 +440,9 @@ export default function BuildPage() {
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null)
 
   // Agents drawer removed — drafts management now lives on /dashboard/build/manage.
+  // Drafts badge mounts client-side only (localStorage isn't available on server).
+  const [mountedDraftsBadge, setMountedDraftsBadge] = useState(false)
+  useEffect(() => { setMountedDraftsBadge(true) }, [])
 
   // Scroll the chat panel to the bottom only when the user is already
   // pinned to the bottom — so streaming tokens don't yank a user who
@@ -1081,7 +1066,10 @@ export default function BuildPage() {
             title="Manage drafts and published agents"
             style={{ display: 'flex', alignItems: 'center', gap: '.35rem', padding: '.32rem .65rem', borderRadius: 7, background: `${C.bg2}d8`, border: `1px solid ${C.border}`, color: C.faint, fontSize: '.55rem', cursor: 'pointer', fontFamily: 'var(--font-mono)', backdropFilter: 'blur(10px)' }}>
             <span style={{ fontSize: '.65rem', color: C.mint }}>◈</span> Manage
-            {loadDrafts().length > 0 && <span style={{ background: C.mint, color: '#000', borderRadius: 3, padding: '0 .35rem', fontSize: '.45rem', fontWeight: 700 }}>{loadDrafts().length}</span>}
+            {/* suppressHydrationWarning + render-on-mount guard: loadDrafts()
+                hits localStorage which is server-empty, causing a hydration
+                mismatch on count > 0. */}
+            {mountedDraftsBadge && loadDrafts().length > 0 && <span suppressHydrationWarning style={{ background: C.mint, color: '#000', borderRadius: 3, padding: '0 .35rem', fontSize: '.45rem', fontWeight: 700 }}>{loadDrafts().length}</span>}
           </button>
           <a href="/dashboard/build/docs"
             style={{ display: 'flex', alignItems: 'center', gap: '.32rem', padding: '.32rem .65rem', borderRadius: 7, background: `${C.bg2}d8`, border: `1px solid ${C.border}`, color: C.faint, fontSize: '.55rem', cursor: 'pointer', fontFamily: 'var(--font-mono)', textDecoration: 'none', backdropFilter: 'blur(10px)' }}>

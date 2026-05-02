@@ -84,6 +84,10 @@ const STRATEGY_MAP: Record<
   'composite-alpha-v2':   runCompositeAlphaV2,
 }
 
+// Vercel Cron triggers via GET with `Authorization: Bearer <CRON_SECRET>`;
+// internal callers (immediate-trigger after a buy) use POST with the
+// `x-cron-secret` header. The GET handler at the bottom of this file
+// delegates to POST so both paths run the same loop.
 export async function POST(req: NextRequest) {
   let targetAgentId: string | null = null
   try {
@@ -91,11 +95,13 @@ export async function POST(req: NextRequest) {
     targetAgentId = typeof body?.agent_id === 'string' ? body.agent_id : null
   } catch { /* no body */ }
 
-  // Auth: require CRON_SECRET header
+  // Auth: accept either x-cron-secret (legacy) or Bearer (Vercel cron default)
   const cronSecret = process.env.CRON_SECRET
   if (cronSecret) {
-    const authHeader = req.headers.get('x-cron-secret')
-    if (authHeader !== cronSecret) {
+    const headerSecret = req.headers.get('x-cron-secret')
+    const authHeader = req.headers.get('authorization')
+    const bearerSecret = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
+    if (headerSecret !== cronSecret && bearerSecret !== cronSecret) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
   }
