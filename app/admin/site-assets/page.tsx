@@ -25,9 +25,14 @@ export default function SiteAssetsPage() {
   const [dragOver, setDragOver] = useState(false)
   const [selectedPath, setSelectedPath] = useState('general')
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
-  const supabase = createClient()
+  const [supabase, setSupabase] = useState<ReturnType<typeof createClient> | null>(null)
+
+  useEffect(() => {
+    setSupabase(createClient())
+  }, [])
 
   const loadFiles = useCallback(async () => {
+    if (!supabase) return
     setLoading(true)
     const { data, error } = await supabase.storage
       .from('site-assets')
@@ -40,11 +45,13 @@ export default function SiteAssetsPage() {
   }, [selectedPath, supabase])
 
   useEffect(() => {
-    loadFiles()
-  }, [loadFiles])
+    if (supabase) {
+      loadFiles()
+    }
+  }, [loadFiles, supabase])
 
   const handleUpload = async (fileList: FileList | null) => {
-    if (!fileList || fileList.length === 0) return
+    if (!fileList || fileList.length === 0 || !supabase) return
 
     setUploading(true)
     const uploaded: string[] = []
@@ -76,13 +83,14 @@ export default function SiteAssetsPage() {
   }
 
   const handleDelete = async (path: string) => {
-    if (!confirm('Delete this file?')) return
+    if (!confirm('Delete this file?') || !supabase) return
 
     await supabase.storage.from('site-assets').remove([path])
     loadFiles()
   }
 
   const copyUrl = (path: string) => {
+    if (!supabase) return
     const { data } = supabase.storage.from('site-assets').getPublicUrl(path)
     navigator.clipboard.writeText(data.publicUrl)
     setCopiedUrl(path)
@@ -183,7 +191,7 @@ export default function SiteAssetsPage() {
         ) : (
           files.map(file => {
             const filePath = `${selectedPath}/${file.name}`
-            const { data } = supabase.storage.from('site-assets').getPublicUrl(filePath)
+            const { data } = supabase?.storage.from('site-assets').getPublicUrl(filePath) || { data: { publicUrl: '' } }
             return (
               <div
                 key={file.name}
