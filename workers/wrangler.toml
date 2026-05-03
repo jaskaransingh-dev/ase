@@ -1,0 +1,10 @@
+name = "ase-cron-runner"
+main = "cron-runner.ts"
+compatibility_date = "2024-11-01"
+
+[triggers]
+crons = ["*/5 * * * *", "*/10 * * * *", "*/15 * * * *"]
+
+[vars]
+APP_URL = "https://launchase.com"
+# Set CRON_SECRET via `wrangler secret put CRON_SECRET --config workers/wrangler.toml`
