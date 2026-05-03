@@ -454,6 +454,150 @@ function BtStrip({ result, loading, error }: { result: BtResult | null; loading:
   )
 }
 
+// ── Right rail (Backtest + Files) ─────────────────────────────────────────────
+// Sits to the right of the chat. Tabs: Backtest | Files. Backtest tab
+// shows the scorecard (or loading/error state) plus a "View full report"
+// link that opens /dashboard/build/backtest in a new tab. Files tab is
+// the relocated FILES CREATED list.
+function BuildRightRail({ btResult, btLoading, btError, extractedFiles, expandedFile, setExpandedFile, onOpenFullReport, onRunBacktest }: {
+  btResult: BtResult | null
+  btLoading: boolean
+  btError: string
+  extractedFiles: ExtractedFile[]
+  expandedFile: string | null
+  setExpandedFile: (n: string | null) => void
+  onOpenFullReport: () => void
+  onRunBacktest: () => void
+}) {
+  const [tab, setTab] = useState<'backtest' | 'files'>('backtest')
+  // Auto-flip to files once they exist if we're still on the empty backtest tab
+  useEffect(() => {
+    if (tab === 'backtest' && !btResult && !btLoading && extractedFiles.length > 0) {
+      setTab('files')
+    }
+  }, [extractedFiles.length, btResult, btLoading, tab])
+
+  const ts = (btResult?.tear_sheet ?? {}) as Record<string, number>
+  const grade = btResult?.grade ?? '—'
+  const gc = GRADE_CLR[grade] ?? C.faint
+
+  return (
+    <aside style={{
+      width: 260, flexShrink: 0,
+      borderLeft: `1px solid ${C.border}`,
+      background: `${C.bg2}90`, backdropFilter: 'blur(8px)',
+      display: 'flex', flexDirection: 'column', overflow: 'hidden',
+    }}>
+      <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+        {(['backtest', 'files'] as const).map(t => {
+          const active = tab === t
+          return (
+            <button key={t} onClick={() => setTab(t)} style={{
+              flex: 1, padding: '.5rem .6rem', background: active ? `${C.bg3}` : 'transparent', border: 'none',
+              color: active ? C.white : C.faint, fontSize: '.55rem', fontWeight: 700,
+              fontFamily: 'var(--font-mono)', letterSpacing: '.08em', cursor: 'pointer',
+              borderBottom: active ? `2px solid ${C.mint}` : '2px solid transparent',
+              transition: 'all .15s',
+            }}>
+              {t.toUpperCase()}{t === 'files' && extractedFiles.length ? ` ${extractedFiles.length}` : ''}
+            </button>
+          )
+        })}
+      </div>
+
+      {tab === 'backtest' && (
+        <div style={{ flex: 1, overflow: 'auto', padding: '.65rem .7rem', display: 'flex', flexDirection: 'column', gap: '.55rem' }}>
+          {btLoading && (
+            <div style={{ padding: '1rem', textAlign: 'center', color: C.faint, fontSize: '.55rem', fontFamily: 'var(--font-mono)' }}>
+              <div style={{ width: 14, height: 14, border: `2px solid ${C.border}`, borderTopColor: C.blue, borderRadius: '50%', margin: '0 auto .4rem', animation: 'spin 1s linear infinite' }} />
+              Running backtest…
+            </div>
+          )}
+          {btError && (
+            <div style={{ padding: '.5rem .65rem', borderRadius: 7, background: `${C.red}10`, border: `1px solid ${C.red}40`, fontSize: '.5rem', color: C.red, fontFamily: 'var(--font-mono)', lineHeight: 1.5 }}>
+              {btError.slice(0, 200)}
+            </div>
+          )}
+          {!btLoading && !btError && !btResult && (
+            <div style={{ padding: '1rem .5rem', textAlign: 'center' }}>
+              <div style={{ fontSize: '.7rem', color: C.text, fontWeight: 600, marginBottom: '.45rem' }}>No backtest yet</div>
+              <div style={{ fontSize: '.5rem', color: C.faint, lineHeight: 1.55, marginBottom: '.6rem' }}>
+                Once the AI finishes building, the scorecard appears here.
+              </div>
+              {extractedFiles.length > 0 && (
+                <button onClick={onRunBacktest}
+                  style={{ padding: '.35rem .8rem', borderRadius: 6, background: C.blue, color: '#fff', border: 'none', fontSize: '.56rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>
+                  ▶ Run now
+                </button>
+              )}
+            </div>
+          )}
+          {btResult && !btLoading && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '.4rem' }}>
+                {[
+                  { k: 'GRADE', v: grade, c: gc },
+                  { k: 'SHARPE', v: (ts.sharpeRatio ?? 0).toFixed(2), c: (ts.sharpeRatio ?? 0) >= 1 ? C.mint : C.orange },
+                  { k: 'CAGR', v: `${(ts.cagr ?? 0).toFixed(1)}%`, c: (ts.cagr ?? 0) >= 0 ? C.mint : C.red },
+                  { k: 'MAX DD', v: `${(ts.maxDrawdownPct ?? 0).toFixed(1)}%`, c: (ts.maxDrawdownPct ?? 0) <= 20 ? C.mint : C.orange },
+                  { k: 'WIN%', v: `${(ts.winRatePct ?? 0).toFixed(0)}%`, c: C.text },
+                  { k: 'SORTINO', v: (ts.sortinoRatio ?? 0).toFixed(2), c: (ts.sortinoRatio ?? 0) >= 1 ? C.mint : C.orange },
+                ].map(m => (
+                  <div key={m.k} style={{ padding: '.35rem .45rem', borderRadius: 6, background: C.bg3, border: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: '.4rem', color: C.faint, letterSpacing: '.08em', fontFamily: 'var(--font-mono)' }}>{m.k}</div>
+                    <div style={{ fontSize: '.78rem', fontWeight: 700, color: m.c, fontFamily: 'var(--font-mono)' }}>{m.v}</div>
+                  </div>
+                ))}
+              </div>
+              <button onClick={onRunBacktest}
+                style={{ padding: '.32rem .55rem', borderRadius: 6, background: 'transparent', border: `1px solid ${C.border}`, color: C.text, fontSize: '.55rem', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>
+                ↻ Re-run backtest
+              </button>
+              <a href="/dashboard/build/backtest" target="_blank" rel="noopener noreferrer"
+                style={{ padding: '.4rem .55rem', borderRadius: 6, background: `${C.mint}14`, border: `1px solid ${C.mint}40`, color: C.mint, fontSize: '.55rem', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontWeight: 700, textAlign: 'center', textDecoration: 'none' }}>
+                View full report ↗
+              </a>
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === 'files' && (
+        <div style={{ flex: 1, overflow: 'auto', padding: '.65rem .7rem' }}>
+          {extractedFiles.length === 0 ? (
+            <div style={{ padding: '1rem .5rem', textAlign: 'center', fontSize: '.55rem', color: C.faint, lineHeight: 1.55, fontFamily: 'var(--font-mono)' }}>
+              Files appear here as the AI emits them.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.32rem' }}>
+              {extractedFiles.map(f => {
+                const ext = f.name.split('.').pop() ?? ''
+                const lc = { ts: C.blue, py: C.mint, json: C.orange, md: C.muted }[ext] ?? C.faint
+                const isExp = expandedFile === f.name
+                return (
+                  <div key={f.name}>
+                    <button onClick={() => setExpandedFile(isExp ? null : f.name)}
+                      style={{ display: 'flex', alignItems: 'center', gap: '.35rem', width: '100%', padding: '.32rem .5rem', borderRadius: 6, background: isExp ? `${lc}14` : 'transparent', border: `1px solid ${isExp ? lc + '50' : C.border}`, color: isExp ? lc : C.text, fontFamily: 'var(--font-mono)', fontSize: '.55rem', cursor: 'pointer', textAlign: 'left' }}>
+                      <span>{isExp ? '▾' : '▸'}</span>
+                      <span>{f.name}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: '.42rem', color: C.faint }}>{f.content.split('\n').length}L</span>
+                    </button>
+                    {isExp && (
+                      <pre style={{ marginTop: '.3rem', background: 'rgba(0,0,0,.5)', border: `1px solid ${C.border}`, borderRadius: 6, padding: '.4rem .5rem', fontSize: '.46rem', fontFamily: 'var(--font-mono)', color: C.blue2, overflowX: 'auto', maxHeight: 200, overflowY: 'auto', lineHeight: 1.5 }}>
+                        {f.content.slice(0, 1500)}{f.content.length > 1500 ? '\n…' : ''}
+                      </pre>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </aside>
+  )
+}
+
 // ── Block row with rich hover-describe popover ────────────────────────────────
 // Mouse enter ⇒ a 280-px wide card flies out to the right of the row showing:
 // label · status pill (LIVE / STUB / STATIC) · long doc · loader signature ·
@@ -727,6 +871,15 @@ export default function BuildPage() {
     }, 600)
     return () => clearInterval(id)
   }, [phase])
+
+  // Auto-collapse the thinking strip 1.4s after it completes — keeps the
+  // workspace clean post-build but the user can still re-open with the
+  // chevron. Tied to thinkDone, not phase, so it survives transitions.
+  useEffect(() => {
+    if (!thinkDone) return
+    const t = setTimeout(() => setThinkOpen(false), 1400)
+    return () => clearTimeout(t)
+  }, [thinkDone])
 
   // When AI finishes, just queue the auto-backtest flag for the code page.
   // We *don't* push the route automatically anymore — the canvas state
@@ -1426,7 +1579,11 @@ export default function BuildPage() {
         </div>
       </div>
 
-      {/* ══ LEFT PANEL: BLOCKS ═══════════════════════════════════════════════════ */}
+      {/* ══ LEFT PANEL: BLOCKS — only mounts after the user has prompted at
+            least once. The minimal landing surface is dominated by a single
+            centered prompt; revealing the block library would be visual
+            noise before the user has even named what they want to build. */}
+      {landed && (
       <div style={{
         position: 'relative', zIndex: 10,
         width: panelCollapsed ? 42 : 260,
@@ -1544,6 +1701,7 @@ export default function BuildPage() {
           </div>
         )}
       </div>
+      )}
 
       {/* ══ MAIN AREA ════════════════════════════════════════════════════════════ */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', zIndex: 10, overflow: 'hidden' }}>
@@ -1773,39 +1931,13 @@ export default function BuildPage() {
               </div>
             )}
 
-            {/* Files strip (collapsed, post-build) */}
-            {isDone && extractedFiles.length > 0 && (
-              <div style={{ flexShrink: 0, borderBottom: `1px solid ${C.border}`, padding: '.4rem .85rem', background: `${C.bg3}88` }}>
-                <div style={{ fontSize: '.46rem', color: C.faint, fontFamily: 'var(--font-mono)', letterSpacing: '.08em', marginBottom: '.3rem' }}>FILES CREATED</div>
-                <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}>
-                  {extractedFiles.map(f => {
-                    const ext = f.name.split('.').pop() ?? ''
-                    const lc = { ts: C.blue, py: C.mint, json: C.orange, md: C.muted }[ext] ?? C.faint
-                    const isExp = expandedFile === f.name
-                    return (
-                      <button key={f.name} onClick={() => setExpandedFile(isExp ? null : f.name)}
-                        style={{ padding: '.2rem .45rem', borderRadius: 5, background: isExp ? `${lc}14` : 'rgba(10,21,37,.5)', border: `1px solid ${isExp ? lc + '50' : C.border}`, color: isExp ? lc : C.text, fontFamily: 'var(--font-mono)', fontSize: '.48rem', cursor: 'pointer' }}>
-                        {f.name}
-                      </button>
-                    )
-                  })}
-                </div>
-                {expandedFile && (() => {
-                  const f = extractedFiles.find(x => x.name === expandedFile)!
-                  return (
-                    <pre style={{ marginTop: '.4rem', background: 'rgba(0,0,0,.5)', border: `1px solid ${C.border}`, borderRadius: 7, padding: '.5rem .7rem', fontSize: '.5rem', fontFamily: 'var(--font-mono)', color: C.blue2, overflowX: 'auto', maxHeight: 160, overflowY: 'auto', lineHeight: 1.5 }}>
-                      {f.content.slice(0, 1500)}{f.content.length > 1500 ? '\n...' : ''}
-                    </pre>
-                  )
-                })()}
-              </div>
-            )}
-
-            {/* Backtest strip */}
-            <BtStrip result={btResult} loading={btLoading} error={btError} />
+            {/* Chat + Right Rail. Files explorer + backtest scorecard moved
+                 into the rail (right side) so they stop stacking above the
+                 conversation — the chat is the focus, not the artifacts. */}
+            <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
             {/* AI Chat (dominant) — always rendered; empty state when idle */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
               <div ref={chatScrollRef} style={{ flex: 1, overflowY: 'auto', padding: '.85rem 1rem', display: 'flex', flexDirection: 'column', gap: '.65rem' }}>
                 {chat.length === 0 && phase === 'idle' && (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '2rem 1rem', gap: '.6rem', textAlign: 'center', animation: 'fade-up .35s ease' }}>
@@ -1905,6 +2037,23 @@ export default function BuildPage() {
                   </>
                 )}
               </div>
+            </div>
+
+            {/* ── Right rail: Backtest scorecard + Files explorer ──
+                  Replaces the old stacked Files/Backtest strips above the
+                  chat. Cleaner UX: artifacts live where the user can scan
+                  them without scrolling past the conversation. */}
+            <BuildRightRail
+              btResult={btResult}
+              btLoading={btLoading}
+              btError={btError}
+              extractedFiles={extractedFiles}
+              expandedFile={expandedFile}
+              setExpandedFile={setExpandedFile}
+              onOpenFullReport={() => router.push('/dashboard/build/backtest')}
+              onRunBacktest={runBacktest}
+            />
+
             </div>
           </div>
         )}
