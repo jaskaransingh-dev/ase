@@ -1,0 +1,40 @@
+name: agent-tick
+
+# External scheduler that hits the run-agents endpoint every 5 minutes.
+# Vercel Hobby caps crons at daily, so this workflow stands in for what
+# vercel.json used to schedule. The CRON_SECRET repository secret must
+# match the CRON_SECRET environment variable on the Vercel project.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: agent-tick
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: run-agents
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 290 \
+            -X POST "https://www.launchase.com/api/cron/run-agents" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            -o /tmp/run.json
+          echo "agents_run=$(jq -r '.agents_run // 0' /tmp/run.json)"
+          echo "total_trades=$(jq -r '.total_trades // 0' /tmp/run.json)"
+
+      - name: heal-agents
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 290 \
+            -X POST "https://www.launchase.com/api/cron/heal-agents" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            -o /tmp/heal.json
+          echo "healed=$(jq -r '.healed // 0' /tmp/heal.json)"
