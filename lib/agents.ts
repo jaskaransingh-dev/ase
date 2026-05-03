@@ -3700,151 +3700,209 @@ export async function runCompositeAlphaV2(
 
 // ── GENERIC CRYPTO MOMENTUM (for custom agents) ───────────────────────────────
 
+/**
+ * Spec-driven multi-symbol runner for custom/quant agents.
+ *
+ * Reads the linked ai_agents spec to discover symbols, alpha_type, and
+ * alpha_weights. Falls back to primary_symbol with composite logic.
+ *
+ * Uses ranking-based signal generation so the agent ALWAYS produces
+ * buy/sell actions every tick (no "wait for EMA cross" dead periods).
+ * Top half of ranked symbols → BUY; bottom half → SELL out of position.
+ */
 export async function runGenericCryptoMomentum(
   admin: SupabaseClient,
   agentId: string,
-  alpacaKey: string,
-  alpacaSecret: string,
+  _alpacaKey: string,
+  _alpacaSecret: string,
   capitalCents = 1_000_000
 ): Promise<StrategyResult> {
-  // Get agent's primary symbol from DB
-  const { data: agent } = await admin
+  const { data: agentRow } = await admin
     .from('agents')
-    .select('primary_symbol, backtest_strategy, name')
+    .select('primary_symbol, name, backtest_stats')
     .eq('id', agentId)
     .single()
 
-  const symbol = agent?.primary_symbol || SYM.BTC
-  const strategyType = agent?.backtest_strategy || 'momentum_crossover'
-  const agentName = agent?.name || 'Generic Agent'
+  // Resolve spec from linked ai_agents row
+  const bstats = agentRow?.backtest_stats as Record<string, unknown> | null | undefined
+  let symbols: string[] = []
+  let alphaType = 'composite'
+  let alphaWeights: Record<string, number> = { momentum: 0.6, mean_reversion: 0.3, volatility: 0.1 }
+  let maxWeight = 0.25
 
-  const bars = await getCryptoBars(symbol, '1Day', 60)
+  if (bstats?.ai_agent_id) {
+    const { data: aiRow } = await admin
+      .from('ai_agents')
+      .select('spec')
+      .eq('id', bstats.ai_agent_id as string)
+      .maybeSingle()
+    const spec = aiRow?.spec as Record<string, unknown> | null | undefined
+    if (Array.isArray(spec?.symbols) && (spec.symbols as string[]).length) {
+      // Filter to Kraken-supported assets only
+      const KRAKEN_SUPPORTED = ['BTC-USD','ETH-USD','SOL-USD','AVAX-USD','LINK-USD','DOT-USD','ADA-USD','MATIC-USD']
+      symbols = (spec.symbols as string[]).filter((s: string) => KRAKEN_SUPPORTED.includes(s))
+      alphaType = (spec.alpha_type as string) || 'composite'
+      if (spec.alpha_weights && typeof spec.alpha_weights === 'object') {
+        alphaWeights = spec.alpha_weights as Record<string, number>
+      }
+      if (typeof spec.max_weight === 'number') maxWeight = spec.max_weight
+    }
+  }
+
+  if (!symbols.length) {
+    symbols = [agentRow?.primary_symbol as string || SYM.BTC]
+  }
 
   const emptyPortfolio: StrategyResult['portfolio'] = {
-    cash_cents: capitalCents,
-    invested_cents: 0,
-    total_value_cents: capitalCents,
-    positions: [],
-    exposure_pct: 0,
+    cash_cents: capitalCents, invested_cents: 0,
+    total_value_cents: capitalCents, positions: [], exposure_pct: 0,
   }
 
-  if (bars.length < 30) {
+  // Fetch bars for all symbols in parallel
+  const barsMap = new Map<string, AlpacaBar[]>()
+  await Promise.all(symbols.map(async sym => {
+    const bars = await getCryptoBars(sym, '1Day', 60)
+    if (bars.length >= 20) barsMap.set(sym, bars)
+  }))
+
+  if (!barsMap.size) {
     return {
-      agent_slug: 'generic-crypto-momentum',
-      actions: [],
-      skipped: true,
-      portfolio: emptyPortfolio,
-      signal_summary: 'SKIP - Insufficient data',
-      thinking: `Need 30+ bars, have ${bars.length}. Waiting for market data.`,
+      agent_slug: 'generic-crypto-momentum', actions: [], skipped: true,
+      portfolio: emptyPortfolio, signal_summary: 'SKIP - No market data',
+      thinking: 'No bars available for any symbol. Waiting for market data.',
     }
   }
 
-  // Calculate indicators
-  const ema8 = calcEMA(bars, 8)
-  const ema21 = calcEMA(bars, 21)
-  const ema50 = calcEMA(bars, 50)
-  const rsi = calcRSI(bars, 14)
-  const atr = calcATR(bars, 14)
-  const currentPrice = bars[bars.length - 1].c
+  // Score each symbol — blended composite signal, always ranked
+  interface Scored {
+    symbol: string; price: number; signal: number
+    ret1d: number; ret5d: number; ret20d: number; z: number; rsi: number
+  }
 
-  // Simple momentum logic - buy when EMA8 crosses above EMA21 with positive trend
-  const emaCross = ema8 > ema21 && ema21 > ema50
-  const rsi_ok = rsi > 30 && rsi < 70
-  const trend_up = currentPrice > ema50
+  const scored: Scored[] = []
+  for (const [sym, bars] of barsMap) {
+    const n = bars.length
+    const close = bars[n - 1].c
+    const d1    = bars[n - 2]?.c ?? close
+    const d5    = bars[Math.max(0, n - 6)]?.c ?? close
+    const d20   = bars[Math.max(0, n - 21)]?.c ?? close
 
-  const shouldBuy = emaCross && rsi_ok && trend_up
-  const shouldSell = rsi > 80 || (ema8 < ema21 && ema21 < ema50)
+    const ret1d  = (close - d1)  / (d1  || 1)
+    const ret5d  = (close - d5)  / (d5  || 1)
+    const ret20d = (close - d20) / (d20 || 1)
+
+    const rets = bars.slice(-20).map((b, i, a) => i === 0 ? 0 : (b.c - a[i - 1].c) / (a[i - 1].c || 1))
+    const mean = rets.reduce((s, r) => s + r, 0) / rets.length
+    const std  = Math.sqrt(rets.reduce((s, r) => s + (r - mean) ** 2, 0) / rets.length) || 0.01
+    const z    = (ret1d - mean) / std
+    const rsi  = calcRSI(bars, 14)
+
+    const momSig = ret20d * 0.6 + ret5d * 0.4
+    const revSig = -z
+    const volSig = std > 0.04 ? -ret5d : ret5d
+
+    let signal: number
+    if (alphaType === 'momentum') {
+      signal = momSig
+    } else if (alphaType === 'mean_reversion') {
+      signal = revSig
+    } else if (alphaType === 'volatility') {
+      signal = volSig
+    } else {
+      const aw = alphaWeights
+      const sum = Object.values(aw).reduce((a, b) => a + b, 0) || 1
+      signal = ((aw.momentum ?? 0.6) * momSig + (aw.mean_reversion ?? 0.3) * revSig + (aw.volatility ?? 0.1) * volSig) / sum
+    }
+
+    scored.push({ symbol: sym, price: close, signal, ret1d, ret5d, ret20d, z, rsi })
+  }
+
+  scored.sort((a, b) => b.signal - a.signal)
 
   const positions = await getAgentPositions(admin, agentId)
-  const pos = positions.find(p => p.symbol === symbol)
   const cash = await getAgentCash(admin, agentId, capitalCents, positions)
+  const posMap = new Map(positions.map(p => [p.symbol, p]))
 
-  const indicators = {
-    ema8: +ema8.toFixed(2),
-    ema21: +ema21.toFixed(2),
-    ema50: +ema50.toFixed(2),
-    rsi: +rsi.toFixed(1),
-    atr: +atr.toFixed(2),
-    price: +currentPrice.toFixed(2),
-    ema_cross: emaCross ? 1 : 0,
-    should_buy: shouldBuy ? 1 : 0,
-    should_sell: shouldSell ? 1 : 0,
-  }
+  const nBuys  = Math.min(Math.ceil(scored.length / 2), 3)
+  const nSells = Math.min(Math.floor(scored.length / 2), 3)
 
   const actions: TradeAction[] = []
-  let signalSummary = 'HOLD'
-  let thinkingParts: string[] = []
+  const thinkingParts: string[] = []
+  const indicators: Record<string, number | string> = {}
+  let signalBuyCount = 0
+  let signalSellCount = 0
 
-  // Exit logic - take profits or stop loss
-  if (pos) {
-    const pnlPct = (currentPrice - pos.avg_entry) / pos.avg_entry * 100
-    const stopLoss = pos.avg_entry * 0.95
-    const profitTarget = pos.avg_entry * 1.15
+  // BUY top-ranked symbols not already fully positioned
+  const perPositionCents = Math.floor(capitalCents * maxWeight)
+  let remainingCash = cash
 
-    if (shouldSell || currentPrice >= profitTarget || currentPrice <= stopLoss) {
+  for (let i = 0; i < nBuys && remainingCash > 100; i++) {
+    const s = scored[i]
+    const existing = posMap.get(s.symbol)
+    if (existing) continue // already in position — hold
+
+    const notionalCents = Math.min(perPositionCents, remainingCash)
+    if (notionalCents < 100) continue
+
+    const qty = notionalCents / 100 / s.price
+    if (qty < 0.0001) continue
+
+    actions.push({
+      action: 'BUY',
+      symbol: s.symbol,
+      qty,
+      notional: notionalCents,
+      fill_price: s.price,
+      reason: `Ranked #${i + 1}/${scored.length} by ${alphaType} signal ${s.signal.toFixed(3)}`,
+    })
+    remainingCash -= notionalCents
+    signalBuyCount++
+    thinkingParts.push(`BUY ${s.symbol} @$${s.price.toFixed(2)} rank#${i + 1} signal=${s.signal.toFixed(3)} 20d=${(s.ret20d * 100).toFixed(1)}% z=${s.z.toFixed(2)}`)
+    indicators[`${s.symbol}_signal`] = +s.signal.toFixed(4)
+    indicators[`${s.symbol}_price`] = +s.price.toFixed(2)
+  }
+
+  // SELL bottom-ranked symbols where we hold a position
+  const sellCandidates = scored.slice(-nSells).reverse()
+  for (const s of sellCandidates) {
+    const pos = posMap.get(s.symbol)
+    if (!pos || pos.qty <= 0.0001) continue
+
+    const pnlPct = ((s.price - pos.avg_entry) / (pos.avg_entry || 1)) * 100
+    // Only sell if weak signal AND (profitable OR cutting a loss past 5%)
+    if (s.signal < 0 || pnlPct > 5 || pnlPct < -5) {
       actions.push({
         action: 'SELL',
-        symbol,
+        symbol: s.symbol,
         qty: pos.qty,
-        notional: pos.qty * currentPrice * 100,
-        fill_price: currentPrice,
-        reason: shouldSell ? 'RSI overbought' : (currentPrice >= profitTarget ? 'Profit target' : 'Stop loss'),
+        notional: Math.round(pos.qty * s.price * 100),
+        fill_price: s.price,
+        reason: `Ranked bottom by ${alphaType} signal ${s.signal.toFixed(3)}, PnL=${pnlPct.toFixed(1)}%`,
+        pnl_cents: Math.round(pos.qty * (s.price - pos.avg_entry) * 100),
       })
-      signalSummary = shouldSell ? 'SELL - RSI overbought' : (currentPrice >= profitTarget ? 'SELL - Profit target' : 'SELL - Stop loss')
-      thinkingParts.push(`Exiting position at $${currentPrice.toFixed(2)}, PnL: ${pnlPct.toFixed(1)}%`)
+      signalSellCount++
+      thinkingParts.push(`SELL ${s.symbol} @$${s.price.toFixed(2)} bottom-ranked signal=${s.signal.toFixed(3)} PnL=${pnlPct.toFixed(1)}%`)
     }
   }
 
-  // Entry logic
-  if (!pos && shouldBuy && cash > 500) {
-    const maxPosition = capitalCents * 0.25 // 25% max position
-    const riskAmount = capitalCents * 0.02 // 2% risk
-    const stopDistance = Math.max(atr * 1.5, currentPrice * 0.05)
-    const maxQtyByRisk = riskAmount / stopDistance
-    const maxQtyByCapital = maxPosition / currentPrice
-    const qty = Math.min(maxQtyByRisk, maxQtyByCapital)
+  const topSym = scored[0]
+  const signalSummary = actions.length > 0
+    ? `${signalBuyCount > 0 ? 'BUY' : 'SELL'} — ${topSym.symbol} leads (${alphaType}, ${(topSym.ret20d * 100).toFixed(1)}% 20d)`
+    : `HOLD — ${topSym.symbol} signal ${topSym.signal.toFixed(3)} (${alphaType})`
 
-    if (qty > 0.0001) {
-      actions.push({
-        action: 'BUY',
-        symbol,
-        qty,
-        notional: qty * currentPrice * 100,
-        fill_price: currentPrice,
-        reason: `EMA crossover: EMA8=${ema8.toFixed(2)} > EMA21=${ema21.toFixed(2)}, RSI=${rsi.toFixed(0)}`,
-      })
-      signalSummary = 'BUY - EMA crossover signal'
-      thinkingParts.push(`Entering long at $${currentPrice.toFixed(2)}, qty=${qty.toFixed(6)}, EMA8>EMA21, RSI=${rsi.toFixed(0)}`)
-    }
-  }
-
-  if (!pos && !shouldBuy) {
-    const reasons: string[] = []
-    if (!emaCross) reasons.push('EMA cross not confirmed')
-    if (!rsi_ok) reasons.push(rsi <= 30 ? 'RSI oversold' : 'RSI overbought')
-    if (!trend_up) reasons.push('Price below EMA50')
-    signalSummary = 'HOLD - ' + reasons.join(', ')
-    thinkingParts.push(signalSummary)
-  }
-
-  const investedCents = actions
-    .filter(a => a.action === 'BUY')
-    .reduce((sum, a) => sum + (a.notional || 0), 0)
-
-  const portfolioPositions = pos ? [{
-    symbol: pos.symbol,
-    qty: pos.qty,
-    entry: pos.avg_entry,
-    current: currentPrice,
-    pnl_pct: ((currentPrice - pos.avg_entry) / pos.avg_entry) * 100,
-  }] : []
+  const investedCents = actions.filter(a => a.action === 'BUY').reduce((s, a) => s + (a.notional || 0), 0)
+  const portfolioPositions = positions.map(p => {
+    const bars = barsMap.get(p.symbol)
+    const cur = bars?.[bars.length - 1]?.c ?? p.avg_entry
+    return { symbol: p.symbol, qty: p.qty, entry: p.avg_entry, current: cur, pnl_pct: ((cur - p.avg_entry) / (p.avg_entry || 1)) * 100 }
+  })
 
   const portfolio: StrategyResult['portfolio'] = {
-    cash_cents: pos ? cash : (cash - (actions.find(a => a.action === 'BUY')?.notional || 0)),
+    cash_cents: Math.max(0, remainingCash),
     invested_cents: investedCents,
     total_value_cents: capitalCents,
     positions: portfolioPositions,
-    exposure_pct: (investedCents / capitalCents) * 100,
+    exposure_pct: Math.min(100, (investedCents / capitalCents) * 100),
   }
 
   return {
@@ -3852,7 +3910,7 @@ export async function runGenericCryptoMomentum(
     actions,
     portfolio,
     signal_summary: signalSummary,
-    thinking: thinkingParts.join('. '),
+    thinking: thinkingParts.length ? thinkingParts.join('. ') : `Scanning ${symbols.join(', ')} — no trade triggers this cycle`,
     indicators,
   }
 }

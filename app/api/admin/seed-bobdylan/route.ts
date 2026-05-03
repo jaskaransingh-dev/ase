@@ -29,8 +29,8 @@ function tickerFor(slug: string): string {
 const STRATEGIES = [
   {
     slug: 'bobdylan-1',
-    name: 'Bob Dylan 1 — Momentum Tambourine',
-    thesis: 'Trend-following on BTC, ETH, SOL. Long when 20d momentum stays positive and 5d confirms. 12% drawdown kill switch.',
+    name: 'Apex Momentum',
+    thesis: 'Trend-following on BTC, ETH, SOL. Ranks by 20d/5d momentum composite; sizes positions by inverse volatility. Rebalances hourly. 12% drawdown circuit breaker.',
     spec: {
       symbols: ['BTC-USD', 'ETH-USD', 'SOL-USD'],
       cadence: '1h',
@@ -45,10 +45,10 @@ const STRATEGIES = [
   },
   {
     slug: 'bobdylan-2',
-    name: 'Bob Dylan 2 — Mean Reversion Highway',
-    thesis: 'Fades extremes on top-5 majors. Buys when |z|>1.5 and 1d return negative; trims at the mean. Vol-target sizing.',
+    name: 'Sigma Reversion',
+    thesis: 'Fades statistical extremes across BTC, ETH, SOL, AVAX, LINK. Buys when z-score > 1.5σ with negative 1d return; trims back to the mean. Vol-target position sizing.',
     spec: {
-      symbols: ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'ADA-USD'],
+      symbols: ['BTC-USD', 'ETH-USD', 'SOL-USD', 'AVAX-USD', 'LINK-USD'],
       cadence: '1h',
       alpha_type: 'mean_reversion',
       alpha_weights: { mean_reversion: 1.0 },
@@ -61,8 +61,8 @@ const STRATEGIES = [
   },
   {
     slug: 'bobdylan-3',
-    name: 'Bob Dylan 3 — Composite Hurricane',
-    thesis: 'Blends momentum (60%), mean-reversion (30%), volatility (10%) across BTC/ETH/SOL/AVAX/LINK.',
+    name: 'Composite Hurricane',
+    thesis: 'Blends momentum (60%), mean-reversion (30%), volatility (10%) across BTC/ETH/SOL/AVAX/LINK. Multi-signal scoring ranks assets each hour; top half bought, bottom half trimmed.',
     spec: {
       symbols: ['BTC-USD', 'ETH-USD', 'SOL-USD', 'AVAX-USD', 'LINK-USD'],
       cadence: '1h',
