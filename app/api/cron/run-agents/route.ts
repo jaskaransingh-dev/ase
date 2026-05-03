@@ -230,35 +230,40 @@ export async function POST(req: NextRequest) {
 
       results[agent.slug] = result
 
-      // Distribute equity trades to user accounts
+      // Distribute equity trades to user accounts.
+      // getUsersWithHoldings returns ALL holders — trading_enabled flags
+      // whether the user has active Kraken keys for live execution.
       const users = await getUsersWithHoldings(admin, agent.id)
-      console.log(`[run-agents] ${agent.slug}: ${users.length} users with holdings to distribute trades`)
+      const liveUsers = users.filter(u => u.trading_enabled)
+      console.log(`[run-agents] ${agent.slug}: ${liveUsers.length} live-trading users, ${users.length - liveUsers.length} paper-only users`)
 
-      if (users.length > 0) {
-        // Sync Kraken balances and positions BEFORE trading
-        try {
-          for (const user of users) {
-            try {
-              const balance = await syncAlpacaBalance(admin, user.user_id)
-              console.log(`[run-agents] Pre-trade sync for user ${user.user_id}: cash=$${(balance.cash/100).toFixed(2)}`)
-            } catch (syncErr) {
-              console.warn(`[run-agents] Pre-trade sync failed for user ${user.user_id}:`, syncErr)
-            }
+      // Pre-trade balance sync for connected users
+      if (liveUsers.length > 0) {
+        for (const user of liveUsers) {
+          try {
+            const balance = await syncAlpacaBalance(admin, user.user_id)
+            console.log(`[run-agents] Pre-trade sync for user ${user.user_id}: cash=$${(balance.cash/100).toFixed(2)}`)
+          } catch (syncErr) {
+            console.warn(`[run-agents] Pre-trade sync failed for user ${user.user_id}:`, syncErr)
           }
-        } catch (e) {
-          console.warn('[run-agents] Pre-trade sync skipped (may not have balance sync setup):', e instanceof Error ? e.message : e)
         }
+      }
 
-        // Execute trades
-        for (const action of result.actions) {
-          if (action.action === 'BUY' || action.action === 'SELL') {
-            const tradeAction = {
-              symbol: action.symbol,
-              side: (action.action === 'BUY' ? 'buy' : 'sell') as 'buy' | 'sell',
-              qty: action.qty,
-              notional: action.notional,
-              fill_price: action.fill_price,
-            }
+      // Always process every BUY/SELL action — distribute to live users and
+      // always write the public agent_trades ledger regardless of whether any
+      // user has a connected broker account.
+      for (const action of result.actions) {
+        if (action.action === 'BUY' || action.action === 'SELL') {
+          const tradeAction = {
+            symbol: action.symbol,
+            side: (action.action === 'BUY' ? 'buy' : 'sell') as 'buy' | 'sell',
+            qty: action.qty,
+            notional: action.notional,
+            fill_price: action.fill_price,
+          }
+
+          // Distribute to users (live Kraken execution + paper logging)
+          if (users.length > 0) {
             console.log(`[run-agents] Distributing ${action.action} ${action.symbol} qty=${action.qty} notional=${action.notional}`)
             try {
               const distResults = await distributeTradeToUsers(admin, agent.id, tradeAction, capitalCents)
@@ -268,36 +273,36 @@ export async function POST(req: NextRequest) {
             } catch (distErr) {
               console.error(`[run-agents] Distribution failed:`, distErr)
             }
-
-            // Write to agent_trades public ledger
-            try {
-              await admin.from('agent_trades').insert({
-                agent_id: agent.id,
-                alpaca_order_id: `kraken-cron-${Date.now()}`,
-                symbol: action.symbol,
-                side: action.action === 'BUY' ? 'buy' : 'sell',
-                qty: action.qty ?? 0,
-                fill_price: action.fill_price ?? 0,
-                filled_at: new Date().toISOString(),
-                pnl_cents: null,
-              })
-            } catch (ledgerErr) {
-              console.warn(`[run-agents] agent_trades write failed:`, ledgerErr instanceof Error ? ledgerErr.message : ledgerErr)
-            }
           }
-        }
 
-        // Sync Kraken balances AFTER trading
-        for (const user of users) {
+          // Always write to agent_trades public ledger — this is the canonical
+          // record of what the agent decided; it must exist regardless of
+          // whether individual users have Kraken keys connected.
           try {
-            const balance = await syncAlpacaBalance(admin, user.user_id)
-            console.log(`[run-agents] Post-trade Kraken sync for user ${user.user_id}: cash=$${(balance.cash/100).toFixed(2)}`)
-          } catch (syncErr) {
-            console.warn(`[run-agents] Post-trade sync failed for user ${user.user_id}:`, syncErr instanceof Error ? syncErr.message : syncErr)
+            await admin.from('agent_trades').insert({
+              agent_id: agent.id,
+              alpaca_order_id: `kraken-cron-${Date.now()}`,
+              symbol: action.symbol,
+              side: action.action === 'BUY' ? 'buy' : 'sell',
+              qty: action.qty ?? 0,
+              fill_price: action.fill_price ?? 0,
+              filled_at: new Date().toISOString(),
+              pnl_cents: null,
+            })
+          } catch (ledgerErr) {
+            console.warn(`[run-agents] agent_trades write failed:`, ledgerErr instanceof Error ? ledgerErr.message : ledgerErr)
           }
         }
-      } else {
-        console.log(`[run-agents] No users have holdings for ${agent.slug}, skipping distribution`)
+      }
+
+      // Post-trade balance sync for connected users
+      for (const user of liveUsers) {
+        try {
+          const balance = await syncAlpacaBalance(admin, user.user_id)
+          console.log(`[run-agents] Post-trade Kraken sync for user ${user.user_id}: cash=$${(balance.cash/100).toFixed(2)}`)
+        } catch (syncErr) {
+          console.warn(`[run-agents] Post-trade sync failed for user ${user.user_id}:`, syncErr instanceof Error ? syncErr.message : syncErr)
+        }
       }
 
       // Persist signal state

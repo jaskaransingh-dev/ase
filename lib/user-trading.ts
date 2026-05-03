@@ -78,19 +78,17 @@ export async function getUsersWithHoldings(
     .eq('status', 'active')
     .in('user_id', userIds)
 
-  if (!krakenKeys?.length) return []
+  // All holders are returned; trading_enabled marks whether live Kraken
+  // execution is possible. Users without active keys get paper-logged.
+  const activeKeySet = new Set((krakenKeys ?? []).map(k => k.user_id))
 
-  const activeKeySet = new Set(krakenKeys.map(k => k.user_id))
-
-  return holdings
-    .filter(h => activeKeySet.has(h.user_id))
-    .map(h => ({
-      user_id: h.user_id,
-      account_id: 'kraken',
-      shares: Number(h.shares) || 0,
-      invested_cents: Number(h.invested_cents) || 0,
-      trading_enabled: true,
-    }))
+  return holdings.map(h => ({
+    user_id: h.user_id,
+    account_id: 'kraken',
+    shares: Number(h.shares) || 0,
+    invested_cents: Number(h.invested_cents) || 0,
+    trading_enabled: activeKeySet.has(h.user_id),
+  }))
 }
 
 export async function logUserTrade(
@@ -230,7 +228,26 @@ export async function distributeTradeToUsers(
       }
       if (userTrade.qty !== undefined && userTrade.qty < 0.0001) continue
 
-      // ── Execute on Kraken ─────────────────────────────────────────────
+      // ── Execute on Kraken (or paper-log if no keys connected) ────────
+      if (!user.trading_enabled) {
+        // User has no active Kraken keys — record as a paper trade so their
+        // position value tracking still works, but skip live execution.
+        await logUserTrade(admin, {
+          userId:   user.user_id,
+          agentId,
+          orderId:  'paper-' + Date.now(),
+          symbol:   userTrade.symbol,
+          side:     userTrade.side,
+          qty:      userTrade.qty ?? 0,
+          fillPrice: userTrade.fill_price ?? 0,
+          filledAt: new Date().toISOString(),
+          note:     'Paper trade — no Kraken keys connected',
+          broker:   'paper',
+        })
+        results.push({ user_id: user.user_id, account_id: 'paper', success: true, note: 'Paper trade logged' })
+        continue
+      }
+
       const krakenClient = await krakenClientForUser(user.user_id)
       if (!krakenClient) {
         console.warn(`[distributeTradeToUsers] No active Kraken keys for user ${user.user_id}`)
