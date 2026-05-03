@@ -1421,3 +1421,21 @@ input:checked + .toggle-slider::before { transform: translateX(18px); background
 .thermal-fade-in {
   animation: thermalFadeIn 0.4s ease-out forwards;
 }
+
+/* Fullscreen mode for /dashboard/build and /dashboard/marketplace.
+   Triggered by toggling the html class — see those pages.
+   Hides the dashboard nav (sidebar + sticky header) and zeroes the
+   main padding/margin so the page takes the full viewport. */
+html.build-fullscreen [data-dashboard-shell-nav],
+html.marketplace-fullscreen [data-dashboard-shell-nav] {
+  display: none !important;
+}
+html.build-fullscreen [data-dashboard-shell-padding],
+html.marketplace-fullscreen [data-dashboard-shell-padding] {
+  margin-left: 0 !important;
+  padding: 0 !important;
+}
+html.build-fullscreen .quant-main,
+html.marketplace-fullscreen .quant-main {
+  margin-left: 0 !important;
+}

@@ -235,37 +235,70 @@ function FileBlock({ name, lang, content }: { name: string; lang: string; conten
 }
 
 function CleanMsg({ text }: { text: string }) {
-  // Pre-extract <thinking> blocks (any tag the AI uses for reasoning) and
-  // hand the rest of the text to the markdown renderer. This way "▾ Thoughts"
-  // appears at the right place and the prose below it reads cleanly.
+  // Robust thinking parser. The worker model is unreliable about XML tags
+  // — it strips characters (<hink>, <hinking>) and occasionally emits the
+  // open tag again as the close (<think>...<think>). The parser:
+  //   1. Looks for ANY angle-bracket tag whose name matches th?ink-ish.
+  //   2. Treats the FIRST as the open, the NEXT as the close (regardless
+  //      of slash). If no close, runs until the first triple-backtick or
+  //      the end of text.
+  //   3. Strips any stray angle-bracket think-ish tags from the prose
+  //      that follows so the user never sees raw "<think>" in the chat.
   const segments: Array<{ type: 'think'; text: string } | { type: 'prose'; text: string }> = []
+  const tagRe = /<\/?(?:thinking|think|hinking|hink)\s*>/gi
+  const matches: { index: number; len: number }[] = []
+  let mt: RegExpExecArray | null
+  while ((mt = tagRe.exec(text)) !== null) {
+    matches.push({ index: mt.index, len: mt[0].length })
+  }
+
   let cursor = 0
-  const thinkRe = /<thinking>([\s\S]*?)<\/thinking>/gi
-  let m: RegExpExecArray | null
-  while ((m = thinkRe.exec(text)) !== null) {
-    if (m.index > cursor) segments.push({ type: 'prose', text: text.slice(cursor, m.index) })
-    segments.push({ type: 'think', text: m[1] })
-    cursor = m.index + m[0].length
+  let lastOpen = -1
+  let lastClose = -1
+  for (let i = 0; i + 1 < matches.length; i += 2) {
+    const open = matches[i]
+    const close = matches[i + 1]
+    if (open.index > cursor) segments.push({ type: 'prose', text: text.slice(cursor, open.index) })
+    segments.push({ type: 'think', text: text.slice(open.index + open.len, close.index) })
+    cursor = close.index + close.len
+    lastOpen = open.index; lastClose = close.index
+  }
+  // Odd unmatched tag — fence everything up to the next triple-backtick or
+  // the next blank double-newline.
+  if (matches.length % 2 === 1) {
+    const open = matches[matches.length - 1]
+    if (open.index > cursor) segments.push({ type: 'prose', text: text.slice(cursor, open.index) })
+    const after = text.slice(open.index + open.len)
+    const stop1 = after.indexOf('```')
+    const stop2 = after.indexOf('\n\n\n')
+    let stop = -1
+    if (stop1 >= 0 && stop2 >= 0) stop = Math.min(stop1, stop2)
+    else if (stop1 >= 0) stop = stop1
+    else if (stop2 >= 0) stop = stop2
+    if (stop > 0) {
+      segments.push({ type: 'think', text: after.slice(0, stop) })
+      cursor = open.index + open.len + stop
+      lastOpen = open.index; lastClose = open.index + open.len + stop
+    } else {
+      // Still streaming — show as live "Thinking…"
+      segments.push({ type: 'think', text: after })
+      cursor = text.length
+      lastOpen = open.index; lastClose = -1
+    }
   }
   if (cursor < text.length) segments.push({ type: 'prose', text: text.slice(cursor) })
 
-  // Detect a streaming-but-unclosed <thinking> tag so the user sees a live
-  // "Thinking…" pulse mid-stream rather than a blank panel.
-  const openThinkIdx = text.lastIndexOf('<thinking>')
-  const closeThinkIdx = text.lastIndexOf('</thinking>')
-  if (openThinkIdx > closeThinkIdx) {
-    const partial = text.slice(openThinkIdx + '<thinking>'.length)
-    // Replace any prose segment that overlaps with the open thinking
-    segments.length = 0
-    if (openThinkIdx > 0) segments.push({ type: 'prose', text: text.slice(0, openThinkIdx) })
-    segments.push({ type: 'think', text: partial })
+  // Strip any stray, leftover think-ish tags that snuck into prose
+  // segments (e.g. an extra opening tag the model emitted in the middle).
+  for (const seg of segments) {
+    if (seg.type === 'prose') seg.text = seg.text.replace(tagRe, '')
   }
 
   return (
     <div style={{ lineHeight: 1.65, display: 'flex', flexDirection: 'column', gap: '.04rem' }}>
       {segments.map((seg, i) => {
         if (seg.type === 'think') {
-          const streaming = i === segments.length - 1 && openThinkIdx > closeThinkIdx
+          const streaming = i === segments.length - 1 && lastOpen > lastClose
           return <ThinkingBlock key={i} content={seg.text} streaming={streaming} />
         }
         return <ProseBlock key={i} text={seg.text} />
@@ -582,57 +615,6 @@ function CanvasBackground() {
   )
 }
 
-// Block-aware reactive background. Each pinned block emits a soft radial
-// glow at its canvas position. When the node count grows, the most recent
-// block spawns a brief expanding ripple — the background literally reacts
-// to the user's activity instead of being a static decoration.
-function CanvasReactiveBg({ nodes }: { nodes: CanvasNode[] }) {
-  const [pulseId, setPulseId] = useState<string | null>(null)
-  const lastCount = useRef(nodes.length)
-  useEffect(() => {
-    if (nodes.length > lastCount.current) {
-      const newest = nodes[nodes.length - 1]
-      setPulseId(newest?.id ?? null)
-      const t = setTimeout(() => setPulseId(null), 900)
-      lastCount.current = nodes.length
-      return () => clearTimeout(t)
-    }
-    lastCount.current = nodes.length
-  }, [nodes.length, nodes])
-
-  return (
-    <div aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
-      <style>{`
-        @keyframes block-ripple { from { transform: scale(.4); opacity: .6 } to { transform: scale(2.6); opacity: 0 } }
-        @keyframes glow-soft   { 0%,100% { opacity: .55 } 50% { opacity: .85 } }
-        .blk-glow { animation: glow-soft 6s ease-in-out infinite; }
-      `}</style>
-      {nodes.map(n => (
-        <div key={n.id} className="blk-glow" style={{
-          position: 'absolute',
-          left: n.x + 60, top: n.y + 18,
-          width: 200, height: 200, borderRadius: '50%',
-          transform: 'translate(-50%, -50%)',
-          background: `radial-gradient(circle, ${n.color}1A 0%, transparent 60%)`,
-        }} />
-      ))}
-      {pulseId && (() => {
-        const n = nodes.find(x => x.id === pulseId)
-        if (!n) return null
-        return (
-          <div style={{
-            position: 'absolute',
-            left: n.x + 60, top: n.y + 18,
-            width: 60, height: 60, borderRadius: '50%',
-            transform: 'translate(-50%, -50%)',
-            border: `1.5px solid ${n.color}`,
-            animation: 'block-ripple .9s ease-out forwards',
-          }} />
-        )
-      })()}
-    </div>
-  )
-}
 
 export default function BuildPage() {
   const router = useRouter()
@@ -708,6 +690,16 @@ export default function BuildPage() {
   // Saved-indicator — flashes when autoSaveDraft persists progress so the
   // user *sees* their work is safe even though everything is local.
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
+  // Fullscreen mode hides the dashboard chrome (navbar, padding) so the
+  // canvas takes the entire viewport. Used for the demo / focus mode.
+  const [fullscreen, setFullscreen] = useState(false)
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const el = document.documentElement
+    if (fullscreen) el.classList.add('build-fullscreen')
+    else el.classList.remove('build-fullscreen')
+    return () => el.classList.remove('build-fullscreen')
+  }, [fullscreen])
 
   // Agents drawer removed — drafts management now lives on /dashboard/build/manage.
   // Drafts badge mounts client-side only (localStorage isn't available on server).
@@ -1249,6 +1241,11 @@ export default function BuildPage() {
 
   const isDone = phase === 'done'
   const isBuilding = phase === 'building'
+  // "Landed" = the user has done anything. Until then we render a single
+  // centered prompt with no chrome — the minimalistic first-touch surface
+  // the user asked for. The first build promotes the page to the full
+  // workspace.
+  const landed = phase !== 'idle' || chat.length > 0 || extractedFiles.length > 0 || pinnedIds.length > 0 || prompt.trim().length > 8
 
   return (
     <div
@@ -1280,6 +1277,8 @@ export default function BuildPage() {
         @keyframes spin { to { transform: rotate(360deg) } }
         @keyframes glow-mint { 0%,100% { box-shadow: 0 0 18px rgba(22,199,132,.25) } 50% { box-shadow: 0 0 32px rgba(22,199,132,.55) } }
         @keyframes slideInUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        :global(html.build-fullscreen) [data-dashboard-shell-nav] { display: none !important; }
+        :global(html.build-fullscreen) [data-dashboard-shell-padding] { padding: 0 !important; max-width: none !important; }
       `}</style>
 
       {/* Background pipeline animation removed — the foreground CanvasAssembly
@@ -1552,37 +1551,95 @@ export default function BuildPage() {
 
 
 
-        {/* Top utility bar removed. Floating Manage+Docs cluster lives in
-            the top-right of the canvas (rendered below). Drafts is folded
-            into the Manage page so there's a single agents-management
-            surface instead of two. */}
-        <div style={{
-          position: 'absolute', top: 10, right: 14, zIndex: 30,
-          display: 'flex', gap: '.4rem', alignItems: 'center',
-        }}>
-          {/* Saved-indicator — quietly confirms autosave is working. */}
-          {lastSavedAt && (
-            <SavedPill ts={lastSavedAt} />
-          )}
-          <button onClick={startNewAgent}
-            title="Save current progress and start a fresh agent"
-            style={{ display: 'flex', alignItems: 'center', gap: '.32rem', padding: '.32rem .65rem', borderRadius: 7, background: `${C.mint}10`, border: `1px solid ${C.mint}40`, color: C.mint, fontSize: '.55rem', fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer', backdropFilter: 'blur(10px)' }}>
-            <span style={{ fontSize: '.65rem', lineHeight: 1 }}>+</span> New Agent
-          </button>
-          <button onClick={() => router.push('/dashboard/build/manage')}
-            title="Manage drafts and published agents"
-            style={{ display: 'flex', alignItems: 'center', gap: '.35rem', padding: '.32rem .65rem', borderRadius: 7, background: `${C.bg2}d8`, border: `1px solid ${C.border}`, color: C.faint, fontSize: '.55rem', cursor: 'pointer', fontFamily: 'var(--font-mono)', backdropFilter: 'blur(10px)' }}>
-            <span style={{ fontSize: '.65rem', color: C.mint }}>◈</span> Manage
-            {/* suppressHydrationWarning + render-on-mount guard: loadDrafts()
-                hits localStorage which is server-empty, causing a hydration
-                mismatch on count > 0. */}
-            {mountedDraftsBadge && loadDrafts().length > 0 && <span suppressHydrationWarning style={{ background: C.mint, color: '#000', borderRadius: 3, padding: '0 .35rem', fontSize: '.45rem', fontWeight: 700 }}>{loadDrafts().length}</span>}
-          </button>
-          <a href="/dashboard/build/docs"
-            style={{ display: 'flex', alignItems: 'center', gap: '.32rem', padding: '.32rem .65rem', borderRadius: 7, background: `${C.bg2}d8`, border: `1px solid ${C.border}`, color: C.faint, fontSize: '.55rem', cursor: 'pointer', fontFamily: 'var(--font-mono)', textDecoration: 'none', backdropFilter: 'blur(10px)' }}>
-            <span style={{ color: C.blue2 }}>⊙</span> Docs
-          </a>
-        </div>
+        {/* ── MINIMAL LANDING ──
+             First-touch surface. No header, no canvas, no clutter — a single
+             centered prompt with the brand mark. As soon as the user types
+             & submits, `landed` flips and the full workspace mounts. The
+             `landed` heuristic also catches returning users who already have
+             a draft in progress, so they skip straight to the workspace.
+        */}
+        {!landed && (
+          <div style={{
+            flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            padding: '1rem 2rem', position: 'relative', overflow: 'hidden',
+          }}>
+            {/* Faint center-vignette — single subtle effect, not a fake
+                particle field. */}
+            <div aria-hidden style={{
+              position: 'absolute', inset: 0, pointerEvents: 'none',
+              background: `radial-gradient(ellipse 60% 45% at 50% 45%, rgba(22,199,132,0.05) 0%, transparent 70%)`,
+            }} />
+
+            <div style={{ textAlign: 'center', marginBottom: '1.1rem', position: 'relative' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '.6rem' }}>
+                <div style={{
+                  width: 38, height: 38, borderRadius: 11,
+                  background: `linear-gradient(135deg, ${C.mint}28, ${C.blue}22)`,
+                  border: `1px solid ${C.mint}45`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: `0 0 26px ${C.mint}30`,
+                }}>
+                  <span style={{ fontSize: '1.15rem', color: C.mint }}>◈</span>
+                </div>
+              </div>
+              <div style={{ fontSize: '1.35rem', fontWeight: 800, color: C.white, letterSpacing: '-.022em', lineHeight: 1.1, marginBottom: '.4rem' }}>
+                What should your agent trade?
+              </div>
+              <div style={{ fontSize: '.62rem', color: C.faint, fontFamily: 'var(--font-mono)' }}>
+                Describe a strategy in plain English — the AI builds, backtests, and ships it.
+              </div>
+            </div>
+
+            <div style={{ width: '100%', maxWidth: 560, position: 'relative' }}>
+              <textarea
+                ref={textareaRef}
+                value={prompt}
+                onChange={e => setPrompt(e.target.value)}
+                onKeyDown={e => { if ((e.key === 'Enter' && (e.metaKey || e.ctrlKey)) || (e.key === 'Enter' && !e.shiftKey && prompt.trim())) { e.preventDefault(); handleBuild() } }}
+                placeholder="e.g. Buy BTC when it dips below its 30d average, sell when greed peaks. Stop out at 8%."
+                rows={3}
+                style={{
+                  width: '100%',
+                  background: `${C.bg2}f0`, border: `1px solid ${C.border2}`,
+                  borderRadius: 12, padding: '.85rem 1rem',
+                  color: C.white, fontFamily: 'var(--font-mono)', fontSize: '.7rem', lineHeight: 1.55,
+                  outline: 'none', resize: 'none', minHeight: 96,
+                  boxShadow: '0 12px 40px rgba(0,0,0,.5)',
+                  boxSizing: 'border-box',
+                }}
+                autoFocus
+              />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '.6rem' }}>
+                <div style={{ fontSize: '.46rem', color: C.faint, fontFamily: 'var(--font-mono)', letterSpacing: '.06em' }}>↵ build</div>
+                <button onClick={handleBuild} disabled={!prompt.trim()}
+                  style={{
+                    padding: '.5rem 1.2rem', borderRadius: 9, fontWeight: 800, fontSize: '.66rem',
+                    background: prompt.trim() ? C.mint : C.border, color: prompt.trim() ? '#000' : C.faint,
+                    border: 'none', cursor: prompt.trim() ? 'pointer' : 'not-allowed',
+                    boxShadow: prompt.trim() ? `0 0 18px ${C.mint}50` : 'none',
+                    fontFamily: 'var(--font-mono)',
+                  }}>Build →</button>
+              </div>
+
+              <div style={{ marginTop: '.85rem' }}>
+                <SuggestionChips onPick={(s) => { setPrompt(s); setTimeout(() => textareaRef.current?.focus(), 50) }} />
+              </div>
+            </div>
+
+            {/* Tiny manage link bottom-center — discoverable, not loud */}
+            <div style={{ position: 'absolute', bottom: 14, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: '.85rem', fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint }}>
+              <a href="/dashboard/build/manage" style={{ color: C.faint, textDecoration: 'none' }}>◈ manage agents</a>
+              <span style={{ color: C.border2 }}>·</span>
+              <a href="/dashboard/build/docs" style={{ color: C.faint, textDecoration: 'none' }}>⊙ docs</a>
+              <span style={{ color: C.border2 }}>·</span>
+              <a href="/dashboard/marketplace" style={{ color: C.faint, textDecoration: 'none' }}>✦ exchange</a>
+            </div>
+          </div>
+        )}
+
+        {/* Header chrome — once landed, the action buttons live INSIDE the
+             workspace header (not floating). Saved-pill, New Agent, Manage,
+             Docs, fullscreen toggle. The previous floating cluster is gone. */}
 
         {/* AGENTS DRAWER removed — Drafts list now lives on the Manage
             page (/dashboard/build/manage), so we have a single agents
@@ -1593,13 +1650,10 @@ export default function BuildPage() {
              headline have pointer-events:auto. As soon as a block is
              picked, the prompt slides DOWN to give the canvas more room
              (justifyContent: flex-end + bottom padding). ── */}
-        {/* ── ALWAYS-ON WORKSPACE ──
-            One unified surface: pipeline strip → header → files → backtest
-            → chat (the dominant region) → composer. The chat panel is
-            rendered every phase; idle just shows a welcome state inside it
-            and the composer doubles as the build-prompt input. This is the
-            "AI is always here" Cursor/Claude pattern the user asked for. */}
-        {(true) && (
+        {/* ── WORKSPACE — only mounts after the user has prompted at least
+             once (or has an in-progress draft). Single unified surface:
+             pipeline strip → header → files → backtest → chat → composer. */}
+        {landed && (
           <div style={{
             flex: 1, display: 'flex', flexDirection: 'column',
             overflow: 'hidden', animation: 'fade-up .35s ease',
@@ -1611,12 +1665,16 @@ export default function BuildPage() {
               <CanvasAssembly blocks={nodes.map(n => n.id)} phase={phase} />
             </div>
 
-            {/* Header */}
+            {/* Header — every above-canvas chrome lives INLINE here, not
+                 floating over the canvas. Status badge → action cluster on
+                 the right (Backtest, Publish, Code, New Agent, Manage,
+                 Docs, Fullscreen, Saved). */}
             <div style={{ padding: '.5rem .85rem', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: '.5rem', flexShrink: 0, background: `${C.bg2}cc`, backdropFilter: 'blur(8px)' }}>
               <div style={{ width: 7, height: 7, borderRadius: '50%', background: isBuilding ? C.orange : C.mint, animation: isBuilding ? 'blink .6s infinite' : 'none' }} />
               <span style={{ fontSize: '.55rem', fontWeight: 700, color: C.white, fontFamily: 'var(--font-mono)' }}>
                 {isBuilding ? 'Building strategy...' : 'Agent ready'}
               </span>
+              {lastSavedAt && <SavedPill ts={lastSavedAt} />}
               <div style={{ flex: 1 }} />
 
               {/* Run Backtest — primary action once the AI is done. Spinning
@@ -1666,6 +1724,24 @@ export default function BuildPage() {
                 title="Save current progress and start a fresh agent"
                 style={{ display: 'flex', alignItems: 'center', gap: '.3rem', padding: '.3rem .65rem', borderRadius: 7, background: 'transparent', border: `1px solid ${C.mint}40`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.55rem', fontWeight: 700, cursor: 'pointer' }}>
                 + New Agent
+              </button>
+
+              {/* Manage / Docs / Fullscreen — folded in from the previous
+                   floating cluster so nothing hovers above the canvas. */}
+              <button onClick={() => router.push('/dashboard/build/manage')}
+                title="Manage drafts and published agents"
+                style={{ display: 'flex', alignItems: 'center', gap: '.3rem', padding: '.3rem .55rem', borderRadius: 7, background: 'transparent', border: `1px solid ${C.border}`, color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.55rem', cursor: 'pointer' }}>
+                <span style={{ color: C.mint }}>◈</span> Manage
+                {mountedDraftsBadge && loadDrafts().length > 0 && <span suppressHydrationWarning style={{ background: C.mint, color: '#000', borderRadius: 3, padding: '0 .3rem', fontSize: '.42rem', fontWeight: 700 }}>{loadDrafts().length}</span>}
+              </button>
+              <a href="/dashboard/build/docs" title="Docs"
+                style={{ display: 'flex', alignItems: 'center', gap: '.3rem', padding: '.3rem .55rem', borderRadius: 7, background: 'transparent', border: `1px solid ${C.border}`, color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.55rem', cursor: 'pointer', textDecoration: 'none' }}>
+                <span style={{ color: C.blue2 }}>⊙</span> Docs
+              </a>
+              <button onClick={() => setFullscreen(v => !v)}
+                title={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                style={{ padding: '.3rem .5rem', borderRadius: 7, background: 'transparent', border: `1px solid ${C.border}`, color: C.faint, cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                {fullscreen ? '↙' : '⤢'}
               </button>
             </div>
 

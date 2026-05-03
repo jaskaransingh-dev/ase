@@ -128,11 +128,40 @@ function decide(spec: AgentRow['spec'], agentName: string): Signal[] {
     const z     = (ret1 - mean) / std
     totalVol   += std
 
+    // Volume + ML proxies + user-supplied alpha_weights blend.
+    // AI agents ship a config like { alpha_type: "composite", alpha_weights:
+    // { momentum: 0.5, mean_reversion: 0.3, volatility: 0.2 } }. We compute
+    // each component, then blend per the user's weights so cron actually
+    // honors the strategy authored in /dashboard/build instead of a fixed
+    // formula. Falls back to a sensible mix if alpha_weights is missing.
+    const aw = (spec.alpha_weights as Record<string, number> | undefined) ?? null
+    const momSig = ret20 * 0.6 + ret5 * 0.4
+    const revSig = -z
+    const volSig = std > 0.04 ? -ret5 : ret5
+    const lastVol = (last as { volume?: number }).volume ?? 0
+    const prevVol = ((bars[n-2] as { volume?: number } | undefined)?.volume) ?? 1
+    const volumeSig = lastVol > 0 ? Math.tanh((lastVol / Math.max(1e-6, prevVol) - 1)) * Math.sign(ret1) : 0
+    const mlSig = Math.tanh(ret20 * 4) * 0.5 + Math.tanh(ret5 * 6) * 0.5  // logistic-like proxy
+
     let signal: number
-    if (alphaType === 'momentum')         signal = ret20 * 0.6 + ret5 * 0.4
-    else if (alphaType === 'mean_reversion') signal = -z
-    else if (alphaType === 'volatility')  signal = std > 0.04 ? -ret5 : ret5
-    else                                  signal = 0.4 * ret20 + 0.3 * (-z) + 0.3 * ret5
+    if (alphaType === 'momentum')         signal = momSig
+    else if (alphaType === 'mean_reversion') signal = revSig
+    else if (alphaType === 'volatility')  signal = volSig
+    else if (alphaType === 'volume')      signal = volumeSig
+    else if (alphaType === 'ml')          signal = mlSig
+    else if (aw) {
+      // Composite with user weights — normalize so they sum to 1.
+      const sum = (aw.momentum ?? 0) + (aw.mean_reversion ?? 0) + (aw.volatility ?? 0) + (aw.volume ?? 0) + (aw.ml ?? 0)
+      const n = sum > 0 ? sum : 1
+      signal = (
+        (aw.momentum ?? 0) * momSig +
+        (aw.mean_reversion ?? 0) * revSig +
+        (aw.volatility ?? 0) * volSig +
+        (aw.volume ?? 0) * volumeSig +
+        (aw.ml ?? 0) * mlSig
+      ) / n
+    }
+    else signal = 0.4 * ret20 + 0.3 * (-z) + 0.3 * ret5
 
     return { sym, signal, price: last.close, ret1, ret5, ret20, z }
   })

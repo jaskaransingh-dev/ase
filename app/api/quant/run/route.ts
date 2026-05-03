@@ -85,9 +85,33 @@ export async function POST(req: Request) {
     benchmark?:      string
   }
 
-  const template = body.template ?? 'composite_balanced'
+  // Resolve template: AI agents historically emit cron-runner names like
+  // "crypto_momentum", which aren't valid here. Rather than failing the
+  // backtest (and breaking publish), map common aliases to the closest
+  // real template, then fall back to composite_balanced if still unknown.
+  const TEMPLATE_ALIASES: Record<string, string> = {
+    'crypto_momentum':         'momentum_conservative',
+    'btc_momentum':            'momentum_conservative',
+    'eth_momentum':            'momentum_conservative',
+    'momentum':                'momentum_conservative',
+    'crypto_mean_reversion':   'mean_reversion_active',
+    'mean_reversion':          'mean_reversion_active',
+    'reversion':               'mean_reversion_active',
+    'trend_following':         'momentum_conservative',
+    'volatility':              'risk_parity',
+    'volatility_target':       'risk_parity',
+    'risk_parity_basket':      'risk_parity',
+    'composite':               'composite_balanced',
+    'multi_factor':            'composite_balanced',
+    'ml':                      'ml_aggressive',
+    'machine_learning':        'ml_aggressive',
+    'custom':                  'composite_balanced',
+  }
+  let template = String(body.template ?? 'composite_balanced')
   if (!STRATEGY_TEMPLATES[template]) {
-    return NextResponse.json({ error: `Unknown template "${template}". Valid: ${Object.keys(STRATEGY_TEMPLATES).join(', ')}` }, { status: 400 })
+    const aliased = TEMPLATE_ALIASES[template.toLowerCase()] ?? 'composite_balanced'
+    console.warn(`[quant/run] mapped unknown template "${template}" → "${aliased}"`)
+    template = aliased
   }
 
   // Build strategy package

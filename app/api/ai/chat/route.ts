@@ -6,7 +6,7 @@
  *     it never *replaces* the contract, so chat and build can never drift.
  *   - The Always-Trade Contract is in EVERY response, not just build mode.
  *     Cron tick rejects agents that hold; the AI must internalize that.
- *   - Thinking goes inside <thinking>…</thinking>. The client collapses it
+ *   - Thinking goes inside <think>…</think>. The client collapses it
  *     (Cursor/Claude-style "▾ thoughts (3.2s)") so prose stays clean.
  *   - Markdown headings (#, ##, ###) are forbidden — they render as raw
  *     `# Heading` in our compact monospace UI. We instead use **bold** +
@@ -70,31 +70,55 @@ const ALWAYS_TRADE = `ALWAYS-TRADE CONTRACT (mandatory — applies to every stra
 - The cron tick auto-delists agents that skip ticks. Skipping = death.`
 
 const THINKING_FORMAT = `RESPONSE FORMAT (every turn, no exceptions):
-1. Open with <thinking>…</thinking> — your raw reasoning. 2–6 short lines. The client renders this as a collapsible "▾ thoughts" block, so the user can expand it later but doesn't see clutter by default.
-2. Then ONE tight paragraph (≤3 sentences) summarizing what you built / changed in plain trader language. No headings, no "Sure!", no filler.
-3. Then the file blocks — every file in this list, every turn that touches strategy:
-     • strategy.ts            (complete TypeScript agent)
-     • config.json            (user-facing knobs)
-     • backtest.config.json   (exact /api/quant/run payload — see schema below)
-     • data_loaders.py        (one stub fn per data source you reference)
-     • README.md              (one paragraph — what it does, when it works)
-   Every block uses // FILE: <name> on the first line. Never use // ...same as before. Never split a file across messages.
+
+1. Open with <think>…</think> — your raw reasoning, 2–6 short lines. The client renders this as a collapsible "▾ thoughts" block.
+
+2. Then ONE tight paragraph (≤3 sentences) summarizing what you built/changed in plain trader language. No headings, no "Sure!", no filler.
+
+3. Then the file blocks — EVERY file in this list, EVERY turn that touches strategy. Each file MUST be wrapped in triple-backtick fences with the language tag, AND the FIRST LINE INSIDE the fence must be a // FILE: or # FILE: directive. Example exactly like this:
+
+\`\`\`typescript
+// FILE: strategy.ts
+import type { Strategy, EvalContext, Decision } from './types'
+export const config = { primary: 'BTC-USD', cadence: '1h', maxWeight: 0.3 }
+export async function evaluate(ctx: EvalContext): Promise<Decision> {
+  // …complete file body…
+}
+\`\`\`
+
+Required files (all five, in this order):
+   • strategy.ts             — complete TypeScript agent
+   • config.json             — user-facing knobs
+   • backtest.config.json    — exact /api/quant/run payload (schema below)
+   • data_loaders.py         — REAL python loaders that mirror ctx.data.* (NOT empty 'pass' stubs)
+   • README.md               — one paragraph: what it does, when it works, when it fails
+
 4. End with exactly: → Agent ready.
 
-FORMATTING RULES (the UI will look broken if you violate these):
-- NEVER use markdown headings (no #, ##, ###) — they render as literal "# Heading" in the chat panel. Use **bold** for emphasis.
-- Use - for bullets. Keep prose dense — every line earns its place.
-- DO NOT pause or break mid-file. If you say "(continued)" inside a code block the editor corrupts.
-- Each \`\`\` opens one complete file body and closes when the file ends.`
+CRITICAL FORMATTING RULES (violations break the editor):
+- WRAP EVERY FILE in \`\`\`lang fences. NEVER emit a file as bare text or as a // FILE: line floating outside a code fence — the parser will drop it and the user will lose the file.
+- NEVER use markdown headings (no #, ##, ###) outside file content. Use **bold** for emphasis.
+- Use - for bullets. Dense prose — every line earns its place.
+- DO NOT pause or break mid-file. No "(continued)" inside a code block.
+- Each \`\`\` opens one complete file body and closes when the file ends.
+- For data_loaders.py: write functions that fetch data from real APIs (binance via requests.get, yahoo via yfinance), NOT 'pass' stubs. The user runs these in production.`
 
-const BUILD_FILE_SCHEMA = `backtest.config.json schema (the platform sends this verbatim to /api/quant/run):
+const BUILD_FILE_SCHEMA = `backtest.config.json — the platform sends this VERBATIM to /api/quant/run, so it must be a complete, real JSON object (not a schema or OR-list).
+
+VALID values (pick ONE — anything else is rejected by the backtest endpoint):
+- template:       EXACTLY one of  momentum_conservative | mean_reversion_active | composite_balanced | ml_aggressive | risk_parity
+                  (NEVER use crypto_momentum, crypto_mean_reversion, btc_momentum, custom — those are not real templates and will fail the backtest)
+- alpha_type:     one of  momentum | mean_reversion | volatility | volume | composite | ml
+- rebalance_freq: one of  daily | weekly | monthly
+
+Example of a fully-valid backtest.config.json (copy the SHAPE, change the values to match your strategy):
 \`\`\`json
 {
-  "template": "momentum_conservative | mean_reversion_active | composite_balanced | ml_aggressive | risk_parity",
-  "alpha_type": "momentum | mean_reversion | volatility | volume | composite | ml",
+  "template": "composite_balanced",
+  "alpha_type": "composite",
   "alpha_weights": { "momentum": 0.5, "mean_reversion": 0.3, "volatility": 0.2 },
   "symbols": ["BTC-USD", "ETH-USD"],
-  "rebalance_freq": "daily | weekly | monthly",
+  "rebalance_freq": "weekly",
   "risk_aversion": 4,
   "max_weight": 0.30,
   "walk_forward": true
@@ -161,7 +185,7 @@ function buildSystemPrompt(opts: {
   const buildModeAddendum = opts.buildMode ? `
 
 BUILD-MODE ADDITIONS (this is a fresh strategy from a user prompt):
-- Open the <thinking> block with: chosen alpha angle, primary symbol, cadence, the one differentiator vs. a vanilla momentum bot.
+- Open the <think> block with: chosen alpha angle, primary symbol, cadence, the one differentiator vs. a vanilla momentum bot.
 - The summary paragraph reads like a trader: "buys BTC when 20d momentum stays positive AND funding flips negative, trims on RSI > 75". Plain English.
 - Pick the right backtest template silently — never expose names like 'composite_balanced'.
 - Default safe knobs: rebalance_freq weekly, risk_aversion 4, max_weight 0.30, walk_forward true.
@@ -257,7 +281,7 @@ export async function POST(req: Request) {
     const userMsg = messages[messages.length - 1]?.content ?? ''
     const hasHistory = messages.some(m => m.role === 'assistant')
     if (hasHistory) return handleChat(systemPrompt, messages, stream ?? false)
-    const enhancedUserMsg = userMsg + `\n\nBuild this strategy completely in ONE response. Open with <thinking>…</thinking>, then a 2-3 sentence summary in plain trader language, then ALL FIVE files (strategy.ts, config.json, backtest.config.json, data_loaders.py, README.md). End with: → Agent ready.`
+    const enhancedUserMsg = userMsg + `\n\nBuild this strategy completely in ONE response. Open with <think>…</think>, then a 2-3 sentence summary in plain trader language, then ALL FIVE files (strategy.ts, config.json, backtest.config.json, data_loaders.py, README.md). End with: → Agent ready.`
     return handleChat(systemPrompt, [{ role: "user", content: enhancedUserMsg }], stream ?? false);
   }
 
@@ -279,7 +303,7 @@ async function handleChat(systemPrompt: string, messages: Array<{role: string; c
           controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
           controller.close();
         } catch (err) {
-          const fallback = `<thinking>AI service unavailable.</thinking>\n\n**AI service unavailable.** ${String(err).slice(0, 120)}`;
+          const fallback = `<think>AI service unavailable.</think>\n\n**AI service unavailable.** ${String(err).slice(0, 120)}`;
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: fallback })}\n\n`));
           controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
           controller.close();

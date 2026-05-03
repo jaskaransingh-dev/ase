@@ -112,9 +112,16 @@ export function clearState() {
 
 // Parse markdown ```lang\n// FILE: name\ncontent``` blocks out of the
 // streamed response so the UI can show extracted files even mid-stream.
+//
+// The AI sometimes drops the triple-backticks (some worker models strip
+// fences mid-stream). We recover with a SECOND pass that scans for bare
+// `// FILE: <name>` / `# FILE: <name>` directives and treats everything
+// up to the next FILE-directive (or → Agent ready) as the file body.
 export function extractFiles(text: string): BuildFile[] {
   const files: BuildFile[] = []
   const seen = new Set<string>()
+
+  // Pass 1: fenced FILE blocks (preferred path)
   const re1 = /```(\w*)[^\n]*\n(?:\/\/|#)\s*FILE:\s*([^\n]+)\n([\s\S]*?)```/g
   let m: RegExpExecArray | null
   while ((m = re1.exec(text)) !== null) {
@@ -124,6 +131,31 @@ export function extractFiles(text: string): BuildFile[] {
       files.push({ lang: m[1] || 'text', name, content: m[3] })
     }
   }
+
+  // Pass 2 (recovery): bare "// FILE: name" / "# FILE: name" without
+  // surrounding fences. Body extends until the NEXT FILE directive or
+  // the AGENT-READY footer ("→ Agent ready" or end-of-text). This makes
+  // builds robust even if the AI emits files outside code blocks — the
+  // self-test surfaced this exact failure mode against the worker model.
+  const re2 = /(?:^|\n)\s*(?:\/\/|#)\s*FILE:\s*([^\n]+)\n([\s\S]*?)(?=(?:\n\s*(?:\/\/|#)\s*FILE:\s*[^\n]+\n)|(?:\n\s*→\s*Agent\s*ready)|$)/g
+  re2.lastIndex = 0
+  let mm: RegExpExecArray | null
+  while ((mm = re2.exec(text)) !== null) {
+    const name = mm[1].trim()
+    let body = mm[2]
+    // Strip leading/trailing triple-backtick fences that might have been
+    // captured if the AI partially fenced.
+    body = body.replace(/^```(\w*)\n?/, '').replace(/```\s*$/, '').trim()
+    if (!body || seen.has(name)) continue
+    const lang = name.endsWith('.ts') || name.endsWith('.tsx') ? 'typescript'
+              : name.endsWith('.json') ? 'json'
+              : name.endsWith('.py') ? 'python'
+              : name.endsWith('.md') ? 'markdown'
+              : 'text'
+    seen.add(name)
+    files.push({ lang, name, content: body })
+  }
+
   return files
 }
 

@@ -86,6 +86,7 @@ export default function DashboardShell({ user, children }: { user: { id: string;
     <div className="quant-terminal">
       {/* ── Sidebar (glass) ── */}
       <aside
+        data-dashboard-shell-nav
         className="sidebar ase-glass"
         style={{
           width: sidebarOpen ? 240 : 0,
@@ -397,6 +398,7 @@ export default function DashboardShell({ user, children }: { user: { id: string;
       {/* ── Main ── */}
       <main
         className="quant-main"
+        data-dashboard-shell-padding
         style={{
           marginLeft: sidebarOpen ? 240 : 0,
           flex: 1,
@@ -408,7 +410,7 @@ export default function DashboardShell({ user, children }: { user: { id: string;
         }}
       >
         {/* Header */}
-        <header className="quant-header" style={{
+        <header className="quant-header" data-dashboard-shell-nav style={{
           position: 'sticky',
           top: 0,
           zIndex: 90,

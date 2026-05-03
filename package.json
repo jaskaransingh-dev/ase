@@ -7,7 +7,10 @@
     "cf:build": "opennextjs-cloudflare build",
     "dev": "next dev",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "NODE_OPTIONS='--max-old-space-size=4096' eslint --cache --cache-location node_modules/.cache/eslint app lib components scripts",
+    "lint:all": "NODE_OPTIONS='--max-old-space-size=8192' eslint --cache --cache-location node_modules/.cache/eslint .",
+    "test:blocks": "tsx scripts/test-blocks.ts",
+    "typecheck": "tsc --noEmit",
     "preview": "opennextjs-cloudflare preview",
     "deploy": "npm run cf:build && wrangler pages deploy .open-next --project-name ase",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"
