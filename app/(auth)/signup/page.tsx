@@ -75,28 +75,34 @@ export default function SignupPage() {
         return
       }
 
+      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://www.launchase.com'
       const { data, error: signupError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: { display_name: name },
-          emailRedirectTo: `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/verify-email`,
+          // Point to the real callback handler; /auth/verify-email is a static page
+          // only, not an auth handler — verification tokens must go through /api/auth/callback.
+          emailRedirectTo: `${origin}/api/auth/callback?next=/dashboard`,
         },
       })
 
       if (signupError) {
-        if (
-          signupError.message.includes('already registered') ||
-          signupError.message.includes('already exists') ||
-          signupError.status === 422
-        ) {
+        const msg = signupError.message?.toLowerCase() ?? ''
+        if (msg.includes('already registered') || msg.includes('already exists') || signupError.status === 422) {
           setError('An account with this email already exists. Try logging in instead.')
-        } else if (signupError.message.includes('weak')) {
+        } else if (msg.includes('weak') || msg.includes('password')) {
           setError('Password is too weak. Use a mix of uppercase, lowercase, numbers, and symbols.')
-        } else if (signupError.message.includes('invalid email')) {
-          setError('Please enter a valid email address')
+        } else if (msg.includes('invalid email') || msg.includes('email address')) {
+          setError('Please enter a valid email address.')
+        } else if (msg.includes('rate') || msg.includes('too many')) {
+          setError('Too many attempts. Please wait a moment and try again.')
+        } else if (msg.includes('disabled') || msg.includes('not enabled')) {
+          setError('Sign-ups are temporarily disabled. Please try again later.')
         } else {
-          setError('Failed to create account. Please try again.')
+          // Show the actual error in dev, generic message in prod
+          console.error('[signup] Supabase error:', signupError.message, signupError.status)
+          setError(`Sign-up failed: ${signupError.message}`)
         }
         setLoading(false)
         return

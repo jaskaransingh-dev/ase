@@ -4,8 +4,9 @@
   "framework": "nextjs",
   "outputDirectory": ".next",
   "crons": [
-    { "path": "/api/cron/run-agents",  "schedule": "0 13 * * *" },
-    { "path": "/api/cron/heal-agents", "schedule": "0 14 * * *" },
-    { "path": "/api/cron/update-nav",  "schedule": "0 15 * * *" }
+    { "path": "/api/cron/run-agents",  "schedule": "* * * * *" },
+    { "path": "/api/quant/agent/tick", "schedule": "* * * * *" },
+    { "path": "/api/cron/update-nav",  "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/heal-agents", "schedule": "0 * * * *" }
   ]
 }

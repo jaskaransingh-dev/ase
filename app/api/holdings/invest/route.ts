@@ -5,6 +5,7 @@ import { calculateQuoteFromNav } from '@/lib/market'
 import { mergeHoldingPosition, syncAgentMarketState } from '@/lib/exchange'
 import { triggerImmediateAgentRun } from '@/lib/agent-cycle'
 import { krakenClientForUser } from '@/lib/kraken-client'
+import { sendInvestConfirmation } from '@/lib/email'
 
 export const dynamic = 'force-dynamic'
 
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
     // Get agent with current share price
     const { data: agent } = await admin
       .from('agents')
-      .select('id, name, status, share_price_cents, total_aum_cents, total_shares, max_aum_cents, alert_level')
+      .select('id, slug, name, status, share_price_cents, total_aum_cents, total_shares, max_aum_cents, alert_level')
       .eq('id', agent_id)
       .single()
 
@@ -155,6 +156,18 @@ export async function POST(req: NextRequest) {
     })
 
     await triggerImmediateAgentRun(req, agent_id)
+
+    // Fire-and-forget invest confirmation email
+    const displayName = user.user_metadata?.name || user.user_metadata?.full_name || user.email || ''
+    void sendInvestConfirmation({
+      email: user.email!,
+      name: displayName,
+      agentName: agent.name,
+      agentSlug: (agent as { slug?: string }).slug || agent.id,
+      amountCents: amount_cents,
+      shares: newShares,
+      pricePerShareCents: askCents,
+    }).catch(e => console.warn('[invest] email failed:', e instanceof Error ? e.message : e))
 
     return NextResponse.json({
       ok: true,

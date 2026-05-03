@@ -17,6 +17,7 @@ import { calculateQuoteFromNav } from '@/lib/market'
 import { reduceHoldingPosition, syncAgentMarketState } from '@/lib/exchange'
 import { triggerImmediateAgentRun } from '@/lib/agent-cycle'
 import { getUserPositions, closeUserPosition } from '@/lib/user-trading'
+import { sendSellConfirmation } from '@/lib/email'
 
 export const dynamic = 'force-dynamic'
 
@@ -139,6 +140,16 @@ export async function POST(req: NextRequest) {
     })
 
     void triggerImmediateAgentRun(req, agentId)
+
+    // Fire-and-forget sell confirmation email
+    const displayName = user.user_metadata?.name || user.user_metadata?.full_name || ''
+    void sendSellConfirmation(
+      user.email!,
+      holding.agents?.name ?? 'Agent',
+      sellValue,
+      pnlCents,
+      displayName,
+    ).catch(e => console.warn('[sell] email failed:', e instanceof Error ? e.message : e))
 
     return NextResponse.json({
       ok: true,

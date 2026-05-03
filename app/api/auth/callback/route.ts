@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
+import { sendWelcomeEmail } from '@/lib/email'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,8 +48,16 @@ export async function GET(request: NextRequest) {
   // ── PKCE flow (OAuth, magic-link with code_verifier) ─────────────────────
   if (code) {
     console.log('[Auth Callback] Exchanging code for session')
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
-    if (!error) return NextResponse.redirect(new URL(safeNext, request.url))
+    const { data: sessionData, error } = await supabase.auth.exchangeCodeForSession(code)
+    if (!error) {
+      // Send welcome email on first sign-in via OAuth/magic-link
+      const u = sessionData?.user
+      if (u?.email) {
+        const nm = u.user_metadata?.name || u.user_metadata?.full_name || u.user_metadata?.display_name || ''
+        void sendWelcomeEmail(u.email, nm).catch(() => {})
+      }
+      return NextResponse.redirect(new URL(safeNext, request.url))
+    }
 
     console.log('[Auth Callback] Code exchange error:', error?.message)
     const errorUrl = new URL('/login', request.url)
@@ -59,12 +68,20 @@ export async function GET(request: NextRequest) {
   // ── OTP / token_hash flow (email confirm, password recovery) ──
   if (tokenHash && type) {
     console.log('[Auth Callback] Verifying OTP with type:', type)
-    const { error } = await supabase.auth.verifyOtp({
+    const { data: otpData, error } = await supabase.auth.verifyOtp({
       token_hash: tokenHash,
       type: type as 'signup' | 'recovery' | 'email' | 'invite' | 'magiclink',
     })
     if (!error) {
       console.log('[Auth Callback] OTP verified successfully')
+      // Send welcome email when a new user confirms their email address
+      if (type === 'signup') {
+        const u = otpData?.user
+        if (u?.email) {
+          const nm = u.user_metadata?.name || u.user_metadata?.full_name || u.user_metadata?.display_name || ''
+          void sendWelcomeEmail(u.email, nm).catch(() => {})
+        }
+      }
       return NextResponse.redirect(new URL(safeNext, request.url))
     }
     console.log('[Auth Callback] OTP verify error:', error?.message)
