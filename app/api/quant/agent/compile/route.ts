@@ -11,8 +11,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { DATA_SOURCES, INDICATORS, RISK_METRICS } from '@/lib/quant-docs'
 import { blocksToHints } from '@/lib/quant/blocks'
-
-const CF_WORKER_URL = "https://ase-ai.jazing14.workers.dev";
+import { callAI as callOpenRouter } from '@/lib/ai-client'
 
 /** Extract the first balanced JSON object from a possibly-noisy LLM response.
  * Handles: ```json fences, leading/trailing prose, multiple sibling {} blocks
@@ -44,14 +43,7 @@ function extractJsonObject(text: string): string | null {
 }
 
 async function callAI(messages: Array<{role: string; content: string}>, maxTokens = 2048) {
-  const response = await fetch(CF_WORKER_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, max_tokens: maxTokens }),
-  });
-  if (!response.ok) throw new Error(`AI error: ${response.status}`);
-  const data = await response.json();
-  return data.content || "";
+  return callOpenRouter(messages, maxTokens)
 }
 
 export const dynamic = 'force-dynamic'

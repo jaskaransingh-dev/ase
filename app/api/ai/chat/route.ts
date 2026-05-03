@@ -26,21 +26,11 @@ import {
   DECISION_FLOW,
   BACKTEST_GUIDE,
 } from "@/lib/quant-docs";
-
-const CF_WORKER_URL = process.env.CF_AI_WORKER_URL || "https://ase-ai.jazing14.workers.dev";
+import { callAI } from "@/lib/ai-client";
 
 async function callAIWorker(messages: Array<{role: string; content: string}>) {
-  const response = await fetch(CF_WORKER_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`AI Worker error: ${response.status} - ${error.slice(0, 200)}`);
-  }
-  return response.json();
+  const content = await callAI(messages)
+  return { content }
 }
 
 // ── Hard-coded data loader signatures the platform actually exposes ───────────
