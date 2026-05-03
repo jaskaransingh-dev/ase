@@ -2,8 +2,10 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { BLOCKS, getBlockById } from '@/lib/quant/blocks'
 import type { BlockKind } from '@/lib/quant/blocks'
+import { blockMeta, statusColor, statusLabel } from '@/lib/quant/block-registry'
 import { runBuild as runBuildBg, subscribe as subscribeBg, getState as getBgState, abortBuild as abortBuildBg, clearState as clearBgState } from '@/lib/build-bg'
 import CanvasAssembly from '@/components/dashboard/CanvasAssembly'
 
@@ -151,8 +153,131 @@ function nameFromPrompt(p: string) {
   return p.trim().slice(0, 32).replace(/[^a-zA-Z0-9 ]/g, '').trim() || 'Untitled Strategy'
 }
 
-// ── Clean markdown renderer — no # symbols ────────────────────────────────────
+// ── Cursor/Claude-style chat renderer ─────────────────────────────────────────
+// Three behaviors that make the panel feel "alive" instead of dumping markdown:
+//   1. <thinking>…</thinking> blocks render as a collapsible "▾ Thoughts"
+//      pill (closed by default, opens with one click). The AI puts its
+//      raw reasoning here so prose stays clean.
+//   2. Code blocks render as collapsible "FILE · strategy.ts" cards with
+//      a header showing the filename + a copy button. Closed when very
+//      long so the chat doesn't scroll for screens.
+//   3. # / ## / ### headings — silently stripped (we ban them in the
+//      prompt but render robustly if a model slips through).
+function ThinkingBlock({ content, streaming }: { content: string; streaming?: boolean }) {
+  const [open, setOpen] = useState(false)
+  const lines = content.trim().split('\n').filter(Boolean)
+  const hint = lines[0]?.slice(0, 64) ?? 'thinking'
+  return (
+    <div style={{ margin: '.2rem 0', borderRadius: 7, border: `1px solid ${C.border}`, background: 'rgba(10,21,37,.55)' }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: '.4rem',
+          width: '100%', padding: '.32rem .55rem',
+          background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
+          color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.5rem', letterSpacing: '.06em',
+        }}>
+        <span style={{ display: 'inline-flex', gap: 2 }}>
+          {streaming
+            ? [0,1,2].map(i => <span key={i} style={{ width: 3, height: 3, borderRadius: '50%', background: '#8b5cf6', display: 'inline-block', animation: `blink .8s ease-in-out infinite ${i * .18}s` }} />)
+            : <span style={{ color: '#8b5cf6' }}>◇</span>}
+        </span>
+        <span style={{ color: '#a78bfa', fontWeight: 700 }}>{streaming ? 'Thinking…' : 'Thoughts'}</span>
+        {!open && !streaming && <span style={{ color: C.faint, opacity: .8, fontWeight: 400, fontSize: '.46rem', marginLeft: '.25rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{hint}</span>}
+        <span style={{ marginLeft: 'auto', color: C.faint }}>{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div style={{ padding: '.05rem .65rem .45rem', borderTop: `1px solid ${C.border}` }}>
+          {lines.map((ln, i) => (
+            <div key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.text, lineHeight: 1.55, padding: '.08rem 0' }}>{ln}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FileBlock({ name, lang, content }: { name: string; lang: string; content: string }) {
+  const lines = content.trimEnd().split('\n')
+  const long = lines.length > 16
+  const [open, setOpen] = useState(!long)
+  const isFile = !!name
+  const accent = name?.endsWith('.ts') || name?.endsWith('.tsx') ? '#3b82f6'
+              : name?.endsWith('.json') ? '#f59e0b'
+              : name?.endsWith('.py') ? '#16c784'
+              : name?.endsWith('.md') ? '#94a3b8'
+              : '#60a5fa'
+  return (
+    <div style={{ margin: '.35rem 0', borderRadius: 7, overflow: 'hidden', border: `1px solid ${accent}30` }}>
+      <div style={{ display: 'flex', alignItems: 'center', padding: '.18rem .55rem', background: `${accent}10`, fontFamily: 'var(--font-mono)', fontSize: '.5rem', letterSpacing: '.06em' }}>
+        <span style={{ color: accent, fontWeight: 700 }}>
+          {isFile ? `FILE · ${name}` : (lang || 'CODE').toUpperCase()}
+        </span>
+        <span style={{ marginLeft: '.4rem', color: C.faint }}>{lines.length} lines</span>
+        <button
+          onClick={() => navigator.clipboard?.writeText(content)}
+          style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', fontSize: '.5rem', fontFamily: 'var(--font-mono)' }}>
+          copy
+        </button>
+        <button
+          onClick={() => setOpen(v => !v)}
+          style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', fontSize: '.55rem', marginLeft: '.4rem' }}>
+          {open ? '▾' : '▸'}
+        </button>
+      </div>
+      {open && (
+        <pre style={{ margin: 0, padding: '.45rem .65rem', background: 'rgba(0,0,0,.55)', fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.blue2, lineHeight: 1.5, overflowX: 'auto', maxHeight: 280, overflowY: 'auto' }}>
+          {content.trimEnd()}
+        </pre>
+      )}
+    </div>
+  )
+}
+
 function CleanMsg({ text }: { text: string }) {
+  // Pre-extract <thinking> blocks (any tag the AI uses for reasoning) and
+  // hand the rest of the text to the markdown renderer. This way "▾ Thoughts"
+  // appears at the right place and the prose below it reads cleanly.
+  const segments: Array<{ type: 'think'; text: string } | { type: 'prose'; text: string }> = []
+  let cursor = 0
+  const thinkRe = /<thinking>([\s\S]*?)<\/thinking>/gi
+  let m: RegExpExecArray | null
+  while ((m = thinkRe.exec(text)) !== null) {
+    if (m.index > cursor) segments.push({ type: 'prose', text: text.slice(cursor, m.index) })
+    segments.push({ type: 'think', text: m[1] })
+    cursor = m.index + m[0].length
+  }
+  if (cursor < text.length) segments.push({ type: 'prose', text: text.slice(cursor) })
+
+  // Detect a streaming-but-unclosed <thinking> tag so the user sees a live
+  // "Thinking…" pulse mid-stream rather than a blank panel.
+  const openThinkIdx = text.lastIndexOf('<thinking>')
+  const closeThinkIdx = text.lastIndexOf('</thinking>')
+  if (openThinkIdx > closeThinkIdx) {
+    const partial = text.slice(openThinkIdx + '<thinking>'.length)
+    // Replace any prose segment that overlaps with the open thinking
+    segments.length = 0
+    if (openThinkIdx > 0) segments.push({ type: 'prose', text: text.slice(0, openThinkIdx) })
+    segments.push({ type: 'think', text: partial })
+  }
+
+  return (
+    <div style={{ lineHeight: 1.65, display: 'flex', flexDirection: 'column', gap: '.04rem' }}>
+      {segments.map((seg, i) => {
+        if (seg.type === 'think') {
+          const streaming = i === segments.length - 1 && openThinkIdx > closeThinkIdx
+          return <ThinkingBlock key={i} content={seg.text} streaming={streaming} />
+        }
+        return <ProseBlock key={i} text={seg.text} />
+      })}
+    </div>
+  )
+}
+
+// Renders one chunk of prose: paragraphs + bullets + collapsible code/file
+// blocks. Headings (# / ##) are stripped silently — the prompt forbids them
+// but we render robustly anyway.
+function ProseBlock({ text }: { text: string }) {
   const lines = text.split('\n')
   const out: React.ReactNode[] = []
   let inCode = false, codeLines: string[] = [], codeLang = '', key = 0
@@ -160,22 +285,18 @@ function CleanMsg({ text }: { text: string }) {
   for (const raw of lines) {
     if (raw.startsWith('```')) {
       if (inCode) {
-        out.push(
-          <pre key={key++} style={{
-            background: 'rgba(0,0,0,.5)', border: `1px solid ${C.border}`, borderRadius: 7,
-            padding: '.5rem .7rem', fontSize: '.54rem', fontFamily: 'var(--font-mono)',
-            color: C.blue2, overflowX: 'auto', margin: '.3rem 0', lineHeight: 1.5,
-          }}>{codeLines.join('\n')}</pre>
-        )
-        inCode = false; codeLines = []
+        const fileMatch = codeLines[0]?.match(/^(?:\/\/|#)\s*FILE:\s*(.+)$/)
+        const delMatch  = codeLines[0]?.match(/^(?:\/\/|#)\s*DELETE:\s*(.+)$/)
+        const name = fileMatch ? fileMatch[1].trim() : delMatch ? `(deleted) ${delMatch[1].trim()}` : ''
+        const body = (fileMatch || delMatch) ? codeLines.slice(1).join('\n') : codeLines.join('\n')
+        out.push(<FileBlock key={key++} name={name} lang={codeLang} content={body} />)
+        inCode = false; codeLines = []; codeLang = ''
       } else { codeLang = raw.slice(3).trim(); inCode = true }
       continue
     }
     if (inCode) { codeLines.push(raw); continue }
 
-    const isHeading = /^#{1,4}\s+/.test(raw)
     const clean = raw.replace(/^#{1,4}\s+/, '').trim()
-
     if (!clean) { out.push(<div key={key++} style={{ height: '.25rem' }} />); continue }
 
     if (raw.match(/^[-•]\s/)) {
@@ -187,16 +308,11 @@ function CleanMsg({ text }: { text: string }) {
       )
     } else {
       out.push(
-        <div key={key++} style={{
-          fontWeight: isHeading ? 700 : 400,
-          color: isHeading ? C.white : C.text,
-          fontSize: isHeading ? '.62rem' : '.6rem',
-          marginTop: isHeading ? '.4rem' : 0,
-        }}>{inlineFormat(clean)}</div>
+        <div key={key++} style={{ color: C.text, fontSize: '.6rem' }}>{inlineFormat(clean)}</div>
       )
     }
   }
-  return <div style={{ lineHeight: 1.65, display: 'flex', flexDirection: 'column', gap: '.06rem' }}>{out}</div>
+  return <>{out}</>
 }
 
 function inlineFormat(text: string): React.ReactNode {
@@ -301,6 +417,138 @@ function BtStrip({ result, loading, error }: { result: BtResult | null; loading:
           <span style={{ fontSize: '.65rem', fontWeight: 700, color: m.c, fontFamily: 'var(--font-mono)' }}>{m.v}</span>
         </div>
       ))}
+    </div>
+  )
+}
+
+// ── Block row with rich hover-describe popover ────────────────────────────────
+// Mouse enter ⇒ a 280-px wide card flies out to the right of the row showing:
+// label · status pill (LIVE / STUB / STATIC) · long doc · loader signature ·
+// agent hint · gotchas. Closes on mouseleave with a brief delay so the
+// popover can be hovered too (for copy/paste). This was missing entirely —
+// the old UI relied on the native `title=` tooltip.
+function BlockRow({ block, catColor, catIcon, pinned, onPin, onDragStart }: {
+  block: import('@/lib/quant/blocks').Block
+  catColor: string
+  catIcon: string
+  pinned: boolean
+  onPin: () => void
+  onDragStart: (e: React.DragEvent) => void
+}) {
+  const [hover, setHover] = useState(false)
+  const closeTimer = useRef<number | null>(null)
+  const meta = blockMeta(block.id)
+  const sc = statusColor(meta.status)
+  const sl = statusLabel(meta.status)
+  return (
+    <div style={{ position: 'relative' }}
+      onMouseEnter={() => { if (closeTimer.current) window.clearTimeout(closeTimer.current); setHover(true) }}
+      onMouseLeave={() => { closeTimer.current = window.setTimeout(() => setHover(false), 80) }}>
+      <div className="block-row"
+        draggable onDragStart={onDragStart}
+        onClick={onPin}
+        style={{
+          padding: '.38rem .5rem', borderRadius: 6, marginBottom: '.18rem',
+          background: pinned ? `${catColor}10` : 'rgba(10,21,37,.4)',
+          border: `1px solid ${pinned ? catColor + '45' : '#1a2535'}`,
+          borderLeft: `2px solid ${pinned ? catColor : '#1a2535'}`,
+        }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem' }}>
+            <span style={{ fontSize: '.5rem', color: catColor }}>{catIcon}</span>
+            <span style={{ fontSize: '.54rem', fontWeight: 600, color: pinned ? '#f1f5f9' : '#94a3b8' }}>{block.label}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.25rem' }}>
+            <span style={{
+              fontSize: '.36rem', fontWeight: 700, color: sc, letterSpacing: '.08em',
+              padding: '.05rem .25rem', borderRadius: 3, background: `${sc}15`, border: `1px solid ${sc}30`,
+            }}>{sl}</span>
+            {pinned && <span style={{ fontSize: '.4rem', color: catColor }}>✓</span>}
+          </div>
+        </div>
+        <div style={{ fontSize: '.43rem', color: '#475569', marginTop: '.08rem', lineHeight: 1.3 }}>{block.description}</div>
+      </div>
+      {hover && (
+        <div style={{
+          position: 'absolute', left: 'calc(100% + 8px)', top: 0, zIndex: 200,
+          width: 280, background: '#0a1525f0', border: `1px solid ${catColor}45`,
+          borderLeft: `3px solid ${catColor}`, borderRadius: 9,
+          padding: '.6rem .7rem', backdropFilter: 'blur(10px)',
+          boxShadow: `0 0 24px rgba(0,0,0,.6), 0 0 12px ${catColor}30`,
+          fontFamily: 'var(--font-mono)',
+          animation: 'fade-up .15s ease',
+          pointerEvents: 'auto',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', marginBottom: '.3rem' }}>
+            <span style={{ fontSize: '.6rem', color: catColor }}>{catIcon}</span>
+            <span style={{ fontSize: '.62rem', fontWeight: 700, color: '#f1f5f9' }}>{block.label}</span>
+            <span style={{
+              marginLeft: 'auto', fontSize: '.4rem', fontWeight: 700, color: sc, letterSpacing: '.1em',
+              padding: '.06rem .3rem', borderRadius: 3, background: `${sc}15`, border: `1px solid ${sc}40`,
+            }}>{sl}</span>
+          </div>
+          <div style={{ fontSize: '.5rem', color: '#cbd5e1', lineHeight: 1.55, marginBottom: '.4rem' }}>{meta.doc}</div>
+          {meta.loader && (
+            <div style={{ marginBottom: '.35rem' }}>
+              <div style={{ fontSize: '.4rem', color: '#475569', letterSpacing: '.08em', marginBottom: '.1rem' }}>LOADER</div>
+              <pre style={{ margin: 0, padding: '.25rem .4rem', background: 'rgba(0,0,0,.5)', border: '1px solid #1a2535', borderRadius: 4, fontSize: '.46rem', color: '#60a5fa', overflowX: 'auto' }}>{meta.loader}</pre>
+            </div>
+          )}
+          {meta.usage && (
+            <div style={{ marginBottom: '.35rem' }}>
+              <div style={{ fontSize: '.4rem', color: '#475569', letterSpacing: '.08em', marginBottom: '.1rem' }}>USAGE</div>
+              <pre style={{ margin: 0, padding: '.25rem .4rem', background: 'rgba(0,0,0,.5)', border: '1px solid #1a2535', borderRadius: 4, fontSize: '.46rem', color: '#a78bfa', overflowX: 'auto' }}>{meta.usage}</pre>
+            </div>
+          )}
+          {block.agentHint && (
+            <div style={{ marginBottom: meta.notes ? '.35rem' : 0 }}>
+              <div style={{ fontSize: '.4rem', color: '#475569', letterSpacing: '.08em', marginBottom: '.1rem' }}>AGENT HINT</div>
+              <div style={{ fontSize: '.46rem', color: '#94a3b8', lineHeight: 1.4, fontStyle: 'italic' }}>{block.agentHint}</div>
+            </div>
+          )}
+          {meta.notes && (
+            <div>
+              <div style={{ fontSize: '.4rem', color: '#475569', letterSpacing: '.08em', marginBottom: '.1rem' }}>NOTES</div>
+              <div style={{ fontSize: '.46rem', color: '#fbbf24', lineHeight: 1.4 }}>{meta.notes}</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Saved indicator ───────────────────────────────────────────────────────────
+// Tiny pill that pulses each time autosave persists. Updates the elapsed
+// time every 5 s so users can see *when* their last save happened. Renders
+// in the floating top-right header so it sits next to the New Agent button.
+function SavedPill({ ts }: { ts: number }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 5000)
+    return () => clearInterval(id)
+  }, [])
+  const ago = Math.max(0, Math.floor((now - ts) / 1000))
+  const label = ago < 3 ? 'Saved' : ago < 60 ? `Saved ${ago}s ago` : `Saved ${Math.floor(ago / 60)}m ago`
+  const fresh = ago < 3
+  return (
+    <div key={ts} style={{
+      display: 'flex', alignItems: 'center', gap: '.32rem',
+      padding: '.28rem .55rem', borderRadius: 7,
+      background: fresh ? 'rgba(22,199,132,0.16)' : 'rgba(10,21,37,0.6)',
+      border: `1px solid ${fresh ? '#16c78455' : '#1a2535'}`,
+      color: fresh ? '#16c784' : '#94a3b8',
+      fontFamily: 'var(--font-mono)', fontSize: '.5rem', fontWeight: 600,
+      letterSpacing: '.04em',
+      backdropFilter: 'blur(10px)',
+      transition: 'all .25s ease',
+    }}>
+      <span style={{
+        width: 5, height: 5, borderRadius: '50%', background: '#16c784',
+        boxShadow: fresh ? '0 0 8px #16c784' : 'none',
+        animation: fresh ? 'blink .9s ease-in-out 2' : 'none',
+      }} />
+      {label}
     </div>
   )
 }
@@ -438,6 +686,28 @@ export default function BuildPage() {
   const [btLoading, setBtLoading] = useState(false)
   const [btError, setBtError] = useState('')
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null)
+
+  // ── Agent name + publish state ────────────────────────────────────────────
+  // Build is now end-to-end: AI → backtest → publish → cron picks it up via
+  // the ai_agents row created by /api/quant/agent/save + /publish. The Code
+  // page is kept as a redundant editor for power users.
+  const [agentName, setAgentName] = useState<string>(() => {
+    if (typeof window === 'undefined') return ''
+    try { return localStorage.getItem('ase_build_agent_name') ?? '' } catch { return '' }
+  })
+  useEffect(() => { try { localStorage.setItem('ase_build_agent_name', agentName) } catch {} }, [agentName])
+
+  const [aiAgentId, setAiAgentId] = useState<string | null>(null)
+  const [published, setPublished] = useState(false)
+  const [publishStep, setPublishStep] = useState<0|1|2|3>(0) // 0=closed 1=review 2=legal 3=success
+  const [publishDesc, setPublishDesc] = useState('')
+  const [publishTags, setPublishTags] = useState('crypto, custom')
+  const [publishSharePrice, setPublishSharePrice] = useState('10.00')
+  const [publishing, setPublishing] = useState(false)
+  const [legalChecked, setLegalChecked] = useState<boolean[]>([false, false, false])
+  // Saved-indicator — flashes when autoSaveDraft persists progress so the
+  // user *sees* their work is safe even though everything is local.
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
 
   // Agents drawer removed — drafts management now lives on /dashboard/build/manage.
   // Drafts badge mounts client-side only (localStorage isn't available on server).
@@ -695,6 +965,241 @@ export default function BuildPage() {
     setChatStreaming(false)
   }, [chatInput, chatStreaming, chat])
 
+  // ── Backtest + Publish (the bits that used to live only in /code) ─────────
+  // Derive a publishable spec from the AI's generated config.json so the
+  // cron tick endpoint (which reads spec.symbols + spec.cadence + spec.alpha_type)
+  // has what it needs once the agent goes live. Falls back to sensible defaults.
+  const deriveSpec = useCallback((): { symbols: string[]; cadence: string; alpha_type: string; risk_aversion: number; max_weight: number; initial_capital: number } => {
+    const out = {
+      symbols: ['BTC-USD'], cadence: '1h', alpha_type: 'composite',
+      risk_aversion: 1.0, max_weight: 0.4, initial_capital: 10000,
+    }
+    const cfg = extractedFiles.find(f => f.name === 'config.json' || f.name === 'backtest.config.json')
+    if (cfg) {
+      try {
+        const j = JSON.parse(cfg.content)
+        if (Array.isArray(j.symbols) && j.symbols.length) out.symbols = j.symbols
+        if (typeof j.cadence === 'string') out.cadence = j.cadence
+        if (typeof j.alpha_type === 'string') out.alpha_type = j.alpha_type
+        if (typeof j.template === 'string') {
+          if (/momentum/i.test(j.template)) out.alpha_type = 'momentum'
+          else if (/mean.?reversion/i.test(j.template)) out.alpha_type = 'mean_reversion'
+          else if (/vol/i.test(j.template)) out.alpha_type = 'volatility'
+        }
+        if (typeof j.risk_aversion === 'number') out.risk_aversion = j.risk_aversion
+        if (typeof j.max_weight === 'number') out.max_weight = j.max_weight
+        if (typeof j.initial_capital === 'number') out.initial_capital = j.initial_capital
+      } catch {}
+    }
+    return out
+  }, [extractedFiles])
+
+  const runBacktest = useCallback(async () => {
+    if (btLoading) return
+    setBtLoading(true); setBtError(''); setBtResult(null)
+    try {
+      const cfgFile = extractedFiles.find(f => f.name === 'backtest.config.json')
+      let payload: Record<string, unknown>
+      if (cfgFile) {
+        try { payload = JSON.parse(cfgFile.content) } catch { payload = {} }
+      } else {
+        const s = deriveSpec()
+        payload = {
+          template: 'crypto_momentum',
+          symbols: s.symbols.map(x => x.includes('/') ? x.replace('/', '-') : x),
+          start_date: '2023-01-01',
+          end_date: '2024-12-31',
+          rebalance_freq: 'weekly',
+          risk_aversion: s.risk_aversion,
+          max_weight: s.max_weight,
+          initial_capital: s.initial_capital,
+          fee_bps: 10,
+        }
+      }
+      const res = await fetch('/api/quant/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, save: false }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Backtest failed')
+      setBtResult({ grade: data.grade, tear_sheet: data.tear_sheet })
+    } catch (e) {
+      setBtError(e instanceof Error ? e.message : 'Error')
+    } finally {
+      setBtLoading(false)
+    }
+  }, [btLoading, extractedFiles, deriveSpec])
+
+  // Auto-run a backtest the first time the AI finishes a build
+  useEffect(() => {
+    if (phase !== 'done' || !extractedFiles.length || btResult || btLoading) return
+    void runBacktest()
+    // Intentionally narrow deps — only fires on phase transition + first
+    // file emission. Re-running is manual via the header button.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, extractedFiles.length])
+
+  // Auto-save the in-progress agent every time files / blocks / chat change.
+  // Debounced so we don't thrash localStorage during streaming. The "+ New
+  // Agent" button also calls saveDraft() explicitly so nothing is ever lost.
+  const autoSaveDraft = useCallback((): AgentDraft | null => {
+    if (typeof window === 'undefined') return null
+    if (!extractedFiles.length && !pinnedIds.length && !chat.length && !prompt.trim()) return null
+    const filesObj: Record<string, string> = {}
+    for (const f of extractedFiles) filesObj[f.name] = f.content
+    const sourcePrompt = (() => {
+      try { return localStorage.getItem('ase_build_prompt') ?? prompt } catch { return prompt }
+    })()
+    const draft: AgentDraft = {
+      id: currentDraftId ?? crypto.randomUUID(),
+      name: agentName || nameFromPrompt(sourcePrompt),
+      prompt: sourcePrompt,
+      files: filesObj,
+      blocks: pinnedIds,
+      createdAt: Date.now(),
+    }
+    saveDraft(draft)
+    if (!currentDraftId) setCurrentDraftId(draft.id)
+    setLastSavedAt(Date.now())
+    return draft
+  }, [extractedFiles, pinnedIds, chat.length, prompt, currentDraftId, agentName])
+
+  useEffect(() => {
+    const t = setTimeout(() => { autoSaveDraft() }, 700)
+    return () => clearTimeout(t)
+  }, [autoSaveDraft, extractedFiles, pinnedIds, chat.length])
+
+  function publishReadiness(): { ok: boolean; missing: string[] } {
+    const missing: string[] = []
+    const corpus = extractedFiles.map(f => f.content).join('\n').toLowerCase()
+    if (!extractedFiles.length) missing.push('Build a strategy first — describe it and let the AI generate strategy.ts.')
+    else {
+      if (!/thinking|reasoning|rationale/.test(corpus)) missing.push('strategy.ts must include a thinking()/reasoning trace so each tick can post the agent\'s rationale.')
+      if (!/ledger|postledger|agent_paper_ledger/.test(corpus)) missing.push('strategy.ts must call postLedger()/agent_paper_ledger so trades land in the ledger.')
+    }
+    return { ok: missing.length === 0, missing }
+  }
+
+  const handlePublish = useCallback(() => {
+    const r = publishReadiness()
+    if (!r.ok) {
+      alert('Cannot publish yet:\n\n' + r.missing.join('\n'))
+      return
+    }
+    if (btResult) {
+      const ts = btResult.tear_sheet ?? {}
+      setPublishDesc(`Custom strategy — Grade ${btResult.grade} | Sharpe ${(ts.sharpeRatio??0).toFixed(2)} | CAGR ${(ts.cagr??0).toFixed(1)}% | MaxDD ${(ts.maxDrawdownPct??0).toFixed(1)}%`)
+    } else if (!publishDesc) {
+      setPublishDesc('Custom strategy generated by ASE Build')
+    }
+    if (!agentName) {
+      try { setAgentName(nameFromPrompt(localStorage.getItem('ase_build_prompt') ?? prompt)) } catch {}
+    }
+    setPublishStep(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [btResult, publishDesc, agentName, prompt, extractedFiles])
+
+  const submitPublish = useCallback(async () => {
+    setPublishing(true)
+    try {
+      const spec = deriveSpec()
+      const strategyCode = extractedFiles.find(f => f.name === 'strategy.ts')?.content ?? ''
+      const configJson = extractedFiles.find(f => f.name === 'config.json')?.content ?? ''
+      const fullSpec: Record<string, unknown> = {
+        ...spec,
+        strategy_code: strategyCode,
+        config_json: configJson,
+        blocks: pinnedIds,
+      }
+      const sourcePrompt = (() => {
+        try { return localStorage.getItem('ase_build_prompt') ?? prompt } catch { return prompt }
+      })()
+
+      // 1) Save (or update) the ai_agents row
+      let id = aiAgentId
+      if (!id) {
+        const saveRes = await fetch('/api/quant/agent/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: agentName || nameFromPrompt(sourcePrompt),
+            thesis: publishDesc,
+            prompt: sourcePrompt,
+            spec: fullSpec,
+            status: 'tested',
+          }),
+        })
+        const saveData = await saveRes.json()
+        if (!saveRes.ok) throw new Error(saveData.error ?? 'Save failed')
+        id = saveData.agent.id as string
+        setAiAgentId(id)
+      } else {
+        await fetch(`/api/quant/agent/save?id=${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ spec: fullSpec, status: 'tested' }),
+        })
+      }
+
+      // 2) Patch backtest stats so the exchange listing carries them
+      if (btResult && id) {
+        const ts = btResult.tear_sheet ?? {}
+        await fetch(`/api/quant/agent/save?id=${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            last_grade: btResult.grade,
+            last_sharpe: ts.sharpeRatio ?? 0,
+            last_cagr: ts.cagr ?? 0,
+            last_max_dd: ts.maxDrawdownPct ?? 0,
+          }),
+        })
+      }
+
+      // 3) Publish to the exchange + kick first cron tick
+      const pubRes = await fetch(`/api/quant/agent/publish?id=${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const pubData = await pubRes.json()
+      if (!pubRes.ok) throw new Error(pubData.error ?? 'Publish failed')
+
+      autoSaveDraft()
+      setPublished(true)
+      setPublishStep(3)
+    } catch (e) {
+      alert('Publish failed: ' + (e instanceof Error ? e.message : 'Network error'))
+      setPublishStep(0)
+    } finally {
+      setPublishing(false)
+    }
+  }, [aiAgentId, agentName, publishDesc, prompt, deriveSpec, extractedFiles, pinnedIds, btResult, autoSaveDraft])
+
+  // "+ New Agent" — always saves current progress before clearing.
+  const startNewAgent = useCallback(() => {
+    autoSaveDraft()
+    abortBuildBg()
+    clearBgState()
+    setPhase('idle'); setChat([]); setExtractedFiles([]); setBtResult(null); setBtError('')
+    setPinnedIds([])
+    setNodes(layoutPipeline([]))
+    setPrompt('')
+    setAgentName('')
+    setAiAgentId(null); setPublished(false); setPublishStep(0)
+    setLegalChecked([false, false, false])
+    setCurrentDraftId(null)
+    try {
+      localStorage.removeItem('ase_build_prompt_draft')
+      localStorage.removeItem('ase_build_prompt')
+      localStorage.removeItem('ase_build_blocks')
+      localStorage.removeItem('ase_build_agent_name')
+      localStorage.removeItem('ase_latest_draft_id')
+      localStorage.removeItem('ase-files')
+    } catch {}
+  }, [autoSaveDraft])
+
   // ── Canvas mouse handlers ─────────────────────────────────────────────────────
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     const t = e.target as HTMLElement
@@ -772,6 +1277,9 @@ export default function BuildPage() {
         .chat-send:hover:not(:disabled) { background:rgba(22,199,132,.85)!important; }
         .open-btn:hover { background:rgba(22,199,132,.85)!important; transform:translateY(-1px); }
         @keyframes slide-from-right { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+        @keyframes spin { to { transform: rotate(360deg) } }
+        @keyframes glow-mint { 0%,100% { box-shadow: 0 0 18px rgba(22,199,132,.25) } 50% { box-shadow: 0 0 32px rgba(22,199,132,.55) } }
+        @keyframes slideInUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
       `}</style>
 
       {/* Background pipeline animation removed — the foreground CanvasAssembly
@@ -998,25 +1506,15 @@ export default function BuildPage() {
                     {catBlocks.map(block => {
                       const pinned = pinnedIds.includes(block.id)
                       return (
-                        <div key={block.id} className="block-row"
-                          draggable onDragStart={e => handleDragStart(e, block.id)}
-                          onClick={() => togglePin(block.id)}
-                          title={`${block.label} — ${block.description}\n\nUse: ${block.agentHint ?? '(no hint)'}\nKind: ${block.kind}`}
-                          style={{
-                            padding: '.38rem .5rem', borderRadius: 6, marginBottom: '.18rem',
-                            background: pinned ? `${cat.color}10` : 'rgba(10,21,37,.4)',
-                            border: `1px solid ${pinned ? cat.color + '45' : C.border}`,
-                            borderLeft: `2px solid ${pinned ? cat.color : C.border}`,
-                          }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem' }}>
-                              <span style={{ fontSize: '.5rem', color: cat.color }}>{cat.icon}</span>
-                              <span style={{ fontSize: '.54rem', fontWeight: 600, color: pinned ? C.white : C.text }}>{block.label}</span>
-                            </div>
-                            {pinned && <span style={{ fontSize: '.4rem', color: cat.color }}>✓</span>}
-                          </div>
-                          <div style={{ fontSize: '.43rem', color: C.faint, marginTop: '.08rem', lineHeight: 1.3 }}>{block.description}</div>
-                        </div>
+                        <BlockRow
+                          key={block.id}
+                          block={block}
+                          catColor={cat.color}
+                          catIcon={cat.icon}
+                          pinned={pinned}
+                          onPin={() => togglePin(block.id)}
+                          onDragStart={(e) => handleDragStart(e, block.id)}
+                        />
                       )
                     })}
                   </div>
@@ -1060,8 +1558,17 @@ export default function BuildPage() {
             surface instead of two. */}
         <div style={{
           position: 'absolute', top: 10, right: 14, zIndex: 30,
-          display: 'flex', gap: '.4rem',
+          display: 'flex', gap: '.4rem', alignItems: 'center',
         }}>
+          {/* Saved-indicator — quietly confirms autosave is working. */}
+          {lastSavedAt && (
+            <SavedPill ts={lastSavedAt} />
+          )}
+          <button onClick={startNewAgent}
+            title="Save current progress and start a fresh agent"
+            style={{ display: 'flex', alignItems: 'center', gap: '.32rem', padding: '.32rem .65rem', borderRadius: 7, background: `${C.mint}10`, border: `1px solid ${C.mint}40`, color: C.mint, fontSize: '.55rem', fontFamily: 'var(--font-mono)', fontWeight: 700, cursor: 'pointer', backdropFilter: 'blur(10px)' }}>
+            <span style={{ fontSize: '.65rem', lineHeight: 1 }}>+</span> New Agent
+          </button>
           <button onClick={() => router.push('/dashboard/build/manage')}
             title="Manage drafts and published agents"
             style={{ display: 'flex', alignItems: 'center', gap: '.35rem', padding: '.32rem .65rem', borderRadius: 7, background: `${C.bg2}d8`, border: `1px solid ${C.border}`, color: C.faint, fontSize: '.55rem', cursor: 'pointer', fontFamily: 'var(--font-mono)', backdropFilter: 'blur(10px)' }}>
@@ -1086,65 +1593,13 @@ export default function BuildPage() {
              headline have pointer-events:auto. As soon as a block is
              picked, the prompt slides DOWN to give the canvas more room
              (justifyContent: flex-end + bottom padding). ── */}
-        {phase === 'idle' && (
-          <div style={{
-            flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'flex-end',
-            padding: '1rem 2rem 1.5rem',
-            animation: 'fade-up .4s ease', overflow: 'auto', pointerEvents: 'none',
-            transition: 'padding .25s ease',
-          }}>
-            <div style={{
-              marginBottom: '.6rem',
-              textAlign: 'center', pointerEvents: 'auto',
-              opacity: pinnedIds.length > 0 ? 0 : 1, height: pinnedIds.length > 0 ? 0 : 'auto', overflow: 'hidden',
-              transition: 'opacity .25s ease, margin .25s ease',
-            }}>
-              <div style={{ fontSize: '1.05rem', fontWeight: 800, color: C.white, letterSpacing: '-.02em', lineHeight: 1.15, marginBottom: '.25rem' }}>What should your agent trade?</div>
-              <div style={{ fontSize: '.6rem', color: C.faint }}>Describe it in plain English — pick blocks if you want, or skip them.</div>
-            </div>
-
-            <div style={{ width: '100%', maxWidth: 540, background: `${C.bg2}ee`, borderRadius: 14, border: `1px solid ${C.border2}`, boxShadow: '0 20px 60px rgba(0,0,0,.5)', backdropFilter: 'blur(12px)', overflow: 'hidden', pointerEvents: 'auto' }}>
-              <div style={{ padding: '1.1rem' }}>
-              <textarea
-                ref={textareaRef}
-                value={prompt}
-                onChange={e => setPrompt(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleBuild() } }}
-                placeholder="e.g. Buy BTC when it dips below its 30-day average, sell when greed peaks. Stop out if I lose more than 8%."
-                style={{
-                  width: '100%', background: 'rgba(10,21,37,.5)', border: `1px solid rgba(22,199,132,.12)`,
-                  borderRadius: 8, padding: '.7rem .8rem', color: C.white,
-                  fontFamily: 'var(--font-mono)', fontSize: '.66rem', lineHeight: 1.55,
-                  outline: 'none', resize: 'none', minHeight: 80, boxSizing: 'border-box',
-                }}
-              />
-              <SuggestionChips onPick={setPrompt} />
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '.65rem' }}>
-                <span style={{ fontSize: '.44rem', color: C.faint, fontFamily: 'var(--font-mono)' }}>⌘↵ build</span>
-                <button onClick={handleBuild} disabled={!prompt.trim() && pinnedIds.length === 0}
-                  style={{
-                    padding: '.45rem 1.25rem', borderRadius: 8, fontWeight: 700, fontSize: '.62rem',
-                    background: !prompt.trim() && pinnedIds.length === 0 ? C.border : C.mint,
-                    color: '#000', border: 'none', cursor: 'pointer', transition: 'all .15s',
-                  }}>Build →</button>
-              </div>
-              </div>
-            </div>
-
-            {/* Pinned-blocks badge row removed — the actual interactive
-                blocks on the canvas already show the user's selection. */}
-          </div>
-        )}
-
-        {/* ── BUILDING / DONE: workspace ──
-            Layout note: the workspace is anchored to the BOTTOM half of
-            the main area (justifyContent:flex-end + maxHeight:60vh) so the
-            real canvas pipeline above remains visible BEHIND the
-            Agent-ready header. Backgrounds are translucent + blurred to
-            keep the pipeline readable underneath. */}
-        {phase !== 'idle' && (
+        {/* ── ALWAYS-ON WORKSPACE ──
+            One unified surface: pipeline strip → header → files → backtest
+            → chat (the dominant region) → composer. The chat panel is
+            rendered every phase; idle just shows a welcome state inside it
+            and the composer doubles as the build-prompt input. This is the
+            "AI is always here" Cursor/Claude pattern the user asked for. */}
+        {(true) && (
           <div style={{
             flex: 1, display: 'flex', flexDirection: 'column',
             overflow: 'hidden', animation: 'fade-up .35s ease',
@@ -1163,25 +1618,54 @@ export default function BuildPage() {
                 {isBuilding ? 'Building strategy...' : 'Agent ready'}
               </span>
               <div style={{ flex: 1 }} />
+
+              {/* Run Backtest — primary action once the AI is done. Spinning
+                   icon replaces text while running so the button never feels
+                   dead. */}
               {isDone && (
-                <button className="open-btn" onClick={() => router.push('/dashboard/build/code')}
-                  style={{ padding: '.3rem .75rem', borderRadius: 7, background: C.mint, color: '#000', fontWeight: 700, fontSize: '.56rem', border: 'none', cursor: 'pointer', transition: 'all .15s' }}>
-                  Open in Code →
+                <button onClick={() => void runBacktest()} disabled={btLoading}
+                  title="Run a fresh backtest on the generated strategy"
+                  style={{ display: 'flex', alignItems: 'center', gap: '.32rem', padding: '.3rem .7rem', borderRadius: 7, background: btLoading ? `${C.blue}55` : C.blue, color: '#fff', fontWeight: 700, fontSize: '.56rem', border: 'none', cursor: btLoading ? 'not-allowed' : 'pointer', transition: 'all .15s', fontFamily: 'var(--font-mono)' }}>
+                  {btLoading
+                    ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'spin 1s linear infinite' }}><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0"/></svg>
+                    : <span style={{ fontSize: '.7rem', lineHeight: 1 }}>▶</span>}
+                  {btLoading ? 'Running…' : 'Backtest'}
                 </button>
               )}
-              <button onClick={() => {
-                // Abort in-flight stream + clear local state for a fresh
-                // build. Pinned blocks reset; canvas re-lays out with the
-                // built-in Backtest/Kraken sinks only.
-                abortBuildBg()
-                setPhase('idle'); setChat([]); setExtractedFiles([]); setBtResult(null)
-                setPinnedIds([])
-                setNodes(layoutPipeline([]))
-                setPrompt('')
-              }}
-                title="Start a fresh strategy"
+
+              {/* Publish — folds the entire code-page wizard inline so
+                   users never need to leave Build. */}
+              {isDone && (
+                <button onClick={handlePublish}
+                  title="Publish to the ASE Exchange (cron picks it up immediately)"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '.32rem', padding: '.3rem .75rem', borderRadius: 7,
+                    background: published ? `${C.mint}18` : C.mint,
+                    color: published ? C.mint : '#000',
+                    fontWeight: 800, fontSize: '.56rem', border: published ? `1px solid ${C.mint}55` : 'none',
+                    cursor: 'pointer', fontFamily: 'var(--font-mono)',
+                    boxShadow: !published ? `0 0 14px ${C.mint}55` : 'none',
+                    transition: 'all .15s',
+                  }}>
+                  <span style={{ fontSize: '.7rem', lineHeight: 1 }}>◈</span>
+                  {published ? 'LIVE' : 'Publish'}
+                </button>
+              )}
+
+              {/* Code page is kept as a power-user editor — Build is now
+                   end-to-end so the link is de-emphasized. */}
+              {isDone && (
+                <button onClick={() => router.push('/dashboard/build/code')}
+                  title="Open the same files in the code editor"
+                  style={{ padding: '.3rem .65rem', borderRadius: 7, background: 'transparent', border: `1px solid ${C.border}`, color: C.faint, fontWeight: 600, fontSize: '.54rem', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>
+                  ⌘ Code
+                </button>
+              )}
+
+              <button onClick={startNewAgent}
+                title="Save current progress and start a fresh agent"
                 style={{ display: 'flex', alignItems: 'center', gap: '.3rem', padding: '.3rem .65rem', borderRadius: 7, background: 'transparent', border: `1px solid ${C.mint}40`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.55rem', fontWeight: 700, cursor: 'pointer' }}>
-                + New Strategy
+                + New Agent
               </button>
             </div>
 
@@ -1229,10 +1713,6 @@ export default function BuildPage() {
                       </button>
                     )
                   })}
-                  <button onClick={() => router.push('/dashboard/build/code')}
-                    style={{ padding: '.2rem .5rem', borderRadius: 5, background: `${C.mint}12`, border: `1px solid ${C.mint}35`, color: C.mint, fontFamily: 'var(--font-mono)', fontSize: '.48rem', cursor: 'pointer', fontWeight: 700 }}>
-                    Open Editor →
-                  </button>
                 </div>
                 {expandedFile && (() => {
                   const f = extractedFiles.find(x => x.name === expandedFile)!
@@ -1248,9 +1728,26 @@ export default function BuildPage() {
             {/* Backtest strip */}
             <BtStrip result={btResult} loading={btLoading} error={btError} />
 
-            {/* AI Chat (dominant) */}
+            {/* AI Chat (dominant) — always rendered; empty state when idle */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <div ref={chatScrollRef} style={{ flex: 1, overflowY: 'auto', padding: '.85rem 1rem', display: 'flex', flexDirection: 'column', gap: '.65rem' }}>
+                {chat.length === 0 && phase === 'idle' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '2rem 1rem', gap: '.6rem', textAlign: 'center', animation: 'fade-up .35s ease' }}>
+                    <div style={{
+                      width: 38, height: 38, borderRadius: 10,
+                      background: `linear-gradient(135deg, ${C.mint}22, ${C.blue}22)`,
+                      border: `1px solid ${C.mint}45`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      animation: 'glow-mint 2.4s ease-in-out infinite',
+                    }}>
+                      <span style={{ fontSize: '1.05rem', color: C.mint }}>◈</span>
+                    </div>
+                    <div style={{ fontSize: '.85rem', fontWeight: 800, color: C.white, letterSpacing: '-.01em', lineHeight: 1.2 }}>What should your agent trade?</div>
+                    <div style={{ fontSize: '.55rem', color: C.faint, maxWidth: 380, lineHeight: 1.5 }}>
+                      Describe a strategy in plain English. The AI builds <strong style={{ color: C.text, fontWeight: 600 }}>strategy.ts</strong>, <strong style={{ color: C.text, fontWeight: 600 }}>config.json</strong>, and a runnable backtest in one shot. You stay the brain — pin blocks, refine, publish.
+                    </div>
+                    <SuggestionChips onPick={(s) => { setPrompt(s); setTimeout(() => textareaRef.current?.focus(), 50) }} />
+                  </div>
+                )}
                 {chat.map(msg => (
                   <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start', animation: 'fade-up .2s ease' }}>
                     <div style={{ fontSize: '.42rem', color: C.faint, marginBottom: '.2rem', letterSpacing: '.08em', fontFamily: 'var(--font-mono)' }}>
@@ -1296,22 +1793,40 @@ export default function BuildPage() {
                 </div>
               )}
 
-              {/* Input */}
-              <div style={{ padding: '.6rem .85rem', borderTop: `1px solid ${C.border}`, display: 'flex', gap: '.45rem', flexShrink: 0, background: `${C.bg2}cc`, backdropFilter: 'blur(8px)' }}>
-                <input
-                  value={chatInput}
-                  onChange={e => setChatInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat() } }}
-                  placeholder={chatStreaming ? 'AI is thinking...' : isDone ? 'Ask AI to refine the strategy, explain results, or add signals...' : 'Ask anything...'}
-                  disabled={chatStreaming}
-                  style={{ flex: 1, background: 'rgba(10,21,37,.5)', border: `1px solid ${C.border2}`, borderRadius: 8, padding: '.42rem .65rem', color: C.white, fontSize: '.6rem', outline: 'none', fontFamily: 'var(--font-mono)' }}
-                />
-                <button className="chat-send" onClick={sendChat}
-                  disabled={chatStreaming || !chatInput.trim()}
-                  style={{ padding: '.42rem .85rem', borderRadius: 8, background: chatStreaming || !chatInput.trim() ? C.border : C.mint, color: chatStreaming || !chatInput.trim() ? C.faint : '#000', fontSize: '.6rem', fontWeight: 700, border: 'none', cursor: chatStreaming ? 'not-allowed' : 'pointer', transition: 'all .15s' }}>→</button>
-                {isDone && (
-                  <button className="open-btn" onClick={() => router.push('/dashboard/build/code')}
-                    style={{ padding: '.42rem .75rem', borderRadius: 8, background: C.mint, color: '#000', fontWeight: 700, fontSize: '.56rem', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all .15s' }}>Code →</button>
+              {/* Composer — when idle, this triggers handleBuild; otherwise
+                   it sends a refinement message. One input, two modes; the
+                   user never sees a context switch. */}
+              <div style={{ padding: '.55rem .85rem', borderTop: `1px solid ${C.border}`, display: 'flex', gap: '.45rem', flexShrink: 0, alignItems: 'flex-end', background: `${C.bg2}cc`, backdropFilter: 'blur(8px)' }}>
+                {phase === 'idle' ? (
+                  <>
+                    <textarea
+                      ref={textareaRef}
+                      value={prompt}
+                      onChange={e => setPrompt(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleBuild() } else if (e.key === 'Enter' && !e.shiftKey && prompt.trim()) { e.preventDefault(); handleBuild() } }}
+                      placeholder="e.g. Buy BTC when it dips below its 30d average, sell when greed peaks. Stop out at 8%."
+                      rows={1}
+                      style={{ flex: 1, background: 'rgba(10,21,37,.5)', border: `1px solid ${C.border2}`, borderRadius: 8, padding: '.5rem .65rem', color: C.white, fontSize: '.6rem', outline: 'none', fontFamily: 'var(--font-mono)', resize: 'none', minHeight: 36, maxHeight: 140, lineHeight: 1.5 }}
+                    />
+                    <button onClick={handleBuild} disabled={!prompt.trim() && pinnedIds.length === 0}
+                      style={{ padding: '.5rem 1rem', borderRadius: 8, background: (!prompt.trim() && pinnedIds.length === 0) ? C.border : C.mint, color: (!prompt.trim() && pinnedIds.length === 0) ? C.faint : '#000', fontSize: '.6rem', fontWeight: 800, border: 'none', cursor: (!prompt.trim() && pinnedIds.length === 0) ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', boxShadow: (prompt.trim() || pinnedIds.length > 0) ? `0 0 14px ${C.mint}55` : 'none', transition: 'all .15s' }}>
+                      Build ↵
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <input
+                      value={chatInput}
+                      onChange={e => setChatInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat() } }}
+                      placeholder={chatStreaming ? 'AI is working…' : isDone ? 'Refine the strategy, ask about results, request a signal change…' : 'Ask anything…'}
+                      disabled={chatStreaming}
+                      style={{ flex: 1, background: 'rgba(10,21,37,.5)', border: `1px solid ${C.border2}`, borderRadius: 8, padding: '.5rem .65rem', color: C.white, fontSize: '.6rem', outline: 'none', fontFamily: 'var(--font-mono)' }}
+                    />
+                    <button className="chat-send" onClick={sendChat}
+                      disabled={chatStreaming || !chatInput.trim()}
+                      style={{ padding: '.5rem .9rem', borderRadius: 8, background: chatStreaming || !chatInput.trim() ? C.border : C.mint, color: chatStreaming || !chatInput.trim() ? C.faint : '#000', fontSize: '.6rem', fontWeight: 700, border: 'none', cursor: chatStreaming ? 'not-allowed' : 'pointer', transition: 'all .15s' }}>→</button>
+                  </>
                 )}
               </div>
             </div>
@@ -1320,6 +1835,194 @@ export default function BuildPage() {
       </div>
 
       {/* Zoom controls (− / + / ⊙) removed — canvas auto-fits content. */}
+
+      {/* ══ PUBLISH WIZARD MODAL ════════════════════════════════════════════════
+          Folded in from /dashboard/build/code so users can publish straight
+          from Build. 3 steps: review backtest → legal disclosures → success.
+          Submit calls /api/quant/agent/save then /api/quant/agent/publish so
+          cron picks the agent up on the next tick. */}
+      {publishStep > 0 && (
+        <div
+          onClick={e => { if (e.target === e.currentTarget && publishStep !== 3) setPublishStep(0) }}
+          style={{ position: 'absolute', inset: 0, zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.78)', backdropFilter: 'blur(8px)' }}>
+          <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 14, width: 540, maxWidth: '95vw', padding: '1.4rem 1.6rem', display: 'flex', flexDirection: 'column', gap: '1rem', position: 'relative', animation: 'slideInUp .22s ease' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+              <div style={{ width: 32, height: 32, borderRadius: 9, background: `${C.mint}18`, border: `1px solid ${C.mint}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'glow-mint 2.4s ease-in-out infinite' }}>
+                <span style={{ fontSize: '.95rem', color: C.mint }}>◈</span>
+              </div>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '.82rem', color: C.white }}>
+                  {publishStep === 3 ? 'Live on Exchange' : 'Publish to Exchange'}
+                </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint }}>
+                  {publishStep === 1 ? 'Step 1 of 2 — Review & Configure' : publishStep === 2 ? 'Step 2 of 2 — Legal & Compliance' : 'Cron will pick it up on the next tick'}
+                </div>
+              </div>
+              {publishStep !== 3 && (
+                <button onClick={() => setPublishStep(0)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', cursor: 'pointer', color: C.faint, fontSize: '1rem' }}>✕</button>
+              )}
+            </div>
+
+            {publishStep < 3 && (
+              <div style={{ display: 'flex', gap: '.3rem' }}>
+                {[1,2].map(s => (
+                  <div key={s} style={{ flex: 1, height: 3, borderRadius: 2, background: publishStep >= s ? C.mint : C.border, transition: 'background .2s' }} />
+                ))}
+              </div>
+            )}
+
+            {/* STEP 1 — Review */}
+            {publishStep === 1 && (() => {
+              const ts = (btResult?.tear_sheet ?? {}) as Record<string, number>
+              const grade = btResult?.grade ?? '—'
+              const gc = GRADE_CLR[grade] ?? C.faint
+              const sharpe = (ts.sharpeRatio ?? 0).toFixed(2)
+              const cagr = (ts.cagr ?? 0).toFixed(1)
+              const maxdd = (ts.maxDrawdownPct ?? 0).toFixed(1)
+              const checks = [
+                { label: 'Backtest run', ok: !!btResult, detail: btResult ? `Grade ${grade}` : 'Run backtest first' },
+                { label: 'Sharpe ≥ 1.0', ok: (ts.sharpeRatio ?? 0) >= 1.0, detail: `Sharpe ${sharpe}` },
+                { label: 'Max drawdown ≤ 30%', ok: (ts.maxDrawdownPct ?? 0) <= 30, detail: `MaxDD ${maxdd}%` },
+                { label: 'Reasoning trace present', ok: /thinking|reasoning|rationale/i.test(extractedFiles.map(f => f.content).join('\n')), detail: 'thinking()/reasoning()' },
+                { label: 'Ledger writes wired', ok: /ledger|postledger|agent_paper_ledger/i.test(extractedFiles.map(f => f.content).join('\n')), detail: 'postLedger()' },
+              ]
+              const allPass = checks.every(c => c.ok)
+              return (
+                <>
+                  <div style={{ background: C.bg3, borderRadius: 10, padding: '.7rem 1rem', border: `1px solid ${C.border}` }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, letterSpacing: '.1em', marginBottom: '.5rem' }}>BACKTEST SCORECARD</div>
+                    <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+                      {[['GRADE', grade, gc], ['SHARPE', sharpe, parseFloat(sharpe) >= 1 ? C.mint : C.orange], ['CAGR', cagr + '%', C.blue], ['MAX DD', maxdd + '%', parseFloat(maxdd) <= 20 ? C.mint : C.orange]].map(([k, v, c]) => (
+                        <div key={k as string} style={{ flex: 1, minWidth: 80, background: C.bg, borderRadius: 7, padding: '.4rem .6rem', border: `1px solid ${C.border}` }}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.44rem', color: C.faint }}>{k as string}</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.85rem', fontWeight: 700, color: c as string }}>{v as string}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '.32rem' }}>
+                    {checks.map(c => (
+                      <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', padding: '.3rem .6rem', borderRadius: 6, background: c.ok ? `${C.mint}08` : `${C.orange}08`, border: `1px solid ${c.ok ? C.mint + '25' : C.orange + '25'}` }}>
+                        <span style={{ color: c.ok ? C.mint : C.orange, fontSize: '.75rem' }}>{c.ok ? '✓' : '⚠'}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: C.text, flex: 1 }}>{c.label}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint }}>{c.detail}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '.55rem' }}>
+                    <div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, marginBottom: '.2rem' }}>AGENT NAME</div>
+                      <input value={agentName} onChange={e => setAgentName(e.target.value)}
+                        placeholder="e.g. Momentum BTC v1"
+                        style={{ width: '100%', background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 6, padding: '.35rem .55rem', color: C.white, fontFamily: 'var(--font-mono)', fontSize: '.65rem', outline: 'none', boxSizing: 'border-box' }} />
+                    </div>
+                    <div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, marginBottom: '.2rem' }}>DESCRIPTION</div>
+                      <textarea value={publishDesc} onChange={e => setPublishDesc(e.target.value)} rows={2}
+                        style={{ width: '100%', background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 6, padding: '.35rem .55rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.6rem', outline: 'none', resize: 'none', boxSizing: 'border-box', lineHeight: 1.5 }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: '.5rem' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, marginBottom: '.2rem' }}>TAGS</div>
+                        <input value={publishTags} onChange={e => setPublishTags(e.target.value)}
+                          style={{ width: '100%', background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 6, padding: '.35rem .55rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.6rem', outline: 'none', boxSizing: 'border-box' }} />
+                      </div>
+                      <div style={{ width: 120 }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.faint, marginBottom: '.2rem' }}>SHARE PRICE (USD)</div>
+                        <input type="number" min="1" step="0.01" value={publishSharePrice} onChange={e => setPublishSharePrice(e.target.value)}
+                          style={{ width: '100%', background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 6, padding: '.35rem .55rem', color: C.text, fontFamily: 'var(--font-mono)', fontSize: '.6rem', outline: 'none', boxSizing: 'border-box' }} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end' }}>
+                    <button onClick={() => setPublishStep(0)} style={{ padding: '.4rem .8rem', borderRadius: 7, border: `1px solid ${C.border}`, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.6rem', cursor: 'pointer' }}>Cancel</button>
+                    <button onClick={() => setPublishStep(2)} disabled={!allPass || !agentName.trim()}
+                      style={{ padding: '.4rem 1rem', borderRadius: 7, border: 'none', background: (allPass && agentName.trim()) ? C.mint : `${C.mint}30`, color: (allPass && agentName.trim()) ? '#000' : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, cursor: (allPass && agentName.trim()) ? 'pointer' : 'not-allowed' }}>
+                      Continue →
+                    </button>
+                  </div>
+                </>
+              )
+            })()}
+
+            {/* STEP 2 — Legal */}
+            {publishStep === 2 && (
+              <>
+                <div style={{ background: C.bg3, borderRadius: 10, padding: '.75rem 1rem', border: `1px solid ${C.border}` }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.5rem', color: C.orange, letterSpacing: '.1em', marginBottom: '.4rem' }}>⚠ IMPORTANT DISCLOSURES</div>
+                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: C.text, lineHeight: 1.6, margin: 0 }}>
+                    By publishing to the ASE Exchange you allow other users to copy-trade this strategy. Past backtest performance does not guarantee future results. Crypto markets are highly volatile and all trading involves risk of loss.
+                  </p>
+                </div>
+
+                {[
+                  'I confirm this strategy is my original work and I have the right to publish it on ASE.',
+                  'I understand backtest results are simulated and do not guarantee live performance. Copy-traders assume full risk.',
+                  'I agree to the ASE Exchange Terms of Service, including content policies and intellectual property rules.',
+                ].map((text, i) => (
+                  <div key={i} onClick={() => setLegalChecked(p => { const n = [...p]; n[i] = !n[i]; return n })}
+                    style={{ display: 'flex', gap: '.65rem', alignItems: 'flex-start', padding: '.45rem .6rem', borderRadius: 7, border: `1px solid ${legalChecked[i] ? C.mint + '35' : C.border}`, background: legalChecked[i] ? `${C.mint}06` : 'transparent', cursor: 'pointer' }}>
+                    <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${legalChecked[i] ? C.mint : C.border}`, background: legalChecked[i] ? C.mint : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '.05rem', transition: 'all .15s' }}>
+                      {legalChecked[i] && <span style={{ color: '#000', fontSize: '.65rem', fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                    </div>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: C.text, lineHeight: 1.55 }}>{text}</span>
+                  </div>
+                ))}
+
+                <div style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end' }}>
+                  <button onClick={() => setPublishStep(1)} style={{ padding: '.4rem .8rem', borderRadius: 7, border: `1px solid ${C.border}`, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.6rem', cursor: 'pointer' }}>← Back</button>
+                  <button onClick={() => void submitPublish()} disabled={!legalChecked.every(Boolean) || publishing}
+                    style={{ padding: '.4rem 1.1rem', borderRadius: 7, border: 'none', background: legalChecked.every(Boolean) && !publishing ? C.mint : `${C.mint}30`, color: legalChecked.every(Boolean) && !publishing ? '#000' : C.faint, fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, cursor: legalChecked.every(Boolean) && !publishing ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: '.3rem' }}>
+                    {publishing && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'spin 1s linear infinite' }}><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0"/></svg>}
+                    {publishing ? 'Publishing…' : '◈ Publish to Exchange'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* STEP 3 — Success */}
+            {publishStep === 3 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', padding: '.5rem 0' }}>
+                <div style={{ width: 60, height: 60, borderRadius: 16, background: `${C.mint}18`, border: `1px solid ${C.mint}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'glow-mint 2s ease-in-out infinite' }}>
+                  <span style={{ fontSize: '1.8rem' }}>◈</span>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1rem', color: C.mint, marginBottom: '.3rem' }}>Live on Exchange</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.62rem', color: C.faint }}>
+                    <strong style={{ color: C.white }}>{agentName}</strong> is now live for copy-trading. Cron will tick on the next cadence.
+                  </div>
+                </div>
+                <div style={{ background: C.bg3, borderRadius: 10, padding: '.65rem 1rem', border: `1px solid ${C.border}`, width: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.35rem' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint }}>Cadence</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, color: C.white }}>{deriveSpec().cadence}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.35rem' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint }}>Share price</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.6rem', fontWeight: 700, color: C.white }}>${publishSharePrice}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.52rem', color: C.faint }}>Status</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: C.mint, fontWeight: 700 }}>● ACTIVE</span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '.5rem', width: '100%' }}>
+                  <Link href="/agents" style={{ flex: 1, padding: '.45rem 0', borderRadius: 7, border: 'none', background: C.mint, color: '#000', fontFamily: 'var(--font-mono)', fontSize: '.62rem', fontWeight: 700, cursor: 'pointer', textAlign: 'center', textDecoration: 'none' }}>
+                    View on Exchange →
+                  </Link>
+                  <button onClick={() => setPublishStep(0)} style={{ flex: 1, padding: '.45rem 0', borderRadius: 7, border: `1px solid ${C.border}`, background: 'transparent', color: C.faint, fontFamily: 'var(--font-mono)', fontSize: '.62rem', cursor: 'pointer' }}>
+                    Back to Build
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

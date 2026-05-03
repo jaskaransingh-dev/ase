@@ -207,12 +207,23 @@ export async function runBuild(opts: RunOptions): Promise<void> {
     const finalChat = r.state.chat.map(m => m.id === aMsg.id ? { ...m, content: acc, pending: false } : m)
     const files = extractFiles(acc)
 
-    // If no FILE: directives, fall back to first ts/json block
+    // If no FILE: directives, fall back to ordered code blocks. The build
+    // prompt requires strategy.ts / config.json / backtest.config.json /
+    // data_loaders.py / README.md in that order; if the AI emits raw code
+    // blocks instead of FILE: directives we recover the first occurrence
+    // of each so publish doesn't lose work.
     if (!files.length) {
       const ts = Array.from(acc.matchAll(/```(?:typescript|ts)\n([\s\S]*?)```/g)).map(m => m[1])
       if (ts.length) files.push({ lang: 'typescript', name: 'strategy.ts', content: ts[0] })
       const js = Array.from(acc.matchAll(/```(?:json)\n([\s\S]*?)```/g)).map(m => m[1])
       if (js.length) files.push({ lang: 'json', name: 'config.json', content: js[0] })
+      // Second JSON block is conventionally backtest.config.json — needed
+      // by the publish flow + cron tick to actually run the strategy.
+      if (js.length > 1) files.push({ lang: 'json', name: 'backtest.config.json', content: js[1] })
+      const py = Array.from(acc.matchAll(/```(?:python|py)\n([\s\S]*?)```/g)).map(m => m[1])
+      if (py.length) files.push({ lang: 'python', name: 'data_loaders.py', content: py[0] })
+      const md = Array.from(acc.matchAll(/```(?:markdown|md)\n([\s\S]*?)```/g)).map(m => m[1])
+      if (md.length) files.push({ lang: 'markdown', name: 'README.md', content: md[0] })
     }
 
     const draftId = uid()
