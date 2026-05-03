@@ -283,20 +283,30 @@ export async function POST(req: Request) {
       qty:         (capital * d.weight) / d.price,
       price:       d.price,
       notional:    capital * d.weight,
-      // All published agents are live — no paper fallback. The historical
-      // `live_mode` flag is ignored; every fill is recorded as live.
       mode:        'live',
       executed_at: ts,
-      thinking:    d.thinking,  // stored for activity feed + agent cards
+      // `thinking` is on the ledger schema in dev but absent in some
+      // production migrations — skip it if rejected. We stash the rationale
+      // into the agent's spec.last_thinking[] history below so it's still
+      // visible in the UI without a schema change.
     }))
 
     try {
       const { error: insertErr } = await admin.from('agent_paper_ledger').insert(rows)
       if (insertErr) throw insertErr
-      await admin.from('ai_agents').update({ last_tick_at: ts }).eq('id', agent.id)
+      // Stash the latest decisions (including thinking text) into the
+      // ai_agents.spec.recent_decisions array so the UI can still surface
+      // reasoning even though agent_paper_ledger doesn't have a thinking
+      // column on this Supabase project.
+      const recent = decisions.map(d => ({ symbol: d.symbol, side: d.side, signal: d.signal, thinking: d.thinking, at: ts }))
+      const trimmedSpec = { ...(agent.spec ?? {}), recent_decisions: recent }
+      await admin.from('ai_agents').update({ last_tick_at: ts, spec: trimmedSpec }).eq('id', agent.id)
       ticked.push({ agent_id: agent.id, name: agent.name, trades: rows.length })
     } catch (e) {
-      ticked.push({ agent_id: agent.id, name: agent.name, trades: 0, note: 'Insert error: ' + (e instanceof Error ? e.message : String(e)) })
+      const msg = e instanceof Error ? e.message
+                : typeof e === 'object' && e !== null ? JSON.stringify(e)
+                : String(e)
+      ticked.push({ agent_id: agent.id, name: agent.name, trades: 0, note: 'Insert error: ' + msg })
     }
   }
 
