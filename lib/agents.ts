@@ -11,7 +11,7 @@
  */
 
 import { SupabaseClient } from '@supabase/supabase-js'
-import { getCryptoBars, getStockBars, submitOrder, waitForFill, isCrypto, AlpacaBar } from './market-data'
+import { getCryptoBars, getStockBars, isCrypto, getLatestCryptoPrice, AlpacaBar } from './market-data'
 
 // ── AGENT CONFIG ──────────────────────────────────────────────────────────
 
@@ -668,11 +668,18 @@ async function logTrade(
   }
 }
 
+// Agent-level fills are paper trades against `agent_trades`. The cron has no
+// central exchange account — real per-user fills happen downstream in
+// run-agents/route.ts via `distributeTradeToUsers` to each user's Kraken
+// connection. We use the current market price as the paper fill price; if
+// it isn't available we fall back to the last-known reference price so an
+// agent's BUY/SELL decision still gets recorded in the public ledger.
+
 async function executeBuy(
   admin: SupabaseClient,
   agentId: string,
-  alpacaKey: string,
-  alpacaSecret: string,
+  _alpacaKey: string,
+  _alpacaSecret: string,
   symbol: string,
   notional: number,
   currentPrice: number,
@@ -682,24 +689,23 @@ async function executeBuy(
     return { action: 'SKIP', symbol, reason: `Notional $${notional.toFixed(2)} below minimum`, indicators }
   }
 
-  const isCoinbase = isCrypto(symbol)
-  let orderId = ''
-  let fillPrice = 0
-  let filledQty = 0
+  let fillPrice = currentPrice
+  if (!(fillPrice > 0)) {
+    const live = await getLatestCryptoPrice(symbol).catch(() => null)
+    if (live && live > 0) fillPrice = live
+  }
+  if (!(fillPrice > 0)) {
+    return { action: 'SKIP', symbol, reason: 'No price available for fill', indicators }
+  }
+
+  const filledQty = Number((notional / fillPrice).toFixed(8))
+  if (!(filledQty > 0)) {
+    return { action: 'SKIP', symbol, reason: 'Computed qty is zero', indicators }
+  }
+
+  const orderId = `paper-buy-${agentId}-${Date.now()}`
 
   try {
-    const order = await submitOrder({ symbol, notional, side: 'buy' }, alpacaKey, alpacaSecret)
-    const filled = await waitForFill(order.id, alpacaKey, alpacaSecret)
-    orderId = order.id
-    fillPrice = parseFloat(filled.filled_avg_price ?? '0')
-    filledQty = parseFloat(filled.filled_qty || '0')
-
-    const isFilled = filledQty > 0 && fillPrice > 0
-    if (!isFilled) {
-      console.warn(`⚠️ BUY ${symbol} not filled (qty: ${filledQty}) — skipping`)
-      return { action: 'SKIP', symbol, reason: `Order not filled`, indicators }
-    }
-
     await logTrade(admin, {
       agentId,
       alpacaOrderId: orderId,
@@ -709,12 +715,11 @@ async function executeBuy(
       fillPrice,
       filledAt: new Date().toISOString(),
     })
-
-    console.log(`✅ BUY ${symbol} $${notional} @ ${fillPrice} qty=${filledQty} (alpaca, agent: ${agentId})`)
+    console.log(`✅ BUY ${symbol} $${notional} @ ${fillPrice} qty=${filledQty} (paper, agent: ${agentId})`)
     return { action: 'BUY', symbol, notional, qty: filledQty, fill_price: fillPrice, alpaca_order_id: orderId, indicators }
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e)
-    console.error(`❌ BUY ${symbol} failed:`, err)
+    console.error(`❌ BUY ${symbol} ledger write failed:`, err)
     return { action: 'ERROR', symbol, error: err, indicators }
   }
 }
@@ -722,11 +727,12 @@ async function executeBuy(
 async function executeSell(
   admin: SupabaseClient,
   agentId: string,
-  alpacaKey: string,
-  alpacaSecret: string,
+  _alpacaKey: string,
+  _alpacaSecret: string,
   pos: AgentPosition,
   reason?: string,
-  indicators?: Record<string, number | string>
+  indicators?: Record<string, number | string>,
+  currentPrice?: number
 ): Promise<TradeAction> {
   const { symbol, qty } = pos
   const sellQty = Number(qty.toFixed(8))
@@ -735,43 +741,33 @@ async function executeSell(
     return { action: 'SKIP', symbol, reason: 'No sellable quantity', indicators }
   }
 
-  const isCoinbase = isCrypto(symbol)
-  let orderId = ''
-  let fillPrice = 0
-  let actualSellQty = 0
+  let fillPrice = currentPrice ?? 0
+  if (!(fillPrice > 0)) {
+    const live = await getLatestCryptoPrice(symbol).catch(() => null)
+    if (live && live > 0) fillPrice = live
+  }
+  if (!(fillPrice > 0)) fillPrice = pos.avg_entry
+
+  const orderId = `paper-sell-${agentId}-${Date.now()}`
 
   try {
-    const order = await submitOrder({ symbol, qty: sellQty, side: 'sell' }, alpacaKey, alpacaSecret)
-    const filled = await waitForFill(order.id, alpacaKey, alpacaSecret)
-    orderId = order.id
-    fillPrice = parseFloat(filled.filled_avg_price ?? '0')
-    actualSellQty = parseFloat(filled.filled_qty || '0')
-
-    const isFilled = actualSellQty > 0 && fillPrice > 0
-    if (!isFilled) {
-      console.warn(`⚠️ SELL ${symbol} not filled (qty: ${actualSellQty}) — skipping`)
-      return { action: 'SKIP', symbol, reason: `Sell order not filled`, indicators }
-    }
-
-    const pnlCents = await calcSellPnL(admin, agentId, symbol, actualSellQty, fillPrice)
-
+    const pnlCents = await calcSellPnL(admin, agentId, symbol, sellQty, fillPrice)
     await logTrade(admin, {
       agentId,
       alpacaOrderId: orderId,
       symbol,
       side: 'sell',
-      qty: actualSellQty,
+      qty: sellQty,
       fillPrice,
       filledAt: new Date().toISOString(),
       pnlCents,
     })
-
     const pnlUsd = pnlCents / 100
-    console.log(`✅ SELL ${symbol} ${actualSellQty} @ ${fillPrice} | P&L: $${pnlUsd.toFixed(2)} (alpaca, agent: ${agentId})`)
+    console.log(`✅ SELL ${symbol} ${sellQty} @ ${fillPrice} | P&L: $${pnlUsd.toFixed(2)} (paper, agent: ${agentId})`)
     return { action: 'SELL', symbol, qty: sellQty, fill_price: fillPrice, alpaca_order_id: orderId, pnl_cents: pnlCents, reason, indicators }
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e)
-    console.error(`❌ SELL ${symbol} failed:`, err)
+    console.error(`❌ SELL ${symbol} ledger write failed:`, err)
     return { action: 'ERROR', symbol, error: err, indicators }
   }
 }
@@ -1357,18 +1353,12 @@ export async function runSolBreakout(
       actions.push(action)
       signalSummary = `SELL ▲ 3x ATR target hit · P&L +${pnlPct.toFixed(2)}%`
     } else if (currentPrice > profit2xTarget && pnlPct > 0) {
-      // Partial exit at 2x ATR (sell 50% of position)
+      // Partial exit at 2x ATR (sell 50% of position) — paper fill at currentPrice
       const halfQty = Math.floor((pos.qty / 2) * 1e6) / 1e6
       if (halfQty > 0.000001) {
+        const fillPrice = currentPrice
+        const orderId = `paper-sell-${agentId}-${Date.now()}`
         try {
-          const isCoinbase = isCrypto(symbol)
-          let orderId = ''
-          let fillPrice = currentPrice
-          const order = await submitOrder({ symbol, qty: halfQty, side: 'sell' }, alpacaKey, alpacaSecret)
-          const filled = await waitForFill(order.id, alpacaKey, alpacaSecret)
-          orderId = order.id
-          fillPrice = filled.filled_avg_price ? parseFloat(filled.filled_avg_price) : currentPrice
-
           const pnlCents = await calcSellPnL(admin, agentId, symbol, halfQty, fillPrice)
           await logTrade(admin, {
             agentId,
@@ -1380,9 +1370,8 @@ export async function runSolBreakout(
             filledAt: new Date().toISOString(),
             pnlCents,
           })
-
           const pnlUsd = pnlCents / 100
-          console.log(`✅ PARTIAL SELL ${symbol} ${halfQty} @ ${fillPrice} | P&L: $${pnlUsd.toFixed(2)}`)
+          console.log(`✅ PARTIAL SELL ${symbol} ${halfQty} @ ${fillPrice} | P&L: $${pnlUsd.toFixed(2)} (paper)`)
           actions.push({
             action: 'SELL',
             symbol,
@@ -1394,7 +1383,9 @@ export async function runSolBreakout(
             indicators,
           })
           signalSummary = `SELL ○ 2x ATR partial (50%) · P&L +${pnlPct.toFixed(2)}%`
-        } catch { /* ignore sell errors */ }
+        } catch (e) {
+          console.warn(`partial sell ledger write failed:`, e instanceof Error ? e.message : e)
+        }
       }
     } else if (currentPrice < stopLoss) {
       // Stop loss
