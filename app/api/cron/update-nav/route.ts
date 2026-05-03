@@ -23,6 +23,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { checkCronAuth } from '@/lib/cron-auth'
 import { getCryptoBars } from '@/lib/market-data'
 import { getAgentPositions } from '@/lib/agents'
 import { calculateHoldingValueCents, calculateNavFromState, calculateQuoteFromNav, PLATFORM_SEED_CAPITAL_CENTS } from '@/lib/market'
@@ -52,13 +53,8 @@ function calculateSortinoRatio(dailyReturns: number[]): number {
 }
 
 export async function POST(req: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET
-  if (cronSecret) {
-    const authHeader = req.headers.get('x-cron-secret')
-    if (authHeader !== cronSecret) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-  }
+  const auth = checkCronAuth(req)
+  if (!auth.ok) return NextResponse.json({ error: auth.reason ?? 'Unauthorized' }, { status: 401 })
 
   const admin = createAdminClient()
 

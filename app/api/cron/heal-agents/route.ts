@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { checkCronAuth } from '@/lib/cron-auth'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -27,15 +28,8 @@ export async function GET(req: NextRequest) { return heal(req) }
 export async function POST(req: NextRequest) { return heal(req) }
 
 async function heal(req: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET
-  if (cronSecret) {
-    const headerSecret = req.headers.get('x-cron-secret')
-    const authHeader = req.headers.get('authorization')
-    const bearerSecret = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
-    if (headerSecret !== cronSecret && bearerSecret !== cronSecret) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-  }
+  const auth = checkCronAuth(req)
+  if (!auth.ok) return NextResponse.json({ error: auth.reason ?? 'Unauthorized' }, { status: 401 })
 
   const admin = createAdminClient()
   const cutoff = new Date(Date.now() - STALE_MINUTES * 60_000).toISOString()
@@ -66,7 +60,10 @@ async function heal(req: NextRequest) {
   for (const a of stale) {
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (cronSecret) headers['x-cron-secret'] = cronSecret
+      // Forward the same secret we accepted so the run-agents call is allowed.
+      const raw = process.env.CRON_SECRET ?? ''
+      const fwd = (raw === '""' || raw === "''") ? '' : raw
+      if (fwd) headers['x-cron-secret'] = fwd
       const res = await fetch(`${origin}/api/cron/run-agents`, {
         method: 'POST',
         headers,

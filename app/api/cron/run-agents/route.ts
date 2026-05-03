@@ -19,6 +19,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { checkCronAuth } from '@/lib/cron-auth'
 import {
   runBtcMomentum,
   runEthMeanRevert,
@@ -95,16 +96,8 @@ export async function POST(req: NextRequest) {
     targetAgentId = typeof body?.agent_id === 'string' ? body.agent_id : null
   } catch { /* no body */ }
 
-  // Auth: accept either x-cron-secret (legacy) or Bearer (Vercel cron default)
-  const cronSecret = process.env.CRON_SECRET
-  if (cronSecret) {
-    const headerSecret = req.headers.get('x-cron-secret')
-    const authHeader = req.headers.get('authorization')
-    const bearerSecret = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
-    if (headerSecret !== cronSecret && bearerSecret !== cronSecret) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-  }
+  const auth = checkCronAuth(req)
+  if (!auth.ok) return NextResponse.json({ error: auth.reason ?? 'Unauthorized' }, { status: 401 })
 
   // Connectivity check — Yahoo Finance price source (optional check)
   const healthy = await healthCheckMarketData()
