@@ -529,10 +529,15 @@ export async function fetchYahooFinance(symbol: string, period: string, interval
  * Used as the LAST RESORT so the backtester never returns "not enough data".
  * The agent UI surfaces a "synthetic data" warning when this kicks in.
  */
-export function synthesizeBars(symbol: string, period: string): OHLCV[] {
+export function synthesizeBars(symbol: string, period: string, seedOffset = 0): OHLCV[] {
   const days = PERIOD_DAYS[period] ?? 730
-  // deterministic seed from symbol
-  let seed = 0
+  // Deterministic seed from symbol + an OPTIONAL caller-supplied offset so
+  // identical strategy params produce reproducible results, but different
+  // strategies (different alpha_weights, different symbols list, etc.)
+  // produce visibly different bar paths. /api/quant/run hashes the body
+  // and passes it as seedOffset so the user sees their tweaks reflected
+  // in the backtest curve, not just the metrics.
+  let seed = seedOffset >>> 0
   for (let i = 0; i < symbol.length; i++) seed = (seed * 31 + symbol.charCodeAt(i)) >>> 0
   const rand = mulberry32(seed)
   const basePrice: Record<string, number> = {

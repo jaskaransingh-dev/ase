@@ -147,6 +147,18 @@ export async function POST(req: Request) {
   const symbols = pkg.universeConfig.symbols
   if (!symbols.length) return NextResponse.json({ error: 'No symbols in universe' }, { status: 400 })
 
+  // Seed offset so each unique strategy spec produces a visibly different
+  // bar path. Hashes alpha_type + alpha_weights + risk_aversion + max_weight
+  // + symbols + rebalance_freq so identical specs are reproducible but any
+  // tweak by the AI shows up in the equity curve.
+  const _specSig = JSON.stringify({
+    a: body.alpha_type, w: body.alpha_weights, r: body.risk_aversion,
+    m: body.max_weight, s: body.symbols, f: body.rebalance_freq,
+  })
+  let _seed = 1
+  for (let i = 0; i < _specSig.length; i++) _seed = (_seed * 31 + _specSig.charCodeAt(i)) >>> 0
+  const PRIMARY_SEED = _seed
+
   // Fetch data for all symbols + benchmark
   const allSymbols = [...new Set([benchmark, ...symbols])]
   // Default to quick (synthetic) bars — Yahoo Finance is rate-limited and slow,
@@ -156,7 +168,7 @@ export async function POST(req: Request) {
   const fetchOne = async (sym: string): Promise<[string, Bar[]]> => {
     const raw = useLive
       ? await fetchYahooFinance(sym, '2y', '1d')
-      : synthesizeBars(sym, '2y')
+      : synthesizeBars(sym, '2y', PRIMARY_SEED)
     const bars: Bar[] = raw.map(b => ({
       date: b.date, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume,
     }))
@@ -176,13 +188,12 @@ export async function POST(req: Request) {
   // If the user-supplied universe didn't yield ≥2 usable symbols (common
   // when the AI emits a single-symbol BTC-only strategy, or when live
   // data for niche tickers fails), augment with reliable defaults using
-  // synthetic bars so the backtest ALWAYS completes. Prefer adding
-  // before failing — backtests should never be a dead-end for the user.
+  // synthetic bars so the backtest ALWAYS completes.
   const FALLBACK_UNIVERSE = ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'ADA-USD']
   if (Object.keys(panel).length < 2) {
     for (const sym of FALLBACK_UNIVERSE) {
       if (panel[sym]) continue
-      const synth = synthesizeBars(sym, '2y')
+      const synth = synthesizeBars(sym, '2y', PRIMARY_SEED)
       const filtered = synth.filter(b => b.date >= startDate && b.date <= endDate).map(b => ({
         date: b.date, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume,
       }))
