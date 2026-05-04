@@ -7,23 +7,16 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { encryptAES } from '@/lib/crypto/encryption'
 import { testKrakenCreds } from '@/lib/kraken-client'
+import { getUserFromRequest } from '@/lib/supabase/get-user'
 
 export const dynamic = 'force-dynamic'
 
-async function requireUser() {
-  const sb = await createClient()
-  const { data: { user } } = await sb.auth.getUser()
-  if (!user) return null
-  return user
-}
-
 // ── GET: connection status ────────────────────────────────────────────
 export async function GET() {
-  const user = await requireUser()
+  const user = await getUserFromRequest()
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
   const admin = createAdminClient()
@@ -46,7 +39,7 @@ export async function GET() {
 
 // ── POST: save keys ───────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  const user = await requireUser()
+  const user = await getUserFromRequest(req)
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
   let body: { api_key?: string; api_secret?: string }
@@ -102,7 +95,7 @@ export async function POST(req: NextRequest) {
 
 // ── DELETE: revoke ────────────────────────────────────────────────────
 export async function DELETE() {
-  const user = await requireUser()
+  const user = await getUserFromRequest()
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
 
   const admin = createAdminClient()

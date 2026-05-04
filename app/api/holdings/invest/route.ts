@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getUserFromRequest } from '@/lib/supabase/get-user'
 import { calculateQuoteFromNav } from '@/lib/market'
 import { mergeHoldingPosition, syncAgentMarketState } from '@/lib/exchange'
 import { triggerImmediateAgentRun } from '@/lib/agent-cycle'
@@ -11,8 +11,7 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await getUserFromRequest(req)
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { agent_id, amount_cents } = await req.json()
@@ -108,14 +107,25 @@ export async function POST(req: NextRequest) {
 
     // ── Atomic DB operations ────────────────────────────────────────
 
-    // 1. Deduct from wallet
-    await admin
+    // 1. Deduct from wallet — compare-and-swap on current balance so two
+    //    simultaneous invest calls can't both succeed. The update only matches
+    //    when balance hasn't changed since we read it; if 0 rows updated,
+    //    another request already deducted and we return a balance error.
+    const { data: deducted } = await admin
       .from('wallets')
       .update({
         balance_cents: wallet.balance_cents - amount_cents,
         updated_at: new Date().toISOString(),
       })
       .eq('user_id', user.id)
+      .eq('balance_cents', wallet.balance_cents)  // optimistic lock
+      .select('id')
+
+    if (!deducted || deducted.length === 0) {
+      return NextResponse.json({
+        error: 'Balance changed during checkout — please retry.',
+      }, { status: 409 })
+    }
 
     // 2. Merge into the user's active position for this agent.
     const holdingUpdate = await mergeHoldingPosition(admin, {

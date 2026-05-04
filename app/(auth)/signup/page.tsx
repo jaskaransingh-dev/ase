@@ -446,7 +446,7 @@ export default function SignupPage() {
                 color: 'var(--muted)',
               }}
             >
-              Connect your Alpaca account to invest real USD into AI trading agents.
+              You'll connect your Kraken account in step 2. No funds needed to get started.
             </div>
 
             <button

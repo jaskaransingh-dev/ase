@@ -31,16 +31,6 @@ import {
   runMomentumCarry,
   runCascadeDetect,
   runDefiYield,
-  runSpyMomentum,
-  runQqqGrowth,
-  runSectorRotation,
-  runLowVolEquity,
-  runCoveredCallOverlay,
-  runSpyDualMomentum,
-  runTechRotation,
-  runEquityMeanReversion,
-  runEquityTrendFollow,
-  runRiskParity,
   runCompositeAlphaV2,
   runGenericCryptoMomentum,
   StrategyResult,
@@ -57,32 +47,24 @@ export const dynamic = 'force-dynamic'
 // instead of being killed mid-loop.
 export const maxDuration = 300
 
-// Map agent DB slug → strategy runner
+// Crypto-only strategy map — Kraken only supports crypto assets.
+// Equity agents (spy-momentum, qqq-growth, sector-rotation, etc.) are
+// marked status='inactive' in the DB and excluded here.
 const STRATEGY_MAP: Record<
   string,
   (admin: ReturnType<typeof createAdminClient>, agentId: string, key: string, secret: string, capital: number) => Promise<StrategyResult>
 > = {
-  'btc-momentum':      runBtcMomentum,
-  'eth-mean-revert':   runEthMeanRevert,
-  'crypto-trend':      runCryptoTrend,
-  'sol-breakout':      runSolBreakout,
-  'defi-basket':       runDefiBasket,
-  'btc-eth-pairs':     runBtcEthPairs,
-  'vol-harvester':     runVolHarvester,
-  'momentum-carry':    runMomentumCarry,
-  'cascade-detect':    runCascadeDetect,
-  'defi-yield':        runDefiYield,
-  'spy-momentum':         runSpyMomentum,
-  'qqq-growth':           runQqqGrowth,
-  'sector-rotation':      runSectorRotation,
-  'low-vol-equity':       runLowVolEquity,
-  'covered-call-overlay': runCoveredCallOverlay,
-  'spy-dual-momentum':    runSpyDualMomentum,
-  'tech-rotation':        runTechRotation,
-  'equity-mean-reversion': runEquityMeanReversion,
-  'equity-trend-follow':  runEquityTrendFollow,
-  'risk-parity':          runRiskParity,
-  'composite-alpha-v2':   runCompositeAlphaV2,
+  'btc-momentum':    runBtcMomentum,
+  'eth-mean-revert': runEthMeanRevert,
+  'crypto-trend':    runCryptoTrend,
+  'sol-breakout':    runSolBreakout,
+  'defi-basket':     runDefiBasket,
+  'btc-eth-pairs':   runBtcEthPairs,
+  'vol-harvester':   runVolHarvester,
+  'momentum-carry':  runMomentumCarry,
+  'cascade-detect':  runCascadeDetect,
+  'defi-yield':      runDefiYield,
+  'composite-alpha-v2': runCompositeAlphaV2,
 }
 
 // Vercel Cron triggers via GET with `Authorization: Bearer <CRON_SECRET>`;
@@ -411,6 +393,113 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.error(`[run-agents] NAV recalc failed for ${agent.slug}:`, err instanceof Error ? err.message : err)
     }
+  }
+
+  // ── Portfolio Snapshots ───────────────────────────────────────────────────
+  // Write one snapshot per user per hour so the dashboard can render a
+  // portfolio-value-over-time chart.  We pull all active holdings, group by
+  // user_id, and upsert on (user_id, hour) so repeated ticks don't bloat.
+  try {
+    const { data: allHoldings } = await admin
+      .from('holdings')
+      .select('user_id, invested_cents, current_value_cents')
+      .eq('status', 'active')
+
+    const { data: wallets } = await admin
+      .from('wallets')
+      .select('user_id, balance_cents')
+
+    const walletMap: Record<string, number> = {}
+    for (const w of wallets ?? []) walletMap[w.user_id] = Number(w.balance_cents) || 0
+
+    const byUser: Record<string, { invested: number; value: number }> = {}
+    for (const h of allHoldings ?? []) {
+      if (!byUser[h.user_id]) byUser[h.user_id] = { invested: 0, value: 0 }
+      byUser[h.user_id].invested += Number(h.invested_cents) || 0
+      byUser[h.user_id].value   += Number(h.current_value_cents) || 0
+    }
+
+    const snapshots = Object.entries(byUser).map(([userId, pos]) => {
+      const cashCents     = walletMap[userId] ?? 0
+      const totalValue    = pos.value + cashCents
+      const pnlCents      = totalValue - pos.invested - cashCents
+      return {
+        user_id:            userId,
+        snapshot_at:        ran_at,
+        total_value_cents:  totalValue,
+        invested_cents:     pos.invested,
+        cash_cents:         cashCents,
+        pnl_cents:          pnlCents,
+      }
+    })
+
+    if (snapshots.length > 0) {
+      await admin.from('user_portfolio_snapshots').upsert(snapshots, {
+        onConflict: 'user_id,date_trunc(hour, snapshot_at)',
+        ignoreDuplicates: false,
+      }).then(r => {
+        if (r.error) console.warn('[run-agents] snapshot upsert failed:', r.error.message)
+        else console.log(`[run-agents] Portfolio snapshots written for ${snapshots.length} users`)
+      })
+    }
+  } catch (err) {
+    console.warn('[run-agents] Portfolio snapshot failed:', err instanceof Error ? err.message : err)
+  }
+
+  // ── Auto-Deallocate: protect pledged capital ──────────────────────────────
+  // If a user's live Kraken free balance drops below their total invested
+  // amount (meaning pledged money has been used by live trades), deallocate
+  // all their holdings so they can't go into deficit.
+  try {
+    const { data: allActiveHoldings } = await admin
+      .from('holdings')
+      .select('id, user_id, invested_cents')
+      .eq('status', 'active')
+
+    const { data: krakenKeys } = await admin
+      .from('user_kraken_keys')
+      .select('user_id, last_balance_usd, status')
+      .eq('status', 'active')
+
+    const krakenBalMap: Record<string, number> = {}
+    for (const k of krakenKeys ?? []) {
+      krakenBalMap[k.user_id] = Math.round((Number(k.last_balance_usd) || 0) * 100)
+    }
+
+    const investedByUser: Record<string, number> = {}
+    for (const h of allActiveHoldings ?? []) {
+      investedByUser[h.user_id] = (investedByUser[h.user_id] || 0) + Number(h.invested_cents)
+    }
+
+    for (const [userId, totalInvested] of Object.entries(investedByUser)) {
+      const freeCash = krakenBalMap[userId]
+      if (freeCash === undefined) continue  // user not connected
+      // If free cash < invested, pledged money was consumed — deallocate.
+      if (freeCash < totalInvested * 0.9) {  // 10% buffer for price slippage
+        console.warn(`[run-agents] Auto-deallocate: user ${userId} freeCash $${freeCash/100} < invested $${totalInvested/100}`)
+        const userHoldings = allActiveHoldings!.filter(h => h.user_id === userId)
+        for (const h of userHoldings) {
+          await admin.from('holdings').update({
+            status: 'sold',
+            sold_at: new Date().toISOString(),
+            shares: 0,
+            invested_cents: 0,
+            current_value_cents: 0,
+          }).eq('id', h.id)
+        }
+        // Notify via wallet note (non-blocking)
+        await admin.from('transactions').insert({
+          user_id: userId,
+          type: 'auto_deallocate',
+          amount_cents: 0,
+          note: `Auto-deallocated: Kraken balance ($${(freeCash/100).toFixed(2)}) fell below invested ($${(totalInvested/100).toFixed(2)})`,
+        }).then(r => {
+          if (r.error) console.warn('[run-agents] auto-deallocate transaction log failed:', r.error.message)
+        })
+      }
+    }
+  } catch (err) {
+    console.warn('[run-agents] Auto-deallocate check failed:', err instanceof Error ? err.message : err)
   }
 
   return NextResponse.json({

@@ -91,6 +91,8 @@ export default function DashboardPage() {
   const [trades, setTrades] = useState<Trade[]>([])
   const [agentActivity, setAgentActivity] = useState<AgentActivity[]>([])
   const [brokerAccount, setBrokerAccount] = useState<BrokerAccount | null>(null)
+  const [portfolioHistory, setPortfolioHistory] = useState<Array<{ snapshot_at: string; total_value_cents: number; pnl_cents: number }>>([])
+  const [historyDays, setHistoryDays] = useState(30)
   const [watchlist, setWatchlist] = useState<{id: string; agent_id: string; agents: {id: string; name: string; slug: string; primary_symbol: string}}[]>([])
   const [sellTarget, setSellTarget] = useState<SellState>(null)
   const [selling, setSelling] = useState(false)
@@ -150,6 +152,15 @@ export default function DashboardPage() {
         setAllHoldings(ahData.holdings ?? [])
       }
     } catch { /* silent */ }
+
+    // Portfolio history for the equity curve chart
+    try {
+      const phRes = await fetch(`/api/account/portfolio-history?days=30`)
+      if (phRes.ok) {
+        const phData = await phRes.json()
+        setPortfolioHistory(phData.snapshots ?? [])
+      }
+    } catch { /* silent */ }
     
     // Also get broker account for positions
     const brokerRes = await fetch('/api/broker/account')
@@ -185,6 +196,31 @@ export default function DashboardPage() {
 
   useEffect(() => { void load() }, [load])
   useEffect(() => { const id = setInterval(() => void load(), 30000); return () => clearInterval(id) }, [load])
+
+  // Realtime Kraken balance — wallets row is updated by syncAlpacaBalance
+  // on every cron tick and invest/sell, so this keeps the display live.
+  useEffect(() => {
+    let userId = ''
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      userId = user.id
+      const channel = supabase
+        .channel('wallet-balance')
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'wallets',
+          filter: `user_id=eq.${userId}`,
+        }, (payload) => {
+          const newBalance = (payload.new as { balance_cents?: number }).balance_cents
+          if (typeof newBalance === 'number') {
+            setBrokerAccount(prev => prev ? { ...prev, cash_cents: newBalance, cash: (newBalance / 100).toFixed(2) } : prev)
+          }
+        })
+        .subscribe()
+      return () => { void supabase.removeChannel(channel) }
+    })
+  }, [supabase])
 
   // Refresh holdings on mount to catch any changes
   useEffect(() => {
@@ -546,17 +582,26 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Equity curve — proper area chart, replaces the 64x32 sparkline */}
+          {/* Portfolio history chart */}
           <div style={{ flex: '1 1 320px', padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)', minWidth: 280 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)', letterSpacing: '0.1em' }}>EQUITY CURVE</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)' }}>last {equityCurve.length} fills</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5rem', color: 'var(--faint)', letterSpacing: '0.1em' }}>PORTFOLIO VALUE</div>
+              <div style={{ display: 'flex', gap: '0.3rem' }}>
+                {([7, 30, 90] as const).map(d => (
+                  <button key={d} onClick={() => { setHistoryDays(d); fetch(`/api/account/portfolio-history?days=${d}`).then(r => r.json()).then(j => setPortfolioHistory(j.snapshots ?? [])).catch(() => {}) }}
+                    style={{ fontFamily: 'var(--font-mono)', fontSize: '0.48rem', padding: '0.2rem 0.4rem', borderRadius: 4, border: `1px solid ${historyDays === d ? 'var(--blue)' : 'var(--border)'}`, background: historyDays === d ? 'rgba(79,140,255,0.12)' : 'transparent', color: historyDays === d ? 'var(--blue)' : 'var(--faint)', cursor: 'pointer' }}>
+                    {d}d
+                  </button>
+                ))}
+              </div>
             </div>
-            {equityCurve.length > 1 ? (
+            {portfolioHistory.length > 1 ? (
+              <DashboardEquityChart data={portfolioHistory.map(s => s.total_value_cents / 100)} positive={portfolioReturnPct >= 0} />
+            ) : equityCurve.length > 1 ? (
               <DashboardEquityChart data={equityCurve} positive={portfolioReturnPct >= 0} />
             ) : (
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.55rem' }}>
-                No fills yet — chart populates as your agents trade
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontFamily: 'var(--font-mono)', fontSize: '.55rem', textAlign: 'center', lineHeight: 1.5 }}>
+                Chart populates after first agent trade
               </div>
             )}
           </div>

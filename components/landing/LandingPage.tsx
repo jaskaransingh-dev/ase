@@ -1,14 +1,10 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, FormEvent } from 'react'
 import Link from 'next/link'
-import PublicNav from '@/components/ui/PublicNav'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MARKET GRAVITY — animated hero canvas. Assets are bodies in a field; the
-// camera drifts on mouse movement; trades emit particle bursts; faint lines
-// connect bodies whose price is correlated. Renders to 60fps on a single
-// canvas (no React reconciliation per frame).
+// MARKET GRAVITY — animated hero canvas
 // ─────────────────────────────────────────────────────────────────────────────
 function MarketGravity({ density = 1 }: { density?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -70,7 +66,6 @@ function MarketGravity({ density = 1 }: { density?: number }) {
     }
     window.addEventListener('mousemove', onMove)
 
-    // Periodically inject "trades" — particle bursts between two random bodies.
     const tradeInterval = setInterval(() => {
       if (bodies.length < 2) return
       const a = bodies[Math.floor(Math.random() * bodies.length)]
@@ -87,7 +82,6 @@ function MarketGravity({ density = 1 }: { density?: number }) {
           color: Math.random() > 0.5 ? '#16C784' : '#4F8CFF',
         })
       }
-      // Price wiggle drives the size pulse
       a.trend = (Math.random() - 0.4) * 0.02
     }, 320)
 
@@ -97,20 +91,16 @@ function MarketGravity({ density = 1 }: { density?: number }) {
       const H = canvas.height / dpr
       ctx.clearRect(0, 0, W, H)
 
-      // Camera follows mouse subtly
       mouseRef.current.x += (mouseRef.current.tx - mouseRef.current.x) * 0.06
       mouseRef.current.y += (mouseRef.current.ty - mouseRef.current.y) * 0.06
       const cx = W / 2 + mouseRef.current.x
       const cy = H / 2 + mouseRef.current.y
 
-      // Gravity step — bodies attract to center, repel each other softly
       for (const b of bodies) {
-        // attract to center
         const r = Math.hypot(b.x, b.y) || 1
         const k = 0.0014 * b.mass
         b.vx -= (b.x / r) * k * (r - 220) * 0.01
         b.vy -= (b.y / r) * k * (r - 220) * 0.01
-        // soft repulsion
         for (const o of bodies) {
           if (o === b) continue
           const dx = b.x - o.x, dy = b.y - o.y
@@ -121,14 +111,12 @@ function MarketGravity({ density = 1 }: { density?: number }) {
             b.vy += (dy / d) * f
           }
         }
-        // damping + price wiggle
         b.vx *= 0.985; b.vy *= 0.985
         b.x += b.vx; b.y += b.vy
         b.price *= 1 + (Math.random() - 0.5) * 0.001 + b.trend * 0.003
         b.trend *= 0.92
       }
 
-      // Faint correlation web — connect each body to its 2 nearest
       ctx.strokeStyle = 'rgba(79,140,255,0.10)'
       ctx.lineWidth = 0.6
       for (const b of bodies) {
@@ -148,7 +136,6 @@ function MarketGravity({ density = 1 }: { density?: number }) {
       }
       ctx.globalAlpha = 1
 
-      // Trade particles
       tradesRef.current = tradesRef.current.filter(t => t.life > 0)
       for (const t of tradesRef.current) {
         t.x += t.vx; t.y += t.vy
@@ -161,7 +148,6 @@ function MarketGravity({ density = 1 }: { density?: number }) {
       }
       ctx.globalAlpha = 1
 
-      // Bodies — soft glow halo + core + sym label
       for (const b of bodies) {
         const px = cx + b.x, py = cy + b.y
         const grad = ctx.createRadialGradient(px, py, 0, px, py, b.r * 4)
@@ -214,8 +200,7 @@ function MarketGravity({ density = 1 }: { density?: number }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LIVE TRADE FEED — synthesizes a stream of trades with thinking lines.
-// Updates via requestAnimationFrame budget so it feels organic.
+// LIVE TRADE FEED
 // ─────────────────────────────────────────────────────────────────────────────
 type Trade = { id: number; agent: string; sym: string; side: 'BUY' | 'SELL'; pct: number; reason: string; t: number }
 function LiveTradeFeed() {
@@ -290,15 +275,14 @@ function LiveTradeFeed() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LIVE TICKER — same as before but rebuilt cleanly
+// TICKER
 // ─────────────────────────────────────────────────────────────────────────────
-const TICKER = [
+const TICKER_DATA = [
   { l: 'BTC/USD', v: '+18.4%', p: true }, { l: 'ETH/USD', v: '+12.1%', p: true },
   { l: 'SOL/USD', v: '+31.8%', p: true }, { l: 'AVAX/USD', v: '−4.2%', p: false },
   { l: 'BNB/USD', v: '+9.1%', p: true }, { l: 'LINK/USD', v: '+6.7%', p: true },
   { l: 'Avg Sharpe', v: '1.84', p: true }, { l: 'Win Rate', v: '62%', p: true },
-  { l: 'Live Agents', v: '24', p: true }, { l: 'AUM', v: '$2.4M', p: true },
-  { l: 'Trades/24h', v: '4,217', p: true }, { l: 'Backtest p50', v: '720ms', p: true },
+  { l: 'Live Agents', v: '11', p: true }, { l: 'Trades/24h', v: '288+', p: true },
 ]
 function Ticker() {
   return (
@@ -308,7 +292,7 @@ function Ticker() {
       display: 'flex', alignItems: 'center', position: 'relative', zIndex: 2,
     }}>
       <div style={{ display: 'flex', whiteSpace: 'nowrap', animation: 'drift 38s linear infinite', willChange: 'transform' }}>
-        {[...TICKER, ...TICKER].map((it, i) => (
+        {[...TICKER_DATA, ...TICKER_DATA].map((it, i) => (
           <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '0 22px', fontFamily: 'var(--font-mono)', fontSize: 11, borderRight: '1px solid rgba(30,42,61,0.55)' }}>
             <span style={{ color: '#55657A' }}>{it.l}</span>
             <span style={{ color: it.p ? '#16C784' : '#E45867', fontWeight: 700 }}>{it.v}</span>
@@ -320,7 +304,7 @@ function Ticker() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AGENT ORB — leaderboard cell with hover lift + animated mini equity curve
+// AGENT CARD
 // ─────────────────────────────────────────────────────────────────────────────
 function AgentCard({ rank, name, sym, ret, sharpe, trades, grade, color }: {
   rank: number; name: string; sym: string; ret: string; sharpe: string;
@@ -395,7 +379,121 @@ function AgentCard({ rank, name, sym, ret, sharpe, trades, grade, color }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SECTION WRAPPER — fades up on scroll
+// WAITLIST FORM
+// ─────────────────────────────────────────────────────────────────────────────
+function WaitlistForm({ type = 'investor', compact = false }: { type?: 'investor' | 'developer'; compact?: boolean }) {
+  const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
+  const [strategy, setStrategy] = useState('')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (status === 'loading' || status === 'done') return
+    setStatus('loading')
+    try {
+      const res = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, name: name || undefined, strategy: strategy || undefined, type }),
+      })
+      if (res.ok) setStatus('done')
+      else setStatus('error')
+    } catch {
+      setStatus('error')
+    }
+  }
+
+  if (status === 'done') {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: compact ? '0.75rem 1.2rem' : '1.1rem 1.5rem',
+        borderRadius: 12, background: 'rgba(22,199,132,0.08)',
+        border: '1px solid rgba(22,199,132,0.3)',
+      }}>
+        <span style={{ fontSize: 18 }}>✓</span>
+        <div>
+          <div style={{ fontWeight: 700, color: '#16C784', fontSize: '0.88rem' }}>You&apos;re on the list</div>
+          {!compact && <div style={{ color: '#94a3b8', fontSize: '0.78rem', marginTop: 2 }}>We&apos;ll reach out when early access opens.</div>}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: compact ? 8 : 12, width: '100%' }}>
+      {!compact && (
+        <input
+          type="text"
+          placeholder="Your name (optional)"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          style={{
+            background: 'rgba(6,17,31,0.8)', border: '1px solid rgba(30,42,61,0.9)',
+            borderRadius: 10, padding: '0.75rem 1rem',
+            color: '#F7FAFF', fontSize: '0.88rem', outline: 'none',
+            fontFamily: 'inherit',
+            transition: 'border-color .15s',
+          }}
+          onFocus={e => e.target.style.borderColor = 'rgba(79,140,255,0.5)'}
+          onBlur={e => e.target.style.borderColor = 'rgba(30,42,61,0.9)'}
+        />
+      )}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          type="email"
+          placeholder="Enter your email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          required
+          style={{
+            flex: 1, background: 'rgba(6,17,31,0.8)', border: '1px solid rgba(30,42,61,0.9)',
+            borderRadius: 10, padding: compact ? '0.65rem 1rem' : '0.75rem 1rem',
+            color: '#F7FAFF', fontSize: '0.88rem', outline: 'none',
+            fontFamily: 'inherit', minWidth: 0,
+            transition: 'border-color .15s',
+          }}
+          onFocus={e => e.target.style.borderColor = 'rgba(79,140,255,0.5)'}
+          onBlur={e => e.target.style.borderColor = 'rgba(30,42,61,0.9)'}
+        />
+        <button type="submit" disabled={status === 'loading'} style={{
+          padding: compact ? '0.65rem 1.2rem' : '0.75rem 1.5rem',
+          borderRadius: 10, border: 'none', cursor: status === 'loading' ? 'wait' : 'pointer',
+          background: 'linear-gradient(135deg, #3566E9, #4F8CFF)',
+          color: '#fff', fontWeight: 700, fontSize: '0.88rem',
+          whiteSpace: 'nowrap', opacity: status === 'loading' ? 0.7 : 1,
+          transition: 'all .15s', boxShadow: '0 4px 18px rgba(79,140,255,0.38)',
+        }}>
+          {status === 'loading' ? '...' : 'Join Waitlist'}
+        </button>
+      </div>
+      {type === 'developer' && !compact && (
+        <textarea
+          placeholder="Briefly describe your trading strategy idea (optional)"
+          value={strategy}
+          onChange={e => setStrategy(e.target.value)}
+          rows={2}
+          style={{
+            background: 'rgba(6,17,31,0.8)', border: '1px solid rgba(30,42,61,0.9)',
+            borderRadius: 10, padding: '0.75rem 1rem',
+            color: '#F7FAFF', fontSize: '0.85rem', outline: 'none',
+            fontFamily: 'inherit', resize: 'vertical',
+            transition: 'border-color .15s',
+          }}
+          onFocus={e => e.target.style.borderColor = 'rgba(79,140,255,0.5)'}
+          onBlur={e => e.target.style.borderColor = 'rgba(30,42,61,0.9)'}
+        />
+      )}
+      {status === 'error' && (
+        <div style={{ color: '#E45867', fontSize: '0.78rem' }}>Something went wrong — please try again.</div>
+      )}
+    </form>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCROLL REVEAL HOOK
 // ─────────────────────────────────────────────────────────────────────────────
 function useReveal() {
   const ref = useRef<HTMLDivElement>(null)
@@ -413,34 +511,72 @@ function useReveal() {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function LandingPage() {
   const [scrollY, setScrollY] = useState(0)
+  const [scrolled, setScrolled] = useState(false)
   useEffect(() => {
-    const onScroll = () => setScrollY(window.scrollY)
+    const onScroll = () => { setScrollY(window.scrollY); setScrolled(window.scrollY > 24) }
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
   const agents = useReveal()
-  const product = useReveal()
-  const split = useReveal()
+  const howItWorks = useReveal()
+  const features = useReveal()
+  const ctaSection = useReveal()
+
+  const scrollToWaitlist = () => {
+    document.getElementById('waitlist')?.scrollIntoView({ behavior: 'smooth' })
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#04101F', color: '#F7FAFF', overflowX: 'hidden' }}>
-      <PublicNav />
 
-      {/* Fixed grid + radial — gives the whole page a "deep space" backdrop */}
+      {/* ═════════════ NAV ═════════════ */}
+      <nav style={{
+        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
+        height: 52, display: 'flex', alignItems: 'center', padding: '0 1.5rem',
+        background: scrolled ? 'rgba(6,17,31,0.92)' : 'rgba(6,17,31,0.05)',
+        borderBottom: `1px solid ${scrolled ? 'rgba(30,42,61,0.8)' : 'transparent'}`,
+        backdropFilter: scrolled ? 'blur(24px) saturate(160%)' : 'none',
+        transition: 'all 0.22s ease',
+        justifyContent: 'space-between',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <img src="/transparent_logo.png" alt="ASE" style={{ height: 26, width: 'auto', objectFit: 'contain' }} />
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', fontWeight: 700, color: '#F7FAFF', letterSpacing: '0.08em' }}>ASE</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={scrollToWaitlist} style={{
+            padding: '0.42rem 1rem', borderRadius: 7,
+            background: 'rgba(79,140,255,0.12)', border: '1px solid rgba(79,140,255,0.28)',
+            color: '#6BA3FF', fontFamily: 'var(--font-mono)', fontSize: '0.68rem',
+            fontWeight: 700, letterSpacing: '0.04em', cursor: 'pointer',
+            transition: 'all .15s',
+          }}>
+            Join Waitlist
+          </button>
+          <Link href="/login" style={{
+            padding: '0.42rem 0.9rem', borderRadius: 7,
+            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)',
+            color: '#94a3b8', fontFamily: 'var(--font-mono)', fontSize: '0.68rem',
+            fontWeight: 600, textDecoration: 'none',
+            transition: 'all .15s',
+          }}>
+            Sign In
+          </Link>
+        </div>
+      </nav>
+
+      {/* Fixed grid + radial backdrop */}
       <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0 }}>
         <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(79,140,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(79,140,255,0.04) 1px, transparent 1px)', backgroundSize: '72px 72px', maskImage: 'radial-gradient(ellipse 70% 60% at 50% 25%, black, transparent)' }} />
         <div style={{ position: 'absolute', top: '-15%', left: '50%', transform: 'translateX(-50%)', width: '120vw', height: '90vh', background: 'radial-gradient(ellipse 60% 50% at 50% 30%, rgba(79,140,255,0.18), transparent 70%)' }} />
       </div>
 
-      {/* ═════════════ HERO — full-bleed market gravity ═════════════ */}
+      {/* ═════════════ HERO ═════════════ */}
       <section style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden', zIndex: 1 }}>
-        {/* Animated canvas behind the headline */}
         <MarketGravity density={1} />
-        {/* Side feed — hidden on small screens via class */}
         <LiveTradeFeed />
 
-        {/* Hero text — parallax up as you scroll */}
         <div style={{
           position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center', textAlign: 'center',
@@ -457,7 +593,7 @@ export default function LandingPage() {
             backdropFilter: 'blur(8px)',
           }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16C784', boxShadow: '0 0 10px #16C784', animation: 'breathe 2s ease-in-out infinite' }} />
-            24 AGENTS LIVE · 4,217 TRADES TODAY · VERIFIED
+            EARLY ACCESS · CRYPTO-ONLY · KRAKEN NATIVE
           </div>
 
           <h1 style={{
@@ -482,51 +618,29 @@ export default function LandingPage() {
             fontSize: 'clamp(1rem, 1.6vw, 1.18rem)', color: '#94a3b8',
             lineHeight: 1.7, maxWidth: 580, margin: '0 auto 2.4rem',
           }}>
-            Allocate to verified AI strategies. Build and publish your own. Every
-            trade on-chain, every backtest reproducible, every fee transparent.
+            Allocate to verified AI crypto strategies. Build and publish your own.
+            Every trade on Kraken, every backtest reproducible, every fee transparent.
           </p>
 
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
-            <Link href="/signup"
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                padding: '0.95rem 1.9rem', borderRadius: 11,
-                background: 'linear-gradient(135deg, #3566E9, #4F8CFF)',
-                color: '#fff', fontWeight: 700, fontSize: '0.92rem', textDecoration: 'none',
-                boxShadow: '0 4px 28px rgba(79,140,255,0.42)',
-                transition: 'all .2s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 10px 36px rgba(79,140,255,0.55)' }}
-              onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 28px rgba(79,140,255,0.42)' }}>
-              Start investing
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-            </Link>
-            <Link href="/dashboard/build"
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                padding: '0.95rem 1.7rem', borderRadius: 11,
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.10)',
-                color: '#cbd5e1', fontWeight: 600, fontSize: '0.92rem', textDecoration: 'none',
-                backdropFilter: 'blur(10px)', transition: 'all .2s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(79,140,255,0.10)'; e.currentTarget.style.borderColor = 'rgba(79,140,255,0.30)'; e.currentTarget.style.color = '#fff' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.10)'; e.currentTarget.style.color = '#cbd5e1' }}>
-              Build a strategy
-            </Link>
+          {/* Waitlist inline CTA */}
+          <div style={{ width: '100%', maxWidth: 480, backdropFilter: 'blur(12px)' }}>
+            <WaitlistForm compact />
           </div>
+          <p style={{ color: '#55657A', fontSize: '0.72rem', marginTop: 10, fontFamily: 'var(--font-mono)' }}>
+            No spam. Invite-only early access.
+          </p>
 
-          {/* Floor stats — anchors the hero so the scroll lands on something */}
+          {/* Floor stats */}
           <div style={{
             position: 'absolute', bottom: 36, left: 0, right: 0,
             display: 'flex', justifyContent: 'center', gap: 'clamp(20px, 5vw, 56px)',
             flexWrap: 'wrap', padding: '0 1.5rem',
           }}>
             {[
-              { v: '$2.4M', l: 'Total AUM' },
+              { v: '11', l: 'Live Agents' },
               { v: '1.84', l: 'Avg Sharpe' },
-              { v: '62%', l: 'Win Rate' },
-              { v: '720ms', l: 'Backtest p50' },
+              { v: '288+', l: 'Ticks / Day' },
+              { v: 'Kraken', l: 'Exchange' },
             ].map(s => (
               <div key={s.l} style={{ textAlign: 'center' }}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 'clamp(1.2rem, 2vw, 1.6rem)', color: '#F7FAFF', letterSpacing: '-0.03em' }}>{s.v}</div>
@@ -535,7 +649,6 @@ export default function LandingPage() {
             ))}
           </div>
 
-          {/* Scroll cue */}
           <div style={{
             position: 'absolute', bottom: 110, left: '50%', transform: 'translateX(-50%)',
             fontFamily: 'var(--font-mono)', fontSize: 9, color: '#55657A', letterSpacing: '0.18em',
@@ -550,11 +663,11 @@ export default function LandingPage() {
 
       <Ticker />
 
-      {/* ═════════════ LIVE LEADERBOARD ═════════════ */}
+      {/* ═════════════ AGENT SHOWCASE ═════════════ */}
       <section ref={agents.ref} style={{ ...agents.style, padding: '7rem 1.5rem 5rem', maxWidth: 1280, margin: '0 auto', position: 'relative', zIndex: 2 }}>
         <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 100, background: 'rgba(79,140,255,0.07)', border: '1px solid rgba(79,140,255,0.22)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em', color: '#6BA3FF', marginBottom: '1.25rem' }}>
-            LIVE LEADERBOARD · UPDATED EVERY 60S
+            AGENT SHOWCASE · LIVE PERFORMANCE
           </div>
           <h2 style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 'clamp(2rem, 4.5vw, 3.2rem)', letterSpacing: '-0.045em', margin: '0 0 .75rem', color: '#F7FAFF' }}>
             Real strategies. Real fills.<br />Real money.
@@ -576,54 +689,64 @@ export default function LandingPage() {
         </div>
 
         <div style={{ textAlign: 'center', marginTop: '2.5rem' }}>
-          <Link href="/agents" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '0.7rem 1.4rem', borderRadius: 10, border: '1px solid rgba(79,140,255,0.28)', background: 'rgba(79,140,255,0.07)', color: '#6BA3FF', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 700, textDecoration: 'none', transition: 'all .15s' }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(79,140,255,0.16)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(79,140,255,0.07)' }}>
-            VIEW ALL 24 AGENTS →
-          </Link>
+          <button onClick={scrollToWaitlist} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            padding: '0.7rem 1.6rem', borderRadius: 10,
+            border: '1px solid rgba(79,140,255,0.28)', background: 'rgba(79,140,255,0.07)',
+            color: '#6BA3FF', fontFamily: 'var(--font-mono)', fontSize: '0.78rem',
+            fontWeight: 700, cursor: 'pointer', transition: 'all .15s',
+          }}>
+            REQUEST EARLY ACCESS →
+          </button>
         </div>
       </section>
 
-      {/* ═════════════ HOW IT WORKS — three-up product strip ═════════════ */}
-      <section ref={product.ref} style={{ ...product.style, padding: '5rem 1.5rem 6rem', maxWidth: 1280, margin: '0 auto', position: 'relative', zIndex: 2 }}>
+      {/* ═════════════ HOW IT WORKS ═════════════ */}
+      <section ref={howItWorks.ref} style={{ ...howItWorks.style, padding: '5rem 1.5rem 6rem', maxWidth: 1280, margin: '0 auto', position: 'relative', zIndex: 2 }}>
         <div style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
           <div style={{ display: 'inline-flex', padding: '4px 12px', borderRadius: 100, background: 'rgba(22,199,132,0.07)', border: '1px solid rgba(22,199,132,0.22)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em', color: '#16C784', marginBottom: '1.25rem' }}>
             HOW IT WORKS
           </div>
-          <h2 style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 'clamp(2rem, 4vw, 3rem)', letterSpacing: '-0.045em', margin: 0, color: '#F7FAFF' }}>
-            Build, backtest, publish.
+          <h2 style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 'clamp(2rem, 4vw, 3rem)', letterSpacing: '-0.045em', margin: '0 0 0.75rem', color: '#F7FAFF' }}>
+            Four steps from idea to live capital.
           </h2>
+          <p style={{ color: '#94a3b8', fontSize: '0.95rem', maxWidth: 540, margin: '0 auto' }}>
+            ASE handles the infrastructure — you focus on alpha.
+          </p>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }} className="how-grid">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }} className="how-grid">
           {[
             {
-              step: '01', accent: '#4F8CFF', title: 'Compose with code or natural language',
-              body: 'Describe a strategy in plain English or drop in TypeScript. The Quant Lab compiles to an agent spec with risk controls and an execution loop that scans every 5 minutes.',
+              step: '01', accent: '#4F8CFF', title: 'Connect your Kraken account',
+              body: 'Link read-only API keys. Your funds never leave Kraken. ASE holds zero custody — it only sends signed orders on your behalf through a revocable API key.',
               demo: (
-                <div style={{ background: '#06111F', border: '1px solid #1E2A3D', borderRadius: 8, padding: '10px', fontFamily: 'var(--font-mono)', fontSize: 9, lineHeight: 1.5 }}>
-                  <div style={{ color: '#55657A' }}>// strategy.ts</div>
-                  <div><span style={{ color: '#A78BFA' }}>export const</span> <span style={{ color: '#22D3EE' }}>config</span> = {'{'}</div>
-                  <div style={{ paddingLeft: 10 }}><span style={{ color: '#94a3b8' }}>universe:</span> [<span style={{ color: '#16C784' }}>'BTC-USD'</span>, <span style={{ color: '#16C784' }}>'ETH-USD'</span>, <span style={{ color: '#16C784' }}>'SOL-USD'</span>],</div>
-                  <div style={{ paddingLeft: 10 }}><span style={{ color: '#94a3b8' }}>cadence:</span> <span style={{ color: '#16C784' }}>'5m'</span>,</div>
-                  <div style={{ paddingLeft: 10 }}><span style={{ color: '#94a3b8' }}>riskAversion:</span> <span style={{ color: '#F5B942' }}>5</span>,</div>
-                  <div style={{ paddingLeft: 10 }}><span style={{ color: '#94a3b8' }}>maxWeight:</span> <span style={{ color: '#F5B942' }}>0.30</span>,</div>
-                  <div>{'}'}</div>
+                <div style={{ background: '#06111F', border: '1px solid #1E2A3D', borderRadius: 8, padding: '12px', fontFamily: 'var(--font-mono)', fontSize: 9 }}>
+                  <div style={{ color: '#55657A', marginBottom: 6 }}>// kraken_api.ts</div>
+                  <div style={{ color: '#94a3b8' }}>const keys = {'{'}</div>
+                  <div style={{ paddingLeft: 10, color: '#F7FAFF' }}>apiKey: <span style={{ color: '#16C784' }}>&apos;read-only key&apos;</span>,</div>
+                  <div style={{ paddingLeft: 10, color: '#F7FAFF' }}>scope: [<span style={{ color: '#16C784' }}>&apos;trade&apos;</span>, <span style={{ color: '#16C784' }}>&apos;balance&apos;</span>],</div>
+                  <div style={{ paddingLeft: 10, color: '#55657A' }}>// revoke anytime from Kraken UI</div>
+                  <div style={{ color: '#94a3b8' }}>{'}'}</div>
+                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16C784' }} />
+                    <span style={{ color: '#16C784', fontWeight: 700 }}>NON-CUSTODIAL</span>
+                  </div>
                 </div>
-              )
+              ),
             },
             {
-              step: '02', accent: '#16C784', title: 'Backtest in seconds, not minutes',
-              body: '720ms median runtime over a 2-year window. Walk-forward, Monte Carlo, and a 9-layer pipeline grade your strategy against a hidden test set.',
+              step: '02', accent: '#16C784', title: 'Pick a strategy or build one',
+              body: 'Browse the agent marketplace and allocate with one click. Or write your own in plain English or TypeScript — the Quant Lab AI compiles it into a live strategy with backtesting in seconds.',
               demo: (
                 <div style={{ background: '#06111F', border: '1px solid #1E2A3D', borderRadius: 8, padding: '12px', fontFamily: 'var(--font-mono)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <span style={{ fontSize: 9, color: '#55657A', letterSpacing: '0.08em' }}>BACKTEST · 504 BARS</span>
+                    <span style={{ fontSize: 9, color: '#55657A', letterSpacing: '0.08em' }}>BACKTEST · 504 BARS · 2Y</span>
                     <span style={{ fontSize: 9, color: '#16C784', fontWeight: 800 }}>GRADE A</span>
                   </div>
                   <svg width="100%" height="48" viewBox="0 0 100 48" preserveAspectRatio="none" style={{ marginBottom: 8 }}>
-                    <defs><linearGradient id="bt" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#16C784" stopOpacity="0.4" /><stop offset="100%" stopColor="#16C784" stopOpacity="0" /></linearGradient></defs>
-                    <polygon points="0,48 0,38 8,34 16,30 24,32 32,26 40,22 48,18 56,15 64,12 72,16 80,8 88,5 96,3 100,2 100,48" fill="url(#bt)" />
+                    <defs><linearGradient id="bt2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#16C784" stopOpacity="0.4" /><stop offset="100%" stopColor="#16C784" stopOpacity="0" /></linearGradient></defs>
+                    <polygon points="0,48 0,38 8,34 16,30 24,32 32,26 40,22 48,18 56,15 64,12 72,16 80,8 88,5 96,3 100,2 100,48" fill="url(#bt2)" />
                     <polyline points="0,38 8,34 16,30 24,32 32,26 40,22 48,18 56,15 64,12 72,16 80,8 88,5 96,3 100,2" fill="none" stroke="#16C784" strokeWidth="1.5" />
                   </svg>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 5, fontSize: 9 }}>
@@ -635,11 +758,11 @@ export default function LandingPage() {
                     ))}
                   </div>
                 </div>
-              )
+              ),
             },
             {
-              step: '03', accent: '#A78BFA', title: 'Publish — and trade automatically',
-              body: 'Once live, your agent posts a fill to the on-chain ledger every tick. Subscribers allocate in one click. You earn from every dollar of follow-the-leader capital.',
+              step: '03', accent: '#A78BFA', title: 'Agents trade every 5 minutes',
+              body: 'Once allocated, the agent fires on a 5-minute cadence. It analyses live price data, generates a signal, sizes the position within your risk limits, and places a real market order on Kraken.',
               demo: (
                 <div style={{ background: '#06111F', border: '1px solid #1E2A3D', borderRadius: 8, padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 9 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -660,7 +783,29 @@ export default function LandingPage() {
                     </div>
                   ))}
                 </div>
-              )
+              ),
+            },
+            {
+              step: '04', accent: '#F5B942', title: 'Monitor P&L in real time',
+              body: 'Your dashboard shows live portfolio value, per-agent returns, trade history, and a full equity curve. Auto-deallocate triggers if a drawdown threshold is breached — you stay in control.',
+              demo: (
+                <div style={{ background: '#06111F', border: '1px solid #1E2A3D', borderRadius: 8, padding: '12px', fontFamily: 'var(--font-mono)' }}>
+                  <div style={{ fontSize: 9, color: '#55657A', marginBottom: 8 }}>PORTFOLIO OVERVIEW</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
+                    {[['TOTAL VALUE', '$12,480', '#F7FAFF'], ['P&L TODAY', '+$312', '#16C784'], ['AGENTS', '3 active', '#6BA3FF'], ['DRAWDOWN', '−2.1%', '#F5B942']].map(([l, v, c]) => (
+                      <div key={String(l)} style={{ background: '#101A2D', borderRadius: 6, padding: '5px 8px' }}>
+                        <div style={{ fontSize: 7, color: '#55657A' }}>{l}</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: String(c) }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <svg width="100%" height="32" viewBox="0 0 100 32" preserveAspectRatio="none">
+                    <defs><linearGradient id="pf" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#F5B942" stopOpacity="0.4"/><stop offset="100%" stopColor="#F5B942" stopOpacity="0"/></linearGradient></defs>
+                    <polygon points="0,32 0,22 15,20 30,18 45,15 60,17 75,12 85,10 100,8 100,32" fill="url(#pf)" />
+                    <polyline points="0,22 15,20 30,18 45,15 60,17 75,12 85,10 100,8" fill="none" stroke="#F5B942" strokeWidth="1.5" />
+                  </svg>
+                </div>
+              ),
             },
           ].map(s => (
             <div key={s.step} style={{
@@ -692,41 +837,88 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ═════════════ FOR INVESTORS / FOR BUILDERS — magnetic split ═════════════ */}
-      <section ref={split.ref} style={{ ...split.style, padding: '4rem 1.5rem 7rem', maxWidth: 1280, margin: '0 auto', position: 'relative', zIndex: 2 }}>
+      {/* ═════════════ FEATURES GRID ═════════════ */}
+      <section ref={features.ref} style={{ ...features.style, padding: '4rem 1.5rem 5rem', maxWidth: 1280, margin: '0 auto', position: 'relative', zIndex: 2 }}>
+        <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
+          <div style={{ display: 'inline-flex', padding: '4px 12px', borderRadius: 100, background: 'rgba(79,140,255,0.07)', border: '1px solid rgba(79,140,255,0.22)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em', color: '#6BA3FF', marginBottom: '1.25rem' }}>
+            PLATFORM FEATURES
+          </div>
+          <h2 style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 'clamp(1.8rem, 3.5vw, 2.8rem)', letterSpacing: '-0.045em', margin: 0, color: '#F7FAFF' }}>
+            Built for serious traders.
+          </h2>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }} className="feat-grid">
+          {[
+            {
+              icon: '🔐', accent: '#16C784',
+              title: 'Non-custodial',
+              body: 'Funds stay in your Kraken account. ASE never holds custody. Revoke access instantly from Kraken\'s API settings.',
+            },
+            {
+              icon: '📊', accent: '#4F8CFF',
+              title: 'Transparent P&L',
+              body: 'Every trade is logged on-chain. Returns are real fills after fees — not paper performance or cherry-picked windows.',
+            },
+            {
+              icon: '⚡', accent: '#F5B942',
+              title: 'Always-on execution',
+              body: '288+ ticks per day. Agents scan price data and execute in seconds, 24/7, without requiring you to be online.',
+            },
+            {
+              icon: '🛡️', accent: '#A78BFA',
+              title: 'Auto-deallocate',
+              body: 'Set a max drawdown threshold. If a strategy hits it, ASE automatically closes the position and returns funds to your wallet.',
+            },
+            {
+              icon: '📈', accent: '#22D3EE',
+              title: 'Portfolio history',
+              body: 'Hourly equity snapshots across all active strategies. See which agents are performing and compare them over 7d, 30d, or 90d.',
+            },
+            {
+              icon: '🤖', accent: '#F472B6',
+              title: 'AI-powered Quant Lab',
+              body: 'Describe a strategy in English. The AI co-pilot generates the code, runs a 2-year backtest in under a second, and grades it.',
+            },
+          ].map(f => (
+            <div key={f.title} style={{
+              background: 'linear-gradient(180deg, rgba(11,23,40,0.9), rgba(6,17,31,0.9))',
+              border: '1px solid rgba(30,42,61,0.65)',
+              borderRadius: 14, padding: '1.4rem',
+              position: 'relative', overflow: 'hidden',
+              transition: 'border-color .2s',
+            }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 2, background: `linear-gradient(90deg, transparent, ${f.accent}80, transparent)` }} />
+              <div style={{ fontSize: 24, marginBottom: 12 }}>{f.icon}</div>
+              <h3 style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: '1rem', margin: '0 0 .5rem', color: '#F7FAFF' }}>{f.title}</h3>
+              <p style={{ fontSize: '0.83rem', color: '#94a3b8', lineHeight: 1.65, margin: 0 }}>{f.body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ═════════════ FOR INVESTORS / FOR BUILDERS ═════════════ */}
+      <section style={{ padding: '4rem 1.5rem 5rem', maxWidth: 1280, margin: '0 auto', position: 'relative', zIndex: 2 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }} className="split-grid">
           {[
             {
-              tag: 'FOR INVESTORS', accent: '#16C784', href: '/signup', cta: 'Browse exchange',
+              tag: 'FOR INVESTORS', accent: '#16C784',
               title: 'Allocate to verified AI strategies.',
-              body: 'Browse live track records, subscribe in one click, stay in full custody. Funds never leave your Kraken account.',
-              points: ['Audited live P&L', 'Revoke API access anytime', 'No lock-ins, no minimums', 'Real-time NAV'],
+              body: 'Browse live track records, allocate in one click, stay in full custody. Funds never leave your Kraken account.',
+              points: ['Audited live P&L', 'Revoke API access anytime', 'No lock-ins, no minimums', 'Real-time NAV dashboard'],
             },
             {
-              tag: 'FOR BUILDERS', accent: '#4F8CFF', href: '/dashboard/build', cta: 'Open Quant Lab',
+              tag: 'FOR BUILDERS', accent: '#4F8CFF',
               title: 'Build once. Earn from every subscriber.',
               body: 'Compose agents in TypeScript or natural language. Backtest in 700ms. Publish to the marketplace and let the platform handle execution.',
-              points: ['9-layer institutional backtester', 'AI co-pilot for signal design', 'Auto-iterate to higher Sharpe', 'Built-in distribution'],
+              points: ['9-layer institutional backtester', 'AI co-pilot for signal design', 'Auto-iterate to higher Sharpe', 'Built-in distribution layer'],
             },
           ].map(card => (
-            <Link key={card.tag} href={card.href} style={{
-              display: 'block', textDecoration: 'none',
+            <div key={card.tag} style={{
               background: 'linear-gradient(160deg, rgba(11,23,40,0.95), rgba(6,17,31,0.95))',
               border: '1px solid rgba(30,42,61,0.8)', borderRadius: 18,
               padding: '2.4rem 2.2rem', position: 'relative', overflow: 'hidden',
-              transition: 'all .3s cubic-bezier(.2,.7,.3,1)',
-            }}
-              onMouseEnter={e => {
-                e.currentTarget.style.transform = 'translateY(-6px)'
-                e.currentTarget.style.borderColor = card.accent + '50'
-                e.currentTarget.style.boxShadow = `0 30px 60px rgba(0,0,0,.45), 0 0 40px ${card.accent}22`
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.transform = 'none'
-                e.currentTarget.style.borderColor = 'rgba(30,42,61,0.8)'
-                e.currentTarget.style.boxShadow = 'none'
-              }}
-            >
+            }}>
               <div style={{ position: 'absolute', top: 0, right: 0, width: '70%', height: '100%', background: `radial-gradient(ellipse at 100% 30%, ${card.accent}15, transparent 65%)`, pointerEvents: 'none' }} />
               <div style={{ position: 'relative' }}>
                 <div style={{ display: 'inline-flex', padding: '4px 12px', borderRadius: 100, background: card.accent + '14', border: `1px solid ${card.accent}38`, fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em', color: card.accent, marginBottom: '1.4rem' }}>
@@ -739,31 +931,75 @@ export default function LandingPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.55rem .9rem', marginBottom: '1.8rem' }}>
                   {card.points.map(p => (
                     <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: '#cbd5e1' }}>
-                      <span style={{ width: 4, height: 4, borderRadius: '50%', background: card.accent }} />
+                      <span style={{ width: 4, height: 4, borderRadius: '50%', background: card.accent, flexShrink: 0 }} />
                       {p}
                     </div>
                   ))}
                 </div>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '0.7rem 1.4rem', borderRadius: 10, background: card.accent + '18', border: `1px solid ${card.accent}45`, color: card.accent, fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.04em' }}>
-                  {card.cta}
+                <button onClick={scrollToWaitlist} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  padding: '0.7rem 1.4rem', borderRadius: 10,
+                  background: card.accent + '18', border: `1px solid ${card.accent}45`,
+                  color: card.accent, fontFamily: 'var(--font-mono)', fontSize: '0.82rem',
+                  fontWeight: 700, letterSpacing: '0.04em', cursor: 'pointer',
+                  transition: 'all .15s',
+                }}>
+                  Request early access
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-                </div>
+                </button>
               </div>
-            </Link>
+            </div>
           ))}
+        </div>
+      </section>
+
+      {/* ═════════════ WAITLIST CTA ═════════════ */}
+      <section id="waitlist" ref={ctaSection.ref} style={{ ...ctaSection.style, padding: '5rem 1.5rem 7rem', position: 'relative', zIndex: 2 }}>
+        <div style={{
+          maxWidth: 640, margin: '0 auto', textAlign: 'center',
+          background: 'linear-gradient(160deg, rgba(11,23,40,0.96), rgba(6,17,31,0.96))',
+          border: '1px solid rgba(79,140,255,0.22)',
+          borderRadius: 24, padding: 'clamp(2rem, 5vw, 3.5rem)',
+          position: 'relative', overflow: 'hidden',
+        }}>
+          <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: '80%', height: 1, background: 'linear-gradient(90deg, transparent, rgba(79,140,255,0.6), transparent)' }} />
+          <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 70% 40% at 50% 0%, rgba(79,140,255,0.12), transparent)', pointerEvents: 'none' }} />
+
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 100, background: 'rgba(22,199,132,0.08)', border: '1px solid rgba(22,199,132,0.25)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em', color: '#16C784', marginBottom: '1.5rem' }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#16C784', animation: 'breathe 2s ease-in-out infinite' }} />
+              EARLY ACCESS · LIMITED SPOTS
+            </div>
+
+            <h2 style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 'clamp(1.8rem, 4vw, 2.8rem)', letterSpacing: '-0.05em', margin: '0 0 1rem', color: '#F7FAFF', lineHeight: 1.05 }}>
+              Be first when we open the gates.
+            </h2>
+            <p style={{ color: '#94a3b8', fontSize: '0.95rem', lineHeight: 1.7, marginBottom: '2rem', maxWidth: 440, margin: '0 auto 2rem' }}>
+              Join the waitlist for early access to the exchange, the Quant Lab, and the agent marketplace. No spam — just an invite when we&apos;re ready.
+            </p>
+
+            <div style={{ marginBottom: '1.5rem' }}>
+              <WaitlistForm type="investor" />
+            </div>
+
+            <div style={{ borderTop: '1px solid rgba(30,42,61,0.6)', paddingTop: '1.5rem', marginTop: '0.5rem' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#55657A', marginBottom: '1rem', letterSpacing: '0.08em' }}>BUILDING A STRATEGY?</div>
+              <WaitlistForm type="developer" />
+            </div>
+          </div>
         </div>
       </section>
 
       {/* ═════════════ FOOTER ═════════════ */}
       <footer style={{ borderTop: '1px solid rgba(30,42,61,0.55)', background: 'rgba(3,13,25,0.92)', position: 'relative', zIndex: 2 }}>
-        <div style={{ maxWidth: 1280, margin: '0 auto', padding: '3rem 1.5rem 2rem', display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr', gap: '2.5rem' }} className="footer-grid">
+        <div style={{ maxWidth: 1280, margin: '0 auto', padding: '3rem 1.5rem 2rem', display: 'grid', gridTemplateColumns: '1.8fr 1fr 1fr', gap: '2.5rem' }} className="footer-grid">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.85rem' }}>
               <img src="/transparent_logo.png" alt="ASE" style={{ height: 28, width: 'auto', objectFit: 'contain' }} />
               <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.78rem', color: '#F7FAFF', letterSpacing: '0.08em' }}>ASE</span>
             </div>
-            <p style={{ fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.7, maxWidth: 230, marginBottom: '1rem' }}>
-              The exchange for autonomous AI trading agents. Built for quants, open to everyone.
+            <p style={{ fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.7, maxWidth: 260, marginBottom: '1rem' }}>
+              The exchange for autonomous AI crypto strategies. Built for quants, open to everyone. Currently in private beta.
             </p>
             <div style={{ display: 'flex', gap: 6 }}>
               {['X', 'Discord', 'GitHub'].map(s => (
@@ -774,8 +1010,7 @@ export default function LandingPage() {
             </div>
           </div>
           {[
-            { title: 'PRODUCT', links: [['Exchange', '/dashboard/marketplace'], ['Quant Lab', '/dashboard/build'], ['Backtest', '/dashboard/backtest'], ['Syne Terminal', '/dashboard/geo']] },
-            { title: 'COMPANY', links: [['Investors', '/investors'], ['Builders', '/builders'], ['About', '#'], ['Blog', '#']] },
+            { title: 'PLATFORM', links: [['Join Waitlist', '#waitlist'], ['How it works', '#waitlist'], ['Sign In', '/login']] },
             { title: 'LEGAL', links: [['Terms', '/legal/terms'], ['Privacy', '/legal/privacy'], ['Securities', '/legal/securities']] },
           ].map(col => (
             <div key={col.title}>
@@ -807,10 +1042,12 @@ export default function LandingPage() {
         @media (max-width: 900px) {
           .split-grid { grid-template-columns: 1fr !important }
           .how-grid { grid-template-columns: 1fr !important }
-          .footer-grid { grid-template-columns: repeat(2, 1fr) !important }
+          .feat-grid { grid-template-columns: repeat(2, 1fr) !important }
+          .footer-grid { grid-template-columns: 1fr 1fr !important }
           .live-feed { display: none !important }
         }
         @media (max-width: 540px) {
+          .feat-grid { grid-template-columns: 1fr !important }
           .footer-grid { grid-template-columns: 1fr !important }
         }
       `}</style>

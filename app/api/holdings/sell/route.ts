@@ -11,8 +11,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getUserFromRequest } from '@/lib/supabase/get-user'
 import { calculateQuoteFromNav } from '@/lib/market'
 import { reduceHoldingPosition, syncAgentMarketState } from '@/lib/exchange'
 import { triggerImmediateAgentRun } from '@/lib/agent-cycle'
@@ -23,8 +23,7 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await getUserFromRequest(req)
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const body = await req.json()

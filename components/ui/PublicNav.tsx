@@ -39,15 +39,6 @@ export default function PublicNav({ variant = 'default' }: { variant?: 'default'
 
   const elevated = scrolled || variant === 'dark'
 
-  const LINKS = [
-    { label: 'Exchange', href: '/dashboard/marketplace', mono: true },
-    { label: 'Build', href: '/dashboard/build', mono: true },
-    { label: 'Agents', href: '/agents', mono: true },
-    { label: 'Builders', href: '/builders', mono: true },
-  ]
-
-  const isActive = (href: string) => pathname === href || pathname?.startsWith(href + '/')
-
   return (
     <>
       <style>{`
@@ -140,12 +131,8 @@ export default function PublicNav({ variant = 'default' }: { variant?: 'default'
           </div>
         </div>
 
-        {/* Center: Nav links */}
-        <div className="pnav-desktop" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, justifyContent: 'center' }}>
-          {LINKS.map(l => (
-            <Link key={l.href} href={l.href} className={`pnav-link${isActive(l.href) ? ' active' : ''}`}>{l.label}</Link>
-          ))}
-        </div>
+        {/* Center spacer */}
+        <div style={{ flex: 1 }} />
 
         {/* Right: Auth actions */}
         <div className="pnav-desktop" style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -156,11 +143,8 @@ export default function PublicNav({ variant = 'default' }: { variant?: 'default'
             </Link>
           ) : (
             <>
+              <Link href="/#waitlist" className="pnav-link">Join Waitlist</Link>
               <Link href="/login" className="pnav-signin">Sign In</Link>
-              <Link href="/signup" className="pnav-cta">
-                Get Started
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-              </Link>
             </>
           )}
         </div>
@@ -186,17 +170,12 @@ export default function PublicNav({ variant = 'default' }: { variant?: 'default'
         <>
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 98, backdropFilter: 'blur(6px)' }} onClick={() => setMenuOpen(false)} />
           <div style={{ position: 'fixed', top: 52, left: 0, right: 0, zIndex: 99, background: 'rgba(6,17,31,0.98)', borderBottom: '1px solid var(--border)', backdropFilter: 'blur(24px)', padding: '0.6rem 1rem 1rem', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            {LINKS.map(l => (
-              <Link key={l.href} href={l.href} style={{ display: 'block', padding: '0.6rem 0.75rem', borderRadius: 8, fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 500, color: isActive(l.href) ? 'var(--white)' : 'var(--muted)', textDecoration: 'none', background: isActive(l.href) ? 'var(--blue-dim)' : 'transparent', letterSpacing: '0.04em', transition: 'all 0.1s' }}>
-                {l.label}
-              </Link>
-            ))}
-            <div style={{ marginTop: '0.5rem', paddingTop: '0.6rem', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
               {authed
                 ? <Link href="/dashboard" className="pnav-cta" style={{ justifyContent: 'center', padding: '0.65rem 1rem' }}>Dashboard →</Link>
                 : <>
+                    <Link href="/#waitlist" className="pnav-cta" style={{ justifyContent: 'center', padding: '0.65rem 1rem' }}>Join Waitlist →</Link>
                     <Link href="/login" style={{ display: 'block', textAlign: 'center', padding: '0.6rem', borderRadius: 8, fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--muted)', textDecoration: 'none' }}>Sign In</Link>
-                    <Link href="/signup" className="pnav-cta" style={{ justifyContent: 'center', padding: '0.65rem 1rem' }}>Get Started →</Link>
                   </>
               }
             </div>

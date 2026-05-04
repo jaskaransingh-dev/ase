@@ -26,16 +26,24 @@ export async function syncAlpacaBalance(
         marketValue: Math.round(p.usdValue * 100),
       }))
 
-    await admin.from('user_kraken_keys').update({
-      last_balance_usd: balance.cashUsd,
-      updated_at: new Date().toISOString(),
-    }).eq('user_id', userId)
+    const cashCents  = Math.round(balance.freeUsd * 100)
+    const totalCents = Math.round(balance.cashUsd * 100)
 
-    return {
-      cash:      Math.round(balance.freeUsd * 100),
-      equity:    Math.round(balance.cashUsd * 100),
-      positions,
-    }
+    // Write both the kraken keys cache AND the wallets table so every
+    // dashboard component reading `wallets` gets a live balance.
+    await Promise.all([
+      admin.from('user_kraken_keys').update({
+        last_balance_usd: balance.cashUsd,
+        updated_at: new Date().toISOString(),
+      }).eq('user_id', userId),
+      admin.from('wallets').upsert({
+        user_id:       userId,
+        balance_cents: cashCents,
+        updated_at:    new Date().toISOString(),
+      }, { onConflict: 'user_id' }),
+    ])
+
+    return { cash: cashCents, equity: totalCents, positions }
   } catch (err) {
     console.warn(`[syncAlpacaBalance] Failed for user ${userId}:`, err instanceof Error ? err.message : err)
     return { cash: 0, equity: 0, positions: [] }
